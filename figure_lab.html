@@ -437,6 +437,22 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="checkbox" id="label-italic" onchange="scheduleRender()" style="margin-left:8px">
       <label for="label-italic" style="cursor:pointer">Italic</label>
     </div>
+    <div class="sec-lbl" style="margin-top:8px">Axis label font</div>
+    <div class="field"><label>Axis font</label>
+      <select id="axis-font" onchange="scheduleRender()" style="width:140px">
+        <option value="">↑ Same as labels</option>
+        <option value="system-ui,sans-serif">System Sans</option>
+        <option value="'Helvetica Neue',Arial,sans-serif">Helvetica</option>
+        <option value="Georgia,serif">Georgia</option>
+        <option value="'Times New Roman',serif">Times New Roman</option>
+        <option value="'Courier New',monospace">Courier</option>
+      </select></div>
+    <div class="inline-row">
+      <input type="checkbox" id="axis-bold" onchange="scheduleRender()">
+      <label for="axis-bold" style="cursor:pointer">Bold</label>
+      <input type="checkbox" id="axis-italic" onchange="scheduleRender()" style="margin-left:8px">
+      <label for="axis-italic" style="cursor:pointer">Italic</label>
+    </div>
   </div>
 </details>
 
@@ -1191,6 +1207,9 @@ function render(){
   const lFam=gv('label-font')||'system-ui,sans-serif';
   const lWt=gc('label-bold')?'bold':'500';
   const lSt=gc('label-italic')?'italic':'normal';
+  const aFam=gv('axis-font')||lFam;
+  const aWt=gc('axis-bold')?'bold':'400';
+  const aSt=gc('axis-italic')?'italic':'normal';
 
   // Title
   if(figTitle){
@@ -1201,7 +1220,7 @@ function render(){
   // Col labels
   if(showCols){
     const ins=[...document.querySelectorAll('#col-label-inputs input')];
-    ctx.font=`${lSt} ${lWt} ${axisFs}px ${lFam}`;
+    ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
     ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let c=0;c<cols;c++){
       ctx.fillText(ins[c]?.value||`Col ${c+1}`,
@@ -1211,7 +1230,7 @@ function render(){
   // Row labels
   if(showRows){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
-    ctx.font=`${lSt} ${lWt} ${axisFs}px ${lFam}`;
+    ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
     ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let r=0;r<rows;r++){
       const cy=titleH+mTop+colLblH + r*(ph+gV) + ph/2;
@@ -3053,7 +3072,8 @@ function saveJSON(){
     style:{ bgColor:gv('bg-color'),showLabels:gc('show-labels'),labelSize:gv('label-size'),
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
       sbText:gc('sb-text'),axisFs:gv('axis-fs'),labelFont:gv('label-font'),
-      labelBold:gc('label-bold'),labelItalic:gc('label-italic') },
+      labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
+      axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic') },
     exportDpi:gv('export-dpi'), exportName:gv('export-name'),
     images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,brightness:im.brightness,contrast:im.contrast,
@@ -3093,6 +3113,9 @@ function loadJSON(input){
         if(T.labelFont) sv('label-font',T.labelFont);
         if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
         if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);
+        if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
+        if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
+        if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
       }
       if(s.exportDpi) sv('export-dpi',s.exportDpi);
       if(s.exportName) sv('export-name',s.exportName);
