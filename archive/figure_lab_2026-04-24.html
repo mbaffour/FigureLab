@@ -536,11 +536,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="divider"></div>
     <div class="field"><label>Panel border</label>
-      <input type="number" id="panel-border-w" value="0" min="0" max="20" step="1" style="width:48px" onchange="scheduleRender()"> px
+      <input type="number" id="panel-border-w" value="0" min="0" max="6" step="1" style="width:48px" onchange="scheduleRender()"> px
       <input type="color" id="panel-border-c" value="#ffffff" onchange="scheduleRender()" style="width:28px;height:22px">
-    </div>
-    <div class="field"><label>Border inset</label>
-      <input type="number" id="panel-border-inset" value="0" min="0" max="50" step="1" style="width:48px" onchange="scheduleRender()"> px
     </div>
 
     <div class="divider"></div>
@@ -594,8 +591,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select></div>
     <button class="btn" onclick="matchScalePixels()" style="width:100%;justify-content:center" title="Crop all images to the same pixel aspect ratio and size">⬜ Match Pixel Size</button>
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px">↺ Reset all crops</button>
-    <div class="divider" style="margin:6px 0"></div>
-    <button class="btn btn-primary" onclick="startBatchCrop()" style="width:100%;justify-content:center" title="Draw one crop size on the first image, then move that same box across all images">✂ Batch Crop Images</button>
   </div>
 </details>
 
@@ -798,7 +793,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-success" onclick="doExport('png')">↓ PNG</button>
     <button class="btn" onclick="doExport('pdf')">↓ PDF</button>
     <button class="btn" onclick="doExport('tiff')">↓ TIFF</button>
-    <button class="btn" onclick="doExport('svg')">↓ SVG</button>
     <div class="toolbar-sep"></div>
     <button class="btn" onclick="adjustZoom(0.25)" title="Zoom in">＋</button>
     <button class="btn" onclick="adjustZoom(-0.25)" title="Zoom out">－</button>
@@ -903,12 +897,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <canvas id="crop-ed-canvas" style="border:1px solid var(--border);border-radius:5px;
       cursor:crosshair;max-width:100%;display:block;margin:8px auto"></canvas>
     <div id="crop-ed-vals" style="font-size:11px;color:var(--muted);margin:6px 0;letter-spacing:.3px">T:0% L:0% B:0% R:0%</div>
-    <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;align-items:center;gap:8px;font-size:11px">
-      <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent)">Image 1 / 1</span>
-      <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
-      <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px">→ Skip</button>
-      <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop position to all remaining images (centered)">✓ All</button>
-    </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
       <button id="crop-skip-btn" class="btn" onclick="skipPreCrop()" style="display:none">→ Skip &amp; Add</button>
@@ -964,7 +952,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->
-<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab v3.2 · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
+<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab v3.1 · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -1149,8 +1137,7 @@ function _commitImage(img,src,name){
       label:nextLabel(),sbOn:true,umPerPx:0,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
-      rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
-      borderW:0,borderC:'#ffffff',borderInset:0};
+      rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false};
     // Apply shared panel settings if a share link was loaded
     if(window._sharedPanelSettings){
       const ps = window._sharedPanelSettings[images.length];
@@ -1229,15 +1216,6 @@ function renderImgList(){
           <span>L</span><input type="number" class="f-cl" value="${im.cropL}" min="0" max="49" step="1">
           <span>B</span><input type="number" class="f-cb" value="${im.cropB}" min="0" max="49" step="1">
           <span>R</span><input type="number" class="f-cr" value="${im.cropR}" min="0" max="49" step="1">
-        </div>
-        <div class="divider"></div>
-        <div class="sec-lbl">Panel border (this image)</div>
-        <div class="field"><label>Width</label>
-          <input type="number" class="f-bdrw" value="${im.borderW||0}" min="0" max="20" step="1" style="width:48px"> px
-          <input type="color" class="f-bdrc" value="${im.borderC||'#ffffff'}" style="width:28px;height:22px">
-        </div>
-        <div class="field"><label>Inset</label>
-          <input type="number" class="f-bdri" value="${im.borderInset||0}" min="0" max="50" step="1" style="width:48px"> px
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Orientation</div>
@@ -1427,11 +1405,6 @@ function renderImgList(){
         requestAnimationFrame(()=>drawHistogram(item.querySelector('.f-hist'), images[idx]));
       }
     }, true); // capture before toggle
-
-    // Per-panel border
-    item.querySelector('.f-bdrw').addEventListener('input',e=>{ images[idx].borderW=parseInt(e.target.value)||0; scheduleRender(); });
-    item.querySelector('.f-bdrc').addEventListener('input',e=>{ images[idx].borderC=e.target.value; scheduleRender(); });
-    item.querySelector('.f-bdri').addEventListener('input',e=>{ images[idx].borderInset=parseInt(e.target.value)||0; scheduleRender(); });
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
@@ -1913,18 +1886,10 @@ function render(){
       }
     }
 
-    // Global panel border (with inset)
-    const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
+    // Panel border
     if(panelBorderW>0){
       ctx.save(); ctx.strokeStyle=panelBorderC; ctx.lineWidth=panelBorderW;
-      ctx.strokeRect(px+panelBorderInset+panelBorderW/2,py+panelBorderInset+panelBorderW/2,pw-2*panelBorderInset-panelBorderW,ph-2*panelBorderInset-panelBorderW);
-      ctx.restore();
-    }
-    // Per-panel border override
-    if(im.borderW>0){
-      ctx.save(); ctx.strokeStyle=im.borderC||'#ffffff'; ctx.lineWidth=im.borderW;
-      const bi=im.borderInset||0;
-      ctx.strokeRect(px+bi+im.borderW/2,py+bi+im.borderW/2,pw-2*bi-im.borderW,ph-2*bi-im.borderW);
+      ctx.strokeRect(px+panelBorderW/2,py+panelBorderW/2,pw-panelBorderW,ph-panelBorderW);
       ctx.restore();
     }
 
@@ -2136,9 +2101,7 @@ function drawHistogram(canvas, im){
 // ═══════════════════════════════════════════════════════════════
 // INTERACTIVE CROP EDITOR
 // ═══════════════════════════════════════════════════════════════
-let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,
-  batch:false,batchQueue:[],batchTotal:0,batchCropW:0,batchCropH:0,
-  batchMoving:false,batchMoveStartX:0,batchMoveStartY:0,batchMoveStartCx:0,batchMoveStartCy:0};
+let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0};
 
 function openCropModal(idx){
   const im=images[idx]; if(!im) return;
@@ -2157,7 +2120,6 @@ function openCropModal(idx){
 }
 function closeCropModal(){
   if(cropEdState._preCrop){ skipPreCrop(); return; } // don't lose the image
-  if(cropEdState.batch){ cropEdState.batch=false; cropEdState.batchQueue=[]; _updateBatchUI(); renderImgList(); scheduleRender(0); }
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
 }
@@ -2193,16 +2155,6 @@ function drawCropEd(){
   document.getElementById('crop-ed-vals').textContent=`T:${T}% L:${L}% B:${B}% R:${R}%`;
 }
 function applyCropModal(){
-  // Batch crop mode
-  if(cropEdState.batch){
-    if(!cropEdState.batchCropW && cropEdState.cw>0.02){
-      cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-    }
-    if(!cropEdState.batchCropW){ toast('Draw a crop region first','warn'); return; }
-    _applyBatchCropCurrent();
-    _advanceBatchCrop();
-    return;
-  }
   // Pre-use crop: destructively crop and commit image
   if(cropEdState._preCrop){
     const {img,name}=cropEdState._preCrop;
@@ -2242,123 +2194,20 @@ function applyCropModal(){
 }
 function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1; drawCropEd(); }
 
-// ── Batch crop ────────────────────────────────────────────────
-function startBatchCrop(){
-  const eligible=images.map((im,i)=>({im,i})).filter(({im})=>im&&im.img);
-  if(eligible.length<1){ toast('Add images first','warn'); return; }
-  const queue=eligible.map(({i})=>i);
-  const firstIdx=queue.shift();
-  cropEdState.batch=true;
-  cropEdState.batchQueue=queue;
-  cropEdState.batchTotal=eligible.length;
-  cropEdState.batchCropW=0; cropEdState.batchCropH=0;
-  cropEdState.batchMoving=false;
-  openCropModal(firstIdx);
-  _updateBatchUI();
-}
-
-function _updateBatchUI(){
-  const bar=document.getElementById('batch-crop-bar');
-  const prog=document.getElementById('batch-crop-progress');
-  const hint=document.getElementById('batch-crop-hint');
-  const applyBtn=document.getElementById('crop-apply-btn');
-  if(!cropEdState.batch){ bar.style.display='none'; applyBtn.textContent='✓ Apply Crop'; return; }
-  bar.style.display='flex';
-  const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
-  prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
-  hint.textContent=cropEdState.batchCropW>0?'Drag box to reposition':'Draw to set crop size';
-  applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
-}
-
-function _applyBatchCropCurrent(){
-  const idx=cropEdState.imgIdx; if(idx<0||!images[idx]) return;
-  const im=images[idx];
-  im.cropT=Math.max(0,Math.round(cropEdState.cy*100));
-  im.cropL=Math.max(0,Math.round(cropEdState.cx*100));
-  im.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
-  im.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
-}
-
-function _advanceBatchCrop(){
-  if(!cropEdState.batchQueue.length){
-    cropEdState.batch=false; _updateBatchUI(); _resetCropModalUI();
-    document.getElementById('crop-modal').classList.remove('open');
-    renderImgList(); scheduleRender(0);
-    toast('Batch crop applied','ok');
-    return;
-  }
-  const nextIdx=cropEdState.batchQueue.shift();
-  const im=images[nextIdx]; if(!im) { _advanceBatchCrop(); return; }
-  // Preserve locked size, center the box on new image
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
-  cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
-  cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
-  cropEdState.cw=cw; cropEdState.ch=ch;
-  document.getElementById('crop-modal').classList.add('open');
-  requestAnimationFrame(()=>{
-    const cc=document.getElementById('crop-ed-canvas');
-    const maxW=520,maxH=360;
-    const sc=Math.min(maxW/im.img.width,maxH/im.img.height,1);
-    cc.width=Math.round(im.img.width*sc); cc.height=Math.round(im.img.height*sc);
-    drawCropEd();
-  });
-  _updateBatchUI();
-}
-
-function skipBatchCrop(){
-  if(!cropEdState.batch) return;
-  // Lock size from whatever is drawn if not yet locked
-  if(!cropEdState.batchCropW && cropEdState.cw>0.02){
-    cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-  }
-  _advanceBatchCrop();
-}
-
-function applyBatchCropAll(){
-  if(!cropEdState.batch) return;
-  if(!cropEdState.batchCropW){ toast('Draw a crop first','warn'); return; }
-  // Apply centered crop to all remaining images
-  _applyBatchCropCurrent();
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
-  cropEdState.batchQueue.forEach(i=>{
-    if(!images[i]) return;
-    images[i].cropT=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropL=Math.max(0,Math.round((1-cw)/2*100));
-    images[i].cropB=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropR=Math.max(0,Math.round((1-cw)/2*100));
-  });
-  cropEdState.batchQueue=[];
-  _advanceBatchCrop(); // will close modal
-}
-
 (function bindCropEd(){
   const cc=document.getElementById('crop-ed-canvas');
   cc.addEventListener('mousedown',e=>{
     const rect=cc.getBoundingClientRect();
     const x=(e.clientX-rect.left)/rect.width, y=(e.clientY-rect.top)/rect.height;
-    // Batch mode with size locked: move the box instead of redrawing
-    if(cropEdState.batch && cropEdState.batchCropW>0){
-      cropEdState.batchMoving=true;
-      cropEdState.batchMoveStartX=x; cropEdState.batchMoveStartY=y;
-      cropEdState.batchMoveStartCx=cropEdState.cx; cropEdState.batchMoveStartCy=cropEdState.cy;
-      e.preventDefault(); return;
-    }
     cropEdState.dragging=true; cropEdState.dx0=x; cropEdState.dy0=y;
     cropEdState.cx=x; cropEdState.cy=y; cropEdState.cw=0.01; cropEdState.ch=0.01;
     e.preventDefault();
   });
   cc.addEventListener('mousemove',e=>{
+    if(!cropEdState.dragging) return;
     const rect=cc.getBoundingClientRect();
     const x=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
     const y=Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));
-    // Batch move mode
-    if(cropEdState.batchMoving){
-      const dx=x-cropEdState.batchMoveStartX, dy=y-cropEdState.batchMoveStartY;
-      cropEdState.cx=Math.max(0,Math.min(1-cropEdState.batchCropW, cropEdState.batchMoveStartCx+dx));
-      cropEdState.cy=Math.max(0,Math.min(1-cropEdState.batchCropH, cropEdState.batchMoveStartCy+dy));
-      drawCropEd(); return;
-    }
-    if(!cropEdState.dragging) return;
     cropEdState.cx=Math.min(x,cropEdState.dx0);
     cropEdState.cy=Math.min(y,cropEdState.dy0);
     cropEdState.cw=Math.abs(x-cropEdState.dx0);
@@ -2366,13 +2215,8 @@ function applyBatchCropAll(){
     drawCropEd();
   });
   cc.addEventListener('mouseup',()=>{
-    // Lock batch size after first draw
-    if(cropEdState.batch && cropEdState.dragging && !cropEdState.batchCropW && cropEdState.cw>0.03){
-      cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-      _updateBatchUI();
-    }
-    cropEdState.dragging=false; cropEdState.batchMoving=false;
-    if(!cropEdState.batch && (cropEdState.cw<0.03||cropEdState.ch<0.03)) resetCropEd();
+    cropEdState.dragging=false;
+    if(cropEdState.cw<0.03||cropEdState.ch<0.03) resetCropEd();
   });
 })();
 
