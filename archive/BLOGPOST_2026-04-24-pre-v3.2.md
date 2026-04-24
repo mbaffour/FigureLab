@@ -73,16 +73,6 @@ FigureLab was built collaboratively with [Claude](https://claude.ai) (Anthropic'
 
 ---
 
-## What's new in v3.2 *(2026-04-24)*
-
-**Batch crop.** The single most repetitive task in multi-panel figure work is applying the same crop to a set of images — same field of view, same zoom level, but the subject drifts slightly between frames. The batch crop tool fixes this. Draw the crop region on the first image to lock its size and aspect ratio. Every subsequent image opens with that same fixed-size box, centered, ready to drag into position. Apply and advance, skip, or apply the current position to all remaining images at once. The crop dimensions are identical across every panel; only the position changes.
-
-**Panel borders with inset control.** The existing global panel border now has a companion inset field. Zero inset draws the border flush at the panel edge as before. A positive inset floats the border frame inside the image — useful for a clean white or black inner frame that sits away from the panel boundary. Per-panel border overrides are also available in each image's settings, so individual panels can carry their own border width, color, and inset independently of the global setting.
-
-**SVG export in the quick toolbar.** SVG export has been in the Export sidebar since v3.0, but it was easy to miss. It is now in the quick-export bar at the top of the canvas alongside PNG, PDF, and TIFF. The SVG format embeds the rendered figure as a high-resolution bitmap with all vector annotations (arrows, lines, text, shapes) layered on top as true SVG elements — so labels stay sharp at any zoom level and can be edited in Inkscape or Illustrator after export.
-
----
-
 ## How to use it
 
 **[Open FigureLab in your browser →](https://mbaffour.github.io/FigureLab/figure_lab.html)**

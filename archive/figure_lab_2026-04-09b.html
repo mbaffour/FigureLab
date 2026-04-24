@@ -536,11 +536,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="divider"></div>
     <div class="field"><label>Panel border</label>
-      <input type="number" id="panel-border-w" value="0" min="0" max="20" step="1" style="width:48px" onchange="scheduleRender()"> px
+      <input type="number" id="panel-border-w" value="0" min="0" max="6" step="1" style="width:48px" onchange="scheduleRender()"> px
       <input type="color" id="panel-border-c" value="#ffffff" onchange="scheduleRender()" style="width:28px;height:22px">
-    </div>
-    <div class="field"><label>Border inset</label>
-      <input type="number" id="panel-border-inset" value="0" min="0" max="50" step="1" style="width:48px" onchange="scheduleRender()"> px
     </div>
 
     <div class="divider"></div>
@@ -594,8 +591,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select></div>
     <button class="btn" onclick="matchScalePixels()" style="width:100%;justify-content:center" title="Crop all images to the same pixel aspect ratio and size">⬜ Match Pixel Size</button>
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px">↺ Reset all crops</button>
-    <div class="divider" style="margin:6px 0"></div>
-    <button class="btn btn-primary" onclick="startBatchCrop()" style="width:100%;justify-content:center" title="Draw one crop size on the first image, then move that same box across all images">✂ Batch Crop Images</button>
   </div>
 </details>
 
@@ -635,12 +630,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="exportReproLog()" style="width:100%;justify-content:center;margin-top:4px" title="Download a full record of every adjustment made in this session">📋 Reproducibility Log</button>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Multi-page PDF</div>
-    <div class="field"><label style="font-size:10px">Rows per page</label>
-      <input type="number" id="pdf-rows-per-page" value="2" min="1" max="12" style="width:54px"></div>
-    <button class="btn" onclick="exportMultiPagePDF()" style="width:100%;justify-content:center" title="Split grid into pages of N rows each, export as multi-page PDF">📄 Multi-page PDF</button>
-
-    <div class="divider"></div>
     <div class="sec-lbl">Session</div>
     <div style="display:flex;gap:5px">
       <button class="btn" onclick="saveJSON()" style="flex:1;justify-content:center">💾 Save</button>
@@ -648,7 +637,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         📂 Load<input type="file" accept=".json" style="display:none" onchange="loadJSON(this)">
       </label>
     </div>
-    <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Compliance</div>
@@ -668,7 +656,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Analysis</div>
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center">🔍 Deep Figure Audit</button>
     <button class="btn" onclick="runExposureAnalysis()" style="width:100%;justify-content:center;margin-top:4px" title="Check each panel for over/underexposure, clipping, low contrast">⚡ Exposure Analysis</button>
-    <button class="btn" onclick="openPanelComparison()" style="width:100%;justify-content:center;margin-top:4px" title="Side-by-side comparison of any two panels with synchronized zoom">⧉ Compare Panels</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Histogram Normalization</div>
@@ -798,7 +785,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-success" onclick="doExport('png')">↓ PNG</button>
     <button class="btn" onclick="doExport('pdf')">↓ PDF</button>
     <button class="btn" onclick="doExport('tiff')">↓ TIFF</button>
-    <button class="btn" onclick="doExport('svg')">↓ SVG</button>
     <div class="toolbar-sep"></div>
     <button class="btn" onclick="adjustZoom(0.25)" title="Zoom in">＋</button>
     <button class="btn" onclick="adjustZoom(-0.25)" title="Zoom out">－</button>
@@ -903,12 +889,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <canvas id="crop-ed-canvas" style="border:1px solid var(--border);border-radius:5px;
       cursor:crosshair;max-width:100%;display:block;margin:8px auto"></canvas>
     <div id="crop-ed-vals" style="font-size:11px;color:var(--muted);margin:6px 0;letter-spacing:.3px">T:0% L:0% B:0% R:0%</div>
-    <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;align-items:center;gap:8px;font-size:11px">
-      <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent)">Image 1 / 1</span>
-      <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
-      <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px">→ Skip</button>
-      <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop position to all remaining images (centered)">✓ All</button>
-    </div>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
       <button id="crop-skip-btn" class="btn" onclick="skipPreCrop()" style="display:none">→ Skip &amp; Add</button>
@@ -964,7 +944,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->
-<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab v3.2 · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
+<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab v3.1 · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -1145,19 +1125,11 @@ function _commitImage(img,src,name){
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0});
   } else {
-    const newImg = {id:Date.now()+Math.random(),img,src,name,
+    images.push({id:Date.now()+Math.random(),img,src,name,
       label:nextLabel(),sbOn:true,umPerPx:0,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
-      rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
-      borderW:0,borderC:'#ffffff',borderInset:0};
-    // Apply shared panel settings if a share link was loaded
-    if(window._sharedPanelSettings){
-      const ps = window._sharedPanelSettings[images.length];
-      if(ps){ const {label,...rest}=ps; Object.assign(newImg, rest); newImg.label=ps.label||newImg.label; }
-      if(images.length >= window._sharedPanelSettings.length - 1) delete window._sharedPanelSettings;
-    }
-    images.push(newImg);
+      rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false});
     logAction('addImage',{name,mode:layoutMode});
     renderImgList(); scheduleRender();
   }
@@ -1214,7 +1186,6 @@ function renderImgList(){
           <button class="btn" style="padding:2px 6px" data-autosb="${idx}">Auto</button></div>
         <button class="btn" onclick="openCalib(${idx})" style="width:100%;justify-content:center;margin-top:2px">🔬 Calibrate from image</button>
         <button class="btn" onclick="autoDetectScaleBar(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Scan image for an embedded scale bar">🔍 Auto-detect scale bar</button>
-        <button class="btn" onclick="readTIFFMetadata(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Read µm/px calibration from TIFF/LSM metadata tags">📎 Read TIFF metadata</button>
         <div class="divider"></div>
         <div class="sec-lbl">Crop</div>
         <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-opencrop="${idx}">✂ Open Crop Editor</button>
@@ -1229,15 +1200,6 @@ function renderImgList(){
           <span>L</span><input type="number" class="f-cl" value="${im.cropL}" min="0" max="49" step="1">
           <span>B</span><input type="number" class="f-cb" value="${im.cropB}" min="0" max="49" step="1">
           <span>R</span><input type="number" class="f-cr" value="${im.cropR}" min="0" max="49" step="1">
-        </div>
-        <div class="divider"></div>
-        <div class="sec-lbl">Panel border (this image)</div>
-        <div class="field"><label>Width</label>
-          <input type="number" class="f-bdrw" value="${im.borderW||0}" min="0" max="20" step="1" style="width:48px"> px
-          <input type="color" class="f-bdrc" value="${im.borderC||'#ffffff'}" style="width:28px;height:22px">
-        </div>
-        <div class="field"><label>Inset</label>
-          <input type="number" class="f-bdri" value="${im.borderInset||0}" min="0" max="50" step="1" style="width:48px"> px
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Orientation</div>
@@ -1427,11 +1389,6 @@ function renderImgList(){
         requestAnimationFrame(()=>drawHistogram(item.querySelector('.f-hist'), images[idx]));
       }
     }, true); // capture before toggle
-
-    // Per-panel border
-    item.querySelector('.f-bdrw').addEventListener('input',e=>{ images[idx].borderW=parseInt(e.target.value)||0; scheduleRender(); });
-    item.querySelector('.f-bdrc').addEventListener('input',e=>{ images[idx].borderC=e.target.value; scheduleRender(); });
-    item.querySelector('.f-bdri').addEventListener('input',e=>{ images[idx].borderInset=parseInt(e.target.value)||0; scheduleRender(); });
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
@@ -1913,18 +1870,10 @@ function render(){
       }
     }
 
-    // Global panel border (with inset)
-    const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
+    // Panel border
     if(panelBorderW>0){
       ctx.save(); ctx.strokeStyle=panelBorderC; ctx.lineWidth=panelBorderW;
-      ctx.strokeRect(px+panelBorderInset+panelBorderW/2,py+panelBorderInset+panelBorderW/2,pw-2*panelBorderInset-panelBorderW,ph-2*panelBorderInset-panelBorderW);
-      ctx.restore();
-    }
-    // Per-panel border override
-    if(im.borderW>0){
-      ctx.save(); ctx.strokeStyle=im.borderC||'#ffffff'; ctx.lineWidth=im.borderW;
-      const bi=im.borderInset||0;
-      ctx.strokeRect(px+bi+im.borderW/2,py+bi+im.borderW/2,pw-2*bi-im.borderW,ph-2*bi-im.borderW);
+      ctx.strokeRect(px+panelBorderW/2,py+panelBorderW/2,pw-panelBorderW,ph-panelBorderW);
       ctx.restore();
     }
 
@@ -2136,9 +2085,7 @@ function drawHistogram(canvas, im){
 // ═══════════════════════════════════════════════════════════════
 // INTERACTIVE CROP EDITOR
 // ═══════════════════════════════════════════════════════════════
-let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,
-  batch:false,batchQueue:[],batchTotal:0,batchCropW:0,batchCropH:0,
-  batchMoving:false,batchMoveStartX:0,batchMoveStartY:0,batchMoveStartCx:0,batchMoveStartCy:0};
+let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0};
 
 function openCropModal(idx){
   const im=images[idx]; if(!im) return;
@@ -2157,7 +2104,6 @@ function openCropModal(idx){
 }
 function closeCropModal(){
   if(cropEdState._preCrop){ skipPreCrop(); return; } // don't lose the image
-  if(cropEdState.batch){ cropEdState.batch=false; cropEdState.batchQueue=[]; _updateBatchUI(); renderImgList(); scheduleRender(0); }
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
 }
@@ -2193,16 +2139,6 @@ function drawCropEd(){
   document.getElementById('crop-ed-vals').textContent=`T:${T}% L:${L}% B:${B}% R:${R}%`;
 }
 function applyCropModal(){
-  // Batch crop mode
-  if(cropEdState.batch){
-    if(!cropEdState.batchCropW && cropEdState.cw>0.02){
-      cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-    }
-    if(!cropEdState.batchCropW){ toast('Draw a crop region first','warn'); return; }
-    _applyBatchCropCurrent();
-    _advanceBatchCrop();
-    return;
-  }
   // Pre-use crop: destructively crop and commit image
   if(cropEdState._preCrop){
     const {img,name}=cropEdState._preCrop;
@@ -2242,123 +2178,20 @@ function applyCropModal(){
 }
 function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1; drawCropEd(); }
 
-// ── Batch crop ────────────────────────────────────────────────
-function startBatchCrop(){
-  const eligible=images.map((im,i)=>({im,i})).filter(({im})=>im&&im.img);
-  if(eligible.length<1){ toast('Add images first','warn'); return; }
-  const queue=eligible.map(({i})=>i);
-  const firstIdx=queue.shift();
-  cropEdState.batch=true;
-  cropEdState.batchQueue=queue;
-  cropEdState.batchTotal=eligible.length;
-  cropEdState.batchCropW=0; cropEdState.batchCropH=0;
-  cropEdState.batchMoving=false;
-  openCropModal(firstIdx);
-  _updateBatchUI();
-}
-
-function _updateBatchUI(){
-  const bar=document.getElementById('batch-crop-bar');
-  const prog=document.getElementById('batch-crop-progress');
-  const hint=document.getElementById('batch-crop-hint');
-  const applyBtn=document.getElementById('crop-apply-btn');
-  if(!cropEdState.batch){ bar.style.display='none'; applyBtn.textContent='✓ Apply Crop'; return; }
-  bar.style.display='flex';
-  const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
-  prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
-  hint.textContent=cropEdState.batchCropW>0?'Drag box to reposition':'Draw to set crop size';
-  applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
-}
-
-function _applyBatchCropCurrent(){
-  const idx=cropEdState.imgIdx; if(idx<0||!images[idx]) return;
-  const im=images[idx];
-  im.cropT=Math.max(0,Math.round(cropEdState.cy*100));
-  im.cropL=Math.max(0,Math.round(cropEdState.cx*100));
-  im.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
-  im.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
-}
-
-function _advanceBatchCrop(){
-  if(!cropEdState.batchQueue.length){
-    cropEdState.batch=false; _updateBatchUI(); _resetCropModalUI();
-    document.getElementById('crop-modal').classList.remove('open');
-    renderImgList(); scheduleRender(0);
-    toast('Batch crop applied','ok');
-    return;
-  }
-  const nextIdx=cropEdState.batchQueue.shift();
-  const im=images[nextIdx]; if(!im) { _advanceBatchCrop(); return; }
-  // Preserve locked size, center the box on new image
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
-  cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
-  cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
-  cropEdState.cw=cw; cropEdState.ch=ch;
-  document.getElementById('crop-modal').classList.add('open');
-  requestAnimationFrame(()=>{
-    const cc=document.getElementById('crop-ed-canvas');
-    const maxW=520,maxH=360;
-    const sc=Math.min(maxW/im.img.width,maxH/im.img.height,1);
-    cc.width=Math.round(im.img.width*sc); cc.height=Math.round(im.img.height*sc);
-    drawCropEd();
-  });
-  _updateBatchUI();
-}
-
-function skipBatchCrop(){
-  if(!cropEdState.batch) return;
-  // Lock size from whatever is drawn if not yet locked
-  if(!cropEdState.batchCropW && cropEdState.cw>0.02){
-    cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-  }
-  _advanceBatchCrop();
-}
-
-function applyBatchCropAll(){
-  if(!cropEdState.batch) return;
-  if(!cropEdState.batchCropW){ toast('Draw a crop first','warn'); return; }
-  // Apply centered crop to all remaining images
-  _applyBatchCropCurrent();
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
-  cropEdState.batchQueue.forEach(i=>{
-    if(!images[i]) return;
-    images[i].cropT=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropL=Math.max(0,Math.round((1-cw)/2*100));
-    images[i].cropB=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropR=Math.max(0,Math.round((1-cw)/2*100));
-  });
-  cropEdState.batchQueue=[];
-  _advanceBatchCrop(); // will close modal
-}
-
 (function bindCropEd(){
   const cc=document.getElementById('crop-ed-canvas');
   cc.addEventListener('mousedown',e=>{
     const rect=cc.getBoundingClientRect();
     const x=(e.clientX-rect.left)/rect.width, y=(e.clientY-rect.top)/rect.height;
-    // Batch mode with size locked: move the box instead of redrawing
-    if(cropEdState.batch && cropEdState.batchCropW>0){
-      cropEdState.batchMoving=true;
-      cropEdState.batchMoveStartX=x; cropEdState.batchMoveStartY=y;
-      cropEdState.batchMoveStartCx=cropEdState.cx; cropEdState.batchMoveStartCy=cropEdState.cy;
-      e.preventDefault(); return;
-    }
     cropEdState.dragging=true; cropEdState.dx0=x; cropEdState.dy0=y;
     cropEdState.cx=x; cropEdState.cy=y; cropEdState.cw=0.01; cropEdState.ch=0.01;
     e.preventDefault();
   });
   cc.addEventListener('mousemove',e=>{
+    if(!cropEdState.dragging) return;
     const rect=cc.getBoundingClientRect();
     const x=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
     const y=Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));
-    // Batch move mode
-    if(cropEdState.batchMoving){
-      const dx=x-cropEdState.batchMoveStartX, dy=y-cropEdState.batchMoveStartY;
-      cropEdState.cx=Math.max(0,Math.min(1-cropEdState.batchCropW, cropEdState.batchMoveStartCx+dx));
-      cropEdState.cy=Math.max(0,Math.min(1-cropEdState.batchCropH, cropEdState.batchMoveStartCy+dy));
-      drawCropEd(); return;
-    }
-    if(!cropEdState.dragging) return;
     cropEdState.cx=Math.min(x,cropEdState.dx0);
     cropEdState.cy=Math.min(y,cropEdState.dy0);
     cropEdState.cw=Math.abs(x-cropEdState.dx0);
@@ -2366,13 +2199,8 @@ function applyBatchCropAll(){
     drawCropEd();
   });
   cc.addEventListener('mouseup',()=>{
-    // Lock batch size after first draw
-    if(cropEdState.batch && cropEdState.dragging && !cropEdState.batchCropW && cropEdState.cw>0.03){
-      cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
-      _updateBatchUI();
-    }
-    cropEdState.dragging=false; cropEdState.batchMoving=false;
-    if(!cropEdState.batch && (cropEdState.cw<0.03||cropEdState.ch<0.03)) resetCropEd();
+    cropEdState.dragging=false;
+    if(cropEdState.cw<0.03||cropEdState.ch<0.03) resetCropEd();
   });
 })();
 
@@ -5560,489 +5388,6 @@ async function exportPNGWithMeta(name, dpi, canvas){
   const base=canvas.toDataURL('image/png');
   const withMeta=await embedPNGMetadata(base,meta);
   dl(withMeta,name+'.png');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MULTI-PAGE PDF EXPORT
-// ═══════════════════════════════════════════════════════════════
-async function exportMultiPagePDF(){
-  if(!images.length){ toast('Add images first','warn'); return; }
-  const cols   = Math.max(1, gi('cols'));
-  const rows   = Math.max(1, gi('rows'));
-  const rpp    = Math.max(1, gi('pdf-rows-per-page') || 2);
-  const dpi    = getExportDPI();
-  const name   = gv('export-name').trim() || 'figure';
-
-  // Snapshot layout state
-  const origRows = gi('rows');
-
-  // We'll render each page-worth of rows into its own canvas
-  const totalPages = Math.ceil(rows / rpp);
-  const enc = s => new TextEncoder().encode(s);
-  const chunks = []; const offs = {};
-  const push = d => chunks.push(typeof d === 'string' ? enc(d) : d);
-  const sz   = () => chunks.reduce((s,c)=>s+c.length, 0);
-
-  // Collect per-page image blobs
-  const pageBlobs = [];
-  for(let page = 0; page < totalPages; page++){
-    const pageRows = Math.min(rpp, rows - page * rpp);
-    const pageImages = images.slice(page * rpp * cols, (page * rpp + pageRows) * cols);
-
-    // Temporarily swap row count and images to re-render just this page
-    const origImages = images.splice(0, images.length, ...pageImages);
-    document.getElementById('rows').value = pageRows;
-    onLayoutChange(); render();
-
-    const c = document.getElementById('fig-canvas');
-    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
-    pageBlobs.push({ blob, W: c.width, H: c.height });
-
-    // Restore
-    images.splice(0, images.length, ...origImages);
-    document.getElementById('rows').value = origRows;
-    onLayoutChange(); render();
-  }
-
-  // Build multi-page PDF manually
-  push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
-
-  // Objects: 1=Catalog, 2=Pages, then per page: 3+p*3=Page, 4+p*3=Image, 5+p*3=Content
-  const pageObjBase = 3;
-  const pageCount   = pageBlobs.length;
-  const pageIds     = pageBlobs.map((_,p) => pageObjBase + p * 3);
-  const pageKids    = pageIds.map(id => `${id} 0 R`).join(' ');
-
-  offs[1] = sz(); push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
-  offs[2] = sz(); push(`2 0 obj\n<< /Type /Pages /Kids [${pageKids}] /Count ${pageCount} >>\nendobj\n`);
-
-  const imgBytesList = [];
-  for(let p = 0; p < pageCount; p++){
-    const { blob, W, H } = pageBlobs[p];
-    const jpgBytes = new Uint8Array(await blob.arrayBuffer());
-    imgBytesList.push(jpgBytes);
-
-    const wPt = (W * 72 / dpi).toFixed(3);
-    const hPt = (H * 72 / dpi).toFixed(3);
-    const pgId  = pageObjBase + p * 3;       // Page object
-    const imId  = pageObjBase + p * 3 + 1;   // Image XObject
-    const csId  = pageObjBase + p * 3 + 2;   // Content stream
-    const cs    = enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im${p} Do Q\n`);
-
-    offs[pgId] = sz();
-    push(`${pgId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents ${csId} 0 R /Resources << /XObject << /Im${p} ${imId} 0 R >> >> >>\nendobj\n`);
-
-    offs[imId] = sz();
-    push(`${imId} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpgBytes.length} >>\nstream\n`);
-    push(jpgBytes);
-    push('\nendstream\nendobj\n');
-
-    offs[csId] = sz();
-    push(`${csId} 0 obj\n<< /Length ${cs.length} >>\nstream\n`);
-    push(cs);
-    push('\nendstream\nendobj\n');
-  }
-
-  const totalObjs = 2 + pageCount * 3;
-  const xp = sz();
-  push(`xref\n0 ${totalObjs + 1}\n0000000000 65535 f\r\n`);
-  for(let i = 1; i <= totalObjs; i++){
-    push(`${String(offs[i] ?? 0).padStart(10,'0')} 00000 n\r\n`);
-  }
-  push(`trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xp}\n%%EOF\n`);
-
-  const total = sz(); const out = new Uint8Array(total); let pos = 0;
-  for(const c of chunks){ out.set(c, pos); pos += c.length; }
-  dl(URL.createObjectURL(new Blob([out], {type:'application/pdf'})), name + '-multipage.pdf');
-  toast(`Exported ${pageCount}-page PDF`, 'ok');
-  logAction('exportMultiPagePDF', { pages: pageCount, rowsPerPage: rpp, dpi });
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TIFF METADATA READER
-// ═══════════════════════════════════════════════════════════════
-// Reads µm/px calibration from TIFF IFD tags:
-//   XResolution (tag 282), ResolutionUnit (tag 296),
-//   Zeiss LSM VoxelSizeX (stored in CZ-LSMINFO private tag 34412).
-function readTIFFMetadata(idx){
-  const im = images[idx];
-  if(!im){ toast('No image at this slot','warn'); return; }
-
-  // We need the raw file bytes — re-read from the stored src DataURL
-  const src = im.src;
-  if(!src || !src.startsWith('data:')){ toast('No raw data available for this image','warn'); return; }
-
-  // Convert data URL → Uint8Array
-  const b64 = src.split(',')[1];
-  const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-
-  // Check TIFF magic: 0x4949 (LE) or 0x4D4D (BE)
-  const view = new DataView(raw.buffer);
-  const magic = view.getUint16(0, true);
-  const isLE  = magic === 0x4949;
-  const isBE  = magic === 0x4D4D;
-  if(!isLE && !isBE){ toast('Not a TIFF file — only TIFF/LSM carry pixel size metadata','warn'); return; }
-  const le = isLE;
-
-  const u16 = (off) => view.getUint16(off, le);
-  const u32 = (off) => view.getUint32(off, le);
-  const u64 = (off) => u32(off) + u32(off+4) * 2**32; // approx for large offsets
-  const rational = (off) => { const n = u32(off), d = u32(off+4); return d ? n/d : 0; };
-
-  let xRes = 0, yRes = 0, resUnit = 2; // resUnit: 1=none, 2=inch, 3=cm
-  let voxelX = 0; // Zeiss LSM VoxelSizeX in metres
-
-  try {
-    let ifdOff = u32(4);
-    // Walk up to 3 IFDs (handles multi-directory TIFFs)
-    for(let ifdPass = 0; ifdPass < 3 && ifdOff > 0 && ifdOff < raw.length - 2; ifdPass++){
-      const entryCount = u16(ifdOff);
-      for(let e = 0; e < entryCount; e++){
-        const base  = ifdOff + 2 + e * 12;
-        if(base + 12 > raw.length) break;
-        const tag   = u16(base);
-        const type  = u16(base + 2);
-        const count = u32(base + 4);
-        const valOff= base + 8; // value or offset to value
-
-        // type 5 = RATIONAL (two LONGs), fits in 8 bytes → always pointed to by offset
-        if(tag === 282 && type === 5){           // XResolution
-          xRes = rational(u32(valOff));
-        } else if(tag === 283 && type === 5){    // YResolution
-          yRes = rational(u32(valOff));
-        } else if(tag === 296){                   // ResolutionUnit
-          resUnit = type === 3 ? u16(valOff) : u32(valOff);
-        } else if(tag === 34412){                 // CZ-LSMINFO (Zeiss LSM)
-          // VoxelSizeX is a DOUBLE at offset +12 inside the CZ-LSMINFO block
-          const lsmOff = u32(valOff);
-          if(lsmOff + 20 < raw.length){
-            voxelX = view.getFloat64(lsmOff + 12, le); // metres per voxel
-          }
-        }
-      }
-      // Next IFD offset is the LONG after the last entry
-      const nextOff = ifdOff + 2 + entryCount * 12;
-      ifdOff = (nextOff + 4 <= raw.length) ? u32(nextOff) : 0;
-    }
-  } catch(err){
-    toast('Could not parse TIFF tags: ' + err.message, 'err'); return;
-  }
-
-  // Priority: Zeiss LSM VoxelSizeX (most accurate)
-  if(voxelX > 0){
-    const umPerPx = voxelX * 1e6; // metres → µm
-    im.umPerPx = umPerPx;
-    renderImgList(); scheduleRender(0);
-    toast(`Panel ${im.label}: ${umPerPx.toFixed(4)} µm/px (from Zeiss LSM metadata)`, 'ok');
-    logAction('tiffMeta', { label: im.label, umPerPx, source: 'ZeissLSM' });
-    return;
-  }
-
-  // Fallback: XResolution + ResolutionUnit
-  if(xRes > 0){
-    // XResolution is pixels per inch (unit=2) or pixels per cm (unit=3)
-    let pxPerUm;
-    if(resUnit === 2)      pxPerUm = xRes / 25400;  // pixels per inch → per µm
-    else if(resUnit === 3) pxPerUm = xRes / 10000;  // pixels per cm   → per µm
-    else { toast('Resolution unit unknown — enter µm/px manually', 'warn'); return; }
-    const umPerPx = pxPerUm > 0 ? 1 / pxPerUm : 0;
-    if(umPerPx < 0.001 || umPerPx > 1000){
-      toast(`Panel ${im.label}: TIFF resolution (${xRes.toFixed(1)} px/${resUnit===2?'in':'cm'}) doesn't look like microscopy calibration — check manually`, 'warn');
-      return;
-    }
-    im.umPerPx = umPerPx;
-    renderImgList(); scheduleRender(0);
-    toast(`Panel ${im.label}: ${umPerPx.toFixed(4)} µm/px (from TIFF XResolution tag)`, 'ok');
-    logAction('tiffMeta', { label: im.label, umPerPx, source: 'XResolution' });
-    return;
-  }
-
-  toast(`No calibration metadata found in Panel ${im.label}. Use "Calibrate from image" instead.`, 'warn');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SESSION SHARING VIA URL HASH
-// Encodes settings (no image data) into URL hash so recipients
-// get layout/style/annotations pre-loaded; they re-drop their images.
-// ═══════════════════════════════════════════════════════════════
-function shareSession(){
-  const state = {
-    layout:{
-      cols:gv('cols'), rows:gv('rows'), panelW:gv('panel-w'), panelH:gv('panel-h'),
-      gapH:gv('gap-h'), gapV:gv('gap-v'),
-      mTop:gv('m-top'), mLeft:gv('m-left'), mBtm:gv('m-btm'), mRight:gv('m-right'),
-      figTitle:gv('fig-title'),
-      showColLabels:gc('show-col-labels'), showRowLabels:gc('show-row-labels'),
-      colLabels:[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value),
-      rowLabels:[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value),
-    },
-    style:{
-      bgColor:gv('bg-color'), showLabels:gc('show-labels'), labelSize:gv('label-size'),
-      labelColor:gv('label-color'), labelPos:gv('label-pos'), sbH:gv('sb-h'),
-      sbColor:gv('sb-color'), sbText:gc('sb-text'), axisFs:gv('axis-fs'),
-      labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
-      axisFont:gv('axis-font'), axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
-    },
-    panelBorder:{ w:gv('panel-border-w'), c:gv('panel-border-c') },
-    labelFormat:gv('label-format'),
-    exportDpi:gv('export-dpi'),
-    annotations,
-    // Panel labels/settings but NO src/img data
-    panelSettings: images.map(im=>({
-      label:im.label, sbOn:im.sbOn, umPerPx:im.umPerPx, sbUm:im.sbUm,
-      brightness:im.brightness, contrast:im.contrast, gamma:im.gamma||1,
-      blackPt:im.blackPt||0, whitePt:im.whitePt||255,
-      lut:im.lut||'none', grayscale:im.grayscale, invert:im.invert,
-      cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0,
-      cropShape:im.cropShape||'rect', captionNote:im.captionNote||'', metaNote:im.metaNote||'',
-    })),
-    layoutMode,
-    _shared: true,
-    _imageCount: images.length,
-  };
-
-  try {
-    const json     = JSON.stringify(state);
-    const encoded  = btoa(encodeURIComponent(json));
-    const url      = location.href.split('#')[0] + '#share=' + encoded;
-    navigator.clipboard.writeText(url).then(()=>{
-      toast('Share link copied to clipboard! Recipient needs to re-drop their images.', 'ok');
-    }).catch(()=>{
-      // Fallback: show in a modal they can copy manually
-      const m = document.createElement('div');
-      m.className = 'modal-bg open';
-      m.innerHTML = `<div class="modal" style="max-width:540px">
-        <button class="modal-close" onclick="this.closest('.modal-bg').remove()">×</button>
-        <h3>🔗 Share Link</h3>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Copy this URL and send it. The recipient opens it in their browser, then drops their own images — all settings, labels, and annotations will be pre-loaded.</p>
-        <textarea rows="5" style="width:100%;font-size:10px;word-break:break-all" readonly onclick="this.select()">${url}</textarea>
-        <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:10px">Close</button>
-      </div>`;
-      document.body.appendChild(m);
-    });
-  } catch(e) {
-    toast('Session too large to encode as URL — use Save/Load instead', 'warn');
-  }
-}
-
-// On load: check if URL contains a share payload and restore it
-(function checkShareLink(){
-  const hash = location.hash;
-  if(!hash.startsWith('#share=')) return;
-  try {
-    const json  = decodeURIComponent(atob(hash.slice(7)));
-    const s     = JSON.parse(json);
-    if(!s._shared) return;
-    // Restore layout + style (same logic as loadJSON)
-    if(s.layout){
-      const L=s.layout;
-      sv('cols',L.cols);sv('rows',L.rows);sv('panel-w',L.panelW);sv('panel-h',L.panelH);
-      sv('gap-h',L.gapH);sv('gap-v',L.gapV);
-      sv('m-top',L.mTop);sv('m-left',L.mLeft);sv('m-btm',L.mBtm);sv('m-right',L.mRight);
-      sv('fig-title',L.figTitle||'');
-      sc('show-col-labels',L.showColLabels);sc('show-row-labels',L.showRowLabels);
-    }
-    if(s.style){
-      const T=s.style;
-      sv('bg-color',T.bgColor);sc('show-labels',T.showLabels);sv('label-size',T.labelSize);
-      sv('label-color',T.labelColor);sv('label-pos',T.labelPos);sv('sb-h',T.sbH);
-      sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);
-      if(T.labelFont) sv('label-font',T.labelFont);
-      if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
-      if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);
-      if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
-      if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
-      if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
-    }
-    if(s.panelBorder){ sv('panel-border-w',s.panelBorder.w); sv('panel-border-c',s.panelBorder.c); }
-    if(s.labelFormat) sv('label-format',s.labelFormat);
-    if(s.exportDpi)   sv('export-dpi',s.exportDpi);
-    if(s.layoutMode){ document.getElementById('layout-mode').value=s.layoutMode; setLayoutMode(s.layoutMode); }
-    if(Array.isArray(s.annotations)) annotations = s.annotations;
-    // Store panel settings to apply when images are dropped
-    if(Array.isArray(s.panelSettings)) window._sharedPanelSettings = s.panelSettings;
-    onLayoutChange();
-    if(Array.isArray(s.layout?.colLabels)){
-      setTimeout(()=>{
-        const ins=[...document.querySelectorAll('#col-label-inputs input')];
-        s.layout.colLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }, 300);
-    }
-    if(Array.isArray(s.layout?.rowLabels)){
-      setTimeout(()=>{
-        const ins=[...document.querySelectorAll('#row-label-inputs input')];
-        s.layout.rowLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }, 300);
-    }
-    // Strip hash without navigation
-    history.replaceState(null,'',location.pathname + location.search);
-    // Show welcome banner
-    const n = s._imageCount || 0;
-    const banner = document.createElement('div');
-    banner.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:999;background:var(--surface);border:1px solid var(--a2);border-radius:8px;padding:12px 20px;font-size:12px;color:var(--a2);box-shadow:0 4px 20px rgba(0,0,0,.3);text-align:center;max-width:380px';
-    banner.innerHTML=`<strong>Settings loaded from shared link</strong><br><span style="color:var(--muted);font-size:11px">Now drop your ${n||''} image${n!==1?'s':''} — labels, annotations, and layout are ready.</span>`;
-    document.body.appendChild(banner);
-    setTimeout(()=>banner.remove(), 7000);
-  } catch(e){ /* silently ignore malformed share links */ }
-})();
-
-
-// ═══════════════════════════════════════════════════════════════
-// PANEL COMPARISON VIEW
-// ═══════════════════════════════════════════════════════════════
-function openPanelComparison(){
-  if(images.length < 2){ toast('Need at least 2 panels to compare','warn'); return; }
-  render();
-
-  // Build selector options
-  const opts = images.map((im,i)=>`<option value="${i}">Panel ${im.label} — ${esc(im.name)}</option>`).join('');
-
-  const modal = document.createElement('div');
-  modal.className = 'modal-bg open';
-  modal.id = 'compare-modal';
-  modal.innerHTML = `
-    <div class="modal" style="max-width:860px;width:100%;padding:20px">
-      <button class="modal-close" onclick="this.closest('.modal-bg').remove()">×</button>
-      <h3 style="margin-bottom:12px">⧉ Panel Comparison</h3>
-      <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <label style="font-size:11px;color:var(--muted)">Left
-          <select id="cmp-left" style="margin-left:6px">${opts}</select>
-        </label>
-        <label style="font-size:11px;color:var(--muted)">Right
-          <select id="cmp-right" style="margin-left:6px">${opts.replace('value="0"','').replace('value="1"','value="1" selected')}</select>
-        </label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
-          <input type="checkbox" id="cmp-sync" checked> Sync zoom
-        </label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
-          <input type="checkbox" id="cmp-diff"> Difference overlay
-        </label>
-        <button class="btn btn-primary" onclick="renderComparison()" style="padding:4px 12px">Update</button>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div>
-          <div id="cmp-lbl-l" style="font-size:10px;color:var(--muted);margin-bottom:4px"></div>
-          <canvas id="cmp-canvas-l" style="width:100%;border-radius:5px;border:1px solid var(--border);display:block;cursor:crosshair"></canvas>
-          <div id="cmp-stats-l" style="font-size:10px;color:var(--muted);margin-top:4px"></div>
-        </div>
-        <div>
-          <div id="cmp-lbl-r" style="font-size:10px;color:var(--muted);margin-bottom:4px"></div>
-          <canvas id="cmp-canvas-r" style="width:100%;border-radius:5px;border:1px solid var(--border);display:block;cursor:crosshair"></canvas>
-          <div id="cmp-stats-r" style="font-size:10px;color:var(--muted);margin-top:4px"></div>
-        </div>
-      </div>
-      <div id="cmp-pixel-info" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:18px;text-align:center"></div>
-      <div style="margin-top:12px;display:flex;gap:8px">
-        <input type="range" id="cmp-zoom" min="1" max="8" step="0.25" value="1" style="flex:1;accent-color:var(--accent)" oninput="renderComparison()">
-        <span style="font-size:11px;color:var(--muted);white-space:nowrap">Zoom <span id="cmp-zoom-v">1×</span></span>
-      </div>
-    </div>`;
-  document.body.appendChild(modal);
-  setTimeout(renderComparison, 50);
-}
-
-function renderComparison(){
-  const lIdx = parseInt(document.getElementById('cmp-left')?.value ?? 0);
-  const rIdx = parseInt(document.getElementById('cmp-right')?.value ?? 1);
-  const zoom = parseFloat(document.getElementById('cmp-zoom')?.value ?? 1);
-  const showDiff = document.getElementById('cmp-diff')?.checked;
-  document.getElementById('cmp-zoom-v').textContent = zoom.toFixed(2) + '×';
-
-  const figCanvas = document.getElementById('fig-canvas');
-  const figCtx    = figCanvas.getContext('2d');
-
-  [['l', lIdx], ['r', rIdx]].forEach(([side, idx]) => {
-    const pb = panelBounds.find(p => p.idx === idx);
-    const im = images[idx];
-    if(!pb || !im) return;
-
-    const c   = document.getElementById(`cmp-canvas-${side}`);
-    const ctx = c.getContext('2d');
-
-    const srcW = Math.round(pb.w * zoom);
-    const srcH = Math.round(pb.h * zoom);
-    // Clamp zoom window to panel bounds
-    const drawW = Math.min(srcW, pb.w);
-    const drawH = Math.min(srcH, pb.h);
-
-    c.width  = pb.w;
-    c.height = pb.h;
-
-    // Draw zoomed slice from the already-rendered fig-canvas
-    const offX = Math.round((pb.w - drawW) / 2);
-    const offY = Math.round((pb.h - drawH) / 2);
-    ctx.clearRect(0,0,c.width,c.height);
-    ctx.imageSmoothingEnabled = false; // crisp pixels at high zoom
-    ctx.drawImage(figCanvas, pb.x + offX, pb.y + offY, drawW, drawH, 0, 0, pb.w, pb.h);
-
-    // Label + stats
-    const d   = figCtx.getImageData(pb.x, pb.y, pb.w, pb.h).data;
-    const n   = d.length / 4;
-    let sum = 0;
-    for(let i = 0; i < d.length; i += 4) sum += (d[i]+d[i+1]+d[i+2])/3;
-    const mean = (sum/n).toFixed(1);
-    document.getElementById(`cmp-lbl-${side}`).textContent =
-      `Panel ${im.label} — ${esc(im.name)}`;
-    document.getElementById(`cmp-stats-${side}`).textContent =
-      `Mean: ${mean}/255 · LUT: ${im.lut||'none'} · B:${im.brightness.toFixed(2)} C:${im.contrast.toFixed(2)} · Levels: ${im.blackPt||0}–${im.whitePt||255}`;
-  });
-
-  // Difference overlay — computed from the two rendered panels
-  if(showDiff){
-    const pbL = panelBounds.find(p => p.idx === lIdx);
-    const pbR = panelBounds.find(p => p.idx === rIdx);
-    if(pbL && pbR){
-      const cL = document.getElementById('cmp-canvas-l');
-      const cR = document.getElementById('cmp-canvas-r');
-      const ctxL = cL.getContext('2d');
-      const ctxR = cR.getContext('2d');
-      const W = Math.min(cL.width, cR.width);
-      const H = Math.min(cL.height, cR.height);
-      const dL = ctxL.getImageData(0,0,W,H);
-      const dR = ctxR.getImageData(0,0,W,H);
-      // Draw amplified difference onto right canvas
-      const diff = ctxR.createImageData(W,H);
-      let totalDiff = 0;
-      for(let i = 0; i < dL.data.length; i += 4){
-        const dr = Math.abs(dL.data[i]   - dR.data[i]);
-        const dg = Math.abs(dL.data[i+1] - dR.data[i+1]);
-        const db = Math.abs(dL.data[i+2] - dR.data[i+2]);
-        const amp = Math.min(255, (dr+dg+db)); // amplified difference
-        totalDiff += amp;
-        diff.data[i]   = amp;
-        diff.data[i+1] = Math.max(0, 80 - amp/3); // greenish tint for small diffs
-        diff.data[i+2] = Math.max(0, 180 - amp);
-        diff.data[i+3] = 255;
-      }
-      ctxR.putImageData(diff,0,0);
-      const avgDiff = (totalDiff / (W*H*3)).toFixed(1);
-      document.getElementById('cmp-pixel-info').textContent =
-        `Difference overlay · avg pixel delta: ${avgDiff}/255 · ${avgDiff < 5 ? 'Panels are nearly identical' : avgDiff < 30 ? 'Minor differences' : 'Significant differences detected'}`;
-    }
-  } else {
-    document.getElementById('cmp-pixel-info').textContent = '';
-  }
-
-  // Pixel inspector on hover
-  const cL = document.getElementById('cmp-canvas-l');
-  const cR = document.getElementById('cmp-canvas-r');
-  const pbL = panelBounds.find(p => p.idx === lIdx);
-  const pbR = panelBounds.find(p => p.idx === rIdx);
-  const figCtx2 = document.getElementById('fig-canvas').getContext('2d');
-
-  function inspectPixel(e, pb, label){
-    if(!pb) return;
-    const rect = e.target.getBoundingClientRect();
-    const px = Math.round((e.clientX - rect.left) * (pb.w / rect.width));
-    const py = Math.round((e.clientY - rect.top)  * (pb.h / rect.height));
-    const d  = figCtx2.getImageData(pb.x + px, pb.y + py, 1, 1).data;
-    const gray = Math.round((d[0]+d[1]+d[2])/3);
-    document.getElementById('cmp-pixel-info').textContent =
-      `Panel ${label} @ (${px},${py}) — R:${d[0]} G:${d[1]} B:${d[2]} · gray: ${gray}/255`;
-  }
-  cL.onmousemove = e => inspectPixel(e, pbL, images[lIdx]?.label||lIdx);
-  cR.onmousemove = e => inspectPixel(e, pbR, images[rIdx]?.label||rIdx);
-  cL.onmouseleave = cR.onmouseleave = () => { document.getElementById('cmp-pixel-info').textContent = ''; };
 }
 
 // ═══════════════════════════════════════════════════════════════
