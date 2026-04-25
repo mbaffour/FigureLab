@@ -2137,6 +2137,7 @@ function drawHistogram(canvas, im){
 // INTERACTIVE CROP EDITOR
 // ═══════════════════════════════════════════════════════════════
 let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,
+  hasBox:false,
   batch:false,batchQueue:[],batchTotal:0,batchCropW:0,batchCropH:0,
   batchMoving:false,batchMoveStartX:0,batchMoveStartY:0,batchMoveStartCx:0,batchMoveStartCy:0};
 
@@ -2144,7 +2145,8 @@ function openCropModal(idx){
   const im=images[idx]; if(!im) return;
   // Convert existing crop % to normalised rect
   const l=im.cropL/100, t=im.cropT/100, r=im.cropR/100, b=im.cropB/100;
-  cropEdState={imgIdx:idx,img:im.img,cx:l,cy:t,cw:1-l-r,ch:1-t-b,dragging:false,dx0:0,dy0:0};
+  const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
+  cropEdState={imgIdx:idx,img:im.img,cx:l,cy:t,cw:1-l-r,ch:1-t-b,dragging:false,dx0:0,dy0:0,hasBox:hasCrop};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -2240,7 +2242,7 @@ function applyCropModal(){
   closeCropModal(); renderImgList(); scheduleRender(0);
   toast('Crop applied','ok');
 }
-function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1; drawCropEd(); }
+function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false; drawCropEd(); }
 
 // ── Batch crop ────────────────────────────────────────────────
 function startBatchCrop(){
@@ -2343,8 +2345,8 @@ function applyBatchCropAll(){
   const cc=document.getElementById('crop-ed-canvas');
 
   function _insideBox(x,y){
-    const {cx,cy,cw,ch}=cropEdState;
-    return cw>0.02&&ch>0.02&&x>=cx&&x<=cx+cw&&y>=cy&&y<=cy+ch;
+    const {cx,cy,cw,ch,hasBox}=cropEdState;
+    return hasBox&&cw>0.02&&ch>0.02&&x>=cx&&x<=cx+cw&&y>=cy&&y<=cy+ch;
   }
   function _updateCursor(x,y){
     if(cropEdState.batchMoving){ cc.style.cursor='grabbing'; return; }
@@ -2400,6 +2402,7 @@ function applyBatchCropAll(){
       _updateBatchUI();
     }
     cropEdState.dragging=false; cropEdState.batchMoving=false;
+    if(cropEdState.cw>0.02&&cropEdState.ch>0.02) cropEdState.hasBox=true;
     // Only clear tiny draws in non-batch mode; in batch leave whatever was drawn
     if(!cropEdState.batch&&(cropEdState.cw<0.02||cropEdState.ch<0.02)) resetCropEd();
     _updateCursor(0.5,0.5);
