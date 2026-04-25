@@ -2166,10 +2166,21 @@ function closeCropModal(){
 function drawCropEd(){
   const cc=document.getElementById('crop-ed-canvas');
   const ctx=cc.getContext('2d');
-  const {img,cx,cy,cw,ch}=cropEdState;
+  const {img,cx,cy,cw,ch,hasBox}=cropEdState;
   const W=cc.width,H=cc.height;
   ctx.clearRect(0,0,W,H);
+  if(!img||!W||!H) return;
   ctx.drawImage(img,0,0,W,H);
+  // When no box drawn yet (batch mode, fresh image): show guide overlay
+  if(!hasBox&&cw>0.97){
+    ctx.fillStyle='rgba(0,0,0,.42)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='rgba(255,255,255,.85)';
+    ctx.font=`bold ${Math.max(11,Math.round(W*0.055))}px system-ui,sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('Click and drag to draw crop',W/2,H/2);
+    document.getElementById('crop-ed-vals').textContent='Draw a region to continue';
+    return;
+  }
   // Dim outside
   ctx.fillStyle='rgba(0,0,0,.55)';
   ctx.fillRect(0,0,W,cy*H);
@@ -2370,7 +2381,9 @@ function applyBatchCropAll(){
       // Draw a new box
       cropEdState.dragging=true; cropEdState.dx0=x; cropEdState.dy0=y;
       cropEdState.cx=x; cropEdState.cy=y; cropEdState.cw=0.001; cropEdState.ch=0.001;
+      cropEdState.hasBox=false;
       cc.style.cursor='crosshair';
+      drawCropEd(); // immediate visual feedback on click
     }
     e.preventDefault();
   });
@@ -2402,9 +2415,16 @@ function applyBatchCropAll(){
       _updateBatchUI();
     }
     cropEdState.dragging=false; cropEdState.batchMoving=false;
-    if(cropEdState.cw>0.02&&cropEdState.ch>0.02) cropEdState.hasBox=true;
-    // Only clear tiny draws in non-batch mode; in batch leave whatever was drawn
+    if(cropEdState.cw>0.02&&cropEdState.ch>0.02){
+      cropEdState.hasBox=true;
+    } else {
+      // Tiny or no drag — reset box so guide overlay reappears
+      cropEdState.cx=0; cropEdState.cy=0; cropEdState.cw=1; cropEdState.ch=1; cropEdState.hasBox=false;
+      if(!cropEdState.batch) resetCropEd(); else drawCropEd();
+      _updateCursor(0.5,0.5); return;
+    }
     if(!cropEdState.batch&&(cropEdState.cw<0.02||cropEdState.ch<0.02)) resetCropEd();
+    drawCropEd();
     _updateCursor(0.5,0.5);
   });
 
