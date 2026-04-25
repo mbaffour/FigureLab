@@ -2246,14 +2246,14 @@ function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropE
 function startBatchCrop(){
   const eligible=images.map((im,i)=>({im,i})).filter(({im})=>im&&im.img);
   if(eligible.length<1){ toast('Add images first','warn'); return; }
-  const queue=eligible.map(({i})=>i);
-  const firstIdx=queue.shift();
+  const allIdx=eligible.map(({i})=>i);
+  // openCropModal fully replaces cropEdState, so batch fields must be set AFTER it returns
+  openCropModal(allIdx[0]);
   cropEdState.batch=true;
-  cropEdState.batchQueue=queue;
-  cropEdState.batchTotal=eligible.length;
+  cropEdState.batchQueue=allIdx.slice(1);
+  cropEdState.batchTotal=allIdx.length;
   cropEdState.batchCropW=0; cropEdState.batchCropH=0;
   cropEdState.batchMoving=false;
-  openCropModal(firstIdx);
   _updateBatchUI();
 }
 
@@ -2262,12 +2262,20 @@ function _updateBatchUI(){
   const prog=document.getElementById('batch-crop-progress');
   const hint=document.getElementById('batch-crop-hint');
   const applyBtn=document.getElementById('crop-apply-btn');
+  const title=document.getElementById('crop-modal-title');
   if(!cropEdState.batch){ bar.style.display='none'; applyBtn.textContent='✓ Apply Crop'; return; }
   bar.style.display='flex';
   const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
   prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
-  hint.textContent=cropEdState.batchCropW>0?'Drag box to reposition':'Draw to set crop size';
+  const sizeLocked=cropEdState.batchCropW>0;
+  hint.textContent=sizeLocked?'Drag box to reposition':'Draw to set crop size';
+  title.textContent=`✂ Batch Crop (${done} / ${cropEdState.batchTotal})`;
+  document.getElementById('crop-modal-desc').textContent=sizeLocked
+    ?'Crop size is locked. Drag the box to reposition, then Apply & Next.'
+    :'Draw a crop region to set the size. It will be reused for every image.';
   applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
+  // Cursor hint: grab when box is moveable
+  document.getElementById('crop-ed-canvas').style.cursor=sizeLocked?'grab':'crosshair';
 }
 
 function _applyBatchCropCurrent(){
