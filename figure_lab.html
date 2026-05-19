@@ -577,6 +577,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="checkbox" id="axis-italic" onchange="scheduleRender()" style="margin-left:8px">
       <label for="axis-italic" style="cursor:pointer">Italic</label>
     </div>
+    <div class="field"><label>Color</label>
+      <input type="color" id="axis-color" value="#000000" oninput="scheduleRender()" style="width:28px;height:22px">
+      <input type="checkbox" id="axis-auto-color" checked onchange="scheduleRender()" style="margin-left:6px">
+      <label for="axis-auto-color" style="cursor:pointer">Auto</label>
+    </div>
 
     <div class="divider"></div>
     <div class="sec-lbl">Scale Tools</div>
@@ -1781,6 +1786,7 @@ function render(){
 
   ctx.fillStyle=bgColor; ctx.fillRect(0,0,totalW,totalH);
   const textClr = luma(bgColor)<128 ? '#ffffff' : '#000000';
+  const axisClr = gc('axis-auto-color') ? textClr : gv('axis-color');
 
   const lFam=gv('label-font')||'system-ui,sans-serif';
   const lWt=gc('label-bold')?'bold':'500';
@@ -1792,14 +1798,14 @@ function render(){
   // Title
   if(figTitle){
     ctx.font=`${lSt} bold ${axisFs+4}px ${lFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='top';
     ctx.fillText(figTitle, totalW/2, 8);
   }
   // Col labels
   if(showCols){
     const ins=[...document.querySelectorAll('#col-label-inputs input')];
     ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let c=0;c<cols;c++){
       ctx.fillText(ins[c]?.value||`Col ${c+1}`,
         rowLblW+mLeft + c*(pw+gH) + pw/2, titleH+mTop+colLblH/2);
@@ -1809,7 +1815,7 @@ function render(){
   if(showRows){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
     ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let r=0;r<rows;r++){
       const cy=titleH+mTop+colLblH + r*(ph+gV) + ph/2;
       ctx.save(); ctx.translate(mLeft/2, cy); ctx.rotate(-Math.PI/2);
@@ -4002,7 +4008,8 @@ function saveJSON(){
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
       sbText:gc('sb-text'),axisFs:gv('axis-fs'),labelFont:gv('label-font'),
       labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
-      axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic') },
+      axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
+      axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
     exportDpi:gv('export-dpi'), exportName:gv('export-name'),
     images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,brightness:im.brightness,contrast:im.contrast,
@@ -4048,6 +4055,8 @@ function loadJSON(input){
         if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
         if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
         if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
+        if(T.axisColor!==undefined) sv('axis-color',T.axisColor);
+        if(T.axisAutoColor!==undefined) sc('axis-auto-color',T.axisAutoColor);
       }
       if(s.exportDpi) sv('export-dpi',s.exportDpi);
       if(s.exportName) sv('export-name',s.exportName);
@@ -5871,6 +5880,7 @@ function shareSession(){
       sbColor:gv('sb-color'), sbText:gc('sb-text'), axisFs:gv('axis-fs'),
       labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'), axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
+      axisColor:gv('axis-color'), axisAutoColor:gc('axis-auto-color'),
     },
     panelBorder:{ w:gv('panel-border-w'), c:gv('panel-border-c') },
     labelFormat:gv('label-format'),
@@ -5942,6 +5952,8 @@ function shareSession(){
       if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
       if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
       if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
+      if(T.axisColor!==undefined) sv('axis-color',T.axisColor);
+      if(T.axisAutoColor!==undefined) sc('axis-auto-color',T.axisAutoColor);
     }
     if(s.panelBorder){ sv('panel-border-w',s.panelBorder.w); sv('panel-border-c',s.panelBorder.c); }
     if(s.labelFormat) sv('label-format',s.labelFormat);
