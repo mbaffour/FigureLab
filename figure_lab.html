@@ -336,7 +336,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <strong>Drop or click to add images</strong>
       <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
     </div>
-    <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff" style="display:none">
+    <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg" style="display:none">
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
@@ -576,6 +576,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label for="axis-bold" style="cursor:pointer">Bold</label>
       <input type="checkbox" id="axis-italic" onchange="scheduleRender()" style="margin-left:8px">
       <label for="axis-italic" style="cursor:pointer">Italic</label>
+    </div>
+    <div class="field"><label>Color</label>
+      <input type="color" id="axis-color" value="#000000" oninput="scheduleRender()" style="width:28px;height:22px">
+      <input type="checkbox" id="axis-auto-color" checked onchange="scheduleRender()" style="margin-left:6px">
+      <label for="axis-auto-color" style="cursor:pointer">Auto</label>
     </div>
 
     <div class="divider"></div>
@@ -1061,16 +1066,42 @@ document.getElementById('file-input').addEventListener('change', e => { addFiles
 let _preCropQueue=[];
 let _preCropBusy=false;
 
+function _rasterizeSVG(dataURL, callback){
+  const img=new Image();
+  img.onload=()=>{
+    const nw=img.naturalWidth||800, nh=img.naturalHeight||800;
+    const scale=Math.max(1, Math.min(8, 2048/Math.max(nw,nh)));
+    const rw=Math.round(nw*scale), rh=Math.round(nh*scale);
+    const c=document.createElement('canvas');
+    c.width=rw; c.height=rh;
+    const cx=c.getContext('2d');
+    cx.drawImage(img,0,0,rw,rh);
+    const png=c.toDataURL('image/png');
+    const out=new Image();
+    out.onload=()=>callback(out,png);
+    out.src=png;
+  };
+  img.src=dataURL;
+}
+
 function addFiles(fileList){
   Array.from(fileList).forEach(f=>{
     const reader=new FileReader();
+    const isSVG=f.type==='image/svg+xml'||f.name.toLowerCase().endsWith('.svg');
     reader.onload=ev=>{
-      const img=new Image();
-      img.onload=()=>{
-        _preCropQueue.push({img, src:ev.target.result, name:f.name});
-        _drainPreCrop();
-      };
-      img.src=ev.target.result;
+      if(isSVG){
+        _rasterizeSVG(ev.target.result,(img,src)=>{
+          _preCropQueue.push({img,src,name:f.name});
+          _drainPreCrop();
+        });
+      } else {
+        const img=new Image();
+        img.onload=()=>{
+          _preCropQueue.push({img, src:ev.target.result, name:f.name});
+          _drainPreCrop();
+        };
+        img.src=ev.target.result;
+      }
     };
     reader.readAsDataURL(f);
   });
@@ -1150,7 +1181,7 @@ function _commitImage(img,src,name){
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
-      borderW:0,borderC:'#ffffff',borderInset:0};
+      borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1};
     // Apply shared panel settings if a share link was loaded
     if(window._sharedPanelSettings){
       const ps = window._sharedPanelSettings[images.length];
@@ -1238,6 +1269,14 @@ function renderImgList(){
         </div>
         <div class="field"><label>Inset</label>
           <input type="number" class="f-bdri" value="${im.borderInset||0}" min="0" max="50" step="1" style="width:48px"> px
+        </div>
+        <div class="divider"></div>
+        <div class="sec-lbl">Panel span (grid mode)</div>
+        <div class="field"><label>Col span</label>
+          <input type="number" class="f-colspan" value="${im.colSpan||1}" min="1" max="12" step="1" style="width:48px">
+        </div>
+        <div class="field"><label>Row span</label>
+          <input type="number" class="f-rowspan" value="${im.rowSpan||1}" min="1" max="12" step="1" style="width:48px">
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Orientation</div>
@@ -1432,6 +1471,8 @@ function renderImgList(){
     item.querySelector('.f-bdrw').addEventListener('input',e=>{ images[idx].borderW=parseInt(e.target.value)||0; scheduleRender(); });
     item.querySelector('.f-bdrc').addEventListener('input',e=>{ images[idx].borderC=e.target.value; scheduleRender(); });
     item.querySelector('.f-bdri').addEventListener('input',e=>{ images[idx].borderInset=parseInt(e.target.value)||0; scheduleRender(); });
+    item.querySelector('.f-colspan').addEventListener('input',e=>{ images[idx].colSpan=Math.max(1,parseInt(e.target.value)||1); scheduleRender(); });
+    item.querySelector('.f-rowspan').addEventListener('input',e=>{ images[idx].rowSpan=Math.max(1,parseInt(e.target.value)||1); scheduleRender(); });
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
@@ -1745,6 +1786,7 @@ function render(){
 
   ctx.fillStyle=bgColor; ctx.fillRect(0,0,totalW,totalH);
   const textClr = luma(bgColor)<128 ? '#ffffff' : '#000000';
+  const axisClr = gc('axis-auto-color') ? textClr : gv('axis-color');
 
   const lFam=gv('label-font')||'system-ui,sans-serif';
   const lWt=gc('label-bold')?'bold':'500';
@@ -1756,14 +1798,14 @@ function render(){
   // Title
   if(figTitle){
     ctx.font=`${lSt} bold ${axisFs+4}px ${lFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='top';
     ctx.fillText(figTitle, totalW/2, 8);
   }
   // Col labels
   if(showCols){
     const ins=[...document.querySelectorAll('#col-label-inputs input')];
     ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let c=0;c<cols;c++){
       ctx.fillText(ins[c]?.value||`Col ${c+1}`,
         rowLblW+mLeft + c*(pw+gH) + pw/2, titleH+mTop+colLblH/2);
@@ -1773,7 +1815,7 @@ function render(){
   if(showRows){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
     ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=textClr; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let r=0;r<rows;r++){
       const cy=titleH+mTop+colLblH + r*(ph+gV) + ph/2;
       ctx.save(); ctx.translate(mLeft/2, cy); ctx.rotate(-Math.PI/2);
@@ -1781,155 +1823,151 @@ function render(){
     }
   }
 
-  // Panels
-  for(let idx=0;idx<cols*rows;idx++){
-    const col=idx%cols, row=Math.floor(idx/cols);
-    const px=rowLblW+mLeft + col*(pw+gH);
-    const py=titleH+mTop+colLblH + row*(ph+gV);
-    const im=images[idx];
-
-    panelBounds.push({idx, x:px, y:py, w:pw, h:ph});
-
-    if(!im){
-      ctx.fillStyle = luma(bgColor)<128 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.04)';
-      ctx.fillRect(px,py,pw,ph);
-      // Dashed border + slot number
-      ctx.save();
-      ctx.strokeStyle = luma(bgColor)<128 ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)';
-      ctx.lineWidth=1.5; ctx.setLineDash([6,4]);
-      ctx.strokeRect(px+1,py+1,pw-2,ph-2);
-      ctx.setLineDash([]);
-      ctx.font=`bold ${Math.max(14,Math.round(Math.min(pw,ph)*0.18))}px system-ui,sans-serif`;
-      ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(String(idx+1), px+pw/2, py+ph/2);
-      ctx.restore();
-      continue;
-    }
-
-    // Apply crop to get source rect
-    const iw=im.img.width, ih=im.img.height;
-    const sx=im.cropL/100*iw, sy=im.cropT/100*ih;
-    const sw=iw*(1-(im.cropL+im.cropR)/100), sh=ih*(1-(im.cropT+im.cropB)/100);
-    if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,pw,ph); continue; }
-
-    // Contain-fit
-    const scale=Math.min(pw/sw, ph/sh);
-    const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
-    const dx=px+Math.round((pw-dw)/2), dy=py+Math.round((ph-dh)/2);
-
-    ctx.fillStyle=bgColor; ctx.fillRect(px,py,pw,ph);
-
-    // Crop-to-shape clip
-    const cshape=im.cropShape||'rect';
-    if(cshape!=='rect'){
-      ctx.save();
-      ctx.beginPath();
-      if(cshape==='circle'){
-        const r=Math.min(dw,dh)/2;
-        ctx.arc(dx+dw/2, dy+dh/2, r, 0, Math.PI*2);
-      } else {
-        ctx.ellipse(dx+dw/2, dy+dh/2, dw/2, dh/2, 0, 0, Math.PI*2);
-      }
-      ctx.clip();
-    }
-
-    // Apply adjustments (or composite if extra channels)
-    let srcImg;
-    if(im.channels && im.channels.length>0){
-      srcImg=applyComposite(im, sx, sy, sw, sh);
-    } else {
-      const adj=applyAdjust(im, sx, sy, sw, sh);
-      srcImg=adj.off?adj.canvas:null;
-    }
-
-    // Draw with rotate/flip transforms
-    if(im.rotate||im.flipH||im.flipV){
-      ctx.save();
-      ctx.translate(dx+dw/2, dy+dh/2);
-      ctx.rotate((im.rotate||0)*Math.PI/180);
-      ctx.scale(im.flipH?-1:1, im.flipV?-1:1);
-      if(srcImg){
-        ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, -dw/2,-dh/2,dw,dh);
-      } else {
-        ctx.drawImage(im.img, sx,sy,sw,sh, -dw/2,-dh/2,dw,dh);
-      }
-      ctx.restore();
-    } else {
-      if(srcImg){
-        ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, dx,dy,dw,dh);
-      } else {
-        ctx.drawImage(im.img, sx,sy,sw,sh, dx,dy,dw,dh);
-      }
-    }
-
-    // Restore after clip
-    if(cshape!=='rect') ctx.restore();
-
-    // Panel label
-    if(showLbls){
-      const lFmt=gv('label-format')||'custom';
-      const displayLbl=lFmt==='custom'?im.label:formatLabel(im.label,idx);
-      if(displayLbl){
-        const fs=Math.max(7,lblSz);
-        const lFam=gv('label-font')||'system-ui,sans-serif';
-        const lWt=gc('label-bold')?'bold':'normal';
-        const lSt=gc('label-italic')?'italic':'normal';
-        ctx.font=`${lSt} ${lWt} ${fs}px ${lFam}`;
-        const tw=ctx.measureText(displayLbl).width;
-        const pad=6;
-        let lx=dx+pad, ly=dy+pad+fs;
-        if(lblPos==='tr') lx=dx+dw-pad-tw;
-        if(lblPos==='bl') ly=dy+dh-pad;
-        if(lblPos==='br'){ lx=dx+dw-pad-tw; ly=dy+dh-pad; }
-        // backdrop
-        ctx.fillStyle='rgba(0,0,0,.45)';
-        ctx.beginPath();
-        const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, r=3;
-        ctx.moveTo(bx+r,by); ctx.lineTo(bx+bw-r,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+r);
-        ctx.lineTo(bx+bw,by+bh-r); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-r,by+bh);
-        ctx.lineTo(bx+r,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-r);
-        ctx.lineTo(bx,by+r); ctx.quadraticCurveTo(bx,by,bx+r,by);
-        ctx.closePath(); ctx.fill();
-        ctx.fillStyle=lblClr; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
-      }
-    }
-
-    // Scale bar
-    if(im.sbOn && im.umPerPx>0 && im.sbUm>0){
-      const barPx=Math.round((im.sbUm/im.umPerPx)*(dw/sw)); // sw=cropped source width, not iw
-      if(barPx>=4 && barPx<dw*.75){
-        const sp=Math.max(6,Math.round(dw*.04));
-        const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
-        ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
-        if(sbTxt){
-          const sfs=Math.max(7,Math.round(10*dw/300));
-          ctx.font=`${sfs}px system-ui,sans-serif`;
-          ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-          const lbl=im.sbUm>=1000?`${im.sbUm/1000} mm`:im.sbUm<1?`${Math.round(im.sbUm*1000)} nm`:`${im.sbUm} µm`;
-          ctx.fillStyle=sbClr; ctx.fillText(lbl, sbX+barPx/2, sbY-3);
-          ctx.textAlign='left';
+  // Panels — span-aware layout
+  {
+    const occupied=new Set();
+    let imgIdx=0;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        if(occupied.has(`${r}_${c}`)) continue;
+        const im=images[imgIdx];
+        const cs=Math.min((im?.colSpan||1),cols-c);
+        const rs=Math.min((im?.rowSpan||1),rows-r);
+        for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
+        const px=rowLblW+mLeft + c*(pw+gH);
+        const py=titleH+mTop+colLblH + r*(ph+gV);
+        const apw=cs*pw+(cs-1)*gH, aph=rs*ph+(rs-1)*gV;
+        panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
+        if(!im){
+          ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.05)':'rgba(0,0,0,.04)';
+          ctx.fillRect(px,py,apw,aph);
+          ctx.save();
+          ctx.strokeStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
+          ctx.lineWidth=1.5; ctx.setLineDash([6,4]);
+          ctx.strokeRect(px+1,py+1,apw-2,aph-2);
+          ctx.setLineDash([]);
+          ctx.font=`bold ${Math.max(14,Math.round(Math.min(apw,aph)*0.18))}px system-ui,sans-serif`;
+          ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(String(imgIdx+1), px+apw/2, py+aph/2);
+          ctx.restore();
+          imgIdx++; continue;
         }
+        // Apply crop to get source rect
+        const iw=im.img.width, ih=im.img.height;
+        const sx=im.cropL/100*iw, sy=im.cropT/100*ih;
+        const sw=iw*(1-(im.cropL+im.cropR)/100), sh=ih*(1-(im.cropT+im.cropB)/100);
+        if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); imgIdx++; continue; }
+        // Contain-fit
+        const scale=Math.min(apw/sw, aph/sh);
+        const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
+        const dx=px+Math.round((apw-dw)/2), dy=py+Math.round((aph-dh)/2);
+        ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph);
+        // Crop-to-shape clip
+        const cshape=im.cropShape||'rect';
+        if(cshape!=='rect'){
+          ctx.save();
+          ctx.beginPath();
+          if(cshape==='circle'){
+            const cr=Math.min(dw,dh)/2;
+            ctx.arc(dx+dw/2, dy+dh/2, cr, 0, Math.PI*2);
+          } else {
+            ctx.ellipse(dx+dw/2, dy+dh/2, dw/2, dh/2, 0, 0, Math.PI*2);
+          }
+          ctx.clip();
+        }
+        // Apply adjustments (or composite if extra channels)
+        let srcImg;
+        if(im.channels && im.channels.length>0){
+          srcImg=applyComposite(im, sx, sy, sw, sh);
+        } else {
+          const adj=applyAdjust(im, sx, sy, sw, sh);
+          srcImg=adj.off?adj.canvas:null;
+        }
+        // Draw with rotate/flip transforms
+        if(im.rotate||im.flipH||im.flipV){
+          ctx.save();
+          ctx.translate(dx+dw/2, dy+dh/2);
+          ctx.rotate((im.rotate||0)*Math.PI/180);
+          ctx.scale(im.flipH?-1:1, im.flipV?-1:1);
+          if(srcImg){
+            ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, -dw/2,-dh/2,dw,dh);
+          } else {
+            ctx.drawImage(im.img, sx,sy,sw,sh, -dw/2,-dh/2,dw,dh);
+          }
+          ctx.restore();
+        } else {
+          if(srcImg){
+            ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, dx,dy,dw,dh);
+          } else {
+            ctx.drawImage(im.img, sx,sy,sw,sh, dx,dy,dw,dh);
+          }
+        }
+        // Restore after clip
+        if(cshape!=='rect') ctx.restore();
+        // Panel label
+        if(showLbls){
+          const lFmt=gv('label-format')||'custom';
+          const displayLbl=lFmt==='custom'?im.label:formatLabel(im.label,imgIdx);
+          if(displayLbl){
+            const fs=Math.max(7,lblSz);
+            const lFam=gv('label-font')||'system-ui,sans-serif';
+            const lWt=gc('label-bold')?'bold':'normal';
+            const lSt=gc('label-italic')?'italic':'normal';
+            ctx.font=`${lSt} ${lWt} ${fs}px ${lFam}`;
+            const tw=ctx.measureText(displayLbl).width;
+            const pad=6;
+            let lx=dx+pad, ly=dy+pad+fs;
+            if(lblPos==='tr') lx=dx+dw-pad-tw;
+            if(lblPos==='bl') ly=dy+dh-pad;
+            if(lblPos==='br'){ lx=dx+dw-pad-tw; ly=dy+dh-pad; }
+            ctx.fillStyle='rgba(0,0,0,.45)';
+            ctx.beginPath();
+            const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
+            ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
+            ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
+            ctx.lineTo(bx+lbr,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-lbr);
+            ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle=lblClr; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
+          }
+        }
+        // Scale bar
+        if(im.sbOn && im.umPerPx>0 && im.sbUm>0){
+          const barPx=Math.round((im.sbUm/im.umPerPx)*(dw/sw));
+          if(barPx>=4 && barPx<dw*.75){
+            const sp=Math.max(6,Math.round(dw*.04));
+            const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
+            ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
+            if(sbTxt){
+              const sfs=Math.max(7,Math.round(10*dw/300));
+              ctx.font=`${sfs}px system-ui,sans-serif`;
+              ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+              const lbl=im.sbUm>=1000?`${im.sbUm/1000} mm`:im.sbUm<1?`${Math.round(im.sbUm*1000)} nm`:`${im.sbUm} µm`;
+              ctx.fillStyle=sbClr; ctx.fillText(lbl, sbX+barPx/2, sbY-3);
+              ctx.textAlign='left';
+            }
+          }
+        }
+        // Global panel border (with inset)
+        const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
+        if(panelBorderW>0){
+          ctx.save(); ctx.strokeStyle=panelBorderC; ctx.lineWidth=panelBorderW;
+          ctx.strokeRect(px+panelBorderInset+panelBorderW/2,py+panelBorderInset+panelBorderW/2,apw-2*panelBorderInset-panelBorderW,aph-2*panelBorderInset-panelBorderW);
+          ctx.restore();
+        }
+        // Per-panel border override
+        if(im.borderW>0){
+          ctx.save(); ctx.strokeStyle=im.borderC||'#ffffff'; ctx.lineWidth=im.borderW;
+          const bi=im.borderInset||0;
+          ctx.strokeRect(px+bi+im.borderW/2,py+bi+im.borderW/2,apw-2*bi-im.borderW,aph-2*bi-im.borderW);
+          ctx.restore();
+        }
+        // Panel-bound annotations (follow image when reordered)
+        drawPanelAnnotations(ctx, px, py, apw, aph, im);
+        imgIdx++;
       }
     }
-
-    // Global panel border (with inset)
-    const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
-    if(panelBorderW>0){
-      ctx.save(); ctx.strokeStyle=panelBorderC; ctx.lineWidth=panelBorderW;
-      ctx.strokeRect(px+panelBorderInset+panelBorderW/2,py+panelBorderInset+panelBorderW/2,pw-2*panelBorderInset-panelBorderW,ph-2*panelBorderInset-panelBorderW);
-      ctx.restore();
-    }
-    // Per-panel border override
-    if(im.borderW>0){
-      ctx.save(); ctx.strokeStyle=im.borderC||'#ffffff'; ctx.lineWidth=im.borderW;
-      const bi=im.borderInset||0;
-      ctx.strokeRect(px+bi+im.borderW/2,py+bi+im.borderW/2,pw-2*bi-im.borderW,ph-2*bi-im.borderW);
-      ctx.restore();
-    }
-
-    // Panel-bound annotations (follow image when reordered)
-    drawPanelAnnotations(ctx, px, py, pw, ph, im);
   }
 
   // Draw committed annotations
@@ -3970,7 +4008,8 @@ function saveJSON(){
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
       sbText:gc('sb-text'),axisFs:gv('axis-fs'),labelFont:gv('label-font'),
       labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
-      axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic') },
+      axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
+      axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
     exportDpi:gv('export-dpi'), exportName:gv('export-name'),
     images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,brightness:im.brightness,contrast:im.contrast,
@@ -4016,6 +4055,8 @@ function loadJSON(input){
         if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
         if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
         if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
+        if(T.axisColor!==undefined) sv('axis-color',T.axisColor);
+        if(T.axisAutoColor!==undefined) sc('axis-auto-color',T.axisAutoColor);
       }
       if(s.exportDpi) sv('export-dpi',s.exportDpi);
       if(s.exportName) sv('export-name',s.exportName);
@@ -5839,6 +5880,7 @@ function shareSession(){
       sbColor:gv('sb-color'), sbText:gc('sb-text'), axisFs:gv('axis-fs'),
       labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'), axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
+      axisColor:gv('axis-color'), axisAutoColor:gc('axis-auto-color'),
     },
     panelBorder:{ w:gv('panel-border-w'), c:gv('panel-border-c') },
     labelFormat:gv('label-format'),
@@ -5910,6 +5952,8 @@ function shareSession(){
       if(T.axisFont!==undefined) sv('axis-font',T.axisFont);
       if(T.axisBold!==undefined) sc('axis-bold',T.axisBold);
       if(T.axisItalic!==undefined) sc('axis-italic',T.axisItalic);
+      if(T.axisColor!==undefined) sv('axis-color',T.axisColor);
+      if(T.axisAutoColor!==undefined) sc('axis-auto-color',T.axisAutoColor);
     }
     if(s.panelBorder){ sv('panel-border-w',s.panelBorder.w); sv('panel-border-c',s.panelBorder.c); }
     if(s.labelFormat) sv('label-format',s.labelFormat);
