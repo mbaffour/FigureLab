@@ -158,6 +158,7 @@ input[type=checkbox]{width:13px;height:13px;accent-color:var(--accent);cursor:po
   white-space:nowrap;letter-spacing:.2px;display:inline-flex;align-items:center;gap:5px;
   transition:background .1s,border-color .1s}
 .btn:hover{background:var(--border)}
+.btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn-primary:hover{background:#4a7de0;border-color:#4a7de0}
 .btn-success{background:var(--a2);color:#0d1117;border-color:var(--a2);font-weight:700}
@@ -371,6 +372,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="gap-h" value="6" min="0" max="100" oninput="scheduleRender()"></div>
     <div class="field"><label>V gap (px)</label>
       <input type="number" id="gap-v" value="6" min="0" max="100" oninput="scheduleRender()"></div>
+    <div class="field" style="margin-top:2px">
+      <label for="advanced-spacing" style="cursor:pointer" title="Drag individual gutters between panels to set per-row / per-column spacing">Per-gutter spacing</label>
+      <input type="checkbox" id="advanced-spacing" onchange="setAdvancedSpacing(this.checked)"></div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin:-2px 0 4px">
+      Tip: hover between panels on the canvas and <b>drag the divider</b> (or tap <b>+ / −</b>) to space them out.</div>
+    <button class="btn" style="width:100%;font-size:11px" onclick="resetGutters()">↺ Reset gutters to uniform</button>
 
     <div class="mini-grid-wrap">
       <div class="sec-lbl" style="margin-bottom:7px">Panel map</div>
@@ -811,6 +818,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="zoomToFit()" title="Zoom to fit">⊡ Fit</button>
     <button class="btn" onclick="zoomTo100()" title="Zoom to 100%">1:1</button>
     <div class="toolbar-sep"></div>
+    <button class="btn" id="labels-toggle-btn" onclick="toggleAllLabels()" title="Show/hide row &amp; column labels in one click">⊞ Labels</button>
     <button class="btn" onclick="copyToClipboard()" title="Copy figure as PNG to clipboard">⎘ Copy</button>
     <div class="toolbar-sep"></div>
     <span id="canvas-info" style="font-size:10px;color:var(--muted)">No figure rendered</span>
@@ -882,6 +890,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div><code>Ctrl+E</code> Export PNG</div>
       <div><code>Delete</code> Delete selected</div>
       <div><code>Escape</code> Cancel / deselect</div>
+      <div style="color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase;grid-column:1/-1;margin-top:6px">Spacing &amp; labels</div>
+      <div><code>Drag divider</code> Space panels apart</div>
+      <div><code>+ / −</code> Nudge a gutter ±2px</div>
+      <div><code>⊞ Labels</code> Toggle row/col labels</div>
+      <div><code>Dbl-click</code> Add text onto a panel</div>
       <div style="color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase;grid-column:1/-1;margin-top:6px">Freeform mode</div>
       <div><code>↑↓←→</code> Nudge element (1px)</div>
       <div><code>Shift+↑↓←→</code> Nudge 10px</div>
@@ -951,6 +964,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <input type="number" id="ann-float-width" min="1" max="20" value="2">
   <span class="fl-lbl" id="ann-float-font-lbl">Fnt</span>
   <input type="number" id="ann-float-font" min="6" max="72" value="16">
+  <span class="fl-lbl" id="ann-float-halo-lbl" title="Dark outline so text stays readable over images">Halo</span>
+  <input type="checkbox" id="ann-float-halo">
   <span class="fl-lbl" id="ann-float-corner-lbl">Corner</span>
   <select id="ann-float-corner" style="width:52px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;font-family:var(--mono)">
     <option value="tl">↖ TL</option><option value="tr">↗ TR</option>
@@ -1011,6 +1026,18 @@ let panelAnnMode  = false;   // true = drawing/selecting panel-bound annotations
 let panelAnnDraw  = null;    // {imgIdx, pb, x0, y0} — active draw in panel
 let selectedPanelAnn = null; // {imgIdx, annIdx}
 let panelAnnDrag  = null;    // {imgIdx, annIdx, pb, ox0f,oy0f,ox2f,oy2f, mx,my, preDrag}
+
+// ── Logical canvas size (decoupled from backing-store px for supersampling) ──
+let canvasLogicalW = 0, canvasLogicalH = 0;
+
+// ── Per-gutter spacing state ───────────────────────────────
+let colGaps = null;            // null = uniform; else Array(cols-1) of number|null
+let rowGaps = null;            // null = uniform; else Array(rows-1) of number|null
+let advancedSpacing = false;   // show/enable per-gutter overrides
+let gutterDragState = null;    // {axis:'col'|'row', index, startGap, startClient, preDrag}
+let hoverGutter = null;        // {axis, index, x, y, w, h, gapPx} for hover highlight
+let gutterChips = [];          // [{x,y,w,h,axis,index,delta}] clickable +/- chips (logical coords)
+let labelToggleHit = null;     // {x,y,w,h} on-canvas label toggle chip
 
 // ── Freeform canvas state ───────────────────────────────────
 let layoutMode       = 'grid';
@@ -1588,7 +1615,21 @@ function onLayoutChange(){
     d.innerHTML=`<span>Row ${r+1}</span><input type="text" value="${esc(prevR[r]||`Row ${r+1}`)}" oninput="scheduleRender()">`;
     rowDiv.appendChild(d);
   }
+  const lblBtn=document.getElementById('labels-toggle-btn');
+  if(lblBtn) lblBtn.classList.toggle('active', showC||showR);
   renderMiniGrid(); scheduleRender();
+}
+
+// One-click: drop (or restore) both row & column labels together.
+function toggleAllLabels(){
+  if(layoutMode==='freeform'){ toast('Labels apply to grid mode','warn'); return; }
+  const cc=document.getElementById('show-col-labels'), rc=document.getElementById('show-row-labels');
+  const anyOn=cc.checked||rc.checked;
+  cc.checked=!anyOn; rc.checked=!anyOn;
+  const btn=document.getElementById('labels-toggle-btn');
+  if(btn) btn.classList.toggle('active', !anyOn);
+  onLayoutChange();
+  toast(anyOn?'Labels hidden':'Labels shown','ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1749,18 +1790,94 @@ function exportCSV(){
 // ═══════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ═══════════════════════════════════════════════════════════════
-function scheduleRender(d=250){ clearTimeout(renderTimer); renderTimer=setTimeout(render,d); }
+function scheduleRender(d=250){ clearTimeout(renderTimer); renderTimer=setTimeout(()=>render(),d); }
 
-function render(){
-  panelBounds = [];
-  const canvas = document.getElementById('fig-canvas');
+// ── Per-gutter spacing helpers ─────────────────────────────
+// Resize override arrays to match the current grid (truncate / pad with null).
+function syncGapArrays(cols, rows){
+  if(colGaps){ colGaps.length=Math.max(0,cols-1); for(let i=0;i<colGaps.length;i++) if(colGaps[i]===undefined) colGaps[i]=null; }
+  if(rowGaps){ rowGaps.length=Math.max(0,rows-1); for(let i=0;i<rowGaps.length;i++) if(rowGaps[i]===undefined) rowGaps[i]=null; }
+}
+// Gap that sits immediately before column c (1..cols-1); falls back to uniform gH.
+function gapBefore(c, gH){ return (advancedSpacing && colGaps && colGaps[c-1]!=null) ? colGaps[c-1] : gH; }
+function rGapBefore(r, gV){ return (advancedSpacing && rowGaps && rowGaps[r-1]!=null) ? rowGaps[r-1] : gV; }
+// Cumulative left edge of column c (relative to first panel's left). Reduces to c*(pw+gH) when uniform.
+function colOffset(c, pw, gH){ let o=0; for(let k=0;k<c;k++) o+=pw+gapBefore(k+1,gH); return o; }
+function rowOffset(r, ph, gV){ let o=0; for(let k=0;k<r;k++) o+=ph+rGapBefore(k+1,gV); return o; }
+function totalGapsW(cols, gH){ let s=0; for(let c=1;c<cols;c++) s+=gapBefore(c,gH); return s; }
+function totalGapsH(rows, gV){ let s=0; for(let r=1;r<rows;r++) s+=rGapBefore(r,gV); return s; }
+// Interior gutters inside a span starting at col c covering cs columns.
+function spanGapsW(c, cs, gH){ let s=0; for(let k=1;k<cs;k++) s+=gapBefore(c+k,gH); return s; }
+function spanGapsH(r, rs, gV){ let s=0; for(let k=1;k<rs;k++) s+=rGapBefore(r+k,gV); return s; }
+function setAdvancedSpacing(on){ advancedSpacing=on; render(); drawAnnOverlay(); }
+function resetGutters(){ colGaps=null; rowGaps=null; hoverGutter=null; render(); drawAnnOverlay(); toast('Gutters reset to uniform','ok'); }
+
+// Geometry of the grid drawing region (logical coords), shared by hit-testing & overlay.
+function gridGeom(){
+  if(layoutMode==='freeform') return null;
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const pw=Math.max(20,gi('panel-w')), ph=Math.max(20,gi('panel-h'));
+  const gH=Math.max(0,gi('gap-h')), gV=Math.max(0,gi('gap-v'));
+  const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
+  const axisFs=gi('axis-fs');
+  const titleH=gv('fig-title').trim()?axisFs+20:0;
+  const colLblH=showCols?axisFs+14:0, rowLblW=showRows?axisFs+14:0;
+  const x0=rowLblW+gi('m-left'), y0=titleH+gi('m-top')+colLblH;
+  const gridW=cols*pw+totalGapsW(cols,gH), gridH=rows*ph+totalGapsH(rows,gV);
+  return {cols,rows,pw,ph,gH,gV,x0,y0,gridW,gridH,titleH,colLblH,rowLblW};
+}
+// Which gutter (if any) is under a logical point. Returns {axis,index,x,y,w,h,gapPx}.
+function gutterAtPoint(x,y){
+  if(!images.length) return null;
+  const G=gridGeom(); if(!G) return null;
+  const TOL=6;
+  if(y>=G.y0-TOL && y<=G.y0+G.gridH+TOL){
+    for(let c=1;c<G.cols;c++){
+      const gap=gapBefore(c,G.gH), left=G.x0+colOffset(c,G.pw,G.gH)-gap;
+      if(Math.abs(x-(left+gap/2))<=Math.max(TOL,gap/2+TOL))
+        return {axis:'col',index:c,x:left,y:G.y0,w:gap,h:G.gridH,gapPx:gap};
+    }
+  }
+  if(x>=G.x0-TOL && x<=G.x0+G.gridW+TOL){
+    for(let r=1;r<G.rows;r++){
+      const gap=rGapBefore(r,G.gV), top=G.y0+rowOffset(r,G.ph,G.gV)-gap;
+      if(Math.abs(y-(top+gap/2))<=Math.max(TOL,gap/2+TOL))
+        return {axis:'row',index:r,x:G.x0,y:top,w:G.gridW,h:gap,gapPx:gap};
+    }
+  }
+  return null;
+}
+function setGutter(axis,index,value){
+  value=Math.max(0,Math.round(value));
+  if(advancedSpacing){
+    if(axis==='col'){ if(!colGaps) colGaps=new Array(Math.max(0,Math.max(1,gi('cols'))-1)).fill(null); colGaps[index-1]=value; }
+    else { if(!rowGaps) rowGaps=new Array(Math.max(0,Math.max(1,gi('rows'))-1)).fill(null); rowGaps[index-1]=value; }
+  } else {
+    sv(axis==='col'?'gap-h':'gap-v', value);
+  }
+}
+function nudgeGutter(axis,index,delta){
+  const cur=advancedSpacing
+    ? (axis==='col'?gapBefore(index,gi('gap-h')):rGapBefore(index,gi('gap-v')))
+    : (axis==='col'?gi('gap-h'):gi('gap-v'));
+  setGutter(axis,index,cur+delta);
+  render(); drawAnnOverlay();
+}
+
+function render(targetCanvas, exportScale){
+  // targetCanvas/exportScale set ⇒ off-screen supersampled export render.
+  // Default (no args) ⇒ on-screen preview at logical size.
+  const isExport = !!targetCanvas;
+  const S = exportScale || 1;
+  if(!isExport) panelBounds = [];
+  const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
-    if(!freeformElements.length){ setStatus('Add elements in freeform mode.'); return; }
+    if(!isExport && !freeformElements.length){ setStatus('Add elements in freeform mode.'); return; }
     renderFreeform(canvas, ctx);
     return;
   }
-  if(images.length===0){ setStatus('Drop images to get started.'); return; }
+  if(images.length===0){ if(!isExport) setStatus('Drop images to get started.'); return; }
 
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const pw=Math.max(20,gi('panel-w')), ph=Math.max(20,gi('panel-h'));
@@ -1779,10 +1896,16 @@ function render(){
   const colLblH = showCols ? axisFs+14 : 0;
   const rowLblW = showRows ? axisFs+14 : 0;
 
-  const totalW = rowLblW+mLeft + cols*pw + Math.max(0,cols-1)*gH + mRight;
-  const totalH = titleH+mTop + colLblH + rows*ph + Math.max(0,rows-1)*gV + mBtm;
+  // Size arrays to current grid so stale overrides don't linger
+  syncGapArrays(cols, rows);
 
-  canvas.width=totalW; canvas.height=totalH;
+  const totalW = rowLblW+mLeft + cols*pw + totalGapsW(cols, gH) + mRight;
+  const totalH = titleH+mTop + colLblH + rows*ph + totalGapsH(rows, gV) + mBtm;
+
+  canvas.width=Math.round(totalW*S); canvas.height=Math.round(totalH*S);
+  // All draw calls below use logical units; one outer transform scales to backing px.
+  ctx.setTransform(S,0,0,S,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
 
   ctx.fillStyle=bgColor; ctx.fillRect(0,0,totalW,totalH);
   const textClr = luma(bgColor)<128 ? '#ffffff' : '#000000';
@@ -1808,7 +1931,7 @@ function render(){
     ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let c=0;c<cols;c++){
       ctx.fillText(ins[c]?.value||`Col ${c+1}`,
-        rowLblW+mLeft + c*(pw+gH) + pw/2, titleH+mTop+colLblH/2);
+        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+colLblH/2);
     }
   }
   // Row labels
@@ -1817,7 +1940,7 @@ function render(){
     ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
     ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let r=0;r<rows;r++){
-      const cy=titleH+mTop+colLblH + r*(ph+gV) + ph/2;
+      const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + ph/2;
       ctx.save(); ctx.translate(mLeft/2, cy); ctx.rotate(-Math.PI/2);
       ctx.fillText(ins[r]?.value||`Row ${r+1}`, 0, 0); ctx.restore();
     }
@@ -1834,10 +1957,10 @@ function render(){
         const cs=Math.min((im?.colSpan||1),cols-c);
         const rs=Math.min((im?.rowSpan||1),rows-r);
         for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
-        const px=rowLblW+mLeft + c*(pw+gH);
-        const py=titleH+mTop+colLblH + r*(ph+gV);
-        const apw=cs*pw+(cs-1)*gH, aph=rs*ph+(rs-1)*gV;
-        panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
+        const px=rowLblW+mLeft + colOffset(c,pw,gH);
+        const py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
+        const apw=cs*pw+spanGapsW(c,cs,gH), aph=rs*ph+spanGapsH(r,rs,gV);
+        if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
         if(!im){
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.05)':'rgba(0,0,0,.04)';
           ctx.fillRect(px,py,apw,aph);
@@ -1970,9 +2093,12 @@ function render(){
     }
   }
 
-  // Draw committed annotations
-  drawAnnotations(ctx, canvas.width, canvas.height);
+  // Draw committed annotations (logical dims — ctx is scaled by S)
+  drawAnnotations(ctx, totalW, totalH);
 
+  if(isExport) return; // off-screen export: don't touch on-screen UI state
+
+  canvasLogicalW=totalW; canvasLogicalH=totalH;
   const exportDpiVal=getExportDPI?getExportDPI():300;
   const wMm=(totalW/exportDpiVal*25.4).toFixed(1), hMm=(totalH/exportDpiVal*25.4).toFixed(1);
   document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${wMm}×${hMm}mm · ${cols}×${rows} · ${Math.round(zoom*100)}%`;
@@ -2089,7 +2215,14 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im){
     const x2=pbx+(a.x2f??a.xf)*pbw, y2=pby+(a.y2f??a.yf)*pbh;
     if(a.type==='text'){
       ctx.font=`${st} ${wt} ${a.fontSize||16}px ${fam}`;
-      ctx.fillStyle=a.color||'#fff'; ctx.textBaseline='top';
+      ctx.textBaseline='top';
+      if(a.halo){
+        ctx.save(); ctx.lineJoin='round'; ctx.miterLimit=2;
+        ctx.lineWidth=Math.max(2,(a.fontSize||16)*0.18);
+        ctx.strokeStyle=a.haloColor||'rgba(0,0,0,.85)';
+        ctx.strokeText(a.text, x1, y1); ctx.restore();
+      }
+      ctx.fillStyle=a.color||'#fff';
       ctx.fillText(a.text, x1, y1);
     } else {
       drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2);
@@ -2119,6 +2252,9 @@ function showPanelAnnFloat(imgIdx, annIdx, pb){
   const isTxt=a.type==='text';
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
+  document.getElementById('ann-float-halo').style.display=isTxt?'':'none';
+  document.getElementById('ann-float-halo-lbl').style.display=isTxt?'':'none';
+  if(isTxt) document.getElementById('ann-float-halo').checked=a.halo!==false;
   document.getElementById('ann-float-corner').style.display='none';
   document.getElementById('ann-float-corner-lbl').style.display='none';
   // Position near annotation
@@ -2583,9 +2719,13 @@ function setTool(tool){
 // Mouse-coord helper: accounts for CSS scaling
 function canvasCoords(canvas, e){
   const rect = canvas.getBoundingClientRect();
+  // Map screen px into logical canvas coords. Logical size is decoupled from the
+  // backing-store px so high-DPI/supersampled renders don't break hit-testing.
+  const lw = canvasLogicalW || canvas.width;
+  const lh = canvasLogicalH || canvas.height;
   return {
-    x: (e.clientX - rect.left) * canvas.width  / rect.width,
-    y: (e.clientY - rect.top)  * canvas.height / rect.height,
+    x: (e.clientX - rect.left) * lw / rect.width,
+    y: (e.clientY - rect.top)  * lh / rect.height,
   };
 }
 
@@ -2710,7 +2850,14 @@ function drawAnnotationSingle(ctx, a, W, H){
     const wt=gc('label-bold')?'bold':'normal';
     const st=gc('label-italic')?'italic':'normal';
     ctx.font=`${st} ${wt} ${fs}px ${fam}`;
-    ctx.fillStyle=a.color||'#fff'; ctx.textBaseline='top';
+    ctx.textBaseline='top';
+    if(a.halo){
+      ctx.save(); ctx.lineJoin='round'; ctx.miterLimit=2;
+      ctx.lineWidth=Math.max(2,fs*0.18);
+      ctx.strokeStyle=a.haloColor||'rgba(0,0,0,.85)';
+      ctx.strokeText(a.text, a.xf*W, a.yf*H); ctx.restore();
+    }
+    ctx.fillStyle=a.color||'#fff';
     ctx.fillText(a.text, a.xf*W, a.yf*H);
     return;
   }
@@ -2770,6 +2917,7 @@ function drawAnnOverlay(){
   const ctx=annCanvas.getContext('2d');
   ctx.clearRect(0,0,annCanvas.width,annCanvas.height);
   const W=annCanvas.width, H=annCanvas.height;
+  gutterChips=[]; labelToggleHit=null;
 
   // Panel drag: source dimmed, drop target highlighted
   if(panelDragState && panelDragState.moved){
@@ -2873,6 +3021,84 @@ function drawAnnOverlay(){
       }
     }
   }
+
+  drawSpacingOverlay(ctx);
+}
+
+// Draw draggable gutter handles, +/- chips, and the on-canvas label-toggle chip.
+function drawSpacingOverlay(ctx){
+  if(layoutMode==='freeform' || !images.length) return;
+  const G=gridGeom(); if(!G) return;
+  const AC='#5b8dee';
+
+  // Helper to draw one gutter's highlight strip + pill with value and +/- chips
+  const drawGutter=(axis,index,faint)=>{
+    const gap = axis==='col'?gapBefore(index,G.gH):rGapBefore(index,G.gV);
+    let gx,gy,gw,gh;
+    if(axis==='col'){ const left=G.x0+colOffset(index,G.pw,G.gH)-gap; gx=left; gy=G.y0; gw=gap; gh=G.gridH; }
+    else { const top=G.y0+rowOffset(index,G.ph,G.gV)-gap; gx=G.x0; gy=top; gw=G.gridW; gh=gap; }
+    ctx.save();
+    // Strip (centered grab line even when gap is 0)
+    ctx.fillStyle = faint ? 'rgba(91,141,238,.14)' : 'rgba(91,141,238,.28)';
+    if(axis==='col'){ const cx=gx+gw/2; ctx.fillRect(cx-Math.max(1.5,gw/2), gy, Math.max(3,gw), gh); }
+    else { const cy=gy+gh/2; ctx.fillRect(gx, cy-Math.max(1.5,gh/2), gw, Math.max(3,gh)); }
+    // Pill + chips at the gutter midpoint (only for the active/hovered gutter)
+    if(!faint){
+      const midX = axis==='col' ? gx+gw/2 : G.x0+G.gridW/2;
+      const midY = axis==='col' ? G.y0+G.gridH/2 : gy+gh/2;
+      const label=`${gap}`, fs=12, padX=6;
+      ctx.font=`600 ${fs}px system-ui,sans-serif`;
+      const tw=ctx.measureText(label).width;
+      const chip=18, pillW=tw+padX*2, pillH=22, sp=4;
+      const totalW=chip+sp+pillW+sp+chip;
+      let bx=midX-totalW/2, by=midY-pillH/2;
+      // − chip
+      roundRectPath(ctx,bx,by,chip,pillH,5); ctx.fillStyle=AC; ctx.fill();
+      ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font=`700 16px system-ui,sans-serif`; ctx.fillText('−',bx+chip/2,by+pillH/2);
+      gutterChips.push({x:bx,y:by,w:chip,h:pillH,axis,index,delta:-2});
+      bx+=chip+sp;
+      // value pill
+      roundRectPath(ctx,bx,by,pillW,pillH,5); ctx.fillStyle='rgba(20,24,33,.92)'; ctx.fill();
+      ctx.strokeStyle=AC; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle='#fff'; ctx.font=`600 ${fs}px system-ui,sans-serif`;
+      ctx.fillText(label,bx+pillW/2,by+pillH/2);
+      bx+=pillW+sp;
+      // + chip
+      roundRectPath(ctx,bx,by,chip,pillH,5); ctx.fillStyle=AC; ctx.fill();
+      ctx.fillStyle='#fff'; ctx.font=`700 16px system-ui,sans-serif`; ctx.fillText('+',bx+chip/2,by+pillH/2);
+      gutterChips.push({x:bx,y:by,w:chip,h:pillH,axis,index,delta:2});
+    }
+    ctx.restore();
+  };
+
+  // In advanced mode, faintly mark every gutter so users see they're editable.
+  if(advancedSpacing){
+    for(let c=1;c<G.cols;c++) drawGutter('col',c,true);
+    for(let r=1;r<G.rows;r++) drawGutter('row',r,true);
+  }
+  // Active gutter: the one being dragged or hovered.
+  const active = gutterDragState ? {axis:gutterDragState.axis,index:gutterDragState.index} : hoverGutter;
+  if(active) drawGutter(active.axis, active.index, false);
+
+  // On-canvas label toggle chip in the top-left label corner
+  const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
+  if(showCols||showRows){
+    const s=18, cx=4, cy=4;
+    ctx.save();
+    roundRectPath(ctx,cx,cy,s,s,4);
+    ctx.fillStyle='rgba(20,24,33,.85)'; ctx.fill();
+    ctx.strokeStyle=AC; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='700 13px system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('×',cx+s/2,cy+s/2+0.5);
+    ctx.restore();
+    labelToggleHit={x:cx,y:cy,w:s,h:s};
+  }
+}
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
 
 // ── Floating annotation toolbar ──────────────────────────────
@@ -2889,6 +3115,10 @@ function showAnnFloat(idx){
   const isTb=a.type==='textbox';
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
+  const isPlainTxt=a.type==='text';
+  document.getElementById('ann-float-halo').style.display=isPlainTxt?'':'none';
+  document.getElementById('ann-float-halo-lbl').style.display=isPlainTxt?'':'none';
+  if(isPlainTxt) document.getElementById('ann-float-halo').checked=a.halo!==false;
   document.getElementById('ann-float-corner').style.display=isInset?'':'none';
   document.getElementById('ann-float-corner-lbl').style.display=isInset?'':'none';
   document.getElementById('ann-float-fill-lbl').style.display=hasFill?'':'none';
@@ -3066,6 +3296,26 @@ annCanvas.addEventListener('mousedown', e=>{
   }
   // Deselect annotation
   selectedAnnotation=-1; hideAnnFloat();
+  // On-canvas label toggle chip
+  if(labelToggleHit && x>=labelToggleHit.x && x<=labelToggleHit.x+labelToggleHit.w &&
+     y>=labelToggleHit.y && y<=labelToggleHit.y+labelToggleHit.h){ toggleAllLabels(); return; }
+  // Gutter +/- chips
+  for(const ch of gutterChips){
+    if(x>=ch.x && x<=ch.x+ch.w && y>=ch.y && y<=ch.y+ch.h){ nudgeGutter(ch.axis,ch.index,ch.delta); return; }
+  }
+  // Gutter drag — start spacing the panels apart
+  {
+    const g=gutterAtPoint(x,y);
+    if(g){
+      const startGap = advancedSpacing
+        ? (g.axis==='col'?gapBefore(g.index,gi('gap-h')):rGapBefore(g.index,gi('gap-v')))
+        : (g.axis==='col'?gi('gap-h'):gi('gap-v'));
+      gutterDragState={axis:g.axis,index:g.index,startGap,
+        startClient:(g.axis==='col'?e.clientX:e.clientY)};
+      annCanvas.style.cursor=g.axis==='col'?'col-resize':'row-resize';
+      return;
+    }
+  }
   // Check panel hit — start panel drag if there's an image there
   let panelHit=-1;
   for(const b of panelBounds){
@@ -3091,6 +3341,18 @@ annCanvas.addEventListener('mousemove', e=>{
     const wrap=document.getElementById('canvas-wrap');
     wrap.scrollLeft=panState.scrollLeft-(e.clientX-panState.startX);
     wrap.scrollTop=panState.scrollTop-(e.clientY-panState.startY);
+    return;
+  }
+  // Gutter drag — space panels apart live
+  if(gutterDragState){
+    const rect=annCanvas.getBoundingClientRect();
+    const gs=gutterDragState;
+    const ratio=(gs.axis==='col') ? (canvasLogicalW/rect.width) : (canvasLogicalH/rect.height);
+    const deltaClient=(gs.axis==='col'?e.clientX:e.clientY)-gs.startClient;
+    const newGap=Math.max(0, Math.round(gs.startGap + deltaClient*ratio));
+    setGutter(gs.axis, gs.index, newGap);
+    render();
+    showPanelTooltip(`gap ${newGap}px`, e.clientX, e.clientY);
     return;
   }
   // Panel drag — move ghost, highlight drop target
@@ -3187,6 +3449,18 @@ annCanvas.addEventListener('mousemove', e=>{
   if(activeTool==='none'){
     const {x,y}=canvasCoords(annCanvas,e);
     const W=annCanvas.width, H=annCanvas.height;
+    // Gutter hover — highlight the divider and show resize cursor
+    if(!spaceDown){
+      const g=gutterAtPoint(x,y);
+      const prev=hoverGutter;
+      hoverGutter=g;
+      if(g){
+        annCanvas.style.cursor=g.axis==='col'?'col-resize':'row-resize';
+        showPanelTooltip(`gap ${g.gapPx}px — drag to space`, e.clientX, e.clientY);
+        if(!prev||prev.axis!==g.axis||prev.index!==g.index) drawAnnOverlay();
+        return;
+      } else if(prev){ drawAnnOverlay(); }
+    }
     let annHit=false;
     for(let i=annotations.length-1;i>=0;i--){
       if(hitAnnotation(annotations[i],x,y,W,H)){annHit=true;break;}
@@ -3214,6 +3488,14 @@ annCanvas.addEventListener('mouseup', e=>{
     freeformMouseup(e); return;
   }
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
+  // Gutter drag commit
+  if(gutterDragState){
+    gutterDragState=null;
+    annCanvas.style.cursor='default';
+    hidePanelTooltip();
+    drawAnnOverlay();
+    return;
+  }
   // Panel drag commit
   if(panelDragState){
     const {srcIdx, dropIdx, moved}=panelDragState;
@@ -3309,6 +3591,24 @@ annCanvas.addEventListener('mouseup', e=>{
   });
   annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
   renderAnnotationList(); scheduleRender(0);
+});
+
+// Double-click a panel to drop editable text directly onto the image.
+annCanvas.addEventListener('dblclick', e=>{
+  if(layoutMode==='freeform'||panelAnnMode||activeTool!=='none') return;
+  const {x,y}=canvasCoords(annCanvas,e);
+  const pb=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
+  if(!pb) return;
+  if(images[pb.idx].locked){ toast('Panel is locked — unlock to add text','warn'); return; }
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const rect=annCanvas.getBoundingClientRect();
+  const screenX=rect.left+x*(rect.width/W), screenY=rect.top+y*(rect.height/H);
+  const inp=document.getElementById('ann-text-input');
+  inp._panelAnn={imgIdx:pb.idx, pb};
+  inp._px=(x-pb.x)/pb.w; inp._py=(y-pb.y)/pb.h;
+  inp.style.left=Math.max(4,Math.min(window.innerWidth-200,screenX))+'px';
+  inp.style.top=Math.max(4,screenY-14)+'px';
+  inp.style.display='block'; inp.value=''; inp.focus();
 });
 
 // ── Panel right-click context menu ──────────────────────────
@@ -3407,6 +3707,16 @@ document.getElementById('ann-float-font').addEventListener('input', e=>{
   annotations[selectedAnnotation].fontSize=parseInt(e.target.value)||16;
   sv('ann-font',e.target.value); scheduleRender(0);
 });
+document.getElementById('ann-float-halo').addEventListener('change', e=>{
+  if(selectedPanelAnn){
+    const {imgIdx,annIdx}=selectedPanelAnn;
+    images[imgIdx].panelAnns[annIdx].halo=e.target.checked;
+    scheduleRender(0); return;
+  }
+  if(selectedAnnotation<0) return;
+  annotations[selectedAnnotation].halo=e.target.checked;
+  scheduleRender(0);
+});
 document.getElementById('ann-float-corner').addEventListener('change', e=>{
   if(selectedAnnotation<0) return;
   annotations[selectedAnnotation].insetCorner=e.target.value;
@@ -3463,12 +3773,12 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
       const {imgIdx}=inp._panelAnn;
       if(!images[imgIdx].panelAnns) images[imgIdx].panelAnns=[];
       images[imgIdx].panelAnns.push({type:'text',xf:inp._px,yf:inp._py,
-        text:txt,color:gv('ann-color'),fontSize:gi('ann-font')});
+        text:txt,color:gv('ann-color'),fontSize:gi('ann-font'),halo:true});
       inp._panelAnn=null;
     } else {
       pushUndo();
       annotations.push({type:'text',xf:inp._px,yf:inp._py,
-        text:txt,color:gv('ann-color'),fontSize:gi('ann-font')});
+        text:txt,color:gv('ann-color'),fontSize:gi('ann-font'),halo:true});
     }
     inp._px=undefined;
     renderAnnotationList(); scheduleRender(0);
@@ -3505,8 +3815,11 @@ function drawAnnotations(ctx, W, H){
     const ix=corner.includes('r')?pb.x+pb.w-iW-pad:pb.x+pad;
     const iy=corner.includes('b')?pb.y+pb.h-iH-pad:pb.y+pad;
     ctx.save();
-    // Draw zoomed copy from already-rendered canvas
-    ctx.drawImage(ctx.canvas, srcX, srcY, srcW, srcH, ix, iy, iW, iH);
+    // Draw zoomed copy from already-rendered canvas. The source rect indexes the
+    // backing store (physical px), so scale it by the current transform when the
+    // canvas is supersampled for export (sc=1 on-screen).
+    const sc=ctx.getTransform().a||1;
+    ctx.drawImage(ctx.canvas, srcX*sc, srcY*sc, srcW*sc, srcH*sc, ix, iy, iW, iH);
     // Source region dashed border
     ctx.strokeStyle=a.color||'#fff'; ctx.lineWidth=a.width||2;
     ctx.setLineDash([5,3]); ctx.strokeRect(srcX,srcY,srcW,srcH); ctx.setLineDash([]);
@@ -3693,18 +4006,37 @@ function getFigCanvas(){ render(); return document.getElementById('fig-canvas');
 function getExportName(ext){ return (gv('export-name').trim()||'figure')+'.'+ext; }
 function getExportDPI(){ return parseInt(gv('export-dpi'))||300; }
 
+// Build an off-screen canvas rendered at the true target-DPI pixel count
+// (supersampled), so raster exports are genuinely high-res, not just DPI-tagged.
+function renderExportCanvas(dpi){
+  let scale=Math.max(1, dpi/96);
+  const lw=canvasLogicalW||1, lh=canvasLogicalH||1;
+  const MAXPX=60e6; // ~60 megapixels — guard against runaway memory
+  if(lw*lh*scale*scale > MAXPX){
+    scale=Math.max(1, Math.sqrt(MAXPX/(lw*lh)));
+    toast(`Export capped to ~60MP (effective ${Math.round(scale*96)} DPI)`, 'warn');
+  }
+  const off=document.createElement('canvas');
+  render(off, scale);
+  return off;
+}
+
 async function doExport(fmt){
   if(!images.length&&!freeformElements.length){ toast('Add images first','warn'); return; }
   render();
-  const canvas=document.getElementById('fig-canvas');
   const name=gv('export-name').trim()||'figure';
   const dpi=getExportDPI();
+  // Raster formats get a true supersampled re-render (grid mode only).
+  const raster=fmt==='png'||fmt==='jpeg'||fmt==='webp';
+  const canvas=(raster && layoutMode!=='freeform')
+    ? renderExportCanvas(dpi)
+    : document.getElementById('fig-canvas');
   if(fmt==='png')  { await exportPNGWithMeta(name, dpi, canvas); }
   if(fmt==='jpeg') { dl(canvas.toDataURL('image/jpeg',0.95),    `${name}.jpg`); }
   if(fmt==='webp') { dl(canvas.toDataURL('image/webp',0.92),    `${name}.webp`); }
-  if(fmt==='svg')  exportSVG(name, dpi, canvas);
-  if(fmt==='tiff') exportTIFF(name, dpi, canvas);
-  if(fmt==='pdf')  await exportPDF(name, dpi, canvas);
+  if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
+  if(fmt==='tiff') exportTIFF(name, dpi, document.getElementById('fig-canvas'));
+  if(fmt==='pdf')  await exportPDF(name, dpi, document.getElementById('fig-canvas'));
   logAction('export',{format:fmt,dpi,name});
   toast(`Saved ${name}.${fmt==='jpeg'?'jpg':fmt}`, 'ok');
 }
@@ -3778,7 +4110,8 @@ function exportSVG(name, dpi, canvas){
       annSVG+=`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry2}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
     } else if(a.type==='text'){
       const fs=a.fontSize||16;
-      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}">${a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
+      const halo=a.halo?` stroke="${a.haloColor||'rgba(0,0,0,0.85)'}" stroke-width="${Math.max(2,fs*0.18).toFixed(2)}" stroke-linejoin="round" paint-order="stroke"`:'';
+      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
     }
   });
   const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngNoAnns}"/>\n  ${annSVG}\n</svg>`;
@@ -3791,6 +4124,7 @@ function exportTIFF(name, dpi, canvas){
   const W=Math.round(canvas.width*scale), H=Math.round(canvas.height*scale);
   const hiC=document.createElement('canvas'); hiC.width=W; hiC.height=H;
   const hiCtx=hiC.getContext('2d');
+  hiCtx.imageSmoothingEnabled=true; hiCtx.imageSmoothingQuality='high';
   hiCtx.scale(scale,scale); hiCtx.drawImage(canvas,0,0);
   const raw=hiCtx.getImageData(0,0,W,H).data;
   const rgb=new Uint8Array(W*H*3);
@@ -4003,7 +4337,8 @@ function saveJSON(){
       gapH:gv('gap-h'),gapV:gv('gap-v'),mTop:gv('m-top'),mLeft:gv('m-left'),mBtm:gv('m-btm'),mRight:gv('m-right'),
       figTitle:gv('fig-title'),showColLabels:gc('show-col-labels'),showRowLabels:gc('show-row-labels'),
       colLabels:[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value),
-      rowLabels:[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value) },
+      rowLabels:[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value),
+      colGaps, rowGaps, advancedSpacing },
     style:{ bgColor:gv('bg-color'),showLabels:gc('show-labels'),labelSize:gv('label-size'),
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
       sbText:gc('sb-text'),axisFs:gv('axis-fs'),labelFont:gv('label-font'),
@@ -4043,6 +4378,10 @@ function loadJSON(input){
         sv('m-top',L.mTop);sv('m-left',L.mLeft);sv('m-btm',L.mBtm);sv('m-right',L.mRight);
         sv('fig-title',L.figTitle||'');
         sc('show-col-labels',L.showColLabels);sc('show-row-labels',L.showRowLabels);
+        colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
+        rowGaps=Array.isArray(L.rowGaps)?L.rowGaps.slice():null;
+        advancedSpacing=!!L.advancedSpacing;
+        const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing;
       }
       if(s.style){
         const T=s.style;
@@ -4459,8 +4798,10 @@ function renderFreeform(canvas, ctx){
   const H=Math.max(200,parseInt(document.getElementById('fm-canvas-h').value)||900);
   canvas.width=W; canvas.height=H;
   annCanvas.width=W; annCanvas.height=H;
+  canvasLogicalW=W; canvasLogicalH=H;
 
   const bgColor=gv('bg-color');
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
   ctx.fillStyle=bgColor; ctx.fillRect(0,0,W,H);
 
   // Sort by zIndex
