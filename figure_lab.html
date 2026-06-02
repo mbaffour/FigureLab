@@ -2168,6 +2168,11 @@ function applyAdjust(im, sx, sy, sw, sh){
   const needGamma=(im.gamma||1)!==1;
   const needFilter=im.brightness!==1||im.contrast!==1||im.grayscale||im.invert||needLut||needBW||needGamma;
   if(!needFilter) return {off:false};
+  // Cache the processed canvas per-image: the expensive per-pixel pass only re-runs
+  // when an adjustment or the source crop rect actually changes. Big win when one
+  // slider moves in a multi-panel figure (the other panels reuse their cache).
+  const key=`${im.brightness}|${im.contrast}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}`;
+  if(im._adjKey===key && im._adjCache) return {off:true,canvas:im._adjCache};
   const c=document.createElement('canvas');
   c.width=Math.round(sw); c.height=Math.round(sh);
   const ctx=c.getContext('2d');
@@ -2206,6 +2211,7 @@ function applyAdjust(im, sx, sy, sw, sh){
     }
     ctx.putImageData(d,0,0);
   }
+  im._adjKey=key; im._adjCache=c;
   return {off:true,canvas:c};
 }
 
