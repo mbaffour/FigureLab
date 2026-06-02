@@ -159,6 +159,8 @@ input[type=checkbox]{width:13px;height:13px;accent-color:var(--accent);cursor:po
   transition:background .1s,border-color .1s}
 .btn:hover{background:var(--border)}
 .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+body.exporting{cursor:progress}
+body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-events:none}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 .btn-primary:hover{background:#4a7de0;border-color:#4a7de0}
 .btn-success{background:var(--a2);color:#0d1117;border-color:var(--a2);font-weight:700}
@@ -612,7 +614,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </details>
 
 <!-- EXPORT -->
-<details>
+<details id="export-acc">
   <summary>Export</summary>
   <div class="acc-body">
     <div class="sec-lbl">File name</div>
@@ -1093,7 +1095,7 @@ document.getElementById('file-input').addEventListener('change', e => { addFiles
 let _preCropQueue=[];
 let _preCropBusy=false;
 
-function _rasterizeSVG(dataURL, callback){
+function _rasterizeSVG(dataURL, callback, onfail){
   const img=new Image();
   img.onload=()=>{
     const nw=img.naturalWidth||800, nh=img.naturalHeight||800;
@@ -1106,8 +1108,10 @@ function _rasterizeSVG(dataURL, callback){
     const png=c.toDataURL('image/png');
     const out=new Image();
     out.onload=()=>callback(out,png);
+    out.onerror=()=>onfail&&onfail();
     out.src=png;
   };
+  img.onerror=()=>onfail&&onfail();
   img.src=dataURL;
 }
 
@@ -1115,21 +1119,24 @@ function addFiles(fileList){
   Array.from(fileList).forEach(f=>{
     const reader=new FileReader();
     const isSVG=f.type==='image/svg+xml'||f.name.toLowerCase().endsWith('.svg');
+    const fail=()=>{ toast(`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
     reader.onload=ev=>{
       if(isSVG){
         _rasterizeSVG(ev.target.result,(img,src)=>{
           _preCropQueue.push({img,src,name:f.name});
           _drainPreCrop();
-        });
+        }, fail);
       } else {
         const img=new Image();
         img.onload=()=>{
           _preCropQueue.push({img, src:ev.target.result, name:f.name});
           _drainPreCrop();
         };
+        img.onerror=fail;
         img.src=ev.target.result;
       }
     };
+    reader.onerror=fail;
     reader.readAsDataURL(f);
   });
 }
@@ -1656,12 +1663,12 @@ function zoomTo100(){
 async function copyToClipboard(){
   const canvas=document.getElementById('fig-canvas');
   if(!canvas.width){ toast('Render a figure first','warn'); return; }
-  try{
-    canvas.toBlob(async blob=>{
+  canvas.toBlob(async blob=>{
+    try{
       await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
       toast('Copied to clipboard','ok');
-    },'image/png');
-  } catch(err){ toast('Clipboard not supported in this browser','warn'); }
+    } catch(err){ toast('Clipboard blocked — use Export instead','warn'); }
+  },'image/png');
 }
 
 // Format panel label by idx using the label-format selector (A/a/1/i)
@@ -4021,24 +4028,42 @@ function renderExportCanvas(dpi){
   return off;
 }
 
+let _exporting=false;
+// toDataURL returns "data:," (not an exception) when the canvas is too large.
+function _safeDataURL(canvas, type, q){
+  const url=canvas.toDataURL(type,q);
+  if(!url || url.length<32) throw new Error('canvas too large');
+  return url;
+}
 async function doExport(fmt){
   if(!images.length&&!freeformElements.length){ toast('Add images first','warn'); return; }
-  render();
-  const name=gv('export-name').trim()||'figure';
+  if(_exporting){ toast('Export already in progress…','warn'); return; }
+  _exporting=true; document.body.classList.add('exporting');
   const dpi=getExportDPI();
-  // Raster formats get a true supersampled re-render (grid mode only).
-  const raster=fmt==='png'||fmt==='jpeg'||fmt==='webp';
-  const canvas=(raster && layoutMode!=='freeform')
-    ? renderExportCanvas(dpi)
-    : document.getElementById('fig-canvas');
-  if(fmt==='png')  { await exportPNGWithMeta(name, dpi, canvas); }
-  if(fmt==='jpeg') { dl(canvas.toDataURL('image/jpeg',0.95),    `${name}.jpg`); }
-  if(fmt==='webp') { dl(canvas.toDataURL('image/webp',0.92),    `${name}.webp`); }
-  if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
-  if(fmt==='tiff') exportTIFF(name, dpi, document.getElementById('fig-canvas'));
-  if(fmt==='pdf')  await exportPDF(name, dpi, document.getElementById('fig-canvas'));
-  logAction('export',{format:fmt,dpi,name});
-  toast(`Saved ${name}.${fmt==='jpeg'?'jpg':fmt}`, 'ok');
+  toast(`Generating ${dpi} DPI ${fmt.toUpperCase()}…`,'ok');
+  try{
+    render();
+    const name=gv('export-name').trim()||'figure';
+    // Raster formats get a true supersampled re-render (grid mode only).
+    const raster=fmt==='png'||fmt==='jpeg'||fmt==='webp';
+    const canvas=(raster && layoutMode!=='freeform')
+      ? renderExportCanvas(dpi)
+      : document.getElementById('fig-canvas');
+    if(fmt==='png')  { await exportPNGWithMeta(name, dpi, canvas); }
+    if(fmt==='jpeg') { dl(_safeDataURL(canvas,'image/jpeg',0.95), `${name}.jpg`); }
+    if(fmt==='webp') { dl(_safeDataURL(canvas,'image/webp',0.92), `${name}.webp`); }
+    if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
+    if(fmt==='tiff') exportTIFF(name, dpi, document.getElementById('fig-canvas'));
+    if(fmt==='pdf')  await exportPDF(name, dpi, document.getElementById('fig-canvas'));
+    logAction('export',{format:fmt,dpi,name});
+    toast(`Saved ${name}.${fmt==='jpeg'?'jpg':fmt}`, 'ok');
+  } catch(err){
+    console.error('Export failed',err);
+    const big=/too large|size|memory|quota/i.test(err&&err.message||'');
+    toast(`Export failed${big?` at ${dpi} DPI — try a lower DPI`:''}${err&&err.message?': '+err.message:''}`,'err');
+  } finally {
+    _exporting=false; document.body.classList.remove('exporting');
+  }
 }
 
 // ── CRC32 for PNG pHYs chunk ──────────────────────────────────
@@ -4639,6 +4664,17 @@ const gi = id => parseInt(gv(id)) || 0;
 const gc = id => document.getElementById(id)?.checked ?? false;
 const sv = (id,v) => { const el=document.getElementById(id); if(el) el.value=v??''; };
 const sc = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.checked=!!v; };
+// Snap number inputs back into their [min,max] range when the user types/pastes out-of-range.
+document.addEventListener('change', e=>{
+  const el=e.target;
+  if(el&&el.tagName==='INPUT'&&el.type==='number'){
+    let v=parseFloat(el.value);
+    if(isNaN(v)){ if(el.min!=='') el.value=el.min; return; }
+    if(el.min!==''&&v<+el.min) v=+el.min;
+    if(el.max!==''&&v>+el.max) v=+el.max;
+    if(String(v)!==el.value){ el.value=v; el.dispatchEvent(new Event('input',{bubbles:true})); }
+  }
+}, true);
 function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function luma(hex){ const c=parseInt((hex||'#fff').replace('#',''),16); return ((c>>16)&255)*.299+((c>>8)&255)*.587+(c&255)*.114; }
 function dl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
@@ -5286,6 +5322,7 @@ function insertAIImage(){
     freeformElements.push(el); updateFreeformElemList(); scheduleRender(0);
     toast('AI image inserted','ok');
   };
+  img.onerror=()=>toast('Generated image could not be inserted','err');
   img.src=aiGeneratedSrc;
 }
 
@@ -5539,8 +5576,11 @@ function autosave(){
       annotations,
     };
     localStorage.setItem('figurelab-autosave',JSON.stringify(state));
-  }catch(e){}
+  }catch(e){
+    if(!_autosaveWarned){ _autosaveWarned=true; toast('Autosave paused — browser storage full','warn'); }
+  }
 }
+let _autosaveWarned=false;
 function startAutosave(){
   clearInterval(_autosaveTimer);
   _autosaveTimer=setInterval(autosave,60000);
@@ -5996,7 +6036,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
       im.captionNote||'',
     ].filter(Boolean).join(', ');
   });
-  const base=canvas.toDataURL('image/png');
+  const base=_safeDataURL(canvas,'image/png');
   const withMeta=await embedPNGMetadata(base,meta);
   dl(withMeta,name+'.png');
 }
