@@ -159,6 +159,8 @@ input[type=checkbox]{width:13px;height:13px;accent-color:var(--accent);cursor:po
   transition:background .1s,border-color .1s}
 .btn:hover{background:var(--border)}
 .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.stale{background:var(--warn,#e0a020);border-color:var(--warn,#e0a020);color:#0d1117;animation:stalePulse 1.6s ease-in-out infinite}
+@keyframes stalePulse{0%,100%{opacity:1}50%{opacity:.62}}
 body.exporting{cursor:progress}
 body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-events:none}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -805,7 +807,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
   </div>
   <div class="canvas-toolbar">
-    <button class="btn btn-primary" onclick="render()">⟳ Render</button>
+    <button class="btn btn-primary" id="render-btn" onclick="render()" title="Re-render the figure (R)">⟳ Render</button>
     <button class="btn btn-danger" onclick="confirmNewFigure()" title="Clear everything and start fresh">✕ New</button>
     <div class="toolbar-sep"></div>
     <span style="font-size:10px;color:var(--muted)">Quick:</span>
@@ -826,6 +828,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <span id="canvas-info" style="font-size:10px;color:var(--muted)">No figure rendered</span>
   </div>
   <div class="canvas-wrap" id="canvas-wrap">
+    <div id="canvas-hint" style="display:none;position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:50;
+         background:var(--surf2);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;max-width:90%;
+         box-shadow:0 6px 24px rgba(0,0,0,.4);font-size:11.5px;line-height:1.5;display:flex;gap:10px;align-items:flex-start">
+      <span>💡 <b>Tip:</b> Drag the divider <i>between</i> panels to space them out · Double-click a panel to add text · ⊞ Labels toggles headers.</span>
+      <button class="btn" style="padding:2px 7px;font-size:11px" onclick="dismissHint()" aria-label="Dismiss tip">Got it</button>
+    </div>
     <canvas id="bio-bg-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.18"></canvas>
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
       <canvas id="fig-canvas"></canvas>
@@ -1627,6 +1635,17 @@ function onLayoutChange(){
   renderMiniGrid(); scheduleRender();
 }
 
+// First-run discoverability hint (shown once, dismissible).
+function maybeShowHint(){
+  try{ if(localStorage.getItem('fl-hints-seen')) return; }catch(e){}
+  if(layoutMode==='freeform'||!images.length) return;
+  const el=document.getElementById('canvas-hint'); if(el) el.style.display='flex';
+}
+function dismissHint(){
+  const el=document.getElementById('canvas-hint'); if(el) el.style.display='none';
+  try{ localStorage.setItem('fl-hints-seen','1'); }catch(e){}
+}
+
 // One-click: drop (or restore) both row & column labels together.
 function toggleAllLabels(){
   if(layoutMode==='freeform'){ toast('Labels apply to grid mode','warn'); return; }
@@ -1767,14 +1786,20 @@ function autoScaleBar(idx){
 
 function applySettingsToAll(srcIdx){
   const src=images[srcIdx]; if(!src) return;
-  images.forEach((im,i)=>{
-    if(!im||i===srcIdx) return;
-    im.brightness=src.brightness; im.contrast=src.contrast;
-    im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
-    im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
-  });
-  logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
-  scheduleRender(0); toast('Settings applied to all panels','ok');
+  const n=images.filter((im,i)=>im&&i!==srcIdx).length;
+  if(!n){ toast('No other panels to apply to','warn'); return; }
+  showConfirmModal('Apply to all panels?',
+    `Brightness, contrast, gamma, LUT, and levels from panel ${src.label} will overwrite ${n} other panel(s). This can't be undone.`,
+    ()=>{
+      images.forEach((im,i)=>{
+        if(!im||i===srcIdx) return;
+        im.brightness=src.brightness; im.contrast=src.contrast;
+        im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
+        im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
+      });
+      logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
+      scheduleRender(0); toast(`Settings applied to ${n} panel(s)`,'ok');
+    });
 }
 
 function exportCSV(){
@@ -1797,7 +1822,13 @@ function exportCSV(){
 // ═══════════════════════════════════════════════════════════════
 // CANVAS RENDERING
 // ═══════════════════════════════════════════════════════════════
-function scheduleRender(d=250){ clearTimeout(renderTimer); renderTimer=setTimeout(()=>render(),d); }
+function scheduleRender(d=250){
+  clearTimeout(renderTimer);
+  const rb=document.getElementById('render-btn'); if(rb) rb.classList.add('stale');
+  // rAF-coalesced so slider drags stay at ~one render per frame
+  renderTimer=setTimeout(()=>{ cancelAnimationFrame(_rafR); _rafR=requestAnimationFrame(()=>render()); }, d);
+}
+let _rafR=0;
 
 // ── Per-gutter spacing helpers ─────────────────────────────
 // Resize override arrays to match the current grid (truncate / pad with null).
@@ -2105,6 +2136,8 @@ function render(targetCanvas, exportScale){
 
   if(isExport) return; // off-screen export: don't touch on-screen UI state
 
+  const rb=document.getElementById('render-btn'); if(rb) rb.classList.remove('stale');
+  maybeShowHint();
   canvasLogicalW=totalW; canvasLogicalH=totalH;
   const exportDpiVal=getExportDPI?getExportDPI():300;
   const wMm=(totalW/exportDpiVal*25.4).toFixed(1), hMm=(totalH/exportDpiVal*25.4).toFixed(1);
