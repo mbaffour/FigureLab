@@ -24,6 +24,8 @@ Works for microscopy images, western blots, histology, gels, clinical photos, or
 | Feature | Details |
 |---|---|
 | Grid layout | Rows × columns with independent horizontal and vertical gap control |
+| Drag-to-space | Hover between panels on the canvas and **drag the divider** (or tap **+ / −**) to space them out live |
+| Per-gutter spacing | Turn on **Per-gutter spacing** to give individual rows/columns their own gap; **Reset gutters** returns to uniform |
 | Per-panel crop | Trim each edge by % — or use the interactive crop editor |
 | Panel labels | Format as A/B/C, a/b/c, 1/2/3, or i/ii/iii — with position, size, colour, font, bold/italic |
 | Panel border | Optional border around each panel (width + colour) |
@@ -151,6 +153,14 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ---
 
+## Common tasks
+
+- **Space two panels apart** — hover the seam between them; a blue divider with a `gap` pill appears. Drag it (or tap **+**) to push them apart. Drag a horizontal seam for row spacing, a vertical seam for column spacing.
+- **Give one row extra breathing room** — tick **Per-gutter spacing** in the Layout panel, then drag only the gutter under that row. Everything else stays tight. **Reset gutters** restores a uniform grid.
+- **Drop labels in one click** — click **⊞ Labels** in the canvas toolbar (or the small **×** chip in the figure's top-left) to add or remove row & column headers instantly.
+- **Write directly on an image** — double-click a panel, type your text, press **Enter**. The label is pinned to that panel (it follows the panel if you reorder) and gets a dark **halo** so it stays readable over bright micrographs. Toggle the halo from the floating toolbar.
+- **Export print-ready** — set DPI to 300–600 and export PNG/JPEG/WebP: the figure is re-rendered at the true pixel count (supersampled), so text, scale bars, and lines stay crisp — not just DPI-tagged.
+
 ## Tips
 
 - **Drag the ⠿ handle** in the image list to reorder panels (locked panels cannot be moved)
@@ -166,8 +176,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ## Technical Notes
 
 - Everything runs in the browser — no data ever leaves your computer
+- Raster export (PNG/JPEG/WebP): the figure is re-rendered off-screen at the true target-DPI pixel count (supersampled, high-quality smoothing), so output is genuinely high-resolution — capped at ~60 megapixels to stay within browser memory
 - TIFF export: uncompressed RGB, scaled to target DPI (not just metadata — actual pixel count is correct)
-- PNG export: pHYs chunk injected for correct DPI in Photoshop / ImageJ
+- PNG export: DPI and reproducibility metadata embedded; correct DPI in Photoshop / ImageJ
 - PDF export: JPEG-compressed raster at correct physical page size
 - SVG export: background PNG + native SVG shapes for vector annotations
 - Gamma correction uses a 256-entry LUT computed once per render for speed
@@ -176,6 +187,13 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.3
+- **Drag-to-space gutters** — hover between panels and drag the divider (or tap + / −) to set spacing directly on the canvas
+- **Per-gutter spacing** mode for independent row/column gaps, with one-click reset to uniform
+- **One-click label toggle** — ⊞ Labels toolbar button and an on-canvas × chip
+- **Double-click to add text** onto any panel, with an inline editor and a readability halo (also exported to SVG)
+- **True high-resolution raster export** — PNG/JPEG/WebP re-rendered at the real target-DPI pixel count, with high-quality image smoothing throughout
 
 ### v3.0
 - Rotate and flip per panel
