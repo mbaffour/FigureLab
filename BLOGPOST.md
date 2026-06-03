@@ -73,6 +73,26 @@ FigureLab was built collaboratively with [Claude](https://claude.ai) (Anthropic'
 
 ---
 
+## What's new in v3.4 *(2026-06-03)*
+
+This round was less about new tricks and more about making the tool feel solid — the difference between a demo and something you trust with a manuscript figure the night before a deadline.
+
+**Direct-manipulation spacing.** Spacing panels apart used to mean typing numbers into a gap field and guessing. Now you hover between two panels, grab the divider that appears, and drag — the panels move apart in real time with a live pixel readout. Tap the `+`/`−` chips for fine nudges. If you need one row to breathe more than the others, turn on per-gutter spacing and every gap becomes independently draggable, with a one-click reset back to uniform.
+
+**Text straight onto the image.** Double-click any panel and type. The label is pinned to that panel — it travels with the panel if you reorder — and it gets a subtle dark halo so white text stays legible over a bright fluorescence channel. The halo exports correctly to SVG too.
+
+**One-click labels.** A single toolbar button drops or restores row and column headers, instead of hunting for two separate checkboxes.
+
+**Exports that are actually high resolution.** Previously PNG and JPEG were tagged as 300 DPI but rendered at screen resolution — the dirty secret of most browser canvas tools. Now raster exports re-render the whole figure off-screen at the true target pixel count, so text and scale bars are genuinely crisp at 600 DPI, not just labelled as such.
+
+**Universal undo.** This is the one I most wish I'd had from the start. Ctrl+Z now reaches everything — deleting a panel, reordering, a brightness slider, a crop, a layout change, a gutter drag — not just annotations. It works by snapshotting the editable state while holding onto the loaded images by reference, so undo costs almost nothing even with large TIFFs loaded. One undo step per edit, the way you'd expect.
+
+**The unglamorous reliability work.** Corrupt files now tell you they failed instead of silently hanging the import. The clipboard and export paths report errors honestly rather than claiming success. A too-large export suggests a lower DPI instead of producing nothing. Slow exports show progress; a stale canvas tells you it needs re-rendering. Dragging a brightness slider on an eight-panel figure stays smooth, because panels that didn't change are no longer reprocessed on every frame. And the keyboard-and-screen-reader basics — visible focus outlines, labelled buttons, higher-contrast text — are finally in place.
+
+None of this is exciting in a screenshot. All of it is the difference between a tool you tolerate and a tool you reach for.
+
+---
+
 ## What's new in v3.2 *(2026-04-24)*
 
 **Batch crop.** The single most repetitive task in multi-panel figure work is applying the same crop to a set of images — same field of view, same zoom level, but the subject drifts slightly between frames. The batch crop tool fixes this. Draw the crop region on the first image to lock its size and aspect ratio. Every subsequent image opens with that same fixed-size box, centered, ready to drag into position. Apply and advance, skip, or apply the current position to all remaining images at once. The crop dimensions are identical across every panel; only the position changes.
