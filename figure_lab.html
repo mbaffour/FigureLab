@@ -15,11 +15,11 @@
 }
 [data-theme=dark]{
   --bg:#0e0f11; --surface:#16181c; --surf2:#1e2128; --border:#2a2d35;
-  --border2:#363a45; --text:#e8eaf0; --muted:#7a7f8e;
+  --border2:#363a45; --text:#e8eaf0; --muted:#9298a8;
 }
 [data-theme=lab]{
   --bg:#1a1b2e; --surface:#232438; --surf2:#2a2b42; --border:#373856;
-  --border2:#484a6e; --text:#d4d8f0; --muted:#8890b8;
+  --border2:#484a6e; --text:#d4d8f0; --muted:#a4abd4;
   --accent:#7c8fef; --a2:#4ecda4; --warn:#f0a04b; --danger:#e06070;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -101,6 +101,9 @@ input[type=number],input[type=text],select{
   padding:3px 6px;border:1px solid var(--border);border-radius:5px;
   background:var(--surface);color:var(--text);font-size:11px;font-family:var(--mono);width:76px}
 input[type=number]:focus,input[type=text]:focus,select:focus{outline:none;border-color:var(--accent)}
+/* Visible keyboard focus across all themes (mouse clicks stay clean via :focus-visible) */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.btn:focus-visible,.ann-tool:focus-visible,.icon-btn:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 select{width:auto;cursor:pointer}
 input[type=color]{width:32px;height:24px;border:1px solid var(--border);border-radius:4px;
   padding:2px;background:var(--surface);cursor:pointer}
@@ -324,7 +327,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
-    <button class="btn-icon" id="theme-btn" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
+    <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
   </div>
 </header>
 
@@ -1269,10 +1272,10 @@ function renderImgList(){
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.sbOn && !im.umPerPx ? `<span style="font-size:9px;color:var(--warn);flex-shrink:0" title="Scale bar shown but µm/px not set">⚠</span>` : ''}
-        <button class="icon-btn" title="Duplicate" data-dup="${idx}">⎘</button>
-        <button class="icon-btn" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
-        <button class="icon-btn gear" title="Settings" data-gear="${idx}">⚙</button>
-        <button class="icon-btn del"  title="Remove"   data-del="${idx}">×</button>
+        <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
+        <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
+        <button class="icon-btn gear" aria-label="Panel settings" title="Settings" data-gear="${idx}">⚙</button>
+        <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
       </div>
       <div class="img-settings" id="settings-${idx}">
         <div class="sec-lbl">Scale bar</div>
@@ -2310,8 +2313,11 @@ function showPanelAnnFloat(imgIdx, annIdx, pb){
   const ax=(pb.x+(a.xf+(a.x2f??a.xf))/2*pb.w)*sx + rect.left;
   const ay=(pb.y+Math.min(a.yf,a.y2f??a.yf)*pb.h)*sy + rect.top;
   const fw=260;
-  document.getElementById('ann-float').style.left=Math.max(4,Math.min(window.innerWidth-fw-4,ax-fw/2))+'px';
-  document.getElementById('ann-float').style.top=Math.max(4,ay-54)+'px';
+  const af=document.getElementById('ann-float');
+  af.style.left=Math.max(4,Math.min(window.innerWidth-fw-4,ax-fw/2))+'px';
+  const afH=af.offsetHeight||44;
+  let afTop=ay-54; if(afTop<4) afTop=ay+24; // flip below if it would clip the top
+  af.style.top=Math.max(4,Math.min(window.innerHeight-afH-4,afTop))+'px';
   document.getElementById('ann-float').style.display='flex';
 }
 
@@ -3085,7 +3091,7 @@ function drawSpacingOverlay(ctx){
     else { const top=G.y0+rowOffset(index,G.ph,G.gV)-gap; gx=G.x0; gy=top; gw=G.gridW; gh=gap; }
     ctx.save();
     // Strip (centered grab line even when gap is 0)
-    ctx.fillStyle = faint ? 'rgba(91,141,238,.14)' : 'rgba(91,141,238,.28)';
+    ctx.fillStyle = faint ? 'rgba(91,141,238,.08)' : 'rgba(91,141,238,.32)';
     if(axis==='col'){ const cx=gx+gw/2; ctx.fillRect(cx-Math.max(1.5,gw/2), gy, Math.max(3,gw), gh); }
     else { const cy=gy+gh/2; ctx.fillRect(gx, cy-Math.max(1.5,gh/2), gw, Math.max(3,gh)); }
     // Pill + chips at the gutter midpoint (only for the active/hovered gutter)
@@ -3102,7 +3108,8 @@ function drawSpacingOverlay(ctx){
       roundRectPath(ctx,bx,by,chip,pillH,5); ctx.fillStyle=AC; ctx.fill();
       ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.textBaseline='middle';
       ctx.font=`700 16px system-ui,sans-serif`; ctx.fillText('−',bx+chip/2,by+pillH/2);
-      gutterChips.push({x:bx,y:by,w:chip,h:pillH,axis,index,delta:-2});
+      // Hit rect padded beyond the visual chip for easier targeting
+      gutterChips.push({x:bx-5,y:by-8,w:chip+10,h:pillH+16,axis,index,delta:-2});
       bx+=chip+sp;
       // value pill
       roundRectPath(ctx,bx,by,pillW,pillH,5); ctx.fillStyle='rgba(20,24,33,.92)'; ctx.fill();
@@ -3113,7 +3120,7 @@ function drawSpacingOverlay(ctx){
       // + chip
       roundRectPath(ctx,bx,by,chip,pillH,5); ctx.fillStyle=AC; ctx.fill();
       ctx.fillStyle='#fff'; ctx.font=`700 16px system-ui,sans-serif`; ctx.fillText('+',bx+chip/2,by+pillH/2);
-      gutterChips.push({x:bx,y:by,w:chip,h:pillH,axis,index,delta:2});
+      gutterChips.push({x:bx-5,y:by-8,w:chip+10,h:pillH+16,axis,index,delta:2});
     }
     ctx.restore();
   };
@@ -3194,7 +3201,9 @@ function showAnnFloat(idx){
   }
   const fw=260;
   f.style.left=Math.max(4,Math.min(window.innerWidth-fw-4,cx-fw/2))+'px';
-  f.style.top=Math.max(4,ty-54)+'px';
+  const fH=f.offsetHeight||44;
+  let fTop=ty-54; if(fTop<4) fTop=ty+24; // flip below if it would clip the top
+  f.style.top=Math.max(4,Math.min(window.innerHeight-fH-4,fTop))+'px';
   f.style.display='flex';
 }
 function hideAnnFloat(){ document.getElementById('ann-float').style.display='none'; }
