@@ -2941,10 +2941,11 @@ function redo(){
 // Capture-before-edit for form controls: arm a snapshot on pointer/keyboard
 // interaction, commit it on the resulting change. One undo step per gesture.
 let _pendingUndoSnap=null;
-const _UNDO_SEL='#grid-controls input,#grid-controls select,.img-settings input,.img-settings select';
+const _UNDO_SEL='#grid-controls input,#grid-controls select,.img-settings input,.img-settings select,.img-label-input';
 function _armUndo(t){ if(t&&t.matches&&t.matches(_UNDO_SEL)&&!_pendingUndoSnap) _pendingUndoSnap=snapshotState(); }
 document.addEventListener('pointerdown',e=>_armUndo(e.target),true);
-document.addEventListener('keydown',e=>{ if(/^(Arrow|Backspace|Delete|[0-9.])/.test(e.key)) _armUndo(e.target); },true);
+// arm on any value-changing key (single char, or editing keys) so text + numeric edits are undoable
+document.addEventListener('keydown',e=>{ if(e.key&&(e.key.length===1||/^(Arrow|Backspace|Delete)/.test(e.key))) _armUndo(e.target); },true);
 document.addEventListener('change',e=>{
   if(_pendingUndoSnap && e.target.matches && e.target.matches(_UNDO_SEL)){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; }
 },true);
@@ -3545,6 +3546,7 @@ annCanvas.addEventListener('mousemove', e=>{
     if(annResizeState.updateYF)  a.yf  = Math.max(0,Math.min(1,y/H));
     if(annResizeState.updateX2F) a.x2f = Math.max(0,Math.min(1,x/W));
     if(annResizeState.updateY2F) a.y2f = Math.max(0,Math.min(1,y/H));
+    annResizeState.moved=true;
     drawAnnOverlay();
     return;
   }
@@ -3703,7 +3705,7 @@ annCanvas.addEventListener('mouseup', e=>{
     renderAnnotationList(); scheduleRender(0); return;
   }
   if(annResizeState){
-    _pushSnap(annResizeState.preDrag);
+    if(annResizeState.moved) _pushSnap(annResizeState.preDrag); // skip no-op resize
     annResizeState=null;
     annCanvas.style.cursor='default';
     if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
