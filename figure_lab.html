@@ -185,6 +185,7 @@ body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-eve
 .canvas-wrap{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:24px;position:relative}
 .canvas-container{position:relative;display:inline-block;line-height:0}
 #fig-canvas{display:block;max-width:100%;box-shadow:0 0 0 1px var(--border),0 8px 40px rgba(0,0,0,.55)}
+#fig-canvas-hd{position:absolute;top:0;left:0;pointer-events:none;max-width:100%;display:none}
 #ann-canvas{position:absolute;top:0;left:0;pointer-events:none;max-width:100%}
 #ann-canvas.drawing{pointer-events:all;cursor:crosshair}
 #ann-canvas.text-mode{pointer-events:all;cursor:text}
@@ -840,6 +841,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <canvas id="bio-bg-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.18"></canvas>
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
       <canvas id="fig-canvas"></canvas>
+      <canvas id="fig-canvas-hd"></canvas>
       <canvas id="ann-canvas"></canvas>
     </div>
   </div>
@@ -1923,11 +1925,11 @@ function render(targetCanvas, exportScale){
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
-    if(!isExport && !freeformElements.length){ setStatus('Add elements in freeform mode.'); return; }
+    if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.'); return; }
     renderFreeform(canvas, ctx);
     return;
   }
-  if(images.length===0){ if(!isExport) setStatus('Drop images to get started.'); return; }
+  if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
 
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const pw=Math.max(20,gi('panel-w')), ph=Math.max(20,gi('panel-h'));
@@ -2162,6 +2164,29 @@ function render(targetCanvas, exportScale){
 
   // Redraw selection overlay
   drawAnnOverlay();
+
+  // Show the live (logical) canvas now; sharpen with a high-DPI layer once idle.
+  hideHD();
+  scheduleHD();
+}
+
+// ── High-DPI display layer ───────────────────────────────────
+// #fig-canvas stays the logical analysis/export buffer (untouched). When the
+// user pauses editing we render a crisp devicePixelRatio copy into #fig-canvas-hd
+// and overlay it, so on-screen text/lines are sharp without enlarging the buffer
+// that measurements and exports read.
+let _hdTimer=null;
+function hideHD(){ const hd=document.getElementById('fig-canvas-hd'); if(hd) hd.style.display='none'; }
+function scheduleHD(){ clearTimeout(_hdTimer); _hdTimer=setTimeout(updateHD,150); }
+function updateHD(){
+  const hd=document.getElementById('fig-canvas-hd');
+  if(!hd) return;
+  const dpr=Math.min(2, window.devicePixelRatio||1);
+  if(layoutMode!=='grid' || !images.length || dpr<=1 || !canvasLogicalW){ hd.style.display='none'; return; }
+  render(hd, dpr);                       // true high-res figure+annotations (isExport path)
+  hd.style.width=canvasLogicalW+'px';    // display at logical size → crisp downscale by browser
+  hd.style.height=canvasLogicalH+'px';
+  hd.style.display='block';
 }
 
 // Fluorescence LUT table: maps intensity 0-255 → [r,g,b]
@@ -4105,6 +4130,7 @@ function confirmNewFigure(){
     annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
     document.getElementById('fig-canvas').getContext('2d').clearRect(0,0,
       document.getElementById('fig-canvas').width, document.getElementById('fig-canvas').height);
+    hideHD();
     document.getElementById('canvas-info').textContent='No figure rendered';
     setStatus('Drop images to get started.');
     toast('New figure started','ok');
@@ -4960,6 +4986,7 @@ function clearFreeformElements(){
 }
 
 function renderFreeform(canvas, ctx){
+  if(typeof hideHD==='function') hideHD(); // freeform preview stays logical
   const W=Math.max(200,parseInt(document.getElementById('fm-canvas-w').value)||1200);
   const H=Math.max(200,parseInt(document.getElementById('fm-canvas-h').value)||900);
   canvas.width=W; canvas.height=H;
