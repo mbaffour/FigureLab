@@ -1227,6 +1227,7 @@ function _commitImage(img,src,name){
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
       borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1};
+    pushUndo();
     // Apply shared panel settings if a share link was loaded
     if(window._sharedPanelSettings){
       const ps = window._sharedPanelSettings[images.length];
@@ -1246,6 +1247,7 @@ function nextLabel(){
 
 // Swap two image slots while keeping labels POSITIONAL (label belongs to slot, not image)
 function swapImages(i, j){
+  pushUndo();
   const li=images[i]?.label??null, lj=images[j]?.label??null;
   [images[i],images[j]]=[images[j],images[i]];
   if(images[i]) images[i].label=li??nextLabel();
@@ -1397,10 +1399,14 @@ function renderImgList(){
     const labelInput = item.querySelector('.img-label-input');
 
     item.querySelector('[data-del]').addEventListener('click', ()=>{
+      pushUndo();
       images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     item.querySelector('[data-dup]').addEventListener('click', ()=>{
-      const clone = {...images[idx], id:Date.now()+Math.random(), label:nextLabel()};
+      pushUndo();
+      const clone = {...images[idx], id:Date.now()+Math.random(), label:nextLabel(),
+        channels:(images[idx].channels||[]).map(ch=>({...ch})),
+        panelAnns:(images[idx].panelAnns||[]).map(a=>({...a})), _adjCache:undefined,_adjKey:undefined};
       images.splice(idx+1, 0, clone);
       renderImgList(); renderMiniGrid(); scheduleRender();
     });
@@ -1475,11 +1481,11 @@ function renderImgList(){
     item.querySelector('[data-matchall]').addEventListener('click',()=>matchPanelToAll(idx));
 
     // Rotation / flip
-    item.querySelector('[data-rot="ccw"]').addEventListener('click',()=>{ images[idx].rotate=((images[idx].rotate||0)-90+360)%360; scheduleRender(); });
-    item.querySelector('[data-rot="cw"]').addEventListener('click',()=>{ images[idx].rotate=((images[idx].rotate||0)+90)%360; scheduleRender(); });
-    item.querySelector('[data-rot="180"]').addEventListener('click',()=>{ images[idx].rotate=((images[idx].rotate||0)+180)%360; scheduleRender(); });
-    item.querySelector('[data-fliph]').addEventListener('click',()=>{ images[idx].flipH=!images[idx].flipH; scheduleRender(); });
-    item.querySelector('[data-flipv]').addEventListener('click',()=>{ images[idx].flipV=!images[idx].flipV; scheduleRender(); });
+    item.querySelector('[data-rot="ccw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)-90+360)%360; scheduleRender(); });
+    item.querySelector('[data-rot="cw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)+90)%360; scheduleRender(); });
+    item.querySelector('[data-rot="180"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)+180)%360; scheduleRender(); });
+    item.querySelector('[data-fliph]').addEventListener('click',()=>{ pushUndo(); images[idx].flipH=!images[idx].flipH; scheduleRender(); });
+    item.querySelector('[data-flipv]').addEventListener('click',()=>{ pushUndo(); images[idx].flipV=!images[idx].flipV; scheduleRender(); });
 
     // B/W point sliders
     const bptSlider=item.querySelector('.f-bpt'), bptVal=item.querySelector('.f-bpt-v');
@@ -1652,6 +1658,7 @@ function dismissHint(){
 // One-click: drop (or restore) both row & column labels together.
 function toggleAllLabels(){
   if(layoutMode==='freeform'){ toast('Labels apply to grid mode','warn'); return; }
+  pushUndo();
   const cc=document.getElementById('show-col-labels'), rc=document.getElementById('show-row-labels');
   const anyOn=cc.checked||rc.checked;
   cc.checked=!anyOn; rc.checked=!anyOn;
@@ -1794,6 +1801,7 @@ function applySettingsToAll(srcIdx){
   showConfirmModal('Apply to all panels?',
     `Brightness, contrast, gamma, LUT, and levels from panel ${src.label} will overwrite ${n} other panel(s). This can't be undone.`,
     ()=>{
+      pushUndo();
       images.forEach((im,i)=>{
         if(!im||i===srcIdx) return;
         im.brightness=src.brightness; im.contrast=src.contrast;
@@ -1851,7 +1859,7 @@ function totalGapsH(rows, gV){ let s=0; for(let r=1;r<rows;r++) s+=rGapBefore(r,
 function spanGapsW(c, cs, gH){ let s=0; for(let k=1;k<cs;k++) s+=gapBefore(c+k,gH); return s; }
 function spanGapsH(r, rs, gV){ let s=0; for(let k=1;k<rs;k++) s+=rGapBefore(r+k,gV); return s; }
 function setAdvancedSpacing(on){ advancedSpacing=on; render(); drawAnnOverlay(); }
-function resetGutters(){ colGaps=null; rowGaps=null; hoverGutter=null; render(); drawAnnOverlay(); toast('Gutters reset to uniform','ok'); }
+function resetGutters(){ pushUndo(); colGaps=null; rowGaps=null; hoverGutter=null; render(); drawAnnOverlay(); toast('Gutters reset to uniform','ok'); }
 
 // Geometry of the grid drawing region (logical coords), shared by hit-testing & overlay.
 function gridGeom(){
@@ -1898,6 +1906,7 @@ function setGutter(axis,index,value){
   }
 }
 function nudgeGutter(axis,index,delta){
+  pushUndo();
   const cur=advancedSpacing
     ? (axis==='col'?gapBefore(index,gi('gap-h')):rGapBefore(index,gi('gap-v')))
     : (axis==='col'?gi('gap-h'):gi('gap-v'));
@@ -2432,6 +2441,7 @@ function drawCropEd(){
   document.getElementById('crop-ed-vals').textContent=`T:${T}% L:${L}% B:${B}% R:${R}%`;
 }
 function applyCropModal(){
+  pushUndo();
   // Batch crop mode
   if(cropEdState.batch){
     if(!cropEdState.batchCropW && cropEdState.cw>0.02){
@@ -2564,6 +2574,7 @@ function skipBatchCrop(){
 function applyBatchCropAll(){
   if(!cropEdState.batch) return;
   if(!cropEdState.batchCropW){ toast('Draw a crop first','warn'); return; }
+  pushUndo();
   // Apply centered crop to all remaining images
   _applyBatchCropCurrent();
   const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
@@ -2826,27 +2837,92 @@ function hitAnnotation(a, x, y, W, H){
 }
 
 // ── Undo / Redo ─────────────────────────────────────────────
-function pushUndo(){
-  undoStack.push(JSON.parse(JSON.stringify({annotations, freeformElements})));
-  if(undoStack.length>80) undoStack.shift();
-  redoStack=[];
+// ── Unified state snapshots (in-memory; preserve live <img> references) ──
+// Clone an image keeping its HTMLImageElement + channel images, deep-copying
+// the rest. The adjustment cache is dropped so it recomputes after a restore.
+function cloneImageForUndo(im){
+  if(!im) return im;
+  return {...im,
+    channels:(im.channels||[]).map(ch=>({...ch})),
+    panelAnns:(im.panelAnns||[]).map(a=>({...a})),
+    _adjCache:undefined, _adjKey:undefined};
 }
+function cloneElemForUndo(el){ return {...el}; } // shallow: keeps img/_imgEl refs
+const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
+  'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
+  'axis-font','axis-color','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
+const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','sb-text','label-bold','label-italic',
+  'axis-bold','axis-italic','axis-auto-color'];
+function captureLayout(){
+  const o={text:{},check:{}};
+  _layoutTextIds.forEach(id=>o.text[id]=gv(id));
+  _layoutCheckIds.forEach(id=>o.check[id]=gc(id));
+  o.colLabels=[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value);
+  o.rowLabels=[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value);
+  return o;
+}
+function applyLayoutSnapshot(o){
+  if(!o) return;
+  _layoutTextIds.forEach(id=>{ if(o.text[id]!==undefined) sv(id,o.text[id]); });
+  _layoutCheckIds.forEach(id=>{ if(o.check[id]!==undefined) sc(id,o.check[id]); });
+  onLayoutChange(); // rebuild label inputs for the restored cols/rows
+  const ci=[...document.querySelectorAll('#col-label-inputs input')];
+  (o.colLabels||[]).forEach((v,i)=>{ if(ci[i]) ci[i].value=v; });
+  const ri=[...document.querySelectorAll('#row-label-inputs input')];
+  (o.rowLabels||[]).forEach((v,i)=>{ if(ri[i]) ri[i].value=v; });
+}
+function snapshotState(){
+  return {
+    images: images.map(cloneImageForUndo),
+    annotations: annotations.map(a=>({...a})),
+    freeformElements: freeformElements.map(cloneElemForUndo),
+    layout: captureLayout(),
+    colGaps: colGaps?colGaps.slice():null,
+    rowGaps: rowGaps?rowGaps.slice():null,
+    advancedSpacing, layoutMode,
+  };
+}
+function restoreState(s){
+  if(!s) return;
+  if(s.images) images=s.images.map(cloneImageForUndo);
+  annotations=(s.annotations||[]).map(a=>({...a}));
+  freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
+  if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
+  if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
+  if('advancedSpacing' in s){ advancedSpacing=s.advancedSpacing;
+    const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing; }
+  if(s.layoutMode && s.layoutMode!==layoutMode){
+    const lm=document.getElementById('layout-mode'); if(lm) lm.value=s.layoutMode; setLayoutMode(s.layoutMode);
+  }
+  if(s.layout) applyLayoutSnapshot(s.layout);
+  selectedAnnotation=-1; selectedPanel=-1; selectedPanelAnn=null; selectedElems.clear(); hideAnnFloat();
+  renderImgList(); renderMiniGrid(); updateFreeformElemList(); renderAnnotationList(); scheduleRender(0);
+}
+function _pushSnap(snap){ undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[]; _pendingUndoSnap=null; }
+function pushUndo(){ _pushSnap(snapshotState()); }
 function undo(){
   if(!undoStack.length){ toast('Nothing to undo','warn'); return; }
-  redoStack.push(JSON.parse(JSON.stringify({annotations, freeformElements})));
-  const state=undoStack.pop();
-  annotations=state.annotations; freeformElements=state.freeformElements||[];
-  selectedAnnotation=-1; hideAnnFloat(); selectedElems.clear();
-  renderAnnotationList(); updateFreeformElemList(); scheduleRender(0);
+  redoStack.push(snapshotState());
+  restoreState(undoStack.pop());
+  toast(`Undo (${undoStack.length} left)`,'ok');
 }
 function redo(){
   if(!redoStack.length){ toast('Nothing to redo','warn'); return; }
-  undoStack.push(JSON.parse(JSON.stringify({annotations, freeformElements})));
-  const state=redoStack.pop();
-  annotations=state.annotations; freeformElements=state.freeformElements||[];
-  selectedAnnotation=-1; hideAnnFloat(); selectedElems.clear();
-  renderAnnotationList(); updateFreeformElemList(); scheduleRender(0);
+  undoStack.push(snapshotState());
+  restoreState(redoStack.pop());
+  toast('Redo','ok');
 }
+
+// Capture-before-edit for form controls: arm a snapshot on pointer/keyboard
+// interaction, commit it on the resulting change. One undo step per gesture.
+let _pendingUndoSnap=null;
+const _UNDO_SEL='#grid-controls input,#grid-controls select,.img-settings input,.img-settings select';
+function _armUndo(t){ if(t&&t.matches&&t.matches(_UNDO_SEL)&&!_pendingUndoSnap) _pendingUndoSnap=snapshotState(); }
+document.addEventListener('pointerdown',e=>_armUndo(e.target),true);
+document.addEventListener('keydown',e=>{ if(/^(Arrow|Backspace|Delete|[0-9.])/.test(e.key)) _armUndo(e.target); },true);
+document.addEventListener('change',e=>{
+  if(_pendingUndoSnap && e.target.matches && e.target.matches(_UNDO_SEL)){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; }
+},true);
 
 // ── Draw a single annotation onto any ctx ───────────────────
 function drawAnnotationSingle(ctx, a, W, H){
@@ -3282,7 +3358,7 @@ annCanvas.addEventListener('mousedown', e=>{
       const a=images[hitImgIdx].panelAnns[hitAnnIdx];
       panelAnnDrag={imgIdx:hitImgIdx,annIdx:hitAnnIdx,pb:hitPb,
         ox0f:a.xf,oy0f:a.yf,ox2f:a.x2f,oy2f:a.y2f,mx:x,my:y,
-        preDrag:JSON.parse(JSON.stringify(images[hitImgIdx].panelAnns))};
+        preDrag:snapshotState()};
       showPanelAnnFloat(hitImgIdx,hitAnnIdx,hitPb);
       sv('ann-color',a.color||'#ffffff'); sv('ann-width',a.width||2);
     } else {
@@ -3329,7 +3405,7 @@ annCanvas.addEventListener('mousedown', e=>{
       annResizeState={idx:selectedAnnotation,
         updateXF:rh.updateXF, updateYF:rh.updateYF,
         updateX2F:rh.updateX2F, updateY2F:rh.updateY2F,
-        preDrag:JSON.parse(JSON.stringify(annotations))};
+        preDrag:snapshotState()};
       annCanvas.style.cursor=rh.cursor;
       return;
     }
@@ -3343,7 +3419,7 @@ annCanvas.addEventListener('mousedown', e=>{
     selectedAnnotation=hit;
     const a=annotations[hit];
     annDragState={idx:hit,ox0f:a.xf,oy0f:a.yf,ox2f:a.x2f,oy2f:a.y2f,mx:x,my:y,
-      preDrag:JSON.parse(JSON.stringify(annotations))};
+      preDrag:snapshotState()};
     showAnnFloat(hit);
     drawAnnOverlay();
     sv('ann-color',a.color||'#ffffff'); sv('ann-width',a.width||2); sv('ann-font',a.fontSize||16);
@@ -3365,7 +3441,7 @@ annCanvas.addEventListener('mousedown', e=>{
       const startGap = advancedSpacing
         ? (g.axis==='col'?gapBefore(g.index,gi('gap-h')):rGapBefore(g.index,gi('gap-v')))
         : (g.axis==='col'?gi('gap-h'):gi('gap-v'));
-      gutterDragState={axis:g.axis,index:g.index,startGap,
+      gutterDragState={axis:g.axis,index:g.index,startGap,moved:false,preSnap:snapshotState(),
         startClient:(g.axis==='col'?e.clientX:e.clientY)};
       annCanvas.style.cursor=g.axis==='col'?'col-resize':'row-resize';
       return;
@@ -3405,6 +3481,7 @@ annCanvas.addEventListener('mousemove', e=>{
     const ratio=(gs.axis==='col') ? (canvasLogicalW/rect.width) : (canvasLogicalH/rect.height);
     const deltaClient=(gs.axis==='col'?e.clientX:e.clientY)-gs.startClient;
     const newGap=Math.max(0, Math.round(gs.startGap + deltaClient*ratio));
+    if(newGap!==gs.startGap) gs.moved=true;
     setGutter(gs.axis, gs.index, newGap);
     render();
     showPanelTooltip(`gap ${newGap}px`, e.clientX, e.clientY);
@@ -3545,6 +3622,7 @@ annCanvas.addEventListener('mouseup', e=>{
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
   // Gutter drag commit
   if(gutterDragState){
+    if(gutterDragState.moved && gutterDragState.preSnap) _pushSnap(gutterDragState.preSnap);
     gutterDragState=null;
     annCanvas.style.cursor='default';
     hidePanelTooltip();
@@ -3578,7 +3656,7 @@ annCanvas.addEventListener('mouseup', e=>{
     const {imgIdx,annIdx,pb}=panelAnnDrag;
     const a=images[imgIdx].panelAnns[annIdx];
     const moved=Math.abs(a.xf-panelAnnDrag.ox0f)>0.001||Math.abs(a.yf-panelAnnDrag.oy0f)>0.001;
-    if(moved){ undoStack.push(panelAnnDrag.preDrag); if(undoStack.length>80)undoStack.shift(); redoStack=[]; }
+    if(moved){ _pushSnap(panelAnnDrag.preDrag); }
     panelAnnDrag=null; annCanvas.style.cursor='default';
     if(selectedPanelAnn) showPanelAnnFloat(selectedPanelAnn.imgIdx,selectedPanelAnn.annIdx,pb);
     scheduleRender(0); return;
@@ -3600,8 +3678,7 @@ annCanvas.addEventListener('mouseup', e=>{
     renderAnnotationList(); scheduleRender(0); return;
   }
   if(annResizeState){
-    undoStack.push(annResizeState.preDrag);
-    if(undoStack.length>80) undoStack.shift(); redoStack=[];
+    _pushSnap(annResizeState.preDrag);
     annResizeState=null;
     annCanvas.style.cursor='default';
     if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
@@ -3610,7 +3687,7 @@ annCanvas.addEventListener('mouseup', e=>{
   if(annDragState){
     const a=annotations[annDragState.idx];
     const moved=Math.abs(a.xf-annDragState.ox0f)>0.001||Math.abs(a.yf-annDragState.oy0f)>0.001;
-    if(moved){ undoStack.push(annDragState.preDrag); if(undoStack.length>80)undoStack.shift(); redoStack=[]; }
+    if(moved){ _pushSnap(annDragState.preDrag); }
     annDragState=null;
     annCanvas.style.cursor='move';
     if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
@@ -3690,7 +3767,10 @@ function showPanelMenu(idx, cx, cy){
   };
   if(im){
     row('⎘  Duplicate panel', ()=>{
-      const clone={...im,id:Date.now()+Math.random(),label:nextLabel()};
+      pushUndo();
+      const clone={...im,id:Date.now()+Math.random(),label:nextLabel(),
+        channels:(im.channels||[]).map(ch=>({...ch})),
+        panelAnns:(im.panelAnns||[]).map(a=>({...a})),_adjCache:undefined,_adjKey:undefined};
       images.splice(idx+1,0,clone); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     row('⚙  Open settings', ()=>{
@@ -3702,6 +3782,7 @@ function showPanelMenu(idx, cx, cy){
     sep.style.cssText='height:1px;background:var(--border);margin:3px 0';
     menu.appendChild(sep);
     row('✕  Remove panel', ()=>{
+      pushUndo();
       images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
     }, true);
   } else {
@@ -4755,6 +4836,7 @@ function snapValue(v){
 }
 
 function addFreeformElement(props){
+  pushUndo();
   freeformElements.push({
     id:Date.now()+Math.random(),
     type:'rect', x:100, y:100, w:200, h:200,
@@ -4996,6 +5078,8 @@ function buildImgEl(el){
 // Freeform mouse handling (called at top of each annCanvas handler)
 function freeformMousedown(e){
   const {x,y}=canvasCoords(annCanvas,e);
+  // Arm a pre-edit snapshot for the upcoming move/resize/draw gesture.
+  _pendingUndoSnap=_pendingUndoSnap||snapshotState();
   // Drawing tool → create new element
   if(activeTool!=='none'&&activeTool!=='measure-roi'&&activeTool!=='measure-line'&&activeTool!=='measure-count'){
     elemDragState={drawing:true,x0:x,y0:y,drawType:activeTool};
@@ -5077,19 +5161,22 @@ function freeformMousemove(e){
 
 function freeformMouseup(e){
   const {x,y}=canvasCoords(annCanvas,e);
-  if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; scheduleRender(0); return true; }
+  const _commitFF=()=>{ if(_pendingUndoSnap){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; } };
+  if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemDragState?.moving){
     elemDragState=null; annCanvas.style.cursor='default';
-    updateFreeformElemList(); scheduleRender(0); return true;
+    _commitFF(); updateFreeformElemList(); scheduleRender(0); return true;
   }
   if(elemDragState?.drawing){
     const {x0,y0,drawType}=elemDragState; elemDragState=null;
     const ex=Math.min(x,x0), ey=Math.min(y,y0), ew=Math.max(20,Math.abs(x-x0)), eh=Math.max(20,Math.abs(y-y0));
+    _pendingUndoSnap=null; // addFreeformElement records its own undo step
     if(ew<8||eh<8){ drawFreeformOverlay(); return true; }
     addFreeformElement({type:drawType,x:snapValue(ex),y:snapValue(ey),w:snapValue(ew),h:snapValue(eh),
       label:drawType==='text'?'Text':''});
     return true;
   }
+  _pendingUndoSnap=null; // gesture ended without a mutation (e.g. plain click / rubber-band)
   if(elemRubberState){
     const r=elemRubberState; elemRubberState=null;
     const rx=Math.min(r.x0,r.x),ry=Math.min(r.y0,r.y),rw=Math.abs(r.x-r.x0),rh=Math.abs(r.y-r.y0);

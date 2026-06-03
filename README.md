@@ -188,6 +188,12 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### v3.4
+- **Universal undo/redo** — Ctrl+Z / Ctrl+Y now cover layout (grid size, gaps, margins, gutters), per-panel adjustments (brightness/contrast/gamma/LUT/levels/crop/rotate/flip), panel add/delete/duplicate/reorder, label toggles, and annotations — not just annotations. One undo step per edit gesture
+- Reliability & UX hardening: corrupt-file and clipboard/export error toasts, export progress indicator, "render outdated" cue, first-run tips, confirm on Apply-to-all
+- Performance: per-panel adjustment cache + rAF-coalesced renders for smooth slider dragging
+- Accessibility: visible focus rings, aria-labelled icon buttons, on-screen-clamped floating toolbar, higher-contrast theme text
+
 ### v3.3
 - **Drag-to-space gutters** — hover between panels and drag the divider (or tap + / −) to set spacing directly on the canvas
 - **Per-gutter spacing** mode for independent row/column gaps, with one-click reset to uniform
