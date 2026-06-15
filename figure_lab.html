@@ -536,6 +536,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Panel Labels (A, B, C…)</div>
     <div class="field"><label>Show</label>
       <input type="checkbox" id="show-labels" checked onchange="scheduleRender()"></div>
+    <div class="field"><label>Background</label>
+      <input type="checkbox" id="label-bg" checked onchange="scheduleRender()"></div>
     <div class="field"><label>Size (px)</label>
       <input type="number" id="label-size" value="18" min="6" max="72" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
@@ -2096,14 +2098,16 @@ function render(targetCanvas, exportScale){
             if(lblPos==='tr') lx=dx+dw-pad-tw;
             if(lblPos==='bl') ly=dy+dh-pad;
             if(lblPos==='br'){ lx=dx+dw-pad-tw; ly=dy+dh-pad; }
-            ctx.fillStyle='rgba(0,0,0,.45)';
-            ctx.beginPath();
-            const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
-            ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
-            ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
-            ctx.lineTo(bx+lbr,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-lbr);
-            ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
-            ctx.closePath(); ctx.fill();
+            if(gc('label-bg')){
+              ctx.fillStyle='rgba(0,0,0,.45)';
+              ctx.beginPath();
+              const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
+              ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
+              ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
+              ctx.lineTo(bx+lbr,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-lbr);
+              ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
+              ctx.closePath(); ctx.fill();
+            }
             ctx.fillStyle=lblClr; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
           }
         }
@@ -2876,7 +2880,7 @@ function cloneElemForUndo(el){ return {...el}; } // shallow: keeps img/_imgEl re
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
-const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','sb-text','label-bold','label-italic',
+const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
   'axis-bold','axis-italic','axis-auto-color'];
 function captureLayout(){
   const o={text:{},check:{}};
