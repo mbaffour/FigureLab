@@ -665,8 +665,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="divider"></div>
     <div class="sec-lbl">Session</div>
     <div style="display:flex;gap:5px">
-      <button class="btn" onclick="saveJSON()" style="flex:1;justify-content:center">💾 Save</button>
-      <label class="btn" style="flex:1;justify-content:center;cursor:pointer">
+      <button class="btn" onclick="saveJSON()" style="flex:1;justify-content:center" title="Save a self-contained session file (includes your images) so you can reload and continue later">💾 Save</button>
+      <label class="btn" style="flex:1;justify-content:center;cursor:pointer" title="Load a saved session file and continue where you left off">
         📂 Load<input type="file" accept=".json" style="display:none" onchange="loadJSON(this)">
       </label>
     </div>
@@ -4565,8 +4565,15 @@ function saveJSON(){
       captionNote:im.captionNote,metaNote:im.metaNote,grayscale:im.grayscale,invert:im.invert,
       lut:im.lut||'none',blackPt:im.blackPt||0,whitePt:im.whitePt||255,
       gamma:im.gamma||1, rotate:im.rotate||0, flipH:im.flipH||false, flipV:im.flipV||false,
-      locked:im.locked||false })),
+      locked:im.locked||false,
+      borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
+      colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
+      // Pixel data + sub-objects so a saved session reloads without re-dropping files
+      src:im.src,
+      channels:(im.channels||[]).map(c=>({name:c.name,src:c.src,lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
+      panelAnns:im.panelAnns||[] })),
     annotations,
+    measurements,
     notes:document.getElementById('fig-notes')?.value||'',
     panelBorder:{w:gv('panel-border-w'),c:gv('panel-border-c')},
     labelFormat:gv('label-format'),
@@ -4643,7 +4650,21 @@ function loadJSON(input){
       }
       if(s.fmCanvasW) sv('fm-canvas-w',s.fmCanvasW);
       if(s.fmCanvasH) sv('fm-canvas-h',s.fmCanvasH);
-      if(s.images?.length) alert(`Settings restored!\nRe-drop your ${s.images.length} image file(s).`);
+      if(Array.isArray(s.images)){
+        let legacy=0;
+        images=s.images.reduce((arr,d)=>{
+          if(!d.src){ legacy++; return arr; } // session saved before pixel data was embedded
+          const im={...d};
+          im.channels=Array.isArray(d.channels)?d.channels.map(c=>({...c})):[];
+          im.panelAnns=Array.isArray(d.panelAnns)?d.panelAnns:[];
+          const img=new Image(); img.onload=()=>scheduleRender(); img.src=d.src; im.img=img;
+          im.channels.forEach(c=>{ if(c.src){ const ci=new Image(); ci.onload=()=>scheduleRender(); ci.src=c.src; c.img=ci; } });
+          arr.push(im); return arr;
+        },[]);
+        renderImgList();
+        if(legacy) alert(`Settings restored. ${legacy} image(s) were saved before pixel data was embedded — re-drop those file(s).`);
+      }
+      if(Array.isArray(s.measurements)) measurements=s.measurements;
       scheduleRender(100); toast('Session loaded','ok');
     }catch(err){ toast('Could not load: '+err.message,'err'); }
   };
