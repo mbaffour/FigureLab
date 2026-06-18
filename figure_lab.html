@@ -604,9 +604,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Scale Tools</div>
     <div class="field"><label>Reference</label>
       <select id="scale-match-target" style="width:140px">
-        <option value="lowest">Widest view (lowest mag)</option>
-        <option value="highest">Narrowest (highest mag)</option>
+        <option value="highest" selected>Narrowest (highest mag)</option>
         <option value="median">Median</option>
+        <option value="lowest">Widest view (lowest mag)</option>
       </select></div>
     <button class="btn" onclick="matchScalePhysical()" style="width:100%;justify-content:center" title="Adjust crops so all calibrated panels show the same physical µm area">⚖ Match Physical Scale (µm)</button>
     <div class="field" style="margin-top:4px"><label>Pixel target</label>
@@ -1719,23 +1719,40 @@ function formatLabel(label, idx){
 }
 
 function matchScalePhysical(){
-  const calibrated=images.filter(im=>im&&im.umPerPx>0);
+  const calibrated=images.filter(im=>im&&im.img&&im.umPerPx>0);
   if(calibrated.length<2){ toast('Need ≥2 calibrated images','warn'); return; }
-  const target=document.getElementById('scale-match-target')?.value||'lowest';
-  const vals=calibrated.map(im=>im.umPerPx).sort((a,b)=>a-b);
-  let refUm;
-  if(target==='lowest')  refUm=vals[vals.length-1]; // highest µm/px = widest view
-  else if(target==='highest') refUm=vals[0];         // lowest µm/px = narrowest
-  else refUm=vals[Math.floor(vals.length/2)];         // median
-  images.forEach(im=>{
-    if(!im||!im.umPerPx) return;
-    const factor=im.umPerPx/refUm;
-    if(factor>=1){ im.cropT=0;im.cropL=0;im.cropB=0;im.cropR=0; return; }
-    const crop=Math.max(0,Math.min(45,Math.round((1-factor)/2*100)));
-    im.cropT=crop; im.cropL=crop; im.cropB=crop; im.cropR=crop;
+  const target=document.getElementById('scale-match-target')?.value||'highest';
+  // Field-of-view width (µm) each panel shows at full frame. Matching physical
+  // scale means giving every panel the same on-screen µm-per-pixel, which (with
+  // contain-fit to a fixed panel width) means equalising this field of view.
+  const fovs=calibrated.map(im=>im.umPerPx*im.img.width).sort((a,b)=>a-b);
+  let refFOV;
+  if(target==='lowest')       refFOV=fovs[fovs.length-1]; // widest view (lowest mag)
+  else if(target==='highest') refFOV=fovs[0];             // narrowest view (highest mag)
+  else                        refFOV=fovs[Math.floor(fovs.length/2)]; // median
+  // Cropping can only shrink a field of view (zoom in), never enlarge it, so a
+  // panel already wider-zoomed than the reference can't be expanded to match.
+  let unreached=0;
+  calibrated.forEach(im=>{
+    const nativeFOV=im.umPerPx*im.img.width;
+    if(nativeFOV<=refFOV+1e-6){
+      im.cropT=0;im.cropL=0;im.cropB=0;im.cropR=0;
+      if(nativeFOV<refFOV-1e-6) unreached++;
+      return;
+    }
+    const cropPct=Math.max(0,Math.min(45,Math.round((1-refFOV/nativeFOV)/2*100)));
+    im.cropT=cropPct; im.cropL=cropPct; im.cropB=cropPct; im.cropR=cropPct;
   });
+  // Sync one scale-bar length so equal bars render across matched panels.
+  const targetUm=refFOV*0.18; // ≈18% of the shared field of view
+  const mag=Math.pow(10,Math.floor(Math.log10(targetUm)));
+  const nice=[1,2,5,10,20,50,100,200,500,1000,2000,5000];
+  const sbUm=nice.reduce((a,b)=>Math.abs(b-targetUm/mag)<Math.abs(a-targetUm/mag)?b:a)*mag;
+  calibrated.forEach(im=>{ im.sbUm=sbUm; });
   renderImgList(); scheduleRender();
-  toast('Physical scales matched','ok');
+  const lbl=sbUm>=1000?sbUm/1000+' mm':sbUm<1?Math.round(sbUm*1000)+' nm':sbUm+' µm';
+  if(unreached) toast(`Matched ${calibrated.length-unreached}/${calibrated.length} — ${unreached} too zoomed-in to reach reference · bar ${lbl}`,'warn');
+  else toast(`Physical scales matched · bar ${lbl}`,'ok');
 }
 
 function matchScalePixels(){
@@ -4214,7 +4231,11 @@ async function doExport(fmt){
     if(fmt==='jpeg') { dl(_safeDataURL(canvas,'image/jpeg',0.95), `${name}.jpg`); }
     if(fmt==='webp') { dl(_safeDataURL(canvas,'image/webp',0.92), `${name}.webp`); }
     if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
-    if(fmt==='tiff') exportTIFF(name, dpi, document.getElementById('fig-canvas'));
+    if(fmt==='tiff') {
+      const grid=layoutMode!=='freeform';
+      const tc=grid?renderExportCanvas(dpi):document.getElementById('fig-canvas');
+      exportTIFF(name, dpi, tc, grid);
+    }
     if(fmt==='pdf')  await exportPDF(name, dpi, document.getElementById('fig-canvas'));
     logAction('export',{format:fmt,dpi,name});
     toast(`Saved ${name}.${fmt==='jpeg'?'jpg':fmt}`, 'ok');
@@ -4304,15 +4325,21 @@ function exportSVG(name, dpi, canvas){
   dl(blobUrl(svg), name+'.svg');
 }
 
-function exportTIFF(name, dpi, canvas){
-  // Scale up to target DPI from screen resolution (96 DPI)
-  const scale=Math.max(1, dpi/96);
+function exportTIFF(name, dpi, canvas, preScaled){
+  // Grid exports arrive already re-rendered at the target DPI (crisp text,
+  // lines and scale bars). Freeform falls back to interpolating the on-screen
+  // canvas up to the target DPI.
+  const scale=preScaled?1:Math.max(1, dpi/96);
   const W=Math.round(canvas.width*scale), H=Math.round(canvas.height*scale);
-  const hiC=document.createElement('canvas'); hiC.width=W; hiC.height=H;
-  const hiCtx=hiC.getContext('2d');
-  hiCtx.imageSmoothingEnabled=true; hiCtx.imageSmoothingQuality='high';
-  hiCtx.scale(scale,scale); hiCtx.drawImage(canvas,0,0);
-  const raw=hiCtx.getImageData(0,0,W,H).data;
+  let src=canvas;
+  if(scale!==1){
+    const hiC=document.createElement('canvas'); hiC.width=W; hiC.height=H;
+    const hiCtx=hiC.getContext('2d');
+    hiCtx.imageSmoothingEnabled=true; hiCtx.imageSmoothingQuality='high';
+    hiCtx.scale(scale,scale); hiCtx.drawImage(canvas,0,0);
+    src=hiC;
+  }
+  const raw=src.getContext('2d').getImageData(0,0,W,H).data;
   const rgb=new Uint8Array(W*H*3);
   for(let i=0;i<W*H;i++){ rgb[i*3]=raw[i*4]; rgb[i*3+1]=raw[i*4+1]; rgb[i*3+2]=raw[i*4+2]; }
 
