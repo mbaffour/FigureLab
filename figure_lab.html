@@ -534,6 +534,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="divider"></div>
     <div class="sec-lbl">Panel Labels (A, B, C…)</div>
+    <div style="font-size:10px;color:var(--muted);margin:-2px 0 4px;line-height:1.35">Tip: drag any label, title, row/col header or scale-bar text on the canvas to reposition it. Double-click a label to reset it. Export as <b>SVG</b> for infinitely-sharp (vector) label text.</div>
     <div class="field"><label>Show</label>
       <input type="checkbox" id="show-labels" checked onchange="scheduleRender()"></div>
     <div class="field"><label>Background</label>
@@ -1032,6 +1033,10 @@ let selectedAnnotation = -1;
 let undoStack = [];
 let redoStack = [];
 let panelBounds = [];       // [{idx, x, y, w, h}] populated on render
+let figTextItems = [];      // text drawn each render: for label drag hit-test + vector SVG export
+let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{} }; // drag offsets for shared labels
+let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
+let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
 let selectedPanel = -1;
 let zoom = 1;
 let spaceDown = false;
@@ -1230,7 +1235,8 @@ function _commitImage(img,src,name){
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
-      borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1};
+      borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
+      lblDX:0,lblDY:0,sbDX:0,sbDY:0};
     pushUndo();
     // Apply shared panel settings if a share link was loaded
     if(window._sharedPanelSettings){
@@ -1935,11 +1941,15 @@ function nudgeGutter(axis,index,delta){
   render(); drawAnnOverlay();
 }
 
-function render(targetCanvas, exportScale){
+function render(targetCanvas, exportScale, opts){
   // targetCanvas/exportScale set ⇒ off-screen supersampled export render.
   // Default (no args) ⇒ on-screen preview at logical size.
+  // opts.skipLabels ⇒ omit figure text (used by the vector SVG export, which
+  // re-emits that text as real <text>); figTextItems still records each label.
   const isExport = !!targetCanvas;
   const S = exportScale || 1;
+  const skipLabels = !!(opts && opts.skipLabels);
+  figTextItems = [];
   if(!isExport) panelBounds = [];
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
@@ -1989,31 +1999,44 @@ function render(targetCanvas, exportScale){
   const aWt=gc('axis-bold')?'bold':'400';
   const aSt=gc('axis-italic')?'italic':'normal';
 
+  // Draw a movable text label: applies its drag offset, records it in
+  // figTextItems (for hit-testing + vector SVG), and paints it unless skipped.
+  function emitText(kind,idx,str,bx,by,fontStr,fillStyle,align,baseline,rot){
+    const [dox,doy]=getLabelOff(kind,idx);
+    const x=bx+dox, y=by+doy;
+    ctx.font=fontStr;
+    const w=ctx.measureText(str).width;
+    const m=/(\d+(?:\.\d+)?)px/.exec(fontStr); const fs=m?parseFloat(m[1]):12;
+    let bbx,bby,bbw,bbh;
+    if(rot){ bbw=fs; bbh=w; bbx=x-fs/2; bby=y-w/2; }
+    else { bbw=w; bbh=fs; bbx=align==='center'?x-w/2:x; bby=baseline==='top'?y:baseline==='middle'?y-fs/2:y-fs; }
+    figTextItems.push({kind,idx,str,x,y,fs,font:fontStr,fill:fillStyle,align,baseline,rot:rot||0,bbox:{x:bbx,y:bby,w:bbw,h:bbh}});
+    if(skipLabels) return;
+    ctx.fillStyle=fillStyle; ctx.textAlign=align; ctx.textBaseline=baseline;
+    if(rot){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/2); ctx.fillText(str,0,0); ctx.restore(); }
+    else ctx.fillText(str,x,y);
+  }
+
   // Title
   if(figTitle){
-    ctx.font=`${lSt} bold ${axisFs+4}px ${lFam}`;
-    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='top';
-    ctx.fillText(figTitle, totalW/2, 8);
+    emitText('title',0,figTitle, totalW/2, 8, `${lSt} bold ${axisFs+4}px ${lFam}`, axisClr, 'center','top',0);
   }
   // Col labels
   if(showCols){
     const ins=[...document.querySelectorAll('#col-label-inputs input')];
-    ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let c=0;c<cols;c++){
-      ctx.fillText(ins[c]?.value||`Col ${c+1}`,
-        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+colLblH/2);
+      emitText('col',c, ins[c]?.value||`Col ${c+1}`,
+        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+colLblH/2,
+        `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',0);
     }
   }
   // Row labels
   if(showRows){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
-    ctx.font=`${aSt} ${aWt} ${axisFs}px ${aFam}`;
-    ctx.fillStyle=axisClr; ctx.textAlign='center'; ctx.textBaseline='middle';
     for(let r=0;r<rows;r++){
       const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + ph/2;
-      ctx.save(); ctx.translate(mLeft/2, cy); ctx.rotate(-Math.PI/2);
-      ctx.fillText(ins[r]?.value||`Row ${r+1}`, 0, 0); ctx.restore();
+      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft/2, cy,
+        `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
   }
 
@@ -2108,24 +2131,33 @@ function render(targetCanvas, exportScale){
             const lFam=gv('label-font')||'system-ui,sans-serif';
             const lWt=gc('label-bold')?'bold':'normal';
             const lSt=gc('label-italic')?'italic':'normal';
-            ctx.font=`${lSt} ${lWt} ${fs}px ${lFam}`;
+            const lfont=`${lSt} ${lWt} ${fs}px ${lFam}`;
+            ctx.font=lfont;
             const tw=ctx.measureText(displayLbl).width;
             const pad=6;
             let lx=dx+pad, ly=dy+pad+fs;
             if(lblPos==='tr') lx=dx+dw-pad-tw;
             if(lblPos==='bl') ly=dy+dh-pad;
             if(lblPos==='br'){ lx=dx+dw-pad-tw; ly=dy+dh-pad; }
-            if(gc('label-bg')){
-              ctx.fillStyle='rgba(0,0,0,.45)';
-              ctx.beginPath();
-              const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
-              ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
-              ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
-              ctx.lineTo(bx+lbr,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-lbr);
-              ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
-              ctx.closePath(); ctx.fill();
+            lx+=(im.lblDX||0); ly+=(im.lblDY||0); // drag offset
+            const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
+            const hasBg=gc('label-bg');
+            figTextItems.push({kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
+              fill:lblClr,align:'left',baseline:'alphabetic',rot:0,
+              bbox:{x:bx,y:by,w:bw,h:bh},
+              bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null});
+            if(!skipLabels){
+              if(hasBg){
+                ctx.fillStyle='rgba(0,0,0,.45)';
+                ctx.beginPath();
+                ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
+                ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
+                ctx.lineTo(bx+lbr,by+bh); ctx.quadraticCurveTo(bx,by+bh,bx,by+bh-lbr);
+                ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
+                ctx.closePath(); ctx.fill();
+              }
+              ctx.fillStyle=lblClr; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
             }
-            ctx.fillStyle=lblClr; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
           }
         }
         // Scale bar
@@ -2137,10 +2169,8 @@ function render(targetCanvas, exportScale){
             ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*dw/300));
-              ctx.font=`${sfs}px system-ui,sans-serif`;
-              ctx.textAlign='center'; ctx.textBaseline='alphabetic';
               const lbl=im.sbUm>=1000?`${im.sbUm/1000} mm`:im.sbUm<1?`${Math.round(im.sbUm*1000)} nm`:`${im.sbUm} µm`;
-              ctx.fillStyle=sbClr; ctx.fillText(lbl, sbX+barPx/2, sbY-3);
+              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, sbClr, 'center','alphabetic',0);
               ctx.textAlign='left';
             }
           }
@@ -2838,6 +2868,31 @@ function canvasCoords(canvas, e){
   };
 }
 
+// ── Movable label offsets (drag-to-position) ──────────────────
+function getLabelOff(kind,idx){
+  if(kind==='panel'){ const im=images[idx]; return im?[im.lblDX||0,im.lblDY||0]:[0,0]; }
+  if(kind==='sb'){ const im=images[idx]; return im?[im.sbDX||0,im.sbDY||0]:[0,0]; }
+  if(kind==='title'){ return [labelOffsets.title.dx||0,labelOffsets.title.dy||0]; }
+  if(kind==='col'){ const o=labelOffsets.col[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
+  if(kind==='row'){ const o=labelOffsets.row[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
+  return [0,0];
+}
+function setLabelOff(kind,idx,dx,dy){
+  if(kind==='panel'){ const im=images[idx]; if(im){ im.lblDX=dx; im.lblDY=dy; } return; }
+  if(kind==='sb'){ const im=images[idx]; if(im){ im.sbDX=dx; im.sbDY=dy; } return; }
+  if(kind==='title'){ labelOffsets.title={dx,dy}; return; }
+  if(kind==='col'){ labelOffsets.col[idx]={dx,dy}; return; }
+  if(kind==='row'){ labelOffsets.row[idx]={dx,dy}; return; }
+}
+// Top-most label whose bounding box contains (x,y), in logical coords.
+function labelAtPoint(x,y){
+  for(let i=figTextItems.length-1;i>=0;i--){
+    const b=figTextItems[i].bbox;
+    if(x>=b.x-2&&x<=b.x+b.w+2&&y>=b.y-2&&y<=b.y+b.h+2) return figTextItems[i];
+  }
+  return null;
+}
+
 // ── Hit-testing ─────────────────────────────────────────────
 function distToSeg(px,py,ax,ay,bx,by){
   const dx=bx-ax, dy=by-ay, len2=dx*dx+dy*dy;
@@ -2925,6 +2980,7 @@ function snapshotState(){
     layout: captureLayout(),
     colGaps: colGaps?colGaps.slice():null,
     rowGaps: rowGaps?rowGaps.slice():null,
+    labelOffsets: JSON.parse(JSON.stringify(labelOffsets)),
     advancedSpacing, layoutMode,
   };
 }
@@ -2935,6 +2991,7 @@ function restoreState(s){
   freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
   if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
   if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
+  if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
   if('advancedSpacing' in s){ advancedSpacing=s.advancedSpacing;
     const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing; }
   if(s.layoutMode && s.layoutMode!==layoutMode){
@@ -3121,6 +3178,15 @@ function drawAnnOverlay(){
     if(b){
       ctx.save(); ctx.strokeStyle='#5b8dee'; ctx.lineWidth=2;
       ctx.setLineDash([7,4]); ctx.strokeRect(b.x+1,b.y+1,b.w-2,b.h-2); ctx.restore();
+    }
+  }
+
+  // Hovered label — dashed highlight box to show it's draggable
+  if(hoverLabel && !labelDragState){
+    const it=figTextItems.find(z=>z.kind===hoverLabel.kind&&z.idx===hoverLabel.idx);
+    if(it){ const b=it.bbox;
+      ctx.save(); ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+      ctx.strokeRect(b.x-3,b.y-3,b.w+6,b.h+6); ctx.restore();
     }
   }
 
@@ -3494,6 +3560,16 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
   }
+  // Label drag — labels sit on top of panels, so claim the click first
+  {
+    const lb=labelAtPoint(x,y);
+    if(lb){
+      const [ox,oy]=getLabelOff(lb.kind,lb.idx);
+      labelDragState={kind:lb.kind,idx:lb.idx,startX:x,startY:y,ox,oy,moved:false,preSnap:snapshotState()};
+      hoverLabel=null; annCanvas.style.cursor='grabbing'; drawAnnOverlay();
+      return;
+    }
+  }
   // Check panel hit — start panel drag if there's an image there
   let panelHit=-1;
   for(const b of panelBounds){
@@ -3520,6 +3596,15 @@ annCanvas.addEventListener('mousemove', e=>{
     wrap.scrollLeft=panState.scrollLeft-(e.clientX-panState.startX);
     wrap.scrollTop=panState.scrollTop-(e.clientY-panState.startY);
     return;
+  }
+  // Label drag — reposition a figure label live
+  if(labelDragState){
+    const {x,y}=canvasCoords(annCanvas,e);
+    if(Math.abs(x-labelDragState.startX)>1||Math.abs(y-labelDragState.startY)>1) labelDragState.moved=true;
+    setLabelOff(labelDragState.kind,labelDragState.idx,
+      Math.round(labelDragState.ox+(x-labelDragState.startX)),
+      Math.round(labelDragState.oy+(y-labelDragState.startY)));
+    scheduleRender(0); return;
   }
   // Gutter drag — space panels apart live
   if(gutterDragState){
@@ -3629,6 +3714,16 @@ annCanvas.addEventListener('mousemove', e=>{
   if(activeTool==='none'){
     const {x,y}=canvasCoords(annCanvas,e);
     const W=annCanvas.width, H=annCanvas.height;
+    // Label hover — show move cursor + highlight (labels take priority)
+    if(!spaceDown){
+      const lb=labelAtPoint(x,y);
+      if(lb){
+        annCanvas.style.cursor='move'; hidePanelTooltip();
+        if(!hoverLabel||hoverLabel.kind!==lb.kind||hoverLabel.idx!==lb.idx){ hoverLabel={kind:lb.kind,idx:lb.idx}; drawAnnOverlay(); }
+        return;
+      }
+      if(hoverLabel){ hoverLabel=null; drawAnnOverlay(); }
+    }
     // Gutter hover — highlight the divider and show resize cursor
     if(!spaceDown){
       const g=gutterAtPoint(x,y);
@@ -3668,6 +3763,12 @@ annCanvas.addEventListener('mouseup', e=>{
     freeformMouseup(e); return;
   }
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
+  // Label drag commit
+  if(labelDragState){
+    if(labelDragState.moved && labelDragState.preSnap) _pushSnap(labelDragState.preSnap);
+    labelDragState=null; annCanvas.style.cursor='default';
+    scheduleRender(0); return;
+  }
   // Gutter drag commit
   if(gutterDragState){
     if(gutterDragState.moved && gutterDragState.preSnap) _pushSnap(gutterDragState.preSnap);
@@ -3777,6 +3878,9 @@ annCanvas.addEventListener('mouseup', e=>{
 annCanvas.addEventListener('dblclick', e=>{
   if(layoutMode==='freeform'||panelAnnMode||activeTool!=='none') return;
   const {x,y}=canvasCoords(annCanvas,e);
+  // Double-click a label to snap it back to its default position
+  const lb=labelAtPoint(x,y);
+  if(lb){ setLabelOff(lb.kind,lb.idx,0,0); hoverLabel=null; scheduleRender(0); toast('Label position reset','ok'); return; }
   const pb=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
   if(!pb) return;
   if(images[pb.idx].locked){ toast('Panel is locked — unlock to add text','warn'); return; }
@@ -4274,21 +4378,37 @@ async function exportPNGwithDPI(name, dpi, canvas){
 }
 
 function exportSVG(name, dpi, canvas){
-  const W=canvas.width, H=canvas.height;
-  const wIn=(W/dpi).toFixed(4), hIn=(H/dpi).toFixed(4);
-  // Render a version of fig-canvas WITHOUT annotations, then layer SVG shapes on top
-  const offC=document.createElement('canvas');
-  offC.width=W; offC.height=H;
-  const offCtx=offC.getContext('2d');
-  offCtx.drawImage(canvas,0,0); // copy rendered figure
-  // Erase annotations region by re-drawing just the figure (without calling drawAnnotations)
-  // Actually: we do have annotations baked in. For vector SVG, re-render without annotations.
-  const savedAnns=[...annotations]; annotations=[];
-  render(); // re-render without annotations
-  const pngNoAnns=canvas.toDataURL('image/png');
-  annotations=savedAnns; scheduleRender(0); // restore
+  // Logical figure dimensions (coordinate space for the vector layer).
+  const Lw=canvasLogicalW||canvas.width, Lh=canvasLogicalH||canvas.height;
+  const wIn=(Lw/96).toFixed(4), hIn=(Lh/96).toFixed(4);
+  // High-resolution raster of the figure WITHOUT text labels or annotations.
+  // The labels are re-emitted below as real vector <text> so they never pixelate.
+  let S=Math.max(1, dpi/96);
+  const MAXPX=60e6; if(Lw*Lh*S*S>MAXPX) S=Math.max(1, Math.sqrt(MAXPX/(Lw*Lh)));
+  const off=document.createElement('canvas');
+  const savedAnns=annotations; annotations=[];
+  render(off, S, {skipLabels:true});   // fills figTextItems (logical coords), no text on raster
+  annotations=savedAnns;
+  const items=figTextItems.slice();
+  const pngBg=off.toDataURL('image/png');
+  scheduleRender(0); // restore on-screen state + figTextItems
 
-  // Build SVG annotation elements
+  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+  // Figure labels (title, row/col, panel letters, scale-bar text) → vector text
+  let txtSVG='';
+  items.forEach(it=>{
+    if(it.bg){ const g=it.bg;
+      txtSVG+=`<rect x="${g.x.toFixed(2)}" y="${g.y.toFixed(2)}" width="${g.w.toFixed(2)}" height="${g.h.toFixed(2)}" rx="${g.r}" ry="${g.r}" fill="${g.fill}"/>`;
+    }
+    const anchor=it.align==='center'?'middle':'start';
+    const base=it.baseline==='top'?'text-before-edge':it.baseline==='middle'?'central':'alphabetic';
+    const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
+    txtSVG+=`<text x="${it.x.toFixed(2)}" y="${it.y.toFixed(2)}" style="font:${it.font}" fill="${it.fill}" text-anchor="${anchor}" dominant-baseline="${base}"${rot}>${esc(it.str)}</text>`;
+  });
+
+  // Build SVG annotation elements (vector), in logical coords
+  const W=Lw, H=Lh;
   const fam=gv('label-font')||'system-ui,sans-serif';
   const wt=gc('label-bold')?'bold':'normal';
   const st=gc('label-italic')?'italic':'normal';
@@ -4321,7 +4441,7 @@ function exportSVG(name, dpi, canvas){
       annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
     }
   });
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngNoAnns}"/>\n  ${annSVG}\n</svg>`;
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
 }
 
@@ -4568,6 +4688,7 @@ function saveJSON(){
       locked:im.locked||false,
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
+      lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
       // Pixel data + sub-objects so a saved session reloads without re-dropping files
       src:im.src,
       channels:(im.channels||[]).map(c=>({name:c.name,src:c.src,lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
@@ -4577,6 +4698,7 @@ function saveJSON(){
     notes:document.getElementById('fig-notes')?.value||'',
     panelBorder:{w:gv('panel-border-w'),c:gv('panel-border-c')},
     labelFormat:gv('label-format'),
+    labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{ const {img,...rest}=el; return rest; }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
@@ -4665,6 +4787,9 @@ function loadJSON(input){
         if(legacy) alert(`Settings restored. ${legacy} image(s) were saved before pixel data was embedded — re-drop those file(s).`);
       }
       if(Array.isArray(s.measurements)) measurements=s.measurements;
+      if(s.labelOffsets&&typeof s.labelOffsets==='object'){
+        labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
+      }
       scheduleRender(100); toast('Session loaded','ok');
     }catch(err){ toast('Could not load: '+err.message,'err'); }
   };
