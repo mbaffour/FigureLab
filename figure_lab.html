@@ -939,6 +939,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <canvas id="crop-ed-canvas" style="border:1px solid var(--border);border-radius:5px;
       cursor:crosshair;max-width:100%;display:block;margin:8px auto"></canvas>
     <div id="crop-ed-vals" style="font-size:11px;color:var(--muted);margin:6px 0;letter-spacing:.3px">T:0% L:0% B:0% R:0%</div>
+    <div style="font-size:10px;color:var(--muted);margin:-2px 0 6px;line-height:1.35">Drag inside the box to move it, or drag a corner/edge handle to resize — no need to redraw.</div>
     <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;align-items:center;gap:8px;font-size:11px">
       <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent)">Image 1 / 1</span>
       <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
@@ -2507,9 +2508,11 @@ function drawCropEd(){
     ctx.beginPath(); ctx.moveTo(rx+t*rw/3,ry); ctx.lineTo(rx+t*rw/3,ry+rh); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(rx,ry+t*rh/3); ctx.lineTo(rx+rw,ry+t*rh/3); ctx.stroke();
   }
-  // Corner handles
-  [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh]].forEach(([hx,hy])=>{
-    ctx.fillStyle='#5b8dee'; ctx.fillRect(hx-5,hy-5,10,10);
+  // Corner + edge handles (draggable to resize)
+  [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh],
+   [rx+rw/2,ry],[rx+rw/2,ry+rh],[rx,ry+rh/2],[rx+rw,ry+rh/2]].forEach(([hx,hy])=>{
+    ctx.fillStyle='#fff'; ctx.fillRect(hx-5,hy-5,10,10);
+    ctx.fillStyle='#5b8dee'; ctx.fillRect(hx-4,hy-4,8,8);
   });
   // % readout
   const T=Math.round(cy*100),L=Math.round(cx*100);
@@ -2672,9 +2675,31 @@ function applyBatchCropAll(){
     const {cx,cy,cw,ch,hasBox}=cropEdState;
     return hasBox&&cw>0.02&&ch>0.02&&x>=cx&&x<=cx+cw&&y>=cy&&y<=cy+ch;
   }
+  // Which resize handle (if any) is under the cursor. Returns nw/ne/sw/se/n/s/e/w.
+  function _handleAt(x,y){
+    const {cx,cy,cw,ch,hasBox}=cropEdState;
+    if(!hasBox||cw<0.02||ch<0.02) return null;
+    if(cropEdState.batch&&cropEdState.batchCropW>0) return null; // size is locked in batch
+    const hx=12/(cc.width||1), hy=12/(cc.height||1);
+    const L=cx,R=cx+cw,T=cy,B=cy+ch;
+    const onL=Math.abs(x-L)<=hx, onR=Math.abs(x-R)<=hx, onT=Math.abs(y-T)<=hy, onB=Math.abs(y-B)<=hy;
+    const inX=x>=L-hx&&x<=R+hx, inY=y>=T-hy&&y<=B+hy;
+    if(onL&&onT) return 'nw'; if(onR&&onT) return 'ne';
+    if(onL&&onB) return 'sw'; if(onR&&onB) return 'se';
+    if(onT&&inX) return 'n'; if(onB&&inX) return 's';
+    if(onL&&inY) return 'w'; if(onR&&inY) return 'e';
+    return null;
+  }
+  function _handleCursor(h){
+    return {nw:'nwse-resize',se:'nwse-resize',ne:'nesw-resize',sw:'nesw-resize',
+      n:'ns-resize',s:'ns-resize',e:'ew-resize',w:'ew-resize'}[h]||'grab';
+  }
   function _updateCursor(x,y){
     if(cropEdState.batchMoving){ cc.style.cursor='grabbing'; return; }
+    if(cropEdState.resizing){ cc.style.cursor=_handleCursor(cropEdState.resizing); return; }
     if(cropEdState.dragging){ cc.style.cursor='crosshair'; return; }
+    const h=_handleAt(x,y);
+    if(h){ cc.style.cursor=_handleCursor(h); return; }
     // In batch mode with size locked, always grabbable
     if(cropEdState.batch&&cropEdState.batchCropW>0){ cc.style.cursor='grab'; return; }
     cc.style.cursor=_insideBox(x,y)?'grab':'crosshair';
@@ -2683,6 +2708,15 @@ function applyBatchCropAll(){
   cc.addEventListener('mousedown',e=>{
     const rect=cc.getBoundingClientRect();
     const x=(e.clientX-rect.left)/rect.width, y=(e.clientY-rect.top)/rect.height;
+    // Grabbing a handle → resize the existing box (opposite edges stay fixed)
+    const handle=_handleAt(x,y);
+    if(handle){
+      cropEdState.resizing=handle;
+      cropEdState.fixedL=cropEdState.cx; cropEdState.fixedR=cropEdState.cx+cropEdState.cw;
+      cropEdState.fixedT=cropEdState.cy; cropEdState.fixedB=cropEdState.cy+cropEdState.ch;
+      cc.style.cursor=_handleCursor(handle);
+      e.preventDefault(); return;
+    }
     // Batch with locked size OR clicking inside an existing box → move it
     const shouldMove=(cropEdState.batch&&cropEdState.batchCropW>0)||_insideBox(x,y);
     if(shouldMove){
@@ -2711,6 +2745,16 @@ function applyBatchCropAll(){
       cropEdState.cy=Math.max(0,Math.min(1-cropEdState.ch,cropEdState.batchMoveStartCy+dy));
       drawCropEd(); return;
     }
+    if(cropEdState.resizing){
+      const h=cropEdState.resizing;
+      let L=cropEdState.fixedL,R=cropEdState.fixedR,T=cropEdState.fixedT,B=cropEdState.fixedB;
+      if(h.includes('w')) L=x; if(h.includes('e')) R=x;
+      if(h.includes('n')) T=y; if(h.includes('s')) B=y;
+      cropEdState.cx=Math.min(L,R); cropEdState.cw=Math.max(0.03,Math.abs(R-L));
+      cropEdState.cy=Math.min(T,B); cropEdState.ch=Math.max(0.03,Math.abs(B-T));
+      cropEdState.hasBox=true;
+      drawCropEd(); return;
+    }
     if(cropEdState.dragging){
       cropEdState.cx=Math.min(x,cropEdState.dx0);
       cropEdState.cy=Math.min(y,cropEdState.dy0);
@@ -2727,6 +2771,7 @@ function applyBatchCropAll(){
       cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
       _updateBatchUI();
     }
+    if(cropEdState.resizing){ cropEdState.resizing=null; cropEdState.hasBox=true; drawCropEd(); _updateCursor(0.5,0.5); return; }
     cropEdState.dragging=false; cropEdState.batchMoving=false;
     if(cropEdState.cw>0.02&&cropEdState.ch>0.02){
       cropEdState.hasBox=true;
@@ -2742,7 +2787,7 @@ function applyBatchCropAll(){
   });
 
   cc.addEventListener('mouseleave',()=>{
-    cropEdState.dragging=false; cropEdState.batchMoving=false;
+    cropEdState.dragging=false; cropEdState.batchMoving=false; cropEdState.resizing=null;
   });
 })();
 
@@ -6163,7 +6208,8 @@ function openFreeformCropEditor(){
   if(!imgEl||!imgEl.naturalWidth){ toast('Image not loaded yet','warn'); return; }
   // Reuse grid crop modal with freeform element
   const l=(el.cropL||0)/100, t=(el.cropT||0)/100, r=(el.cropR||0)/100, b=(el.cropB||0)/100;
-  cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0};
+  const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
+  cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0, hasBox:hasCrop};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
