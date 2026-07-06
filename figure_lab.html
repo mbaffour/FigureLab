@@ -634,6 +634,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="150">150</option>
         <option value="300" selected>300 (print)</option>
         <option value="600">600 (journal)</option>
+        <option value="1200">1200 (line art)</option>
       </select></div>
 
     <div class="sec-lbl">Format</div>
@@ -6349,7 +6350,7 @@ function applyScaleDetect(imgIdx,barPx,um){
 // ═══════════════════════════════════════════════════════════════
 // PNG METADATA EMBEDDING
 // ═══════════════════════════════════════════════════════════════
-function embedPNGMetadata(pngDataUrl, metaObj){
+function embedPNGMetadata(pngDataUrl, metaObj, dpi){
   return new Promise(resolve=>{
     // Parse base64 PNG, inject tEXt chunks before IDAT
     const b64=pngDataUrl.split(',')[1];
@@ -6377,19 +6378,48 @@ function embedPNGMetadata(pngDataUrl, metaObj){
       chunk.set(len,0); chunk.set(type,4); chunk.set(data,8); chunk.set(crcB,8+data.length);
       return chunk;
     }
-    const chunks=Object.entries(metaObj).map(([k,v])=>makeTextChunk(k,String(v)));
-    const totalExtra=chunks.reduce((s,c)=>s+c.length,0);
-    // Find IDAT offset (after PNG sig + IHDR chunk)
-    let idatOff=8; // skip PNG sig
-    while(idatOff<bytes.length){
-      const len=new DataView(bytes.buffer).getUint32(idatOff);
-      const type=String.fromCharCode(bytes[idatOff+4],bytes[idatOff+5],bytes[idatOff+6],bytes[idatOff+7]);
-      if(type==='IDAT') break;
-      idatOff+=12+len;
+    // pHYs chunk (physical pixel dimensions) so editors/journals read true DPI,
+    // not just the "DPI" tEXt string. 1 metre = 39.3700787 inches.
+    function makePhysChunk(dpiVal){
+      const ppm=Math.max(1, Math.round(dpiVal*39.3700787));
+      const data=new Uint8Array(9);
+      const dv=new DataView(data.buffer);
+      dv.setUint32(0,ppm); dv.setUint32(4,ppm); data[8]=1; // unit specifier: metre
+      const len=new Uint8Array(4); new DataView(len.buffer).setUint32(0,9);
+      const type=new TextEncoder().encode('pHYs');
+      const crcBuf=new Uint8Array(type.length+data.length);
+      crcBuf.set(type); crcBuf.set(data,type.length);
+      const crcVal=crc32(crcBuf);
+      const crcB=new Uint8Array(4); new DataView(crcB.buffer).setUint32(0,crcVal);
+      const chunk=new Uint8Array(4+4+data.length+4);
+      chunk.set(len,0); chunk.set(type,4); chunk.set(data,8); chunk.set(crcB,8+data.length);
+      return chunk;
     }
+    const chunks=Object.entries(metaObj).map(([k,v])=>makeTextChunk(k,String(v)));
+    if(dpi && dpi>0) chunks.unshift(makePhysChunk(dpi)); // pHYs first, before tEXt/IDAT
+    // Find IDAT offset and detect any pre-existing pHYs chunk (so we replace, not
+    // duplicate, the browser's default 72-DPI resolution when we set our own).
+    let idatOff=8; // skip PNG sig
+    let physOff=-1, physLen=0;
+    let scan=8;
+    while(scan<bytes.length){
+      const len=new DataView(bytes.buffer).getUint32(scan);
+      const type=String.fromCharCode(bytes[scan+4],bytes[scan+5],bytes[scan+6],bytes[scan+7]);
+      if(type==='pHYs' && (dpi && dpi>0)){ physOff=scan; physLen=12+len; }
+      if(type==='IDAT'){ idatOff=scan; break; }
+      scan+=12+len;
+    }
+    const totalExtra=chunks.reduce((s,c)=>s+c.length,0)-(physOff>=0?physLen:0);
     const out=new Uint8Array(bytes.length+totalExtra);
-    out.set(bytes.slice(0,idatOff));
-    let pos=idatOff;
+    let pos=0;
+    if(physOff>=0){
+      // Copy up to the existing pHYs, skip it, copy the rest up to IDAT.
+      out.set(bytes.slice(0,physOff),pos); pos+=physOff;
+      const after=bytes.slice(physOff+physLen,idatOff);
+      out.set(after,pos); pos+=after.length;
+    } else {
+      out.set(bytes.slice(0,idatOff),pos); pos+=idatOff;
+    }
     for(const c of chunks){ out.set(c,pos); pos+=c.length; }
     out.set(bytes.slice(idatOff),pos);
     const blob=new Blob([out],{type:'image/png'});
@@ -6424,7 +6454,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
     ].filter(Boolean).join(', ');
   });
   const base=_safeDataURL(canvas,'image/png');
-  const withMeta=await embedPNGMetadata(base,meta);
+  const withMeta=await embedPNGMetadata(base,meta,dpi);
   dl(withMeta,name+'.png');
 }
 
