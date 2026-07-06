@@ -1553,7 +1553,7 @@ function renderImgList(){
         const lutNames={none:'Off',fire:'Fire',green:'GFP',cyan:'Cyan',magenta:'Mag',yellow:'Yel',blue:'DAPI'};
         const row=document.createElement('div');
         row.style.cssText='display:flex;align-items:center;gap:4px;font-size:10px';
-        row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${ch.name||'ch'+(ci+1)}</span>
+        row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${esc(ch.name||'ch'+(ci+1))}</span>
           <select class="ch-lut" style="font-size:10px;padding:1px 3px">${
             Object.entries(lutNames).map(([v,l])=>`<option value="${v}"${ch.lut===v?' selected':''}>${l}</option>`).join('')
           }</select>
@@ -4237,7 +4237,7 @@ function renderAnnotationList(){
     row.className='ann-row'+(i===selectedAnnotation?' selected':'');
     const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
     const label=a.type==='text'?`T "${a.text.substring(0,18)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,14)}"`:a.type;
-    row.innerHTML=`${swatch}<span>${label}</span>
+    row.innerHTML=`${swatch}<span>${esc(label)}</span>
       <button class="icon-btn del" title="Delete" style="font-size:11px">×</button>`;
     row.addEventListener('click', ev=>{
       if(ev.target.classList.contains('del')) return;
@@ -4267,7 +4267,7 @@ function renderAnnotationList(){
       row.className='ann-row'+(isSel?' selected':'');
       const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
       const label=(a.type==='text'?`T "${a.text.substring(0,14)}"`:a.type);
-      row.innerHTML=`<span style="font-size:9px;color:var(--accent);flex-shrink:0">📌</span>${swatch}<span>${label}</span>
+      row.innerHTML=`<span style="font-size:9px;color:var(--accent);flex-shrink:0">📌</span>${swatch}<span>${esc(label)}</span>
         <button class="icon-btn del" title="Delete" style="font-size:11px">×</button>`;
       row.addEventListener('click', ev=>{
         if(ev.target.classList.contains('del')) return;
@@ -5187,7 +5187,7 @@ function updateFreeformElemList(){
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
     const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':'◻';
-    row.innerHTML=`<span>${icon} ${el.label||el.type||'element'}</span>
+    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
       if(ev.target.tagName==='BUTTON') return;
@@ -5565,7 +5565,7 @@ function renderSavedTemplates(){
   if(!saved.length){ list.innerHTML='<div style="font-size:10px;color:var(--muted)">No saved templates</div>'; return; }
   saved.forEach(t=>{
     const row=document.createElement('div'); row.className='tpl-saved';
-    row.innerHTML=`<span>${t.name} <span style="color:var(--muted)">(${t.mode})</span></span>
+    row.innerHTML=`<span>${esc(t.name)} <span style="color:var(--muted)">(${esc(t.mode)})</span></span>
       <button class="btn" style="padding:1px 8px;font-size:10px">Load</button>
       <button class="icon-btn del" style="font-size:10px">×</button>`;
     row.querySelector('.btn').addEventListener('click',()=>loadTemplate(t));
@@ -5662,8 +5662,8 @@ async function generateWithGemini(prompt,style){
   if(!key){ toast('Enter your Gemini API key','warn'); return null; }
   const fullPrompt=`${prompt}, ${style}`;
   const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${key}`,
-    { method:'POST', headers:{'Content-Type':'application/json'},
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent`,
+    { method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key},
       body:JSON.stringify({
         contents:[{parts:[{text:fullPrompt}]}],
         generationConfig:{responseModalities:['IMAGE','TEXT']}
