@@ -707,6 +707,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="adv">
     <div class="divider"></div>
+    <div class="sec-lbl">House styles <span class="help-chip" tabindex="0" role="button" aria-label="About house styles" data-tip="Save your lab's look — background, label font/size/colour/format, scale-bar style, panel border, and typography — and apply it to any figure in one click, so every figure in a paper matches.">?</span></div>
+    <div style="display:flex;gap:4px">
+      <input type="text" id="house-style-name" placeholder="e.g. Lab style" style="flex:1" maxlength="24">
+      <button class="btn" onclick="saveHouseStyle()" style="justify-content:center" title="Save the current figure's look as a reusable house style">💾 Save</button>
+    </div>
+    <div id="house-style-list" style="margin-top:3px"></div>
+    </div>
+
+    <div class="adv">
+    <div class="divider"></div>
     <div class="sec-lbl">Scale Tools</div>
     <div class="field"><label>Reference</label>
       <select id="scale-match-target" style="width:140px">
@@ -1174,6 +1184,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Split-channel row</b> ⑃ — explode a multi-channel panel into separate single-channel panels plus a merge, in one click.</li>
   <li><b>Matched panels</b> ⇉ — give panels a group name and sync brightness/contrast/gamma/LUT/levels across the whole comparison group, so it's processed identically (fair &amp; integrity-safe).</li>
   <li><b>Gel/blot splice marker</b> — drop a visible lane-divider line where blot lanes were spliced, as journals require.</li>
+  <li><b>House styles</b> — save your lab's look (fonts, labels, scale-bar style, border, background) and apply it to any figure in one click, so every figure in a paper matches.</li>
+  <li><b>Editable PowerPoint export</b> is validated to open in PowerPoint, Google Slides, and LibreOffice — no Microsoft Office needed.</li>
   <li><b>On-device AI caption polish</b> 🤖 — optional; uses Chrome's built-in Gemini Nano to refine your figure legend <b>entirely on your machine</b> (nothing is uploaded), and falls back to the built-in caption if your browser doesn't support it.</li>
   <li><b>"?" info chips</b> — plain-language, methods-aware help on DPI, formats, LUTs, scale bars, and adjustments.</li>
   <li><b>Lossless PDF</b> and true-DPI PDF export, colourblind-safe default LUTs, auto-arrange, and this in-app Help &amp; FAQ.</li>
@@ -2733,6 +2745,67 @@ function addSpliceMarker(){
   scheduleRender(0);
   toast('Splice marker added — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.','ok');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// HOUSE STYLES — save the aesthetic layer (fonts/labels/scale-bar/border/
+// background/typography) and apply it to any figure for manuscript-wide
+// consistency. Distinct from Templates (which save layout geometry).
+// ═══════════════════════════════════════════════════════════════
+function _collectHouseStyle(){
+  return {
+    bgColor:gv('bg-color'), showLabels:gc('show-labels'), labelSize:gv('label-size'),
+    labelColor:gv('label-color'), labelPos:gv('label-pos'), labelFormat:gv('label-format'),
+    labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
+    sbH:gv('sb-h'), sbColor:gv('sb-color'), sbText:gc('sb-text'),
+    panelBorderW:gv('panel-border-w'), panelBorderC:gv('panel-border-c'),
+    axisFs:gv('axis-fs'), axisFont:gv('axis-font'), axisColor:gv('axis-color'),
+    axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
+  };
+}
+function _applyHouseStyle(s){
+  const set=(id,v)=>{ if(v!==undefined&&v!==null) sv(id,v); };
+  const chk=(id,v)=>{ if(v!==undefined&&v!==null) sc(id,v); };
+  set('bg-color',s.bgColor); chk('show-labels',s.showLabels); set('label-size',s.labelSize);
+  set('label-color',s.labelColor); set('label-pos',s.labelPos); set('label-format',s.labelFormat);
+  set('label-font',s.labelFont); chk('label-bold',s.labelBold); chk('label-italic',s.labelItalic);
+  set('sb-h',s.sbH); set('sb-color',s.sbColor); chk('sb-text',s.sbText);
+  set('panel-border-w',s.panelBorderW); set('panel-border-c',s.panelBorderC);
+  set('axis-fs',s.axisFs); set('axis-font',s.axisFont); set('axis-color',s.axisColor);
+  chk('axis-bold',s.axisBold); chk('axis-italic',s.axisItalic);
+  if(typeof onLayoutChange==='function') onLayoutChange(); scheduleRender(0);
+}
+function getHouseStyles(){ try{ return JSON.parse(localStorage.getItem('figurelab_housestyles')||'[]'); }catch(e){ return []; } }
+function saveHouseStyle(){
+  const name=(gv('house-style-name')||'').trim();
+  if(!name){ toast('Name your house style first','warn'); return; }
+  const arr=getHouseStyles().filter(s=>s.name!==name);
+  arr.push({name, style:_collectHouseStyle()});
+  try{ localStorage.setItem('figurelab_housestyles',JSON.stringify(arr)); }catch(e){ toast('Could not save (storage full)','err'); return; }
+  sv('house-style-name',''); renderHouseStyles(); toast(`House style "${name}" saved`,'ok');
+}
+function applyHouseStyle(name){
+  const s=getHouseStyles().find(x=>x.name===name); if(!s) return;
+  pushUndo(); _applyHouseStyle(s.style); toast(`Applied house style "${name}"`,'ok');
+}
+function renderHouseStyles(){
+  const el=document.getElementById('house-style-list'); if(!el) return;
+  const arr=getHouseStyles();
+  el.innerHTML = arr.length ? '' : '<div style="font-size:10px;color:var(--muted)">No saved styles yet</div>';
+  arr.forEach(s=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px';
+    row.innerHTML=`<span style="flex:1;font-size:11px">${esc(s.name)}</span>
+      <button class="btn" style="padding:1px 8px;font-size:10px">Apply</button>
+      <button class="icon-btn del" style="font-size:10px" title="Delete">×</button>`;
+    row.querySelector('.btn').addEventListener('click',()=>applyHouseStyle(s.name));
+    row.querySelector('.del').addEventListener('click',()=>{
+      const a=getHouseStyles().filter(x=>x.name!==s.name);
+      localStorage.setItem('figurelab_housestyles',JSON.stringify(a)); renderHouseStyles();
+    });
+    el.appendChild(row);
+  });
+}
+(function initHouseStyles(){ if(typeof renderHouseStyles==='function') renderHouseStyles(); })();
 
 function exportCSV(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));

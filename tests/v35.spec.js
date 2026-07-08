@@ -142,6 +142,23 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('house styles save and re-apply the aesthetic layer', async ({ page }) => {
+  await loadApp(page);
+  const res = await page.evaluate(() => {
+    try { localStorage.removeItem('figurelab_housestyles'); } catch (e) {}
+    sv('bg-color', '#eeeeee'); sv('label-size', '18'); sv('label-color', '#ff0000');
+    sv('house-style-name', 'Lab'); saveHouseStyle();
+    const count = getHouseStyles().length;
+    sv('bg-color', '#ffffff'); sv('label-size', '8'); sv('label-color', '#000000');
+    applyHouseStyle('Lab');
+    return { count, bg: gv('bg-color'), size: gv('label-size'), color: gv('label-color') };
+  });
+  expect(res.count).toBe(1);
+  expect(res.bg).toBe('#eeeeee');
+  expect(res.size).toBe('18');
+  expect(res.color).toBe('#ff0000');
+});
+
 test('split-channel row explodes a multi-channel panel into channels + merge', async ({ page }) => {
   await loadApp(page);
   await seedPanels(page, 3);
