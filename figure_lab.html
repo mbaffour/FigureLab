@@ -618,6 +618,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="redo()" style="flex:1;justify-content:center">↪ Redo</button>
       <button class="btn" onclick="clearAnnotations()" style="flex:1;justify-content:center">✕ Clear</button>
     </div>
+    <div class="adv">
+    <div class="divider"></div>
+    <div class="sec-lbl">Blot / gel tools <span class="help-chip" tabindex="0" role="button" aria-label="About splice markers" data-tip="When western-blot lanes are cut and rejoined, journals require a visible line marking the splice. This adds that divider — drag it to the boundary and disclose the splice in your methods.">?</span></div>
+    <button class="btn" onclick="addSpliceMarker()" style="width:100%;justify-content:center" title="Add a visible splice/lane-divider line (drag it to the boundary). Journals require marking where blot lanes were spliced.">⎸ Add splice marker</button>
+    </div>
     <div class="sec-lbl">Annotations <span id="ann-count">0</span></div>
     <div class="ann-list" id="ann-list"></div>
   </div>
@@ -2709,6 +2714,18 @@ function splitChannelRow(srcIdx){
   renderImgList(); renderMiniGrid(); scheduleRender();
   logAction('splitChannels',{from:im.label,into:parts.length});
   toast(`Split into ${parts.length} panels (channels + merge) — try ✨ Auto-arrange for a clean row`,'ok');
+}
+
+// Gel/blot splice marker — a visible lane-divider line (journal integrity
+// requirement when blot lanes are cut and rejoined). Reuses line annotations.
+function addSpliceMarker(){
+  if(!images.length){ toast('Add a blot or gel image first','warn'); return; }
+  render();
+  pushUndo();
+  annotations.push({type:'line', xf:0.5, yf:0.12, x2f:0.5, y2f:0.88, color:'#ffffff', width:3});
+  if(typeof renderAnnotationList==='function') renderAnnotationList();
+  scheduleRender(0);
+  toast('Splice marker added — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.','ok');
 }
 
 function exportCSV(){
