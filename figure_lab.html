@@ -1921,6 +1921,7 @@ const CMD_REGISTRY=[
   {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
   {label:"What's new (v3.5)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
+  {label:'Replay guided tour',       keys:'tour guide onboarding walkthrough help', run:()=>startTour(true)},
   {label:'Polish caption (on-device AI)', keys:'ai caption gemini nano polish legend', run:()=>aiPolishCaption()},
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
@@ -2957,6 +2958,56 @@ function renderHouseStyles(){
     // Optional offline cache if a same-origin service worker is present; harmless no-op otherwise.
     if('serviceWorker' in navigator) navigator.serviceWorker.register('figurelab-sw.js').catch(()=>{});
   }catch(e){}
+})();
+
+// ── First-run guided tour (coach-marks) ─────────────────────────
+const TOUR_STEPS=[
+  {sel:'#load-example-btn', title:'1 · Import images', body:'Drop microscopy, blot, or histology images on the panel above — or click "Load example figure" to explore with a ready-made demo.'},
+  {sel:'#cols', title:'2 · Choose a layout', body:'Set rows × columns for your grid, or pick a Template / Journal preset. The panel map shows how images are arranged.'},
+  {sel:'#ann-tools', title:'3 · Annotate', body:'Add arrows, boxes, scale bars, and text. Switch to ↖ Select (or press Esc) to move or edit anything you draw.'},
+  {sel:'#export-acc', title:'4 · Export', body:'Set a file name and DPI (300 for print, 600 for journals), then export PNG, TIFF, PDF, SVG — or a whole submission package.'},
+  {sel:'#mode-toggle', title:'5 · Simple vs Advanced', body:'Simple mode hides advanced tools so it stays approachable. Flip to Advanced anytime. Press ❔ for help & FAQ.'},
+];
+let _tourI=0;
+function startTour(force){
+  try{ if(!force && localStorage.getItem('fl-tour-done')) return; }catch(e){}
+  _tourI=0; _tourShow();
+}
+function _tourEndSave(){ try{ localStorage.setItem('fl-tour-done','1'); localStorage.setItem('fl-hints-seen','1'); }catch(e){} }
+function _tourClose(){ const o=document.getElementById('tour-ov'); if(o) o.remove(); }
+function _tourEnd(){ _tourClose(); _tourEndSave(); }
+function _tourShow(){
+  _tourClose();
+  const step=TOUR_STEPS[_tourI]; if(!step){ _tourEnd(); return; }
+  const el=document.querySelector(step.sel);
+  let r={left:innerWidth/2-110,top:innerHeight/2-40,width:220,height:80};
+  if(el){ const b=el.getBoundingClientRect(); if(b.width){ r={left:b.left-6,top:b.top-6,width:b.width+12,height:b.height+12}; el.scrollIntoView({block:'center'}); } }
+  const ov=document.createElement('div'); ov.id='tour-ov'; ov.style.cssText='position:fixed;inset:0;z-index:10000';
+  const hole=document.createElement('div');
+  hole.style.cssText=`position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`+
+    `border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.6);pointer-events:none;transition:all .2s`;
+  ov.appendChild(hole);
+  const below=r.top<innerHeight/2;
+  const card=document.createElement('div');
+  card.style.cssText=`position:absolute;max-width:280px;background:var(--surface);border:1px solid var(--border2);`+
+    `border-radius:10px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);font-family:var(--mono);`+
+    `left:${Math.min(Math.max(8,r.left), innerWidth-300)}px;${below?`top:${r.top+r.height+12}px`:`top:${Math.max(8,r.top-170)}px`}`;
+  card.innerHTML=`<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">${step.title}</div>
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.55">${step.body}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:12px">
+      <span style="font-size:10px;color:var(--muted)">${_tourI+1} / ${TOUR_STEPS.length}</span>
+      <button class="btn" id="tour-skip" style="margin-left:auto;padding:3px 9px;font-size:11px">Skip</button>
+      ${_tourI>0?'<button class="btn" id="tour-back" style="padding:3px 9px;font-size:11px">‹ Back</button>':''}
+      <button class="btn btn-primary" id="tour-next" style="padding:3px 9px;font-size:11px">${_tourI===TOUR_STEPS.length-1?'Done':'Next ›'}</button>
+    </div>`;
+  ov.appendChild(card);
+  document.body.appendChild(ov);
+  ov.querySelector('#tour-next').addEventListener('click',()=>{ if(_tourI===TOUR_STEPS.length-1) _tourEnd(); else { _tourI++; _tourShow(); } });
+  const bk=ov.querySelector('#tour-back'); if(bk) bk.addEventListener('click',()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); });
+  ov.querySelector('#tour-skip').addEventListener('click',_tourEnd);
+}
+(function initTour(){
+  try{ if(!localStorage.getItem('fl-tour-done') && !localStorage.getItem('fl-hints-seen')) setTimeout(()=>startTour(false), 800); }catch(e){}
 })();
 
 function exportCSV(){
