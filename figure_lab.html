@@ -626,6 +626,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="divider"></div>
     <div class="sec-lbl">Blot / gel tools <span class="help-chip" tabindex="0" role="button" aria-label="About splice markers" data-tip="When western-blot lanes are cut and rejoined, journals require a visible line marking the splice. This adds that divider — drag it to the boundary and disclose the splice in your methods.">?</span></div>
     <button class="btn" onclick="addSpliceMarker()" style="width:100%;justify-content:center" title="Add a visible splice/lane-divider line (drag it to the boundary). Journals require marking where blot lanes were spliced.">⎸ Add splice marker</button>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLaneLabels()" title="Add numbered lane labels across the top — drag to align with your lanes">▦ Lane labels</button>
+      <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLadderLabels()" title="Add molecular-weight ladder labels down the left edge">↕ MW ladder</button>
+    </div>
+    <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
     <div class="sec-lbl">Annotations <span id="ann-count">0</span></div>
     <div class="ann-list" id="ann-list"></div>
@@ -2796,6 +2801,39 @@ function addSpliceMarker(){
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   toast('Splice marker added — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.','ok');
+}
+function addLaneLabels(){
+  if(!images.length){ toast('Add a blot/gel image first','warn'); return; }
+  const n=parseInt(prompt('How many lanes?','4'),10); if(!n||n<1) return;
+  render(); pushUndo();
+  for(let i=0;i<n;i++){
+    const xf=0.12+0.76*(n>1?i/(n-1):0.5);
+    annotations.push({type:'text', xf, yf:0.04, text:String(i+1), fontSize:16, color:'#000000', halo:false});
+  }
+  if(typeof renderAnnotationList==='function') renderAnnotationList();
+  scheduleRender(0); toast(`Added ${n} lane labels — switch to ↖ Select to drag them onto your lanes`,'ok');
+}
+function addLadderLabels(){
+  if(!images.length){ toast('Add a blot/gel image first','warn'); return; }
+  const s=prompt('Molecular weights (kDa), top → bottom, comma-separated:','250,130,100,70,55,35,25'); if(!s) return;
+  const mw=s.split(',').map(x=>x.trim()).filter(Boolean); if(!mw.length) return;
+  render(); pushUndo();
+  mw.forEach((v,i)=>{ const yf=0.1+0.8*(mw.length>1?i/(mw.length-1):0.5);
+    annotations.push({type:'text', xf:0.02, yf, text:v, fontSize:13, color:'#000000', halo:false}); });
+  if(typeof renderAnnotationList==='function') renderAnnotationList();
+  scheduleRender(0); toast(`Added ${mw.length} MW labels — drag to align with the ladder`,'ok');
+}
+function exportBlotMetadata(){
+  if(!images.length){ toast('Add images first','warn'); return; }
+  const rows=[['Panel','Label','Grayscale','Inverted','Brightness','Contrast','Gamma','Levels','Note']];
+  images.forEach((im,i)=>{ if(!im) return; rows.push([i+1,im.label,im.grayscale?'yes':'no',im.invert?'yes':'no',
+    im.brightness,im.contrast,im.gamma||1,`${im.blackPt||0}-${im.whitePt||255}`,(im.captionNote||'').replace(/[,\n]/g,'; ')]); });
+  const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').replace(/\n/g,' ');
+  const csv=`# FigureLab blot/gel metadata — ${new Date().toISOString()}\n`+
+    `# Keep the uncropped original scan on file. Disclose all processing in your methods.\n`+
+    `# Figure notes: ${notes}\n`+rows.map(r=>r.join(',')).join('\n');
+  dl(blobUrl(csv), (gv('export-name')||'blot')+'-blot-metadata.csv');
+  toast('Blot metadata CSV exported','ok');
 }
 
 // Before/after: a wipe slider comparing a panel's original vs adjusted pixels.
