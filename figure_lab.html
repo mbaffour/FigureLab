@@ -264,6 +264,12 @@ details[open]>.faq-q::before{content:'▾'}
   border-radius:4px;padding:1px 5px}
 .cmdp-empty{padding:16px;color:var(--muted);font-size:12px;text-align:center}
 
+/* ── Simple / Advanced mode ─────────────────────────────────── */
+body.simple-mode .adv{display:none !important}
+#mode-toggle{cursor:pointer;user-select:none}
+#mode-toggle::before{content:'●';margin-right:4px;font-size:8px;vertical-align:middle;color:var(--a2)}
+body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -382,6 +388,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
+    <button class="badge" id="mode-toggle" onclick="toggleUiMode()" title="Toggle Simple / Advanced interface. Simple hides advanced tools (AI, freeform, measurement, deep audit, per-panel levels) — switch anytime." style="background:none">Simple</button>
     <button class="btn-icon" id="cmd-btn" aria-label="Command palette" onclick="openCmdPalette()" title="Command palette (Ctrl+K)" style="font-size:11px;min-width:28px">⌘K</button>
     <button class="btn-icon" id="help-btn" aria-label="Help and FAQ" onclick="openHelp()" title="Help &amp; FAQ" style="font-size:13px;min-width:28px">❔</button>
     <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
@@ -659,6 +666,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label for="label-italic" style="cursor:pointer">Italic</label>
     </div>
 
+    <div class="adv">
     <div class="divider"></div>
     <div class="sec-lbl">Scale Tools</div>
     <div class="field"><label>Reference</label>
@@ -677,6 +685,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px">↺ Reset all crops</button>
     <div class="divider" style="margin:6px 0"></div>
     <button class="btn btn-primary" onclick="startBatchCrop()" style="width:100%;justify-content:center" title="Draw one crop size on the first image, then move that same box across all images">✂ Batch Crop Images</button>
+    </div>
   </div>
 </details>
 
@@ -710,6 +719,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="exportCSV()" style="width:100%;justify-content:center">⬇ CSV Metadata</button>
     <button class="btn" onclick="batchExportPanels()" style="width:100%;justify-content:center;margin-top:4px" title="Export each panel as a separate image file">⬙ Batch Export Panels</button>
 
+    <div class="adv">
     <div class="divider"></div>
     <div class="sec-lbl">Scripts &amp; Reproducibility</div>
     <div style="display:flex;gap:5px">
@@ -723,6 +733,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label style="font-size:10px">Rows per page</label>
       <input type="number" id="pdf-rows-per-page" value="2" min="1" max="12" style="width:54px"></div>
     <button class="btn" onclick="exportMultiPagePDF()" style="width:100%;justify-content:center" title="Split grid into pages of N rows each, export as multi-page PDF">📄 Multi-page PDF</button>
+    </div>
 
     <div class="divider"></div>
     <div class="sec-lbl">Session</div>
@@ -748,6 +759,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
     <textarea id="fig-notes" rows="3" placeholder="Antibody dilutions, conditions, reviewer comments…" style="width:100%;resize:vertical;padding:5px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:11px;font-family:var(--mono)"></textarea>
 
+    <div class="adv">
     <div class="divider"></div>
     <div class="sec-lbl">Analysis</div>
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center">🔍 Deep Figure Audit</button>
@@ -780,11 +792,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="roi-results"></div>
     <canvas id="line-profile-canvas" style="display:none"></canvas>
     <button class="btn" id="export-measurements-btn" onclick="exportMeasurements()" style="width:100%;justify-content:center;display:none;margin-top:4px">⬇ Export Measurements CSV</button>
+    </div>
   </div>
 </details>
 
 <!-- AI GENERATE -->
-<details>
+<details class="adv">
   <summary>✦ AI Generate</summary>
   <div class="acc-body">
     <div class="sec-lbl">Backend</div>
@@ -1763,6 +1776,29 @@ function setCvdMode(mode){
   const sel=document.getElementById('cvd-mode'); if(sel&&sel.value!==cvdMode) sel.value=cvdMode;
   if(cvdMode!=='none') toast('CVD preview on — this only changes the on-screen view, not exports','ok');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// SIMPLE / ADVANCED INTERFACE MODE
+// Advanced controls carry class="adv"; Simple mode hides them via one
+// CSS rule. Nothing is removed from the DOM, so all JS reads still work.
+// ═══════════════════════════════════════════════════════════════
+function applyUiMode(mode){
+  const simple = mode!=='advanced';
+  if(simple){
+    // render() branches on #layout-mode; never hide the freeform selector while it's active
+    const lm=document.getElementById('layout-mode');
+    if(lm && lm.value==='freeform'){ if(typeof setLayoutMode==='function') setLayoutMode('grid'); lm.value='grid'; }
+  }
+  document.body.classList.toggle('simple-mode', simple);
+  const btn=document.getElementById('mode-toggle'); if(btn) btn.textContent = simple?'Simple':'Advanced';
+  try{ localStorage.setItem('fl-ui-mode', simple?'simple':'advanced'); }catch(e){}
+}
+function toggleUiMode(){
+  const toSimple=!document.body.classList.contains('simple-mode');
+  applyUiMode(toSimple?'simple':'advanced');
+  toast(toSimple?'Simple mode — advanced tools hidden':'Advanced mode — all tools shown','ok');
+}
+(function initUiMode(){ let m='simple'; try{ m=localStorage.getItem('fl-ui-mode')||'simple'; }catch(e){} applyUiMode(m); })();
 
 // ═══════════════════════════════════════════════════════════════
 // EXPORT PREFLIGHT — show what will be exported before committing
