@@ -279,6 +279,24 @@ body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
   border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:10.5px;line-height:1.5;
   box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;display:none}
 
+/* ── Empty-state start screen ───────────────────────────────── */
+#empty-state{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
+.es-card{max-width:480px;width:100%;text-align:center;background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:28px 26px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.es-title{font-family:'Instrument Serif',Georgia,serif;font-size:25px;color:var(--text);margin-bottom:8px}
+.es-sub{font-size:12px;color:var(--muted);line-height:1.6;margin:0 auto 18px;max-width:400px}
+.es-drop{border:1.5px dashed var(--border2);border-radius:10px;padding:22px;cursor:pointer;
+  transition:border-color .15s,background .15s;margin-bottom:14px}
+.es-drop:hover{border-color:var(--accent);background:var(--surf2)}
+.es-drop strong{color:var(--accent);display:block;margin-top:4px;font-size:14px}
+.es-mini{font-size:10px;color:var(--muted);margin-top:3px}
+.es-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
+.es-flow{font-size:10px;color:var(--muted);display:flex;gap:5px;justify-content:center;align-items:center;
+  flex-wrap:wrap;margin-bottom:12px}
+.es-step{background:var(--surf2);border:1px solid var(--border);border-radius:20px;padding:2px 9px}
+.es-cur{color:var(--accent);border-color:var(--accent)}
+.es-foot{font-size:10px;color:var(--muted)}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -933,6 +951,27 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
          box-shadow:0 6px 24px rgba(0,0,0,.4);font-size:11.5px;line-height:1.5;display:flex;gap:10px;align-items:flex-start">
       <span>💡 <b>Tip:</b> Drag the divider <i>between</i> panels to space them out · Double-click a panel to add text · ⊞ Labels toggles headers.</span>
       <button class="btn" style="padding:2px 7px;font-size:11px" onclick="dismissHint()" aria-label="Dismiss tip">Got it</button>
+    </div>
+    <!-- Empty-state start screen (shown when no images are loaded) -->
+    <div id="empty-state">
+      <div class="es-card">
+        <div class="es-title">Build a publication-ready figure</div>
+        <div class="es-sub">Assemble microscopy, blots, or histology into a clean multi-panel figure. Everything runs in your browser — nothing is uploaded.</div>
+        <div class="es-drop" onclick="document.getElementById('file-input').click()">
+          <div style="font-size:26px">⬆</div>
+          <strong>Drop images here</strong>
+          <div class="es-mini">or click to browse — PNG · TIFF · JPG</div>
+        </div>
+        <div class="es-actions">
+          <button class="btn" onclick="esOpenTemplates()">⊞ Start from a template</button>
+          <button class="btn" onclick="esLoadSession()">📂 Load a session</button>
+          <button class="btn btn-primary" onclick="loadExampleFigure()">✨ Try the example figure</button>
+        </div>
+        <div class="es-flow">
+          <span class="es-step es-cur">Import</span>›<span class="es-step">Layout</span>›<span class="es-step">Calibrate</span>›<span class="es-step">Annotate</span>›<span class="es-step">Audit</span>›<span class="es-step">Export</span>
+        </div>
+        <div class="es-foot">Offline · private · free &amp; open · press ❔ for help</div>
+      </div>
     </div>
     <canvas id="bio-bg-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.18"></canvas>
     <!-- Colour-vision-deficiency simulation filters (display only; never applied to exported pixels) -->
@@ -1832,6 +1871,26 @@ function toggleUiMode(){
   window.addEventListener('scroll',hide,true);
 })();
 
+// ── Empty-state start screen ─────────────────────────────────
+function updateEmptyState(){
+  const es=document.getElementById('empty-state'); if(!es) return;
+  const ffEmpty=(typeof freeformElements==='undefined')||freeformElements.length===0;
+  const empty=(images.length===0 && ffEmpty);
+  es.style.display=empty?'flex':'none';
+  // The drag-divider tip is meaningless with no panels — keep it out of the way.
+  if(empty){ const h=document.getElementById('canvas-hint'); if(h) h.style.display='none'; }
+}
+function esOpenTemplates(){
+  const d=[...document.querySelectorAll('.sidebar > details')]
+    .find(x=>/Templates/i.test((x.querySelector('summary')||{}).textContent||''));
+  if(d){ d.open=true; d.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+}
+function esLoadSession(){
+  const i=document.querySelector('.sidebar input[type="file"][accept=".json"]');
+  if(i) i.click(); else toast('Open the Export panel to load a session','warn');
+}
+(function initEmptyState(){ if(typeof updateEmptyState==='function') updateEmptyState(); })();
+
 // ═══════════════════════════════════════════════════════════════
 // EXPORT PREFLIGHT — show what will be exported before committing
 // ═══════════════════════════════════════════════════════════════
@@ -1908,6 +1967,7 @@ function swapImages(i, j){
 // ═══════════════════════════════════════════════════════════════
 function renderImgList(){
   document.getElementById('img-count').textContent = images.length;
+  if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
   list.innerHTML = '';
   images.forEach((im, idx) => {
