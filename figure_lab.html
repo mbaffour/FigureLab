@@ -251,6 +251,19 @@ details[open]>.faq-q::before{content:'▾'}
 .faq-q:hover{background:var(--surf2)}
 .faq-a{padding:2px 12px 10px}
 
+/* ── Command palette ────────────────────────────────────────── */
+#cmd-palette{align-items:flex-start}
+#cmd-palette>.modal{max-width:540px;padding:0;margin-top:12vh;overflow:hidden}
+.cmdp-input{width:100%;border:none;border-bottom:1px solid var(--border);background:transparent;
+  color:var(--text);font-family:var(--mono);font-size:14px;padding:14px 16px;outline:none;box-sizing:border-box}
+.cmdp-list{list-style:none;max-height:52vh;overflow-y:auto;margin:0;padding:6px}
+.cmdp-item{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:9px 12px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text)}
+.cmdp-item.sel{background:var(--surf2)}
+.cmdp-hint{color:var(--muted);font-size:10px;font-family:var(--mono);border:1px solid var(--border);
+  border-radius:4px;padding:1px 5px}
+.cmdp-empty{padding:16px;color:var(--muted);font-size:12px;text-align:center}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -369,6 +382,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
+    <button class="btn-icon" id="cmd-btn" aria-label="Command palette" onclick="openCmdPalette()" title="Command palette (Ctrl+K)" style="font-size:11px;min-width:28px">⌘K</button>
     <button class="btn-icon" id="help-btn" aria-label="Help and FAQ" onclick="openHelp()" title="Help &amp; FAQ" style="font-size:13px;min-width:28px">❔</button>
     <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
   </div>
@@ -1173,6 +1187,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   </div>
 </div>
 
+<!-- ── Command palette ───────────────────────────────────────── -->
+<div class="modal-bg" id="cmd-palette" onclick="if(event.target===this)closeCmdPalette()">
+  <div class="modal">
+    <input id="cmdp-input" class="cmdp-input" type="text" autocomplete="off" spellcheck="false"
+      placeholder="Type a command…  (export, render, theme, preset, help)" aria-label="Command palette">
+    <ul class="cmdp-list" id="cmdp-list"></ul>
+  </div>
+</div>
+
 <!-- ── Crop editor modal ─────────────────────────────────────── -->
 <div class="modal-bg" id="crop-modal">
   <div class="modal" style="max-width:580px">
@@ -1614,6 +1637,87 @@ function autoArrange(){
   onLayoutChange(); scheduleRender();
   toast(`Arranged ${n} panel${n>1?'s':''} into a balanced ${cols}×${rows} grid`,'ok');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// COMMAND PALETTE (Ctrl/⌘-K) — a dispatcher over existing actions
+// ═══════════════════════════════════════════════════════════════
+const CMD_REGISTRY=[
+  {label:'Render figure',            keys:'render preview refresh',        run:()=>render(),                    hint:'R'},
+  {label:'Export PNG',               keys:'export png image save',         run:()=>doExport('png'),             hint:'Ctrl+E'},
+  {label:'Export PDF',               keys:'export pdf document',           run:()=>doExport('pdf')},
+  {label:'Export PDF (lossless)',    keys:'export pdf lossless line art',  run:()=>doExport('pdf-lossless')},
+  {label:'Export TIFF',              keys:'export tiff journal print',     run:()=>doExport('tiff')},
+  {label:'Export SVG',               keys:'export svg vector',             run:()=>doExport('svg')},
+  {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExport('jpeg')},
+  {label:'Export WebP',              keys:'export webp',                   run:()=>doExport('webp')},
+  {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
+  {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
+  {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
+  {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
+  {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Preset: Nature',           keys:'preset journal nature',         run:()=>applyPreset('nature')},
+  {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
+  {label:'Preset: Cell',             keys:'preset journal cell',           run:()=>applyPreset('cell')},
+  {label:'Preset: Poster',           keys:'preset poster',                 run:()=>applyPreset('poster')},
+  {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
+  {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
+  {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
+];
+let _cmdpSel=0, _cmdpFiltered=[];
+function openCmdPalette(){
+  const el=document.getElementById('cmd-palette'); el.classList.add('open');
+  const inp=document.getElementById('cmdp-input'); inp.value=''; _cmdpRender('');
+  requestAnimationFrame(()=>inp.focus());
+}
+function closeCmdPalette(){ document.getElementById('cmd-palette').classList.remove('open'); }
+function _cmdpScore(item,q){
+  if(!q) return 1;
+  const hay=(item.label+' '+item.keys).toLowerCase();
+  const idx=hay.indexOf(q); if(idx>=0) return 1000-idx;      // substring: earlier is better
+  let qi=0; for(let i=0;i<hay.length&&qi<q.length;i++){ if(hay[i]===q[qi]) qi++; }
+  return qi===q.length?1:0;                                   // fuzzy subsequence fallback
+}
+function _cmdpRender(q){
+  q=(q||'').toLowerCase().trim();
+  _cmdpFiltered=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)})).filter(o=>o.s>0)
+    .sort((a,b)=>b.s-a.s).map(o=>o.c);
+  _cmdpSel=0;
+  const ul=document.getElementById('cmdp-list');
+  if(!_cmdpFiltered.length){ ul.innerHTML='<div class="cmdp-empty">No matching commands</div>'; return; }
+  ul.innerHTML=_cmdpFiltered.map((c,i)=>`<li class="cmdp-item${i===0?' sel':''}" data-i="${i}">
+    <span>${c.label}</span>${c.hint?`<span class="cmdp-hint">${c.hint}</span>`:''}</li>`).join('');
+  [...ul.querySelectorAll('.cmdp-item')].forEach(li=>{
+    li.addEventListener('mousemove',()=>{ _cmdpSel=+li.dataset.i; _cmdpHighlight(); });
+    li.addEventListener('click',()=>_cmdpRun());
+  });
+}
+function _cmdpHighlight(){
+  [...document.querySelectorAll('#cmdp-list .cmdp-item')].forEach((li,i)=>{
+    const on=i===_cmdpSel; li.classList.toggle('sel',on); if(on) li.scrollIntoView({block:'nearest'});
+  });
+}
+function _cmdpRun(){
+  const c=_cmdpFiltered[_cmdpSel]; if(!c) return;
+  closeCmdPalette();
+  try{ c.run(); }catch(e){ toast('Command failed: '+(e&&e.message||e),'err'); }
+}
+(function bindCmdPalette(){
+  const inp=document.getElementById('cmdp-input'); if(!inp) return;
+  inp.addEventListener('input',()=>_cmdpRender(inp.value));
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'){ e.preventDefault(); _cmdpSel=Math.min(_cmdpSel+1,_cmdpFiltered.length-1); _cmdpHighlight(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); _cmdpSel=Math.max(_cmdpSel-1,0); _cmdpHighlight(); }
+    else if(e.key==='Enter'){ e.preventDefault(); _cmdpRun(); }
+    else if(e.key==='Escape'){ e.preventDefault(); closeCmdPalette(); }
+  });
+  window.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){
+      e.preventDefault();
+      const el=document.getElementById('cmd-palette');
+      el.classList.contains('open')?closeCmdPalette():openCmdPalette();
+    }
+  });
+})();
 
 // Swap two image slots while keeping labels POSITIONAL (label belongs to slot, not image)
 function swapImages(i, j){
