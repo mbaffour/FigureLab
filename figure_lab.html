@@ -1385,8 +1385,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px">→ Skip</button>
       <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop position to all remaining images (centered)">✓ All</button>
     </div>
-    <div style="display:flex;gap:8px;margin-top:10px">
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
+      <button class="btn" id="crop-copy-group" onclick="copyCropTo('group')" title="Apply this exact crop to every panel in the same match group">⤳ To group</button>
+      <button class="btn" id="crop-copy-all" onclick="copyCropTo('all')" title="Apply this exact crop to every panel">⤳ To all</button>
+      <span style="font-size:9px;color:var(--muted)">Arrow keys nudge · Shift = larger</span>
       <button id="crop-skip-btn" class="btn" onclick="skipPreCrop()" style="display:none">→ Skip &amp; Add</button>
       <button class="btn btn-primary" id="crop-apply-btn" onclick="applyCropModal()" style="margin-left:auto">✓ Apply Crop</button>
     </div>
@@ -3684,6 +3687,32 @@ function applyCropModal(){
   toast('Crop applied','ok');
 }
 function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false; drawCropEd(); }
+// Copy the current crop rect to every panel (or every panel in the same group).
+function copyCropTo(scope){
+  const cs=cropEdState; if(cs.imgIdx<0){ toast('Open a single panel crop first','warn'); return; }
+  const T=Math.max(0,Math.round(cs.cy*100)), L=Math.max(0,Math.round(cs.cx*100)),
+        B=Math.max(0,Math.round((1-cs.cy-cs.ch)*100)), Rr=Math.max(0,Math.round((1-cs.cx-cs.cw)*100));
+  const grp=(images[cs.imgIdx]&&images[cs.imgIdx].group||'').trim();
+  if(scope==='group' && !grp){ toast('Give this panel a Match group first','warn'); return; }
+  pushUndo(); let n=0;
+  const setC=im=>{ im.cropT=T; im.cropL=L; im.cropB=B; im.cropR=Rr; im._adjCache=undefined; im._adjKey=undefined; };
+  images.forEach((im,i)=>{ if(!im) return;
+    if(scope==='group' && (im.group||'').trim()!==grp) return;
+    if(i!==cs.imgIdx) n++; setC(im); });
+  closeCropModal(); renderImgList(); scheduleRender(0);
+  toast(n?`Crop copied to ${n} ${scope==='group'?'group ':''}panel${n>1?'s':''}`:'No other panels'+(scope==='group'?' in this group':''),'ok');
+}
+// Arrow keys nudge the crop box while the crop editor is open (Shift = larger step).
+document.addEventListener('keydown', e=>{
+  const m=document.getElementById('crop-modal'); if(!m||!m.classList.contains('open')) return;
+  if(!/Arrow/.test(e.key)) return;
+  const step=e.shiftKey?0.02:0.005; let moved=false;
+  if(e.key==='ArrowLeft'){ cropEdState.cx=Math.max(0,cropEdState.cx-step); moved=true; }
+  else if(e.key==='ArrowRight'){ cropEdState.cx=Math.min(1-cropEdState.cw,cropEdState.cx+step); moved=true; }
+  else if(e.key==='ArrowUp'){ cropEdState.cy=Math.max(0,cropEdState.cy-step); moved=true; }
+  else if(e.key==='ArrowDown'){ cropEdState.cy=Math.min(1-cropEdState.ch,cropEdState.cy+step); moved=true; }
+  if(moved){ e.preventDefault(); e.stopPropagation(); drawCropEd(); }
+}, true);
 
 // ── Batch crop ────────────────────────────────────────────────
 function startBatchCrop(){
