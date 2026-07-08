@@ -2,8 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
-<!-- DOI badge — paste the one Zenodo gives you after the first release:
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX) -->
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21269456.svg)](https://doi.org/10.5281/zenodo.21269456)
 
 A single HTML file for assembling publication-quality scientific figures. No installation, no server, no internet required — open in any browser and start working.
 
@@ -324,16 +323,30 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Citation
 
-If you use FigureLab in your research, please cite it. Once the archived release
-is on Zenodo, use the DOI it mints (a version-independent "concept DOI" plus a
-per-version DOI). Metadata lives in [`CITATION.cff`](CITATION.cff), so GitHub
-shows a **"Cite this repository"** button automatically.
+If you use FigureLab in your research, please cite it. Metadata lives in
+[`CITATION.cff`](CITATION.cff), so GitHub shows a **"Cite this repository"**
+button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
 > publication-quality scientific figures* (Version 3.5) [Computer software].
-> Zenodo. https://doi.org/10.5281/zenodo.XXXXXXX
+> Zenodo. https://doi.org/10.5281/zenodo.21269456
 
-(Replace the DOI with the one Zenodo issues for your release.)
+**BibTeX:**
+
+```bibtex
+@software{awuah_figurelab_2026,
+  author    = {Awuah, Michael Baffour},
+  title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
+  year      = {2026},
+  version   = {3.5},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.21269456},
+  url       = {https://github.com/mbaffour/FigureLab}
+}
+```
+
+The DOI above is the **concept DOI** — it always resolves to the latest version.
+To cite this exact release, use the v3.5 DOI [`10.5281/zenodo.21269457`](https://doi.org/10.5281/zenodo.21269457).
 
 ---
 
