@@ -444,6 +444,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="sortImagesByName()" title="Sort panels by filename in natural order (file2 before file10), then relabel A, B, C…">↕ Sort by name</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="autoDetectChannels()" title="Detect DAPI / GFP / RFP / Cy5 / phase from filenames and assign colourblind-safe LUTs">🎨 Auto-channels</button>
     </div>
+    <div class="adv" style="display:flex;gap:4px;margin-top:4px">
+      <input type="text" id="fname-pattern" placeholder="condition_time_channel_rep" style="flex:1;font-size:10px" title="Name your filename fields separated by _ (e.g. condition_time_channel_rep). Leave blank to just clean the name and detect the channel.">
+      <button class="btn" style="font-size:10px;justify-content:center" onclick="parseFilenames()" title="Split each filename into the named fields, fill captions, and assign channel LUTs">⤷ Parse names</button>
+    </div>
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
@@ -1744,6 +1748,28 @@ function sortImagesByName(){
   renderImgList(); renderMiniGrid(); scheduleRender();
   toast('Panels sorted by filename','ok');
 }
+function parseFilenames(){
+  if(!images.length){ toast('Add images first','warn'); return; }
+  const pat=(gv('fname-pattern')||'').trim();
+  const fields = pat ? pat.split(/[_\-\s]+/).filter(Boolean) : null;
+  pushUndo();
+  let n=0;
+  images.forEach(im=>{
+    const base=(im.name||'').replace(/\.[^.]+$/,'');
+    const toks=base.split(/[_\-\s.]+/).filter(Boolean);
+    if(fields){
+      const pairs=fields.map((f,i)=> toks[i]!=null ? `${f}: ${toks[i]}` : null).filter(Boolean);
+      if(pairs.length){ im.captionNote=pairs.join(', '); n++; }
+      const ci=fields.findIndex(f=>/chan|channel|dye|fluor|colou?r/i.test(f));
+      if(ci>=0 && toks[ci]){ const ch=_detectChannel(toks[ci]); if(ch&&ch.lut) im.lut=ch.lut; }
+    } else {
+      im.captionNote=toks.join(' '); n++;
+      const ch=_detectChannel(base); if(ch&&ch.lut) im.lut=ch.lut;
+    }
+  });
+  renderImgList(); if(typeof renderChList==='function') renderChList(); scheduleRender();
+  toast(`Parsed ${n} filename${n>1?'s':''}${fields?' by pattern':''}`,'ok');
+}
 function autoDetectChannels(){
   if(!images.length){ toast('Add images first','warn'); return; }
   pushUndo();
@@ -2829,6 +2855,28 @@ function renderHouseStyles(){
   });
 }
 (function initHouseStyles(){ if(typeof renderHouseStyles==='function') renderHouseStyles(); })();
+
+// ── PWA: installable app (http/https only; single-file, no external assets) ──
+(function initPWA(){
+  try{
+    if(!location.protocol.startsWith('http')) return;   // skip under file://
+    const icon=(size)=>{ const c=document.createElement('canvas'); c.width=c.height=size;
+      const x=c.getContext('2d'); x.fillStyle='#0b0e14'; x.fillRect(0,0,size,size);
+      x.fillStyle='#4da3ff'; x.font='bold '+Math.round(size*0.46)+'px sans-serif';
+      x.textAlign='center'; x.textBaseline='middle'; x.fillText('FL',size/2,size*0.56);
+      return c.toDataURL('image/png'); };
+    const scope=location.pathname.replace(/[^/]*$/,'');
+    const manifest={ name:'FigureLab', short_name:'FigureLab',
+      description:'Assemble publication-quality scientific figures in your browser.',
+      start_url:location.pathname, scope, display:'standalone',
+      background_color:'#0b0e14', theme_color:'#0b0e14',
+      icons:[{src:icon(192),sizes:'192x192',type:'image/png'},{src:icon(512),sizes:'512x512',type:'image/png'}] };
+    const url=URL.createObjectURL(new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'}));
+    const link=document.createElement('link'); link.rel='manifest'; link.href=url; document.head.appendChild(link);
+    // Optional offline cache if a same-origin service worker is present; harmless no-op otherwise.
+    if('serviceWorker' in navigator) navigator.serviceWorker.register('figurelab-sw.js').catch(()=>{});
+  }catch(e){}
+})();
 
 function exportCSV(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
@@ -7716,7 +7764,21 @@ function embedPNGMetadata(pngDataUrl, metaObj, dpi){
       chunk.set(len,0); chunk.set(type,4); chunk.set(data,8); chunk.set(crcB,8+data.length);
       return chunk;
     }
+    // Generic ancillary-chunk builder (len + type + data + CRC32).
+    function makeChunk(typeStr, data){
+      const len=new Uint8Array(4); new DataView(len.buffer).setUint32(0,data.length);
+      const type=new TextEncoder().encode(typeStr);
+      const crcBuf=new Uint8Array(type.length+data.length); crcBuf.set(type); crcBuf.set(data,type.length);
+      const crcB=new Uint8Array(4); new DataView(crcB.buffer).setUint32(0,crc32(crcBuf));
+      const chunk=new Uint8Array(12+data.length);
+      chunk.set(len,0); chunk.set(type,4); chunk.set(data,8); chunk.set(crcB,8+data.length);
+      return chunk;
+    }
     const chunks=Object.entries(metaObj).map(([k,v])=>makeTextChunk(k,String(v)));
+    // sRGB colour-space tag (+ companion gAMA) so editors/journals treat the PNG
+    // as sRGB — the standard lightweight alternative to embedding an ICC profile.
+    const gama=new Uint8Array(4); new DataView(gama.buffer).setUint32(0,45455); // sRGB gamma
+    chunks.unshift(makeChunk('sRGB', new Uint8Array([0])), makeChunk('gAMA', gama));
     if(dpi && dpi>0) chunks.unshift(makePhysChunk(dpi)); // pHYs first, before tEXt/IDAT
     // Find IDAT offset and detect any pre-existing pHYs chunk (so we replace, not
     // duplicate, the browser's default 72-DPI resolution when we set our own).
