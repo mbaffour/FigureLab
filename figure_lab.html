@@ -801,6 +801,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </label>
     </div>
     <button class="btn adv" onclick="saveJSON(false)" style="width:100%;justify-content:center;margin-top:4px" title="Lightweight session — settings only (no image data, small file). Re-drop the same images after loading.">🪶 Save (settings only)</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+      <input type="checkbox" id="autosave-toggle" checked onchange="setAutosaveEnabled(this.checked)">
+      <label for="autosave-toggle" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Keep a local snapshot so you can recover after an accidental close or crash. Stays on your machine.">Autosave &amp; crash recovery</label>
+      <span id="autosave-status" style="margin-left:auto;font-size:9px;color:var(--muted)"></span>
+    </div>
     <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
 
     <div class="divider"></div>
@@ -4031,7 +4036,7 @@ function restoreState(s){
   renderImgList(); renderMiniGrid(); updateFreeformElemList(); renderAnnotationList(); scheduleRender(0);
 }
 function _pushSnap(snap){ undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[]; _pendingUndoSnap=null; }
-function pushUndo(){ _pushSnap(snapshotState()); }
+function pushUndo(){ _pushSnap(snapshotState()); if(typeof scheduleAutosave==='function') scheduleAutosave(); }
 function undo(){
   if(!undoStack.length){ toast('Nothing to undo','warn'); return; }
   redoStack.push(snapshotState());
@@ -6004,7 +6009,7 @@ async function aiPolishCaption(){
 // ═══════════════════════════════════════════════════════════════
 // SAVE / LOAD JSON
 // ═══════════════════════════════════════════════════════════════
-function saveJSON(bundleImages){
+function serializeSession(bundleImages){
   const _bundle = bundleImages!==false;   // default: bundle images (self-contained)
   const state={
     layout:{ cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
@@ -6044,6 +6049,11 @@ function saveJSON(bundleImages){
     freeformElements: freeformElements.map(el=>{ const {img,...rest}=el; if(!_bundle) delete rest.src; return rest; }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
   };
+  return state;
+}
+function saveJSON(bundleImages){
+  const _bundle = bundleImages!==false;
+  const state = serializeSession(bundleImages);
   const suffix = _bundle ? '-session.json' : '-settings.json';
   dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+suffix);
   toast(_bundle ? 'Session saved (images bundled)' : 'Settings saved (lightweight — re-drop images on load)','ok');
@@ -6053,8 +6063,13 @@ function loadJSON(input){
   const f=input.files[0]; if(!f) return;
   const reader=new FileReader();
   reader.onload=e=>{
-    try{
-      const s=JSON.parse(e.target.result);
+    try{ applySession(JSON.parse(e.target.result)); }
+    catch(err){ toast('Could not load: '+err.message,'err'); }
+  };
+  reader.readAsText(f); input.value='';
+}
+// Apply a parsed session object — shared by file-load and autosave-restore.
+function applySession(s,_opts){
       if(s.layout){
         const L=s.layout;
         sv('cols',L.cols);sv('rows',L.rows);sv('panel-w',L.panelW);sv('panel-h',L.panelH);
@@ -6132,10 +6147,8 @@ function loadJSON(input){
       if(s.labelOffsets&&typeof s.labelOffsets==='object'){
         labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
       }
-      scheduleRender(100); toast('Session loaded','ok');
-    }catch(err){ toast('Could not load: '+err.message,'err'); }
-  };
-  reader.readAsText(f); input.value='';
+      scheduleRender(100);
+      if(!(_opts&&_opts.silent)) toast('Session loaded','ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7247,54 +7260,66 @@ function exportMeasurements(){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AUTOSAVE
+// AUTOSAVE & CRASH RECOVERY
+// Debounced full-session snapshot to localStorage (reuses serializeSession).
+// Tries a bundled snapshot (with images); falls back to settings-only if
+// storage is full. Optional — toggle in the Session panel.
 // ═══════════════════════════════════════════════════════════════
-let _autosaveTimer=null;
-function autosave(){
-  try{
-    const state={
-      layoutMode, freeformElements:JSON.parse(JSON.stringify(freeformElements)),
-      fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
-      fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
-      annotations,
-    };
-    localStorage.setItem('figurelab-autosave',JSON.stringify(state));
-  }catch(e){
-    if(!_autosaveWarned){ _autosaveWarned=true; toast('Autosave paused — browser storage full','warn'); }
-  }
+const AUTOSAVE_KEY='fl-autosave-v2';
+let _autosaveTimer=null, _autosaveDebounce=null, _autosaveWarned=false;
+function autosaveEnabled(){ try{ return localStorage.getItem('fl-autosave-enabled')!=='0'; }catch(e){ return true; } }
+function setAutosaveEnabled(on){
+  try{ localStorage.setItem('fl-autosave-enabled', on?'1':'0'); }catch(e){}
+  const el=document.getElementById('autosave-status'); if(el) el.textContent = on ? 'Autosave on' : 'Autosave off';
+  if(on){ scheduleAutosave(); } else { try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){} }
 }
-let _autosaveWarned=false;
+function autosaveNow(){
+  if(!autosaveEnabled()) return;
+  if(!images.length && !(typeof freeformElements!=='undefined' && freeformElements.length)) return;
+  const t=Date.now();
+  const write=(bundle)=>localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({t, bundle, s:serializeSession(bundle)}));
+  try{ write(true); }
+  catch(e){
+    try{ write(false); }   // quota exceeded → settings-only fallback
+    catch(e2){ if(!_autosaveWarned){ _autosaveWarned=true; toast('Autosave paused — browser storage full','warn'); } return; }
+  }
+  const el=document.getElementById('autosave-status');
+  if(el) el.textContent='Autosaved '+new Date(t).toLocaleTimeString();
+}
+function scheduleAutosave(){
+  if(!autosaveEnabled()) return;
+  clearTimeout(_autosaveDebounce);
+  _autosaveDebounce=setTimeout(autosaveNow, 2500);   // 2.5s after the last change
+}
 function startAutosave(){
   clearInterval(_autosaveTimer);
-  _autosaveTimer=setInterval(autosave,60000);
-  window.addEventListener('beforeunload',autosave);
+  _autosaveTimer=setInterval(autosaveNow, 30000);    // 30s safety interval
+  window.addEventListener('beforeunload', autosaveNow);
+  const cb=document.getElementById('autosave-toggle'); if(cb) cb.checked=autosaveEnabled();
+  const el=document.getElementById('autosave-status'); if(el) el.textContent = autosaveEnabled()?'Autosave on':'Autosave off';
 }
 function checkAutosave(){
-  try{
-    const raw=localStorage.getItem('figurelab-autosave');
-    if(!raw) return;
-    const state=JSON.parse(raw);
-    if(!state?.annotations?.length&&!state?.freeformElements?.length) return;
-    const toast2=document.createElement('div');
-    toast2.style.cssText=`position:fixed;bottom:64px;left:50%;transform:translateX(-50%);
-      background:var(--surface);border:1px solid var(--border2);border-radius:8px;
-      padding:10px 18px;display:flex;gap:10px;align-items:center;z-index:9999;
-      font-size:12px;font-family:var(--mono);box-shadow:0 4px 20px rgba(0,0,0,.4)`;
-    toast2.innerHTML=`<span>↺ Autosave found. Restore?</span>
-      <button class="btn btn-primary" style="padding:3px 10px">Yes</button>
-      <button class="btn" style="padding:3px 10px">No</button>`;
-    toast2.querySelector('.btn-primary').addEventListener('click',()=>{
-      if(state.layoutMode){ document.getElementById('layout-mode').value=state.layoutMode; setLayoutMode(state.layoutMode); }
-      if(state.annotations) annotations=state.annotations;
-      if(state.freeformElements){ freeformElements=state.freeformElements; updateFreeformElemList(); }
-      if(state.fmW) sv('fm-canvas-w',state.fmW);
-      if(state.fmH) sv('fm-canvas-h',state.fmH);
-      renderAnnotationList(); scheduleRender(0);
-      toast2.remove(); toast('Session restored','ok');
-    });
-    toast2.querySelector('.btn:not(.btn-primary)').addEventListener('click',()=>toast2.remove());
-    document.body.appendChild(toast2);
-  }catch(e){}
+  let raw; try{ raw=localStorage.getItem(AUTOSAVE_KEY); }catch(e){ return; }
+  if(!raw) return;
+  let data; try{ data=JSON.parse(raw); }catch(e){ return; }
+  const s=data&&data.s; if(!s) return;
+  const has=(Array.isArray(s.images)&&s.images.length)||(Array.isArray(s.freeformElements)&&s.freeformElements.length)||(Array.isArray(s.annotations)&&s.annotations.length);
+  if(!has) return;
+  const when=data.t?new Date(data.t).toLocaleString():'earlier';
+  const bar=document.createElement('div');
+  bar.style.cssText=`position:fixed;bottom:64px;left:50%;transform:translateX(-50%);
+    background:var(--surface);border:1px solid var(--border2);border-radius:8px;
+    padding:10px 18px;display:flex;gap:10px;align-items:center;z-index:9999;
+    font-size:12px;font-family:var(--mono);box-shadow:0 4px 20px rgba(0,0,0,.4)`;
+  bar.innerHTML=`<span>↺ Recover unsaved session from ${when}?${data.bundle?'':' (images not stored — re-drop)'}</span>
+    <button class="btn btn-primary" style="padding:3px 10px">Restore</button>
+    <button class="btn" style="padding:3px 10px">Dismiss</button>`;
+  bar.querySelector('.btn-primary').addEventListener('click',()=>{
+    try{ applySession(s,{silent:true}); toast('Session recovered','ok'); }catch(e){ toast('Could not recover session','err'); }
+    bar.remove();
+  });
+  bar.querySelector('.btn:not(.btn-primary)').addEventListener('click',()=>bar.remove());
+  document.body.appendChild(bar);
 }
 
 // ═══════════════════════════════════════════════════════════════

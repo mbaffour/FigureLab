@@ -142,6 +142,38 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('session serialize/apply round-trips and autosave writes a snapshot', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 3);
+  const res = await page.evaluate(async () => {
+    const state = serializeSession(true);
+    const n0 = state.images.length;
+    images = []; annotations = []; renderImgList();
+    applySession(state, { silent: true });
+    await new Promise(r => setTimeout(r, 150));
+    // autosave writes a recoverable snapshot
+    autosaveNow();
+    const data = JSON.parse(localStorage.getItem('fl-autosave-v2') || '{}');
+    return { n0, restored: images.length, autosaveImages: (data.s && data.s.images || []).length, bundle: data.bundle };
+  });
+  expect(res.n0).toBe(3);
+  expect(res.restored).toBe(3);            // applySession restored every panel
+  expect(res.autosaveImages).toBe(3);      // autosave snapshot includes panels
+  expect(res.bundle).toBe(true);
+});
+
+test('lightweight session omits image pixel data; bundled keeps it', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 2);
+  const res = await page.evaluate(() => ({
+    light: JSON.stringify(serializeSession(false)),
+    bundled: JSON.stringify(serializeSession(true)),
+  }));
+  expect(/"src":\s*"data:/.test(res.light)).toBe(false);
+  expect(/"src":\s*"data:/.test(res.bundled)).toBe(true);
+  expect(res.light.length).toBeLessThan(res.bundled.length);
+});
+
 test('house styles save and re-apply the aesthetic layer', async ({ page }) => {
   await loadApp(page);
   const res = await page.evaluate(() => {
