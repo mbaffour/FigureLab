@@ -275,6 +275,9 @@ body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
   border-radius:50%;background:var(--surf2);border:1px solid var(--border);color:var(--muted);
   font-size:9px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle;font-family:var(--mono)}
 .help-chip:hover,.help-chip:focus{color:var(--text);border-color:var(--accent);outline:none}
+#help-btn{position:relative}
+#help-btn.has-new::after{content:'';position:absolute;top:1px;right:1px;width:7px;height:7px;
+  border-radius:50%;background:var(--accent);border:1.5px solid var(--surface)}
 .help-chip-tip{position:fixed;z-index:9999;width:230px;background:var(--surf2);color:var(--text);
   border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:10.5px;line-height:1.5;
   box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;display:none}
@@ -779,8 +782,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </button>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Figure caption helper</div>
+    <div class="sec-lbl">Figure caption helper <span class="help-chip" tabindex="0" role="button" aria-label="About caption help" data-tip="Builds a structured A/B/C legend from your panel notes and scale bars. The on-device AI polish uses Chrome's built-in Gemini Nano — 100% local, nothing is uploaded — and falls back to the built-in caption if your browser lacks it.">?</span></div>
     <button class="btn" onclick="generateCaption()" style="width:100%;justify-content:center">✦ Generate Caption</button>
+    <button class="btn" id="ai-caption-btn" onclick="aiPolishCaption()" style="width:100%;justify-content:center;margin-top:4px" title="Polish the caption with Chrome's built-in on-device AI (Gemini Nano). 100% local — nothing is uploaded. Falls back to the built-in caption if unavailable.">🤖 Polish with on-device AI</button>
     <textarea id="caption-out" rows="4" placeholder="Caption will appear here…" style="margin-top:4px"></textarea>
 
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
@@ -1068,6 +1072,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <h3>❔ Help &amp; FAQ</h3>
     <div class="help-tabs" role="tablist">
       <button class="help-tab active" data-help-tab="start" onclick="switchHelpTab('start')" role="tab">Getting Started</button>
+      <button class="help-tab" data-help-tab="whatsnew" onclick="switchHelpTab('whatsnew')" role="tab">✨ What's New</button>
       <button class="help-tab" data-help-tab="usecases" onclick="switchHelpTab('usecases')" role="tab">Use Cases</button>
       <button class="help-tab" data-help-tab="faq" onclick="switchHelpTab('faq')" role="tab">FAQ</button>
     </div>
@@ -1140,6 +1145,25 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   </tbody>
 </table>
 <!-- /HELP:START -->
+      </div>
+      <div class="help-pane" id="help-pane-whatsnew">
+<!-- HELP:WHATSNEW -->
+<h3 class="help-h">What's new in v3.5 <span style="font-size:11px;color:var(--muted);font-weight:400">· updated 8 July 2026</span></h3>
+<p class="help-p">A big usability &amp; integrity update — same single file, still 100% offline and private.</p>
+<ul class="help-ul">
+  <li><b>Simple / Advanced mode</b> — a header toggle hides advanced tools so beginners see just the core workflow. Switch back anytime.</li>
+  <li><b>Start screen</b> — a blank canvas now guides you: drop images, start from a template, load a session, or try the example figure.</li>
+  <li><b>Load example figure</b> — one click drops in a labelled, scale-barred demo so you can explore instantly.</li>
+  <li><b>Command palette</b> (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>) — search and run any action, from export to audit.</li>
+  <li><b>Export preflight</b> — see format, final pixel dimensions, physical size, estimated file size, and integrity warnings <i>before</i> you export.</li>
+  <li><b>Colour-vision-deficiency preview</b> — check that your fluorescence merges stay distinguishable for colourblind readers (display only; never changes exports).</li>
+  <li><b>On-device AI caption polish</b> 🤖 — optional; uses Chrome's built-in Gemini Nano to refine your figure legend <b>entirely on your machine</b> (nothing is uploaded), and falls back to the built-in caption if your browser doesn't support it.</li>
+  <li><b>"?" info chips</b> — plain-language, methods-aware help on DPI, formats, LUTs, scale bars, and adjustments.</li>
+  <li><b>Lossless PDF</b> and true-DPI PDF export, colourblind-safe default LUTs, auto-arrange, and this in-app Help &amp; FAQ.</li>
+</ul>
+<div class="help-callout help-tip"><b>Tip</b> Prefer the full toolset? Everything advanced is one click away via the <b>Advanced</b> toggle (top-right) or the command palette.</div>
+<p class="help-p" style="color:var(--muted);font-size:11px">See the full history in the project README changelog.</p>
+<!-- /HELP:WHATSNEW -->
       </div>
       <div class="help-pane" id="help-pane-usecases">
 <!-- HELP:USECASES -->
@@ -1459,7 +1483,18 @@ function switchHelpTab(tab){
   document.querySelectorAll('.help-pane').forEach(p=>p.classList.toggle('active', p.id==='help-pane-'+tab));
   const body=document.querySelector('#help-modal .help-body'); if(body) body.scrollTop=0;
 }
-function openHelp(tab){ if(tab) switchHelpTab(tab); document.getElementById('help-modal').classList.add('open'); }
+function openHelp(tab){ if(tab) switchHelpTab(tab); document.getElementById('help-modal').classList.add('open'); markVersionSeen(); }
+function markVersionSeen(){
+  const b=document.getElementById('help-btn'); if(b) b.classList.remove('has-new');
+  try{ localStorage.setItem('fl-seen-version', APP_VERSION); }catch(e){}
+}
+function openWhatsNew(){ openHelp('whatsnew'); }
+(function initWhatsNew(){
+  let seen=''; try{ seen=localStorage.getItem('fl-seen-version')||''; }catch(e){}
+  if(seen && seen!==APP_VERSION){ const b=document.getElementById('help-btn'); if(b) b.classList.add('has-new'); }
+  // First-ever visitors: don't nag — treat current version as seen.
+  else if(!seen){ try{ localStorage.setItem('fl-seen-version', APP_VERSION); }catch(e){} }
+})();
 
 const THEMES=['light','lab','dark'];
 const THEME_ICONS={light:'☀️',lab:'🔬',dark:'🌙'};
@@ -1752,6 +1787,8 @@ const CMD_REGISTRY=[
   {label:'Preset: Poster',           keys:'preset poster',                 run:()=>applyPreset('poster')},
   {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
+  {label:"What's new (v3.5)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
+  {label:'Polish caption (on-device AI)', keys:'ai caption gemini nano polish legend', run:()=>aiPolishCaption()},
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
@@ -5422,6 +5459,55 @@ function generateCaption(){
   document.getElementById('caption-out').value=cap;
   logAction('generateCaption',{panels:n});
   toast('Caption generated — copy and paste!','ok');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ON-DEVICE AI CAPTION POLISH (Chrome built-in Prompt API / Gemini Nano)
+// Runs entirely on the user's machine — nothing is uploaded, preserving the
+// offline/privacy promise. Gracefully falls back to the rule-based caption.
+// ═══════════════════════════════════════════════════════════════
+async function aiPolishCaption(){
+  const outEl=document.getElementById('caption-out');
+  if(!outEl.value.trim()) generateCaption();           // ensure a structured draft exists
+  const draft=outEl.value.trim();
+  if(!draft){ toast('Add panels or notes first','warn'); return; }
+  if(typeof LanguageModel==='undefined'){
+    toast("On-device AI isn't available in this browser — keeping the built-in caption. (Needs Chrome 138+ with built-in AI.)",'warn');
+    return;
+  }
+  const btn=document.getElementById('ai-caption-btn'); const orig=btn.textContent;
+  try{
+    const avail=await LanguageModel.availability().catch(()=>'unavailable');
+    if(avail==='unavailable'){
+      toast('On-device AI model is unavailable on this device — keeping the built-in caption','warn'); return;
+    }
+    btn.disabled=true; btn.textContent='⏳ On-device AI…';
+    const opts={ initialPrompts:[{role:'system',content:
+      'You are a scientific copy editor. Rewrite a DRAFT microscopy/blot figure legend into a concise, formal, journal-style figure legend. Use ONLY the information given — never invent results, statistics, p-values, or panels. Preserve panel letters like (A), (B) and all scale-bar values exactly. Output only the final legend text, no preamble.'}] };
+    if(avail!=='available'){
+      toast('Downloading the on-device model (one-time, then fully offline)…','ok');
+      opts.monitor=(m)=>m.addEventListener('downloadprogress',e=>{ btn.textContent='⏳ '+Math.round((e.loaded||0)*100)+'%'; });
+    }
+    const session=await LanguageModel.create(opts);
+    const result=await session.prompt(`Rewrite this draft figure legend to be clean and journal-ready. Keep it factual and preserve panel letters and scale-bar numbers:\n\n${draft}`);
+    if(session.destroy) session.destroy();
+    const txt=(result||'').trim();
+    // Guard: some environments (e.g. Chromium without the real model) just echo the
+    // prompt back. Reject any response that leaks our instructions or is degenerate.
+    const echoed=/copy editor|rewrite this draft|figure legend into|never invent/i.test(txt);
+    if(txt && !echoed && txt.length<1500){
+      outEl.value=txt;
+      logAction('aiCaption',{engine:'gemini-nano-on-device'});
+      toast('Caption polished on-device — nothing left your computer ✓','ok');
+    } else {
+      outEl.value=draft;   // restore the good rule-based caption
+      toast("On-device AI isn't ready here — keeping the built-in caption",'warn');
+    }
+  }catch(e){
+    toast('On-device AI failed — keeping the built-in caption','warn');
+  }finally{
+    btn.disabled=false; btn.textContent=orig;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

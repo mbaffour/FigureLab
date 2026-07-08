@@ -94,3 +94,29 @@ test('auto-arrange produces a balanced grid from the panel count', async ({ page
   const dims = await page.evaluate(() => ({ cols: gi('cols'), rows: gi('rows') }));
   expect(dims).toEqual({ cols: 2, rows: 2 });
 });
+
+test('on-device AI caption preserves the rule-based caption when the model is not really available', async ({ page }) => {
+  // Chromium exposes LanguageModel but only echoes the prompt; the echo guard must
+  // reject that and keep the good structured caption rather than clobbering it.
+  await loadApp(page);
+  await page.evaluate(async () => { await loadExampleFigure(); });
+  await page.waitForFunction(() => images.length === 4);
+  const draft = await page.evaluate(() => { generateCaption(); return document.getElementById('caption-out').value; });
+  await page.evaluate(async () => { await aiPolishCaption(); });
+  const after = await page.evaluate(() => document.getElementById('caption-out').value);
+  expect(after).toBe(draft);                 // never leaves a degenerate/echoed caption
+  expect(after.startsWith('Figure.')).toBe(true);
+});
+
+test("What's New tab renders dated content and clears the update indicator", async ({ page }) => {
+  await loadApp(page);
+  await page.evaluate(() => { try { localStorage.setItem('fl-seen-version', '0.0'); } catch (e) {} });
+  await page.reload();
+  await page.waitForFunction(() => typeof openWhatsNew === 'function');
+  expect(await page.evaluate(() => document.getElementById('help-btn').classList.contains('has-new'))).toBe(true);
+  await page.evaluate(() => openWhatsNew());
+  const paneActive = await page.evaluate(() => document.getElementById('help-pane-whatsnew').classList.contains('active'));
+  expect(paneActive).toBe(true);
+  const cleared = await page.evaluate(() => !document.getElementById('help-btn').classList.contains('has-new'));
+  expect(cleared).toBe(true);
+});
