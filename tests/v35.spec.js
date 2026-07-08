@@ -142,6 +142,27 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('split-channel row explodes a multi-channel panel into channels + merge', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 3);
+  const res = await page.evaluate(() => {
+    images[0].lut = 'green';
+    images[0].channels = [{ name: 'c2.png', img: images[1].img, src: images[1].src, lut: 'magenta', blackPt: 0, whitePt: 255 }];
+    const before = images.length;
+    splitChannelRow(0);
+    return {
+      grew: images.length - before,                 // +2 (1 panel -> 3)
+      caps: images.slice(0, 3).map(i => i.captionNote),
+      singleChannelsHaveNoChannels: images[0].channels.length === 0 && images[1].channels.length === 0,
+      mergeKeepsChannels: images[2].channels.length === 1,
+    };
+  });
+  expect(res.grew).toBe(2);
+  expect(res.caps).toEqual(['GFP', 'RFP', 'Merge']);
+  expect(res.singleChannelsHaveNoChannels).toBe(true);
+  expect(res.mergeKeepsChannels).toBe(true);
+});
+
 test('matched panels: sync copies adjustments only within a group', async ({ page }) => {
   await loadApp(page);
   await seedPanels(page, 4);

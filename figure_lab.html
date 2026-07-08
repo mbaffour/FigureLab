@@ -2210,6 +2210,7 @@ function renderImgList(){
         <label class="btn" style="width:100%;justify-content:center;cursor:pointer">
           + Add channel<input type="file" class="f-add-ch" accept="image/*" style="display:none">
         </label>
+        <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
         <div class="divider"></div>
         <div class="sec-lbl">Caption note (not rendered)</div>
         <input type="text" class="f-cap" value="${esc(im.captionNote)}" placeholder="e.g. WT cells, 60×" style="width:100%">
@@ -2385,6 +2386,8 @@ function renderImgList(){
       });
     }
     renderChList();
+    const _splitBtn=item.querySelector('[data-splitch]');
+    if(_splitBtn) _splitBtn.addEventListener('click',()=>splitChannelRow(idx));
     item.querySelector('.f-add-ch').addEventListener('change', e=>{
       const f2=e.target.files[0]; if(!f2) return;
       const reader2=new FileReader();
@@ -2679,6 +2682,33 @@ function syncGroupToPanel(srcIdx){
   logAction('syncGroup',{group:g,src:src.label,n:targets.length});
   renderImgList(); scheduleRender(0);
   toast(`Synced ${targets.length} panel(s) in group "${g}" to ${src.label}`,'ok');
+}
+
+// Split-channel row: explode a multi-channel composite into separate
+// single-channel panels plus a merge — the classic split-channel figure.
+function _lutChannelName(lut){
+  return {blue:'DAPI',green:'GFP',magenta:'RFP',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
+}
+function splitChannelRow(srcIdx){
+  const im=images[srcIdx]; if(!im) return;
+  if(!im.channels || !im.channels.length){ toast('Add extra channels to this panel first — a split needs a merge to split','warn'); return; }
+  pushUndo();
+  const mk=(src,imgEl,lut,cap,bp,wp)=>{
+    const p=_freshPanel(imgEl, src, (cap||'channel')+'.png', 'tmp');
+    p.lut=lut||'none'; p.blackPt=(bp!=null?bp:0); p.whitePt=(wp!=null?wp:255);
+    p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
+    return p;
+  };
+  const parts=[ mk(im.src, im.img, im.lut, _lutChannelName(im.lut), im.blackPt, im.whitePt) ];
+  im.channels.forEach(ch=>parts.push(mk(ch.src, ch.img, ch.lut, _lutChannelName(ch.lut), ch.blackPt, ch.whitePt)));
+  const merge={...im, id:Date.now()+Math.random(), captionNote:'Merge',
+    channels:im.channels.map(c=>({...c})), _adjCache:undefined, _adjKey:undefined};
+  parts.push(merge);
+  images.splice(srcIdx,1,...parts);
+  let i=0; images.forEach(p=>{ p.label = i<26?ALPHABET[i]:String(i+1); i++; });   // positional relabel
+  renderImgList(); renderMiniGrid(); scheduleRender();
+  logAction('splitChannels',{from:im.label,into:parts.length});
+  toast(`Split into ${parts.length} panels (channels + merge) — try ✨ Auto-arrange for a clean row`,'ok');
 }
 
 function exportCSV(){
