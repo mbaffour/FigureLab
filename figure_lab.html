@@ -300,6 +300,10 @@ body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
 .es-cur{color:var(--accent);border-color:var(--accent)}
 .es-foot{font-size:10px;color:var(--muted)}
 
+/* ── Session library rows ───────────────────────────────────── */
+.sess-row{display:flex;align-items:center;gap:6px;padding:4px 5px;border-radius:5px;background:var(--surf2);margin-top:3px}
+.sess-row:hover{background:var(--border)}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -815,6 +819,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label for="autosave-toggle" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Keep a local snapshot so you can recover after an accidental close or crash. Stays on your machine.">Autosave &amp; crash recovery</label>
       <span id="autosave-status" style="margin-left:auto;font-size:9px;color:var(--muted)"></span>
     </div>
+
+    <div class="divider"></div>
+    <div class="sec-lbl">My sessions <span class="help-chip" tabindex="0" role="button" aria-label="About the session library" data-tip="Keep multiple named figures in your browser and switch between them anytime — great for working on several figures at once. Stored locally (IndexedDB); nothing is uploaded.">?</span></div>
+    <button class="btn" onclick="saveToLibrary()" style="width:100%;justify-content:center" title="Save the current figure as a named session you can reopen later">＋ Save current to library</button>
+    <div id="session-library" style="margin-top:4px;max-height:190px;overflow-y:auto"></div>
     <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
 
     <div class="divider"></div>
@@ -1904,6 +1913,7 @@ const CMD_REGISTRY=[
   {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExport('jpeg')},
   {label:'Export WebP',              keys:'export webp',                   run:()=>doExport('webp')},
   {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
+  {label:'Save to session library',  keys:'library session save named multiple figures', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
@@ -7573,6 +7583,78 @@ function checkAutosave(){
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SESSION LIBRARY — keep multiple named figures (IndexedDB, so image-heavy
+// sessions fit) and switch between them. All local; nothing is uploaded.
+// ═══════════════════════════════════════════════════════════════
+const _DB_NAME='figurelab', _DB_STORE='sessions';
+function _db(){
+  return new Promise((res,rej)=>{
+    let r; try{ r=indexedDB.open(_DB_NAME,1); }catch(e){ return rej(e); }
+    r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains(_DB_STORE)) db.createObjectStore(_DB_STORE,{keyPath:'id'}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  });
+}
+function _tx(mode){ return _db().then(db=>db.transaction(_DB_STORE,mode).objectStore(_DB_STORE)); }
+async function _dbAll(){ const s=await _tx('readonly'); return new Promise((res,rej)=>{ const q=s.getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); }); }
+async function _dbGet(id){ const s=await _tx('readonly'); return new Promise((res,rej)=>{ const q=s.get(id); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
+async function _dbPut(rec){ const s=await _tx('readwrite'); return new Promise((res,rej)=>{ const q=s.put(rec); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); }); }
+async function _dbDel(id){ const s=await _tx('readwrite'); return new Promise((res,rej)=>{ const q=s.delete(id); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); }); }
+function _uid(){ return 's_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function _sessionThumb(){
+  try{ const src=document.getElementById('fig-canvas'); if(!src||!src.width) return '';
+    const c=document.createElement('canvas'); const s=Math.min(160/src.width,120/src.height,1);
+    c.width=Math.max(1,Math.round(src.width*s)); c.height=Math.max(1,Math.round(src.height*s));
+    c.getContext('2d').drawImage(src,0,0,c.width,c.height); return c.toDataURL('image/jpeg',0.55);
+  }catch(e){ return ''; }
+}
+async function saveToLibrary(){
+  if(!images.length && !(typeof freeformElements!=='undefined'&&freeformElements.length)){ toast('Add a figure first','warn'); return; }
+  const name=(prompt('Name this session:', gv('fig-title')||gv('export-name')||'My figure')||'').trim();
+  if(!name) return;
+  try{ render(); await _dbPut({id:_uid(), name, savedAt:Date.now(), thumb:_sessionThumb(), data:serializeSession(true)});
+    toast(`Saved "${name}" to your sessions`,'ok'); renderSessionLibrary();
+  }catch(e){ toast('Could not save session (storage error)','err'); }
+}
+async function loadFromLibrary(id){
+  try{ const rec=await _dbGet(id); if(!rec){ toast('Session not found','warn'); return; }
+    applySession(rec.data,{silent:true}); toast(`Opened "${rec.name}"`,'ok');
+  }catch(e){ toast('Could not open session','err'); }
+}
+async function overwriteLibrary(id){
+  try{ const rec=await _dbGet(id); if(!rec) return; render();
+    rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=serializeSession(true);
+    await _dbPut(rec); toast(`Updated "${rec.name}"`,'ok'); renderSessionLibrary();
+  }catch(e){ toast('Could not update','err'); }
+}
+async function renameLibrary(id){ let rec; try{ rec=await _dbGet(id); }catch(e){} if(!rec) return;
+  const nn=(prompt('Rename session:',rec.name)||'').trim(); if(!nn) return; rec.name=nn; await _dbPut(rec); renderSessionLibrary(); }
+async function deleteFromLibrary(id){ try{ await _dbDel(id); renderSessionLibrary(); }catch(e){} }
+async function renderSessionLibrary(){
+  const el=document.getElementById('session-library'); if(!el) return;
+  let recs=[]; try{ recs=await _dbAll(); }catch(e){ el.innerHTML='<div style="font-size:10px;color:var(--muted)">Session library unavailable in this browser</div>'; return; }
+  recs.sort((a,b)=>b.savedAt-a.savedAt);
+  if(!recs.length){ el.innerHTML='<div style="font-size:10px;color:var(--muted)">No saved sessions yet — save one to switch between figures.</div>'; return; }
+  el.innerHTML='';
+  recs.forEach(r=>{
+    const row=document.createElement('div'); row.className='sess-row';
+    row.innerHTML=`${r.thumb?`<img src="${r.thumb}" alt="" style="width:34px;height:26px;object-fit:cover;border-radius:3px;flex-shrink:0;background:#000">`:'<span style="width:34px;flex-shrink:0"></span>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
+        <div style="font-size:9px;color:var(--muted)">${new Date(r.savedAt).toLocaleDateString()} ${new Date(r.savedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+      <button class="btn sess-load" style="padding:1px 8px;font-size:10px" title="Open this session">Open</button>
+      <button class="icon-btn sess-ovr" title="Update with the current figure" style="font-size:11px">⟳</button>
+      <button class="icon-btn sess-ren" title="Rename" style="font-size:10px">✎</button>
+      <button class="icon-btn del sess-del" title="Delete" style="font-size:11px">×</button>`;
+    row.querySelector('.sess-load').addEventListener('click',()=>loadFromLibrary(r.id));
+    row.querySelector('.sess-ovr').addEventListener('click',()=>overwriteLibrary(r.id));
+    row.querySelector('.sess-ren').addEventListener('click',()=>renameLibrary(r.id));
+    row.querySelector('.sess-del').addEventListener('click',()=>{ if(confirm(`Delete "${r.name}"? This can't be undone.`)) deleteFromLibrary(r.id); });
+    el.appendChild(row);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
 // QUICK PRESETS
 // ═══════════════════════════════════════════════════════════════
 function applyQuickPreset(name){
@@ -8801,6 +8883,7 @@ setTool('none'); // start in select mode so ann-canvas has pointer events
 })();
 
 renderSavedTemplates();
+renderSessionLibrary();
 startAutosave();
 checkAutosave();
 initAIQuickPrompts();
