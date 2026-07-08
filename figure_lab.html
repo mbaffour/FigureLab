@@ -2259,6 +2259,7 @@ function renderImgList(){
           <button class="btn" style="flex:1;justify-content:center" data-applyall="${idx}">↔ Apply to all</button>
           <button class="btn" style="flex:1;justify-content:center" data-matchall="${idx}" title="Copy LUT, brightness, contrast, gamma, black/white point from this panel to all others">≡ Match all to this</button>
         </div>
+        <button class="btn adv" data-beforeafter="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Compare this panel's original and adjusted pixels with a drag slider — shows how much you changed the image">⇋ Before / after</button>
         <div class="field adv" style="margin-top:4px"><label title="Panels sharing a group name can be synced together, so a comparison row is adjusted identically (fair, integrity-safe).">Match group</label>
           <input type="text" class="f-group" value="${esc(im.group||'')}" maxlength="8" placeholder="e.g. row1" style="width:70px"></div>
         <button class="btn adv" style="width:100%;justify-content:center" data-syncgroup="${idx}" title="Copy brightness, contrast, gamma, LUT, levels, crop, µm/px (field of view) and scale-bar length from this panel to every panel in the same group">⇉ Sync group to this panel</button>
@@ -2377,6 +2378,8 @@ function renderImgList(){
     if(_grp) _grp.addEventListener('change',e=>{ images[idx].group=e.target.value.trim(); renderImgList(); });
     const _syncBtn=item.querySelector('[data-syncgroup]');
     if(_syncBtn) _syncBtn.addEventListener('click',()=>syncGroupToPanel(idx));
+    const _baBtn=item.querySelector('[data-beforeafter]');
+    if(_baBtn) _baBtn.addEventListener('click',()=>openBeforeAfter(idx));
 
     // Rotation / flip
     item.querySelector('[data-rot="ccw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)-90+360)%360; scheduleRender(); });
@@ -2793,6 +2796,43 @@ function addSpliceMarker(){
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   toast('Splice marker added — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.','ok');
+}
+
+// Before/after: a wipe slider comparing a panel's original vs adjusted pixels.
+function openBeforeAfter(idx){
+  const im=images[idx]; if(!im||!im.img){ toast('No image on this panel','warn'); return; }
+  const iw=im.img.naturalWidth, ih=im.img.naturalHeight;
+  const sc=Math.min(520/iw, 1), W=Math.max(1,Math.round(iw*sc)), H=Math.max(1,Math.round(ih*sc));
+  const adj=applyAdjust(im, 0,0, iw, ih);
+  const after = adj.off ? adj.canvas : im.img;
+  const aw = adj.off ? adj.canvas.width : iw, ah = adj.off ? adj.canvas.height : ih;
+  let m=document.getElementById('ba-modal-bg'); if(m) m.remove();
+  m=document.createElement('div'); m.id='ba-modal-bg'; m.className='modal-bg open';
+  m.innerHTML=`<div class="modal" style="max-width:${W+52}px">
+    <button class="modal-close" onclick="this.closest('.modal-bg').remove()" aria-label="Close">×</button>
+    <h3>⇋ Before / after — panel ${esc(im.label||'')}</h3>
+    <div style="position:relative;width:${W}px;height:${H}px;margin:0 auto;overflow:hidden;border:1px solid var(--border);border-radius:6px">
+      <canvas id="ba-canvas" width="${W}" height="${H}" style="display:block"></canvas>
+      <div id="ba-handle" style="position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--accent);pointer-events:none"></div>
+    </div>
+    <input type="range" id="ba-slider" min="0" max="100" value="50" style="width:${W}px;display:block;margin:8px auto 0">
+    <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:2px">Left = original · Right = adjusted · drag the slider${adj.off?'':' — (no adjustments on this panel)'}</div>
+  </div>`;
+  m.addEventListener('click',e=>{ if(e.target===m) m.remove(); });
+  document.body.appendChild(m);
+  const ctx=document.getElementById('ba-canvas').getContext('2d');
+  const draw=(pct)=>{
+    const split=Math.round(W*pct/100);
+    ctx.clearRect(0,0,W,H);
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(after, 0,0,aw,ah, 0,0,W,H);            // adjusted (right)
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,split,H); ctx.clip();
+    ctx.drawImage(im.img, 0,0,iw,ih, 0,0,W,H);           // original (left, over)
+    ctx.restore();
+    document.getElementById('ba-handle').style.left=split+'px';
+  };
+  draw(50);
+  document.getElementById('ba-slider').addEventListener('input',e=>draw(+e.target.value));
 }
 
 // ═══════════════════════════════════════════════════════════════
