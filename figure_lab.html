@@ -210,6 +210,47 @@ body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-eve
   font-size:18px;cursor:pointer;color:var(--muted)}
 .modal-close:hover{color:var(--text)}
 
+/* ── Help & FAQ modal ───────────────────────────────────────── */
+.help-modal{max-width:770px;max-height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden}
+.help-modal>h3{padding:18px 20px 0;margin-bottom:0}
+.help-tabs{display:flex;gap:4px;padding:10px 18px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.help-tab{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
+  font-family:var(--mono);font-size:12px;font-weight:600;padding:8px 12px;cursor:pointer;margin-bottom:-1px}
+.help-tab:hover{color:var(--text)}
+.help-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.help-body{overflow-y:auto;padding:4px 22px 22px;flex:1}
+.help-pane{display:none}
+.help-pane.active{display:block}
+.help-h{font-size:13.5px;font-weight:700;color:var(--text);margin:18px 0 8px;
+  padding-bottom:4px;border-bottom:1px solid var(--border)}
+.help-pane>.help-h:first-child{margin-top:8px}
+.help-sub{font-size:12px;font-weight:700;color:var(--text);margin:14px 0 4px}
+.help-p{font-size:12px;line-height:1.6;color:var(--text);margin:6px 0}
+.help-ul,.help-ol{font-size:12px;line-height:1.6;color:var(--text);margin:6px 0;padding-left:20px}
+.help-ul li,.help-ol li{margin:3px 0}
+.help-ui{font-family:var(--mono);font-size:11px;background:var(--surf2);border:1px solid var(--border);
+  border-radius:4px;padding:1px 5px;white-space:nowrap}
+.help-body kbd{font-family:var(--mono);font-size:10px;background:var(--surf2);border:1px solid var(--border);
+  border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--text)}
+.help-callout{font-size:11.5px;line-height:1.55;background:var(--surf2);border:1px solid var(--border);
+  border-left-width:3px;border-radius:6px;padding:9px 12px;margin:10px 0}
+.help-callout b{color:var(--text)}
+.help-tip{border-left-color:var(--a2)}
+.help-warn{border-left-color:var(--warn)}
+.help-table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+.help-table th,.help-table td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border)}
+.help-table th{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+.faq-item{border:1px solid var(--border);border-radius:6px;margin:6px 0;overflow:hidden}
+.faq-q{cursor:pointer;padding:9px 12px;font-size:12px;font-weight:600;color:var(--text);
+  list-style:none;user-select:none;text-transform:none;letter-spacing:normal;
+  display:flex;align-items:center;gap:8px;justify-content:flex-start;transition:background .1s}
+.faq-q::-webkit-details-marker{display:none}
+.faq-q::after{display:none}            /* neutralize the global summary '›' marker */
+.faq-q::before{content:'▸';color:var(--accent);font-size:10px;flex:none}
+details[open]>.faq-q::before{content:'▾'}
+.faq-q:hover{background:var(--surf2)}
+.faq-a{padding:2px 12px 10px}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -324,10 +365,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
   <div class="logo">Figure<span>Lab</span></div>
-  <span class="badge">v3.1</span>
+  <span class="badge" id="version-badge">v3.4</span>
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
+    <button class="btn-icon" id="help-btn" aria-label="Help and FAQ" onclick="openHelp()" title="Help &amp; FAQ" style="font-size:13px;min-width:28px">❔</button>
     <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
   </div>
 </header>
@@ -644,6 +686,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="doExport('webp')">WebP</button>
       <button class="btn" onclick="doExport('tiff')">TIFF</button>
       <button class="btn" onclick="doExport('pdf')">PDF</button>
+      <button class="btn" onclick="doExport('pdf-lossless')">PDF (lossless)</button>
       <button class="btn" onclick="doExport('svg')">SVG</button>
     </div>
 
@@ -821,6 +864,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <span style="font-size:10px;color:var(--muted)">Quick:</span>
     <button class="btn btn-success" onclick="doExport('png')">↓ PNG</button>
     <button class="btn" onclick="doExport('pdf')">↓ PDF</button>
+    <button class="btn" onclick="doExport('pdf-lossless')">↓ PDF±</button>
     <button class="btn" onclick="doExport('tiff')">↓ TIFF</button>
     <button class="btn" onclick="doExport('svg')">↓ SVG</button>
     <div class="toolbar-sep"></div>
@@ -924,6 +968,209 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   </div>
 </div>
 
+<!-- ── Help & FAQ modal ──────────────────────────────────────── -->
+<div class="modal-bg" id="help-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal help-modal">
+    <button class="modal-close" onclick="document.getElementById('help-modal').classList.remove('open')" aria-label="Close help">×</button>
+    <h3>❔ Help &amp; FAQ</h3>
+    <div class="help-tabs" role="tablist">
+      <button class="help-tab active" data-help-tab="start" onclick="switchHelpTab('start')" role="tab">Getting Started</button>
+      <button class="help-tab" data-help-tab="usecases" onclick="switchHelpTab('usecases')" role="tab">Use Cases</button>
+      <button class="help-tab" data-help-tab="faq" onclick="switchHelpTab('faq')" role="tab">FAQ</button>
+    </div>
+    <div class="help-body">
+      <div class="help-pane active" id="help-pane-start">
+<!-- HELP:START -->
+<h3 class="help-h">What is FigureLab?</h3>
+<p class="help-p">FigureLab is a single HTML file for assembling publication-quality scientific figures — microscopy, western blots, histology, gels, clinical photos, or any image-based figure. It runs 100% in your browser: no installation, no server, no sign-in.</p>
+<p class="help-p">Your images and data never leave your computer — nothing is uploaded anywhere. Because everything runs locally, it also works completely offline.</p>
+
+<h3 class="help-h">60-second quick start</h3>
+<ol class="help-ol">
+  <li>Open <span class="help-ui">figure_lab.html</span> in your browser (Chrome or Firefox recommended).</li>
+  <li>Drag images onto the drop zone — or click it to browse and pick files.</li>
+  <li>Set your grid: choose the number of <b>rows</b> and <b>columns</b> in the Layout section.</li>
+  <li>Adjust panel labels (A/B/C) and turn on scale bars where you need them.</li>
+  <li>Press <kbd>R</kbd> (or click <span class="help-ui">⟳ Render</span>) to preview the figure.</li>
+  <li>Set a file name and DPI, then export in your chosen format.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> Press <kbd>R</kbd> any time you change a setting to refresh the preview. A "render outdated" cue appears when the canvas is behind your latest edits.</div>
+
+<h3 class="help-h">The interface at a glance</h3>
+<p class="help-p">The window has three zones:</p>
+<ul class="help-ul">
+  <li><b>Left</b> — the image list and settings. Each image gets its own panel with adjustments (brightness, scale bar, label, crop, and more), plus the Layout section for grid size and gaps.</li>
+  <li><b>Center</b> — the canvas, where your rendered figure appears. A toolbar above it holds zoom, fit, labels, and annotation tools; an info bar below shows pixel dimensions and physical size in mm.</li>
+  <li><b>Right / Export</b> — the Export panel for file name, format, and DPI, plus a Figure notes scratchpad and metadata exports.</li>
+</ul>
+
+<h3 class="help-h">Core workflow, step by step</h3>
+
+<h4 class="help-sub">1. Add and arrange panels</h4>
+<p class="help-p">Drop images to add panels. To reorder them, drag the <span class="help-ui">⠿</span> handle in the image list. Locked panels cannot be moved — toggle <b>Lock panel</b> to protect one from accidental drag-reorder. Use <span class="help-ui">⎘</span> (Duplicate) to reuse a panel's settings on a similar image.</p>
+
+<h4 class="help-sub">2. Adjust each panel</h4>
+<p class="help-p">Open a panel's settings to fine-tune it with live preview: <b>Brightness</b>, <b>Contrast</b>, and <b>Gamma</b> sliders (gamma is great for dim fluorescence), plus grayscale/invert, black/white points, fluorescence LUTs, rotate, and flip. <span class="help-ui">Apply to all</span> copies brightness, contrast, gamma, LUT, and B/W points to every panel at once.</p>
+
+<h4 class="help-sub">3. Add a calibrated scale bar</h4>
+<p class="help-p">Click <span class="help-ui">🔬 Calibrate from image</span> in a panel's settings, click two points a known distance apart, and enter the real-world distance — FigureLab computes the µm/px ratio for you. (Objective presets from 4× to 100× are also available.) Then enable the scale bar; <span class="help-ui">Auto SB</span> picks a clean length automatically.</p>
+<div class="help-callout help-warn"><b>Note</b> An uncalibrated warning badge (⚠) appears on a scale bar when µm/px has not been set. Calibrate first so the bar is accurate.</div>
+
+<h4 class="help-sub">4. Label the panels</h4>
+<p class="help-p">Turn on panel labels and choose a format — A/B/C, a/b/c, 1/2/3, or i/ii/iii — with control over position, size, colour, font, and bold/italic.</p>
+
+<h4 class="help-sub">5. Space panels apart</h4>
+<p class="help-p">Hover the seam between two panels on the canvas: a blue divider with a <b>gap</b> pill appears. Drag it (or tap <b>+ / −</b>) to push them apart — horizontal seams control row spacing, vertical seams control column spacing. For independent gaps, tick <span class="help-ui">Per-gutter spacing</span>; <span class="help-ui">Reset gutters</span> returns to a uniform grid.</p>
+
+<h4 class="help-sub">6. Annotate</h4>
+<p class="help-p">Draw directly on the rendered figure with the toolbar tools: arrow, double-headed arrow, ruler, rectangle, ellipse, line, text, inset, and counter. Switch to <span class="help-ui">↖ Select</span> (or press <kbd>Esc</kbd>) to move, resize, restyle, or delete an annotation. Hold <kbd>Shift</kbd> while drawing to snap to 45° or force squares and circles.</p>
+<div class="help-callout help-tip"><b>Tip</b> Annotations are baked into the exported figure, so finalise your layout before annotating. Full undo/redo is available if you change your mind.</div>
+
+<h4 class="help-sub">7. Export</h4>
+<p class="help-p">In the Export panel, set a file name and DPI (72 / 150 / 300 / 600 / 1200), then export as PNG, JPEG, WebP, TIFF, PDF, or SVG. For print and journal submission, use <b>300–600 DPI</b> — raster exports are re-rendered at the true target-DPI pixel count (supersampled), so text, scale bars, and lines stay crisp. TIFF or lossless PDF at 300–600 DPI on a white background is preferred by most journals.</p>
+
+<h3 class="help-h">Saving your work</h3>
+<p class="help-p">Save the entire layout — grid, panel settings, calibrations, annotations, and figure notes — as a JSON file (<kbd>Ctrl</kbd>+<kbd>S</kbd>), and load it again later to pick up where you left off.</p>
+<div class="help-callout help-warn"><b>Note</b> Images themselves are <b>not</b> stored in the JSON. After loading a session, re-drop the same image files and your settings will reattach to them.</div>
+
+<h3 class="help-h">Keyboard shortcuts</h3>
+<table class="help-table">
+  <thead><tr><th>Key</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>R</kbd></td><td>Render figure</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Exit tool / deselect</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Redo (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save session JSON</td></tr>
+    <tr><td><kbd>Space</kbd>+drag</td><td>Pan the canvas</td></tr>
+    <tr><td><kbd>Shift</kbd>+draw</td><td>Snap to 45° / square</td></tr>
+  </tbody>
+</table>
+<!-- /HELP:START -->
+      </div>
+      <div class="help-pane" id="help-pane-usecases">
+<!-- HELP:USECASES -->
+<h3 class="help-h">1 · Multi-panel microscopy figure</h3>
+<p class="help-p">The flagship workflow: assemble several micrographs into a tidy A/B/C grid with matching scale bars, ready for a results figure. Good when you have 3–6 related images that belong in one composite.</p>
+<ol class="help-ol">
+  <li>Drag all your images onto the drop zone (or click to browse). Each becomes a panel.</li>
+  <li>In the <span class="help-ui">Layout</span> section, set rows × columns to your target grid (e.g. 1 × 3 for A/B/C, or 2 × 2). Watch the <span class="help-ui">mini grid map</span> to confirm panel assignments.</li>
+  <li>Reorder panels by dragging the <span class="help-ui">⠿ handle</span> in the image list until A/B/C run in the right order.</li>
+  <li>Turn on <span class="help-ui">Panel labels</span> and pick the A/B/C format, then set position, size, and colour.</li>
+  <li>Calibrate the first panel: open its settings, click <span class="help-ui">🔬 Calibrate from image</span>, click two known points, and enter the real distance — or choose the matching objective preset (4× – 100×).</li>
+  <li>Enable the scale bar on that panel and click <span class="help-ui">Auto SB</span> to pick a clean length (≈ 20% of panel width).</li>
+  <li>Space panels out: hover the seam between two panels until the blue <span class="help-ui">gap</span> divider appears, then drag it (or tap <span class="help-ui">+</span>) to set the gutter.</li>
+  <li>Press <kbd>R</kbd> (or click <span class="help-ui">⟳ Render</span>) to preview, then use <span class="help-ui">⊡ Fit</span> to check the whole layout.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> Calibrate and dial in one panel, then use <span class="help-ui">Apply to all</span> to copy brightness, contrast, gamma, LUT, and B/W points to every panel at once — a fast way to keep a grid visually consistent.</div>
+
+<h3 class="help-h">2 · Fluorescence multi-channel merge</h3>
+<p class="help-p">For confocal or widefield fluorescence: import separate channel images, assign colourblind-safe LUTs, tune the intensity range, and composite them into a single merged panel.</p>
+<ol class="help-ol">
+  <li>Drop your base channel image in as a panel and open its settings.</li>
+  <li>Assign a colourblind-safe LUT from <span class="help-ui">Fluorescence LUTs</span> — <span class="help-ui">Magenta</span> for the first channel and <span class="help-ui">Green</span> for the second read cleanly for most viewers.</li>
+  <li>Under <span class="help-ui">Black / White point</span>, raise the black point to kill background haze and lower the white point to stretch the signal without clipping real structure.</li>
+  <li>For dim staining, nudge the <span class="help-ui">Gamma correction</span> slider to lift mid-tones without blowing out bright puncta.</li>
+  <li>Add the second channel with <span class="help-ui">Add channel</span> — it overlays with an independent LUT using a screen blend, so co-localised signal reads white. New channels default to colourblind-safe LUTs automatically.</li>
+  <li>Repeat black/white-point tuning per channel until the merge is balanced.</li>
+  <li>Calibrate with <span class="help-ui">🔬 Calibrate from image</span>, enable the scale bar, and press <kbd>R</kbd> to render.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> Magenta + green (rather than red + green) keeps overlap visible as white and stays readable for red–green colourblind reviewers — a common journal accessibility ask.</div>
+
+<h3 class="help-h">3 · Western blot / gel panel</h3>
+<p class="help-p">For blots and gels where you need clean grayscale lanes, honest contrast, and a lossless print-ready export. Use when preparing a loading-control or knockdown figure.</p>
+<ol class="help-ol">
+  <li>Drop the scanned blot in and open its panel settings.</li>
+  <li>Toggle <span class="help-ui">Grayscale</span> on. If your scan is white-bands-on-black, use <span class="help-ui">Invert</span> to show dark bands on a white ground.</li>
+  <li>Trim to the lanes you need with <span class="help-ui">Per-panel crop</span> — set edge percentages or use the interactive crop editor.</li>
+  <li>Adjust <span class="help-ui">Brightness</span> and <span class="help-ui">Contrast</span> only enough to make bands clear; keep it linear and even across the whole image.</li>
+  <li>Press <kbd>R</kbd> to render, then label with the <span class="help-ui">Text</span> tool (molecular weights, lanes) and point at a band of interest with the <span class="help-ui">Arrow</span> tool.</li>
+  <li>Set a <span class="help-ui">file name</span> and <span class="help-ui">DPI</span> of 300–600, then export as <span class="help-ui">TIFF</span> or <span class="help-ui">PDF (lossless)</span> for a lossless submission file.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> Keep adjustments uniform across the entire blot — cropping a lane out or applying local contrast can be flagged as image manipulation. Annotations are baked into the export, so finalise the crop and levels before you label.</div>
+
+<h3 class="help-h">4 · Histology / brightfield panel with annotations</h3>
+<p class="help-p">For H&amp;E, IHC, or other brightfield sections where you want to call out features, add a magnified inset, and show a calibrated scale bar.</p>
+<ol class="help-ol">
+  <li>Drop your section image in and set brightness/contrast so the stain colours read true.</li>
+  <li>Calibrate: click <span class="help-ui">🔬 Calibrate from image</span> and enter a known distance, or pick the objective preset used at the scope. Enable the scale bar and click <span class="help-ui">Auto SB</span>.</li>
+  <li>Press <kbd>R</kbd> to render, then draw a magnified region with the <span class="help-ui">Inset</span> tool — it magnifies the region and drops it into a panel corner automatically.</li>
+  <li>Point at structures with the <span class="help-ui">Arrow</span> tool; hold <kbd>Shift</kbd> while drawing to snap to 45° increments.</li>
+  <li>Add labels with the <span class="help-ui">Text</span> tool, or double-click the panel to type a pinned label with a readability halo over the image.</li>
+  <li>Fine-tune anything: press <kbd>Esc</kbd> to enter <span class="help-ui">↖ Select</span> mode, click an annotation, and reposition or restyle it from the floating toolbar. Use <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> Use <span class="help-ui">📌 Panel annotations</span> mode so arrows and insets pin to their panel — they follow the image if you later reorder panels, so callouts never drift onto the wrong section.</div>
+
+<h3 class="help-h">5 · Before/after or time-series row</h3>
+<p class="help-p">For a single row that tells a story across conditions or timepoints (0 h → 24 h → 48 h, or control → treated). The key is identical adjustments on every panel plus clear headers.</p>
+<ol class="help-ol">
+  <li>Drop all timepoint/condition images in and set the <span class="help-ui">Layout</span> to 1 × N so they form one row.</li>
+  <li>Drag the <span class="help-ui">⠿ handles</span> to order them left-to-right in time or treatment sequence.</li>
+  <li>Adjust brightness, contrast, gamma, and B/W points on the first panel only.</li>
+  <li>Click <span class="help-ui">Apply to all</span> to push those exact settings to every panel — essential so intensity differences reflect biology, not editing.</li>
+  <li>Turn on <span class="help-ui">Axis labels</span> to add column headers (e.g. "0 h", "24 h", "48 h") and an optional row header for the condition.</li>
+  <li>Enable a scale bar on the first panel and use <span class="help-ui">Auto SB</span>; add labels via <span class="help-ui">Panel labels</span> if the row also needs A/B/C.</li>
+  <li>Press <kbd>R</kbd> to render and <span class="help-ui">⊡ Fit</span> to review the sequence.</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> If one panel needs its own breathing room, tick <span class="help-ui">Per-gutter spacing</span> in the Layout panel and drag just that gutter; <span class="help-ui">Reset gutters</span> restores a uniform row.</div>
+
+<h3 class="help-h">6 · Preparing a journal submission figure</h3>
+<p class="help-p">The final-mile checklist: match a journal's spec, export a lossless high-resolution file, and generate the caption plus reproducibility records your methods section needs.</p>
+<ol class="help-ol">
+  <li>Apply a <span class="help-ui">Journal preset</span> (Nature, Science, Cell, or Poster) for one-click sizing that fits the target.</li>
+  <li>Confirm a white background and that scale bars are calibrated — any <span class="help-ui">⚠</span> uncalibrated warning badge on a scale bar must be resolved first.</li>
+  <li>Set a clear <span class="help-ui">file name</span> and choose <span class="help-ui">DPI</span> of 300–600. Check the info bar below the canvas for the physical size in mm at that DPI.</li>
+  <li>Export as <span class="help-ui">TIFF</span> (uncompressed, pixel count scaled to the true DPI) or <span class="help-ui">PDF (lossless)</span> — journals prefer these over JPEG.</li>
+  <li>Add a short note to each image in its settings, then click <span class="help-ui">✦ Generate Caption</span> to produce a structured A/B/C caption with scale-bar text.</li>
+  <li>Click <span class="help-ui">⬇ CSV Metadata</span> to export every panel's settings (µm/px, scale bar, brightness, gamma, crop, notes) for your methods and lab records.</li>
+  <li>Export an <span class="help-ui">R script</span> (magick) or <span class="help-ui">Python script</span> (Pillow + matplotlib) so anyone can recreate the figure from the original image files.</li>
+  <li>Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save the session JSON so you can reopen and revise later (re-drop the images after loading).</li>
+</ol>
+<div class="help-callout help-tip"><b>Tip</b> The reproducibility script plus the CSV metadata together document exactly how each panel was processed — pasting the key values into your methods section pre-empts the "how were images adjusted?" reviewer question.</div>
+<!-- /HELP:USECASES -->
+      </div>
+      <div class="help-pane" id="help-pane-faq">
+<!-- HELP:FAQ -->
+<h3 class="help-h">Privacy &amp; data</h3>
+<details class="faq-item"><summary class="faq-q">Is my data uploaded anywhere?</summary><div class="faq-a"><p class="help-p">No. FigureLab runs entirely in your browser — everything happens on your own computer and no image or setting ever leaves it. There is no server, no account, and no telemetry. You can even work fully offline (see the browser question below).</p></div></details>
+<details class="faq-item"><summary class="faq-q">Does FigureLab work offline?</summary><div class="faq-a"><p class="help-p">Yes. The whole tool is a single HTML file, so once it is open it needs no internet connection. The only thing fetched online is the display fonts (JetBrains Mono and Instrument Serif) from Google Fonts — if you are offline these simply fall back to your system fonts and nothing else changes.</p><div class="help-callout help-tip"><b>Tip</b> To guarantee an offline copy, just save <span class="help-ui">figure_lab.html</span> locally and open it directly.</div></div></details>
+<details class="faq-item"><summary class="faq-q">Which browsers work best?</summary><div class="faq-a"><p class="help-p">Chrome and Firefox are recommended and give the most reliable canvas rendering and export behaviour. Other Chromium-based browsers generally work too, but if you hit an export or clipboard quirk, try Chrome first.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Is it free? Is it open source?</summary><div class="faq-a"><p class="help-p">Yes — FigureLab is free and open source under the MIT licence. You may use, modify, and redistribute it, including for commercial and academic work.</p></div></details>
+
+<h3 class="help-h">Images &amp; formats</h3>
+<details class="faq-item"><summary class="faq-q">What image formats can I import?</summary><div class="faq-a"><p class="help-p">Drag any common raster image the browser can decode onto the drop zone (or click to browse) — microscopy exports, western blots, histology, gels, or clinical photos. FigureLab can also read µm/px calibration metadata from TIFF/LSM files when present.</p></div></details>
+<details class="faq-item"><summary class="faq-q">What can I export, and which format should I use?</summary><div class="faq-a"><p class="help-p">Pick the format that matches where the figure is going:</p><ul class="help-ul"><li><b>PNG</b> — lossless raster with true DPI embedded; a safe default for most submissions.</li><li><b>TIFF</b> — uncompressed RGB scaled to your target DPI; <b>preferred by most journals</b>.</li><li><b>PDF</b> / <b>PDF (lossless)</b> — embedded raster at the correct physical page size; use lossless for line art and blots.</li><li><b>SVG</b> — background raster plus your annotations as native vector elements (labels and scale bars stay razor-sharp).</li><li><b>JPEG</b> — smallest file, but lossy; fine for drafts and slides, not for line art.</li><li><b>WebP</b> — a good size/quality balance for the web.</li></ul></div></details>
+<details class="faq-item"><summary class="faq-q">How do I make a multi-channel fluorescence merge?</summary><div class="faq-a"><p class="help-p">Open a panel's settings and use <span class="help-ui">Add channel</span> to layer extra images, each with its own fluorescence LUT (Fire, Green, Cyan, Magenta, Yellow, Blue); the channels are combined with a screen blend. New channels default to a colourblind-safe <b>magenta / green</b> pairing rather than red / green, so overlap reads white and the merge stays readable for viewers with red-green colour vision deficiency.</p></div></details>
+<details class="faq-item"><summary class="faq-q">My fluorescence image is too dim to see — what should I adjust?</summary><div class="faq-a"><p class="help-p">Use the per-panel <b>Gamma</b> slider for nonlinear brightening that lifts dim signal without blowing out bright areas, and set the <b>Black / White point</b> to clip and stretch the useful intensity range. Brightness and Contrast are also available with live preview. Use <span class="help-ui">Apply to all</span> to copy these settings to every panel for consistency.</p></div></details>
+
+<h3 class="help-h">Scale bars &amp; calibration</h3>
+<details class="faq-item"><summary class="faq-q">Why does my scale bar say "uncalibrated" (⚠)?</summary><div class="faq-a"><p class="help-p">The warning badge appears whenever a panel's µm/px ratio has not been set, so FigureLab cannot know the real-world length of the bar. Calibrate the panel and the badge disappears.</p></div></details>
+<details class="faq-item"><summary class="faq-q">How do I calibrate a panel?</summary><div class="faq-a"><p class="help-p">Two ways:</p><ul class="help-ul"><li><b>Two-point calibration</b> — click <span class="help-ui">🔬 Calibrate from image</span> in the panel settings, click two points a known distance apart (e.g. a stage micrometer), and enter the real distance. FigureLab computes µm/px automatically.</li><li><b>Objective preset</b> — pick your objective (4×–100×) to apply an approximate µm/px value.</li></ul><div class="help-callout help-tip"><b>Tip</b> Once calibrated, press <span class="help-ui">Auto SB</span> to snap the bar to a clean length (about 20% of the panel width).</div></div></details>
+<details class="faq-item"><summary class="faq-q">Can I match the physical scale across several panels?</summary><div class="faq-a"><p class="help-p">Yes. After calibrating, use the scale-matching option so panels imaged at the same magnification share one consistent µm/px, keeping bar lengths comparable across the figure.</p></div></details>
+
+<h3 class="help-h">Export &amp; print quality</h3>
+<details class="faq-item"><summary class="faq-q">What DPI should I use for journal submission?</summary><div class="faq-a"><p class="help-p">Use <b>300 DPI</b> for photographic / greyscale images and <b>600–1200 DPI</b> for line art and combination figures (charts, blots with sharp text). The DPI selector offers 72 / 150 / 300 / 600 / 1200. FigureLab re-renders the figure at the true target-DPI pixel count (supersampled), so text, lines, and scale bars stay crisp — it is not merely tagging the DPI.</p><div class="help-callout help-tip"><b>Tip</b> The export health check warns you if you try to export below 300 DPI.</div></div></details>
+<details class="faq-item"><summary class="faq-q">What is the difference between PDF and PDF (lossless)?</summary><div class="faq-a"><p class="help-p">The standard PDF embeds the figure as a JPEG-compressed raster — small, but lossy, which can add ringing artefacts around sharp edges. A lossless PDF uses Flate (non-lossy) compression instead. Prefer lossless for <b>line art, western blots, and sharp text</b>, where JPEG artefacts are visible and some journals reject JPEG-in-PDF for line art. For photographic panels the standard PDF is usually fine.</p></div></details>
+<details class="faq-item"><summary class="faq-q">My exported PNG opens at the wrong size or DPI in Photoshop / ImageJ — why?</summary><div class="faq-a"><p class="help-p">This is fixed. FigureLab now writes a standard <b>pHYs</b> resolution chunk into the PNG, which is what Photoshop, GIMP, and ImageJ/FIJI actually read for physical resolution. Older versions embedded the DPI only as a text field, so editors reported the browser default (72 DPI) at a giant pixel size. Re-export and the true DPI will be reported correctly.</p></div></details>
+<details class="faq-item"><summary class="faq-q">The figure looks blurry when zoomed or after export — what do I do?</summary><div class="faq-a"><p class="help-p">Export at a higher DPI (300–600, or 1200 for line art): raster exports are re-rendered at the real pixel count, not upscaled, so more DPI means genuinely more detail. On screen, FigureLab keeps a separate high-resolution preview layer matched to your display (HiDPI/Retina) so labels and annotations stay sharp when you zoom in — the underlying measurement buffer is left untouched so quantification stays exact.</p><div class="help-callout help-tip"><b>Tip</b> Very large renders are capped at about 60 megapixels to stay within browser memory; if you hit the cap, a toast tells you and the export is scaled down rather than crashing.</div></div></details>
+<details class="faq-item"><summary class="faq-q">How do I get a clean white background for print?</summary><div class="faq-a"><p class="help-p">For journal submission, use TIFF at 300–600 DPI with a white background. You can also press <span class="help-ui">Ctrl + P</span> for a print-ready view that hides all the app chrome.</p></div></details>
+
+<h3 class="help-h">Saving &amp; reproducibility</h3>
+<details class="faq-item"><summary class="faq-q">Do my images get saved in the session JSON?</summary><div class="faq-a"><p class="help-p">No — only the layout, per-panel settings, annotations, and figure notes are saved. The images themselves are deliberately left out (for privacy and to keep the file small), so after you load a session you need to <b>re-drop the same image files</b>. Settings then reattach to the panels.</p></div></details>
+<details class="faq-item"><summary class="faq-q">How do I save and reload a figure?</summary><div class="faq-a"><p class="help-p">Save the whole layout as a JSON file with <span class="help-ui">Ctrl + S</span> (or the Save button), and load it later to restore the grid, adjustments, and annotations. Remember to re-drop your images after loading. The <span class="help-ui">Figure notes</span> scratchpad in the Export panel is also stored in the session — handy for antibody dilutions or reviewer comments.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Can I reproduce a figure programmatically?</summary><div class="faq-a"><p class="help-p">Yes. Export an <b>R script</b> (using <span class="help-ui">magick</span>) or a <b>Python script</b> (using <span class="help-ui">Pillow + matplotlib</span>) that recreates the figure from your original image files. You can also export <b>CSV metadata</b> listing every panel's name, label, µm/px, scale bar, brightness, gamma, crop, and caption — useful for methods sections and lab records.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Can FigureLab write my figure caption?</summary><div class="faq-a"><p class="help-p">Add a short note to each image in its settings, then click <span class="help-ui">✦ Generate Caption</span> to assemble a structured, journal-style caption with panel letters and scale-bar lengths — e.g. "Figure. (A) Control cells. Scale bar, 10µm. (B) Treated cells. Scale bar, 10µm." Edit the result to taste.</p></div></details>
+
+<h3 class="help-h">Troubleshooting</h3>
+<details class="faq-item"><summary class="faq-q">My annotations moved or look wrong after I changed the layout.</summary><div class="faq-a"><p class="help-p">Annotations are baked into the exported figure, so finalise your grid and panel order before annotating. To keep an annotation tied to a specific panel, draw it in <span class="help-ui">📌 panel</span> mode — it will follow that panel if you reorder. Full <b>Undo / Redo</b> (Ctrl+Z / Ctrl+Y) covers layout, per-panel adjustments, and annotations, one step per edit.</p></div></details>
+<details class="faq-item"><summary class="faq-q">A panel won't drag to reorder.</summary><div class="faq-a"><p class="help-p">It is probably <b>locked</b>. Locked panels cannot be dragged (this prevents accidental reordering). Unlock the panel, then drag the <span class="help-ui">⠿</span> handle in the image list to move it.</p></div></details>
+<details class="faq-item"><summary class="faq-q">How should I cite FigureLab?</summary><div class="faq-a"><p class="help-p">Cite the software using the archived release. FigureLab ships a <span class="help-ui">CITATION.cff</span> file, so GitHub shows a <b>"Cite this repository"</b> button with ready-made metadata. Once the release is archived on Zenodo it mints a DOI (a version-independent concept DOI plus a per-version DOI) — use that DOI in your reference. The DOI is pending, so check the repository for the current value before submitting.</p></div></details>
+<!-- /HELP:FAQ -->
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Crop editor modal ─────────────────────────────────────── -->
 <div class="modal-bg" id="crop-modal">
   <div class="modal" style="max-width:580px">
@@ -1004,12 +1251,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->
-<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab v3.2 · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
+<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab <span id="version-footer">v3.4</span> · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="openHelp();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Help &amp; FAQ</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
+const APP_VERSION = '3.4';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -1089,6 +1337,14 @@ const annCanvas = document.getElementById('ann-canvas');
 // ═══════════════════════════════════════════════════════════════
 // THEME
 // ═══════════════════════════════════════════════════════════════
+// ── Help & FAQ modal ─────────────────────────────────────────
+function switchHelpTab(tab){
+  document.querySelectorAll('.help-tab').forEach(b=>b.classList.toggle('active', b.dataset.helpTab===tab));
+  document.querySelectorAll('.help-pane').forEach(p=>p.classList.toggle('active', p.id==='help-pane-'+tab));
+  const body=document.querySelector('#help-modal .help-body'); if(body) body.scrollTop=0;
+}
+function openHelp(tab){ if(tab) switchHelpTab(tab); document.getElementById('help-modal').classList.add('open'); }
+
 const THEMES=['light','lab','dark'];
 const THEME_ICONS={light:'☀️',lab:'🔬',dark:'🌙'};
 function applyTheme(t){
@@ -1575,7 +1831,10 @@ function renderImgList(){
       reader2.onload=ev2=>{
         const img2=new Image();
         img2.onload=()=>{
-          images[idx].channels.push({name:f2.name, img:img2, src:ev2.target.result, lut:'green', blackPt:0, whitePt:255});
+          const _cbSafe=['magenta','green','cyan','yellow'];
+          const _used=new Set([images[idx].lut, ...images[idx].channels.map(c=>c.lut)]);
+          const _lut=_cbSafe.find(l=>!_used.has(l))||'magenta';
+          images[idx].channels.push({name:f2.name, img:img2, src:ev2.target.result, lut:_lut, blackPt:0, whitePt:255});
           renderChList(); scheduleRender();
         };
         img2.src=ev2.target.result;
@@ -4386,9 +4645,14 @@ async function doExport(fmt){
       const tc=grid?renderExportCanvas(dpi):document.getElementById('fig-canvas');
       exportTIFF(name, dpi, tc, grid);
     }
-    if(fmt==='pdf')  await exportPDF(name, dpi, document.getElementById('fig-canvas'));
+    if(fmt==='pdf' || fmt==='pdf-lossless'){
+      const grid=layoutMode!=='freeform';
+      const pc=grid?renderExportCanvas(dpi):document.getElementById('fig-canvas');
+      await exportPDF(name, dpi, pc, {lossless: fmt==='pdf-lossless'});
+    }
     logAction('export',{format:fmt,dpi,name});
-    toast(`Saved ${name}.${fmt==='jpeg'?'jpg':fmt}`, 'ok');
+    const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
+    toast(`Saved ${name}.${_ext}`, 'ok');
   } catch(err){
     console.error('Export failed',err);
     const big=/too large|size|memory|quota/i.test(err&&err.message||'');
@@ -4402,26 +4666,8 @@ async function doExport(fmt){
 const _crcTable=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):(c>>>1);t[i]=c;}return t;})();
 function crc32(buf,off,len){let c=0xFFFFFFFF;for(let i=0;i<len;i++)c=_crcTable[(c^buf[off+i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
 
-async function exportPNGwithDPI(name, dpi, canvas){
-  const blob=await new Promise(r=>canvas.toBlob(r,'image/png'));
-  const src=new Uint8Array(await blob.arrayBuffer());
-  // Build pHYs chunk (pixels per metre)
-  const ppm=Math.round(dpi*39.3701);
-  const phData=new Uint8Array(9);
-  const pdv=new DataView(phData.buffer);
-  pdv.setUint32(0,ppm); pdv.setUint32(4,ppm); phData[8]=1; // unit=metre
-  const typeB=new Uint8Array([112,72,89,115]); // "pHYs"
-  const crcIn=new Uint8Array(13);
-  crcIn.set(typeB,0); crcIn.set(phData,4);
-  const crcVal=crc32(crcIn,0,13);
-  const chunk=new Uint8Array(21);
-  const cdv=new DataView(chunk.buffer);
-  cdv.setUint32(0,9); chunk.set(typeB,4); chunk.set(phData,8); cdv.setUint32(17,crcVal);
-  // Insert after IHDR (always at byte 33)
-  const out=new Uint8Array(src.length+21);
-  out.set(src.slice(0,33),0); out.set(chunk,33); out.set(src.slice(33),54);
-  dl(URL.createObjectURL(new Blob([out],{type:'image/png'})),name+'.png');
-}
+// (exportPNGwithDPI removed — superseded by embedPNGMetadata, which writes a
+//  spec-correct pHYs chunk and the tEXt metadata in one pass. See exportPNGWithMeta.)
 
 function exportSVG(name, dpi, canvas){
   // Logical figure dimensions (coordinate space for the vector layer).
@@ -4543,26 +4789,48 @@ function exportTIFF(name, dpi, canvas, preScaled){
   dl(URL.createObjectURL(new Blob([new Uint8Array(buf)],{type:'image/tiff'})), name+'.tiff');
 }
 
-async function exportPDF(name, dpi, canvas){
+async function exportPDF(name, dpi, canvas, opts){
+  opts = opts || {};
   const W=canvas.width, H=canvas.height;
   const wPt=(W*72/dpi).toFixed(3), hPt=(H*72/dpi).toFixed(3);
-  const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.92));
-  const jpgBytes=new Uint8Array(await blob.arrayBuffer());
   const enc=s=>new TextEncoder().encode(s);
-
   const chunks=[]; const offs={};
   const push=d=>chunks.push(typeof d==='string'?enc(d):d);
   const sz=()=>chunks.reduce((s,c)=>s+c.length,0);
+
+  // Build the image XObject bytes + filter depending on mode.
+  let imgBytes, filter, extra='';
+  if(opts.lossless){
+    // Raw RGB samples (composite over white — PDF DeviceRGB has no alpha), Flate-compressed (zlib).
+    const ctx=canvas.getContext('2d');
+    const data=ctx.getImageData(0,0,W,H).data;
+    const rgb=new Uint8Array(W*H*3);
+    for(let i=0,j=0;i<data.length;i+=4,j+=3){
+      const a=data[i+3]/255;
+      rgb[j]   = Math.round(data[i]  *a + 255*(1-a));
+      rgb[j+1] = Math.round(data[i+1]*a + 255*(1-a));
+      rgb[j+2] = Math.round(data[i+2]*a + 255*(1-a));
+    }
+    // Deflate to zlib format for /FlateDecode.
+    const cs=new CompressionStream('deflate');
+    const writer=cs.writable.getWriter(); writer.write(rgb); writer.close();
+    imgBytes=new Uint8Array(await new Response(cs.readable).arrayBuffer());
+    filter='/FlateDecode';
+  } else {
+    const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.92));
+    imgBytes=new Uint8Array(await blob.arrayBuffer());
+    filter='/DCTDecode';
+  }
 
   push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
   offs[1]=sz(); push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
   offs[2]=sz(); push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
   offs[3]=sz(); push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents 5 0 R /Resources << /XObject << /Im0 4 0 R >> >> >>\nendobj\n`);
   offs[4]=sz();
-  push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpgBytes.length} >>\nstream\n`);
-  push(jpgBytes); push('\nendstream\nendobj\n');
-  const cs=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`);
-  offs[5]=sz(); push(`5 0 obj\n<< /Length ${cs.length} >>\nstream\n`); push(cs); push('\nendstream\nendobj\n');
+  push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${imgBytes.length} >>\nstream\n`);
+  push(imgBytes); push('\nendstream\nendobj\n');
+  const cs2=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`);
+  offs[5]=sz(); push(`5 0 obj\n<< /Length ${cs2.length} >>\nstream\n`); push(cs2); push('\nendstream\nendobj\n');
   const xp=sz();
   push(`xref\n0 6\n0000000000 65535 f\r\n`);
   for(let i=1;i<=5;i++) push(`${String(offs[i]).padStart(10,'0')} 00000 n\r\n`);
@@ -6430,7 +6698,7 @@ function embedPNGMetadata(pngDataUrl, metaObj, dpi){
 async function exportPNGWithMeta(name, dpi, canvas){
   // Build metadata object
   const meta={
-    'Software':'FigureLab v3',
+    'Software':'FigureLab v'+APP_VERSION,
     'Description':(gv('fig-title')||'Untitled figure'),
     'Creation Time':new Date().toISOString(),
     'DPI':String(dpi),

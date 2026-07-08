@@ -1,4 +1,9 @@
-# FigureLab v3.0
+# FigureLab v3.4
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
+<!-- DOI badge — paste the one Zenodo gives you after the first release:
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX) -->
 
 A single HTML file for assembling publication-quality scientific figures. No installation, no server, no internet required — open in any browser and start working.
 
@@ -236,6 +241,21 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - Journal compliance checker
 - Undo/redo history
 - Reproducibility R/Python scripts
+
+---
+
+## Citation
+
+If you use FigureLab in your research, please cite it. Once the archived release
+is on Zenodo, use the DOI it mints (a version-independent "concept DOI" plus a
+per-version DOI). Metadata lives in [`CITATION.cff`](CITATION.cff), so GitHub
+shows a **"Cite this repository"** button automatically.
+
+> Baffour Awuah, M. (2026). *FigureLab: a browser-based tool for assembling
+> publication-quality scientific figures* (Version 3.4) [Computer software].
+> Zenodo. https://doi.org/10.5281/zenodo.XXXXXXX
+
+(Replace the DOI with the one Zenodo issues for your release.)
 
 ---
 
