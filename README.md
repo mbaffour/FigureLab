@@ -15,12 +15,13 @@ Works for microscopy images, western blots, histology, gels, clinical photos, or
 
 ## Screenshots
 
-<!-- Add exported PNGs of the app to docs/screenshots/ and they will render here. -->
-| Empty-state start screen | Example figure (2×2) | Export preflight |
-|---|---|---|
-| ![Start screen](docs/screenshots/empty-state.png) | ![Example figure](docs/screenshots/example-figure.png) | ![Preflight](docs/screenshots/export-preflight.png) |
+A figure assembled and exported entirely in the browser (via **✨ Load example figure**):
 
-*(Placeholders — drop the PNGs into `docs/screenshots/`. Generate them in seconds: open the app, click **✨ Load example figure**, and use the toolbar **Copy** or **PNG** export.)*
+![Example figure](docs/screenshots/example-figure.png)
+
+*Four fluorescence panels (DAPI, GFP, mCherry, merge) in a labelled 2×2 with a calibrated scale bar. The merge uses the colourblind-safe magenta/green pairing — white marks colocalization.*
+
+<!-- To add UI screenshots, drop empty-state.png / export-preflight.png into docs/screenshots/: open the app and use your OS screenshot tool. -->
 
 ## Quick Start
 
@@ -246,7 +247,17 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Auto-arrange panels** — proposes a balanced grid, even gutters, and labels for the current panel count. Undoable.
 - **Lossless PDF export** — alongside the standard JPEG-based PDF, a Flate-compressed lossless PDF for line art and blots; both now export at the true target DPI (previously screen resolution).
 - **In-app Help & FAQ** — a tabbed Help modal (Getting Started · Use Cases · FAQ) reachable from the header `❔` and footer.
-- Docs/accuracy: version unified via a single `APP_VERSION`; corrected the outdated "images aren't saved" note (sessions embed images — see [Session save](#session-save--load)); added a `CITATION.cff` / Zenodo metadata for citing the tool; CI runs the Playwright suite (now 23 tests).
+- Docs/accuracy: version unified via a single `APP_VERSION`; corrected the outdated "images aren't saved" note (sessions embed images — see [Session save](#session-save--load)); added a `CITATION.cff` / Zenodo metadata for citing the tool; CI runs the Playwright suite (now 33 tests).
+
+**Also in v3.5 (workflow, integrity & onboarding):**
+- **Full-session autosave & crash recovery** — a debounced snapshot to local storage (with a "last autosaved" status and on/off toggle) offers to recover your work after an accidental close.
+- **Actionable journal audit** — the compliance check adds scale-bar calibration, adjustment-sanity, and export-size checks, each with a one-click fix (Set 300 DPI, Make white, Calibrate, Show labels).
+- **Before/after adjustment slider** — a per-panel wipe between original and adjusted pixels.
+- **Layer panel** — rename / hide / lock annotations.
+- **Matched panels** now also sync crop and physical field of view; **western-blot mode** adds lane labels, an MW ladder, and a blot-metadata CSV (with the splice marker).
+- **Smart import** gains a filename pattern parser (`condition_time_channel_rep`); **crop editor** gains arrow-key nudge and copy-crop-to-group/all.
+- **More journal presets** (eLife, PLOS, EMBO, PNAS); **lightweight vs bundled** session saves; **house-style** presets.
+- **First-run guided tour**, **PWA install** (over http/https), **SHA-256 provenance stamp** in export metadata, and **sRGB** colour tagging in PNGs.
 
 ### v3.4
 - **Crisp on-screen preview on HiDPI displays** — a separate high-resolution display layer renders the figure at devicePixelRatio once editing settles, so panel labels, scale bars, and annotations stay sharp when zoomed in. The figure buffer that measurements and exports read is left at logical resolution and untouched, so quantification stays exact
