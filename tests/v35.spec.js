@@ -142,6 +142,26 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('import helpers: channel detection, auto-LUT, and natural sort', async ({ page }) => {
+  await loadApp(page);
+  const det = await page.evaluate(() => ({
+    dapi: _detectChannel('cells_DAPI.tif') && _detectChannel('cells_DAPI.tif').lut,
+    gfp: _detectChannel('img_GFP_488.png') && _detectChannel('img_GFP_488.png').lut,
+    rfp: _detectChannel('s1_mCherry.png') && _detectChannel('s1_mCherry.png').lut,
+    none: _detectChannel('random.png'),
+  }));
+  expect(det.dapi).toBe('blue');
+  expect(det.gfp).toBe('green');
+  expect(det.rfp).toBe('magenta');
+  expect(det.none).toBeNull();
+  // natural sort relabels positionally
+  await page.evaluate(async () => { await loadExampleFigure(); });
+  await page.waitForFunction(() => images.length === 4);
+  const sorted = await page.evaluate(() => { sortImagesByName(); return { order: images.map(i => i.name), labels: images.map(i => i.label) }; });
+  expect(sorted.labels).toEqual(['A', 'B', 'C', 'D']);
+  expect(sorted.order[0]).toBe('actin_GFP.png');       // natural order
+});
+
 test('PowerPoint (.pptx) export is a valid OOXML package with well-formed XML', async ({ page }) => {
   await loadApp(page);
   await seedPanels(page, 4);

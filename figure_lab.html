@@ -440,6 +440,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg" style="display:none">
     <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
+    <div style="display:flex;gap:4px;margin-top:5px">
+      <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="sortImagesByName()" title="Sort panels by filename in natural order (file2 before file10), then relabel A, B, C…">↕ Sort by name</button>
+      <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="autoDetectChannels()" title="Detect DAPI / GFP / RFP / Cy5 / phase from filenames and assign colourblind-safe LUTs">🎨 Auto-channels</button>
+    </div>
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
@@ -1656,6 +1660,7 @@ function _commitImage(img,src,name){
       if(ps){ const {label,...rest}=ps; Object.assign(newImg, rest); newImg.label=ps.label||newImg.label; }
       if(images.length >= window._sharedPanelSettings.length - 1) delete window._sharedPanelSettings;
     }
+    if(images.some(im=>im&&im.name===name)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
     images.push(newImg);
     logAction('addImage',{name,mode:layoutMode});
     renderImgList(); scheduleRender();
@@ -1665,6 +1670,49 @@ function nextLabel(){
   const used = new Set(images.map(i=>i&&i.label));
   for(let i=0;i<26;i++){ const l=ALPHABET[i]; if(!used.has(l)) return l; }
   return String(images.length+1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMAGE IMPORT HELPERS — dimensions, channel detection, sorting
+// ═══════════════════════════════════════════════════════════════
+function _aspectRatio(w,h){
+  if(!w||!h) return '';
+  const g=(a,b)=>b?g(b,a%b):a; const d=g(w,h)||1; const rw=w/d, rh=h/d;
+  return (rw<=25&&rh<=25) ? `${rw}:${rh}` : (w/h).toFixed(2)+':1';
+}
+function _detectChannel(name){
+  const n=(name||'').toLowerCase();
+  const map=[
+    {re:/dapi|hoechst|nucle/,               label:'DAPI', lut:'blue',    color:'#48f'},
+    {re:/gfp|fitc|alexa ?488|488|egfp/,     label:'GFP',  lut:'green',   color:'#3c3'},
+    {re:/mcherry|rfp|dsred|tritc|cy3|555|594|texas/, label:'RFP', lut:'magenta', color:'#e5e'},
+    {re:/cy5|alexa ?647|647|far.?red/,      label:'Cy5',  lut:'fire',    color:'#e80'},
+    {re:/merge|composite|overlay/,          label:'Merge',lut:null,      color:'#aaa'},
+    {re:/phase|dic|bright.?field|\bbf\b/,   label:'BF',   lut:null,      color:'#999'},
+  ];
+  for(const m of map){ if(m.re.test(n)) return m; }
+  return null;
+}
+function _naturalCmp(a,b){
+  return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
+}
+function sortImagesByName(){
+  if(images.length<2){ toast('Nothing to sort','warn'); return; }
+  pushUndo();
+  images.sort((a,b)=>_naturalCmp(a.name,b.name));
+  // labels are positional — relabel A,B,C… in the new order
+  let i=0; images.forEach(im=>{ im.label = i<26 ? ALPHABET[i] : String(i+1); i++; });
+  renderImgList(); renderMiniGrid(); scheduleRender();
+  toast('Panels sorted by filename','ok');
+}
+function autoDetectChannels(){
+  if(!images.length){ toast('Add images first','warn'); return; }
+  pushUndo();
+  let n=0;
+  images.forEach(im=>{ const ch=_detectChannel(im.name); if(ch&&ch.lut){ im.lut=ch.lut; n++; }
+    else if(ch&&ch.lut===null&&/bright|phase|dic|\bbf\b/.test((im.name||'').toLowerCase())){ im.grayscale=true; n++; } });
+  renderImgList(); if(typeof renderChList==='function') renderChList(); scheduleRender();
+  toast(n?`Assigned channels to ${n} panel${n>1?'s':''} from filenames`:'No channel names detected in filenames','ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2020,12 +2068,17 @@ function renderImgList(){
   if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
   list.innerHTML = '';
+  const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
   images.forEach((im, idx) => {
     const item = document.createElement('div');
     item.className = 'img-item';
     item.draggable = true;
     const objOpts = Object.entries(OBJECTIVES).map(([k,v])=>
       `<option value="${v}" ${im.umPerPx===v?'selected':''}>${k} (${v})</option>`).join('');
+    const _iw=(im.img&&im.img.naturalWidth)||0, _ih=(im.img&&im.img.naturalHeight)||0;
+    const _asp=(_iw&&_ih)?_aspectRatio(_iw,_ih):'';
+    const _ch=_detectChannel(im.name);
+    const _dup=nameCounts[im.name]>1;
     item.innerHTML = `
       <div class="img-item-main">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
@@ -2037,6 +2090,11 @@ function renderImgList(){
         <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
         <button class="icon-btn gear" aria-label="Panel settings" title="Settings" data-gear="${idx}">⚙</button>
         <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
+      </div>
+      <div class="img-meta" style="font-size:9px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        ${_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
+        ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
+        ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
       </div>
       <div class="img-settings" id="settings-${idx}">
         <div class="sec-lbl">Scale bar</div>
