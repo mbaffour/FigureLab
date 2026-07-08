@@ -17,11 +17,18 @@ Works for microscopy images, western blots, histology, gels, clinical photos, or
 
 A figure assembled and exported entirely in the browser (via **✨ Load example figure**):
 
-![Example figure](docs/screenshots/example-figure.png)
+<table>
+<tr>
+<td width="55%"><img src="docs/screenshots/example-figure.png" alt="Fluorescence figure"></td>
+<td width="45%"><img src="docs/screenshots/blot-example.png" alt="Western blot figure"></td>
+</tr>
+<tr>
+<td><em>Fluorescence 2×2 (DAPI / GFP / mCherry / merge) with A–D labels and a calibrated scale bar. The colourblind-safe magenta/green merge shows colocalization in white.</em></td>
+<td><em>Western-blot layout with lane numbers, an MW ladder, and a loading-control panel — assembled and exported in the browser.</em></td>
+</tr>
+</table>
 
-*Four fluorescence panels (DAPI, GFP, mCherry, merge) in a labelled 2×2 with a calibrated scale bar. The merge uses the colourblind-safe magenta/green pairing — white marks colocalization.*
-
-<!-- To add UI screenshots, drop empty-state.png / export-preflight.png into docs/screenshots/: open the app and use your OS screenshot tool. -->
+<!-- To add live UI screenshots, drop empty-state.png / export-preflight.png into docs/screenshots/: open the app and use your OS screenshot tool. -->
 
 ## Quick Start
 
