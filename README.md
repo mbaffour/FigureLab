@@ -1,4 +1,9 @@
-# FigureLab v3.0
+# FigureLab v3.5
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
+<!-- DOI badge — paste the one Zenodo gives you after the first release:
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX) -->
 
 A single HTML file for assembling publication-quality scientific figures. No installation, no server, no internet required — open in any browser and start working.
 
@@ -7,6 +12,15 @@ Works for microscopy images, western blots, histology, gels, clinical photos, or
 *Built with passion for science and discovery.*
 
 ---
+
+## Screenshots
+
+<!-- Add exported PNGs of the app to docs/screenshots/ and they will render here. -->
+| Empty-state start screen | Example figure (2×2) | Export preflight |
+|---|---|---|
+| ![Start screen](docs/screenshots/empty-state.png) | ![Example figure](docs/screenshots/example-figure.png) | ![Preflight](docs/screenshots/export-preflight.png) |
+
+*(Placeholders — drop the PNGs into `docs/screenshots/`. Generate them in seconds: open the app, click **✨ Load example figure**, and use the toolbar **Copy** or **PNG** export.)*
 
 ## Quick Start
 
@@ -17,6 +31,26 @@ Works for microscopy images, western blots, histology, gels, clinical photos, or
 5. Export in your chosen format
 
 ---
+
+## Simple vs Advanced mode
+
+FigureLab opens in **Simple mode** — the header pill (top-right) toggles between Simple and Advanced, and your choice is remembered between sessions.
+
+- **Simple** shows the core workflow only: import images, choose a layout or template, panel labels, scale bars, basic crop and brightness/contrast, annotate, and export.
+- **Advanced** additionally reveals: AI image generation, freeform canvas mode, scale-matching, batch crop, histogram normalization, the deep figure audit / exposure analysis / panel comparison, measurement tools (ROI / line profile / count), reproducibility scripts (R / Python) and the reproducibility log, and multi-page PDF export.
+
+Advanced tools are only *hidden*, never removed — switching back to Advanced restores everything exactly, and nothing about your figure or its export changes with the mode. You can also toggle it from the command palette (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> → "Toggle Simple / Advanced").
+
+## On-device AI
+
+The **caption helper** can optionally polish your figure legend with AI that runs **entirely in your browser, on your own machine** — no server, no API key, nothing uploaded. It uses **Chrome's built-in Prompt API (Gemini Nano)**, the browser-native on-device model, so it fits FigureLab's offline/privacy promise exactly.
+
+- Click **🤖 Polish with on-device AI** under the caption helper.
+- It's **feature-detected**: if your browser doesn't expose the built-in model (`window.LanguageModel`), FigureLab silently keeps the built-in rule-based caption — the feature never blocks anything or requires a network.
+- An echo/guard check rejects degenerate responses, so a good caption is never clobbered.
+- Requires a recent Chrome (138+) with built-in AI enabled; the ~4 GB model downloads once, then works fully offline.
+
+*Why not Google AI Edge / MediaPipe LLM Inference directly?* That path can run open models (Gemma) in-browser via a WASM runtime, but it means bundling a multi-megabyte runtime + model weights, which breaks the "single HTML file, no dependencies" identity. The Chrome built-in Prompt API gives the same **on-device, private** benefit with **zero bundled dependencies** — the right trade-off here. (If you ever want a fully browser-agnostic option, a MediaPipe/Transformers.js build could be offered as a separate opt-in bundle.)
 
 ## What's in v3.0
 
@@ -114,7 +148,7 @@ Add a short note to each image in its settings panel, then click **✦ Generate 
 > Figure. Effect of treatment. (A) Control cells. Scale bar, 10µm. (B) Treated cells. Scale bar, 10µm.
 
 ### Session Save / Load
-Save the entire layout as a JSON file and reload it later. Images themselves are not stored — re-drop them after loading.
+Save the entire figure — layout, per-panel settings, annotations, notes, **and the image pixels** — as a JSON file and reload it later to restore everything exactly, no re-dropping required. (Sessions saved by very old versions, before pixel data was embedded, will prompt you to re-drop those images.)
 
 ### Notes Scratchpad
 Expand the **Export** panel to find a **Figure notes** text area — write antibody dilutions, reviewer comments, or anything else that should travel with the session file.
@@ -188,6 +222,31 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### v3.5 — 8 July 2026
+**Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
+
+- **Submission package** — a `📦 Export submission package (ZIP)` button bundles everything a journal or lab needs into one archive: PNG, uncompressed TIFF, lossless PDF, SVG, session JSON (images embedded), metadata CSV, caption, figure notes, R + Python scripts, reproducibility log, each panel as a separate PNG, and a provenance manifest. Built on a dependency-free client-side ZIP writer.
+- **Editable PowerPoint (.pptx) export** — `📊 Export editable PowerPoint` writes an OOXML deck where each panel is a separate, movable picture at its real position and the title is an editable text box — finish the figure in PowerPoint. Fully offline, no dependencies.
+- **Smart image import** — image cards show pixel dimensions, aspect ratio, a channel chip detected from the filename (DAPI/GFP/mCherry/Cy5/phase/merge), and a duplicate-name warning; **Sort by name** natural-sorts and relabels, **Auto-channels** assigns colourblind-safe LUTs from the detected channels.
+- **Split-channel row** — one click explodes a multi-channel composite into separate single-channel panels (each with its LUT and a channel caption) plus a merge.
+- **Matched / linked panels** — assign panels a *Match group* and **⇉ Sync group** copies brightness/contrast/gamma/LUT/levels/scale-bar length across the whole comparison group, so it's processed identically (integrity-safe).
+- **Gel/blot splice marker** — drop a visible lane-divider line where blot lanes were spliced (a journal requirement), under Annotate → Blot/gel tools.
+- **On-device AI caption polish** (optional) — a `🤖 Polish with on-device AI` button refines your figure legend using **Chrome's built-in Gemini Nano (Prompt API)**, running *entirely on your machine* so nothing is uploaded. Feature-detected; falls back to the rule-based caption when unavailable. See *[On-device AI](#on-device-ai)*.
+- **"What's New" tab** in Help with the dated changelog, plus a "new" dot on the header ❔ after an update.
+
+- **Simple / Advanced mode** — a header toggle (default **Simple**) hides advanced tools (AI generation, freeform, measurement, histogram normalization, deep audit, reproducibility scripts, multi-page PDF, scale-matching) behind one switch, so beginners see only the core workflow. Nothing is removed from the DOM; preference persists. See *[Simple vs Advanced mode](#simple-vs-advanced-mode)*.
+- **Empty-state start screen** — a blank canvas now shows a launchpad: drop images, start from a template, load a session, or try the example figure, plus an `Import → Layout → Calibrate → Annotate → Audit → Export` workflow strip.
+- **Load example figure** — one click generates four procedural micrographs (DAPI / GFP / mCherry / merge) in a labelled, scale-barred 2×2 so you can explore instantly with no files. Clear with one undo.
+- **Command palette** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> opens a fuzzy launcher for every action (render, all exports, audit, save/load, presets, match scale, batch crop, toggle mode, help…).
+- **Export preflight** — the Export-panel format buttons show format, file name, DPI, final pixel dimensions, physical size (mm + in), estimated file size, vector-vs-raster status, and integrity warnings before you commit. (Toolbar **Quick** buttons still export instantly.)
+- **Colour-vision-deficiency (CVD) simulation** — a `👁 CVD` toolbar selector previews the figure as deuteranope / protanope / tritanope viewers see it, to self-check that fluorescence merges stay distinguishable. Display-only — exports are never altered.
+- **Colourblind-safe default LUTs** — new multi-channel merges default to magenta/green rather than red/green.
+- **Contextual `?` info chips** — plain-language, methods-aware explanations on Export DPI, formats, panel labels, scale bars, per-panel adjustments, and LUTs. Keyboard-accessible.
+- **Auto-arrange panels** — proposes a balanced grid, even gutters, and labels for the current panel count. Undoable.
+- **Lossless PDF export** — alongside the standard JPEG-based PDF, a Flate-compressed lossless PDF for line art and blots; both now export at the true target DPI (previously screen resolution).
+- **In-app Help & FAQ** — a tabbed Help modal (Getting Started · Use Cases · FAQ) reachable from the header `❔` and footer.
+- Docs/accuracy: version unified via a single `APP_VERSION`; corrected the outdated "images aren't saved" note (sessions embed images — see [Session save](#session-save--load)); added a `CITATION.cff` / Zenodo metadata for citing the tool; CI runs the Playwright suite (now 23 tests).
+
 ### v3.4
 - **Crisp on-screen preview on HiDPI displays** — a separate high-resolution display layer renders the figure at devicePixelRatio once editing settles, so panel labels, scale bars, and annotations stay sharp when zoomed in. The figure buffer that measurements and exports read is left at logical resolution and untouched, so quantification stays exact
 - **Universal undo/redo** — Ctrl+Z / Ctrl+Y now cover layout (grid size, gaps, margins, gutters), per-panel adjustments (brightness/contrast/gamma/LUT/levels/crop/rotate/flip), panel add/delete/duplicate/reorder, label toggles, and annotations — not just annotations. One undo step per edit gesture
@@ -236,6 +295,21 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - Journal compliance checker
 - Undo/redo history
 - Reproducibility R/Python scripts
+
+---
+
+## Citation
+
+If you use FigureLab in your research, please cite it. Once the archived release
+is on Zenodo, use the DOI it mints (a version-independent "concept DOI" plus a
+per-version DOI). Metadata lives in [`CITATION.cff`](CITATION.cff), so GitHub
+shows a **"Cite this repository"** button automatically.
+
+> Baffour Awuah, M. (2026). *FigureLab: a browser-based tool for assembling
+> publication-quality scientific figures* (Version 3.4) [Computer software].
+> Zenodo. https://doi.org/10.5281/zenodo.XXXXXXX
+
+(Replace the DOI with the one Zenodo issues for your release.)
 
 ---
 
