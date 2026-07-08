@@ -270,6 +270,15 @@ body.simple-mode .adv{display:none !important}
 #mode-toggle::before{content:'●';margin-right:4px;font-size:8px;vertical-align:middle;color:var(--a2)}
 body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
 
+/* ── Contextual "?" help chips ──────────────────────────────── */
+.help-chip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  border-radius:50%;background:var(--surf2);border:1px solid var(--border);color:var(--muted);
+  font-size:9px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle;font-family:var(--mono)}
+.help-chip:hover,.help-chip:focus{color:var(--text);border-color:var(--accent);outline:none}
+.help-chip-tip{position:fixed;z-index:9999;width:230px;background:var(--surf2);color:var(--text);
+  border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:10.5px;line-height:1.5;
+  box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;display:none}
+
 /* ── Calibration canvas ─────────────────────────────────────── */
 #calib-canvas{border:1px solid var(--border);border-radius:5px;cursor:crosshair;
   max-width:100%;display:block;margin:8px auto}
@@ -598,7 +607,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="color" id="bg-color" value="#ffffff" oninput="scheduleRender()"></div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Panel Labels (A, B, C…)</div>
+    <div class="sec-lbl">Panel Labels (A, B, C…) <span class="help-chip" tabindex="0" role="button" aria-label="About panel labels" data-tip="The A, B, C tags on each panel. Choose the format (A/a/1/i), position, and size to match your target journal.">?</span></div>
     <div style="font-size:10px;color:var(--muted);margin:-2px 0 4px;line-height:1.35">Tip: drag any label, title, row/col header or scale-bar text on the canvas to reposition it. Double-click a label to reset it. Export as <b>SVG</b> for infinitely-sharp (vector) label text.</div>
     <div class="field"><label>Show</label>
       <input type="checkbox" id="show-labels" checked onchange="scheduleRender()"></div>
@@ -623,7 +632,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Scale Bar (global defaults)</div>
+    <div class="sec-lbl">Scale Bar (global defaults) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="A calibrated bar showing real-world size. Set µm/pixel per panel (Calibrate), then the bar appears. Uncalibrated bars show a ⚠ warning until you calibrate.">?</span></div>
     <div class="field"><label>Bar height (px)</label>
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
@@ -695,7 +704,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <div class="acc-body">
     <div class="sec-lbl">File name</div>
     <input type="text" id="export-name" value="figure" style="width:100%" placeholder="figure">
-    <div class="field"><label>Export DPI</label>
+    <div class="field"><label>Export DPI <span class="help-chip" tabindex="0" role="button" aria-label="About Export DPI" data-tip="Dots per inch of the exported file. Use 300 for print, 600 for journal submission. The figure is re-rendered at the true pixel count, not just tagged.">?</span></label>
       <select id="export-dpi">
         <option value="72">72 (screen)</option>
         <option value="150">150</option>
@@ -704,7 +713,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="1200">1200 (line art)</option>
       </select></div>
 
-    <div class="sec-lbl">Format</div>
+    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: uncompressed, most journals prefer it. PDF (lossless): no artefacts for line art. SVG: vector labels & annotations, infinitely sharp. JPEG/WebP: small but lossy.">?</span></div>
     <div class="export-grid">
       <button class="btn btn-success" onclick="doExportPreflight('png')">PNG</button>
       <button class="btn" onclick="doExportPreflight('jpeg')">JPEG</button>
@@ -1800,6 +1809,29 @@ function toggleUiMode(){
 }
 (function initUiMode(){ let m='simple'; try{ m=localStorage.getItem('fl-ui-mode')||'simple'; }catch(e){} applyUiMode(m); })();
 
+// ── Contextual "?" help chips: one floating bubble, appended to <body> so it
+//    escapes the sidebar's scroll clipping; shows on hover/focus, clamped to viewport.
+(function initHelpChips(){
+  const tip=document.createElement('div'); tip.className='help-chip-tip';
+  document.body.appendChild(tip);
+  function show(el){
+    const t=el.getAttribute('data-tip'); if(!t) return;
+    tip.textContent=t; tip.style.display='block';
+    const r=el.getBoundingClientRect();
+    let left=r.left+r.width/2-tip.offsetWidth/2;
+    left=Math.max(8,Math.min(left,window.innerWidth-tip.offsetWidth-8));
+    let top=r.top-tip.offsetHeight-8; if(top<8) top=r.bottom+8;
+    tip.style.left=left+'px'; tip.style.top=top+'px';
+  }
+  function hide(){ tip.style.display='none'; }
+  document.addEventListener('mouseover',e=>{ const c=e.target.closest&&e.target.closest('.help-chip'); if(c) show(c); });
+  document.addEventListener('mouseout', e=>{ if(e.target.closest&&e.target.closest('.help-chip')) hide(); });
+  document.addEventListener('focusin', e=>{ const c=e.target.closest&&e.target.closest('.help-chip'); if(c) show(c); });
+  document.addEventListener('focusout',e=>{ if(e.target.closest&&e.target.closest('.help-chip')) hide(); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') hide(); });
+  window.addEventListener('scroll',hide,true);
+})();
+
 // ═══════════════════════════════════════════════════════════════
 // EXPORT PREFLIGHT — show what will be exported before committing
 // ═══════════════════════════════════════════════════════════════
@@ -1952,7 +1984,7 @@ function renderImgList(){
           <button class="btn" data-flipv style="flex:1;justify-content:center" title="Flip vertical">⇅ V</button>
         </div>
         <div class="divider"></div>
-        <div class="sec-lbl">Adjustments</div>
+        <div class="sec-lbl">Adjustments <span class="help-chip" tabindex="0" role="button" aria-label="About adjustments" data-tip="Brightness/contrast lighten or stretch tones; gamma brightens midtones without clipping black or white. Keep them consistent across panels of the same experiment and report changes in your methods.">?</span></div>
         <canvas class="f-hist" width="260" height="44"
           style="width:100%;border-radius:4px;background:#111;display:block;margin-bottom:4px"></canvas>
         <div class="field">
@@ -1987,7 +2019,7 @@ function renderImgList(){
           <button class="btn" style="flex:1;justify-content:center" data-matchall="${idx}" title="Copy LUT, brightness, contrast, gamma, black/white point from this panel to all others">≡ Match all to this</button>
         </div>
         <div class="divider"></div>
-        <div class="sec-lbl">Fluorescence LUT</div>
+        <div class="sec-lbl">Fluorescence LUT <span class="help-chip" tabindex="0" role="button" aria-label="About LUTs" data-tip="Recolors a grayscale channel (e.g. green for GFP, blue for DAPI) for display only — the underlying intensities are unchanged. Prefer magenta+green over red+green for colourblind readers.">?</span></div>
         <div class="lut-row">
           <button class="f-lut ${im.lut==='none'?'lut-active':''}" data-lut="none"  style="background:#555">Off</button>
           <button class="f-lut ${im.lut==='fire'?'lut-active':''}" data-lut="fire"   style="background:linear-gradient(to right,#000,#f00,#ff0,#fff);color:#fff">Fire</button>
