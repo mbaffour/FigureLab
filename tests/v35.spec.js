@@ -108,6 +108,40 @@ test('on-device AI caption preserves the rule-based caption when the model is no
   expect(after.startsWith('Figure.')).toBe(true);
 });
 
+test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 4);
+  const res = await page.evaluate(async () => {
+    sv('export-dpi', '96');                       // keep the TIFF small for CI
+    const realDl = window.dl; let zipUrl = null;
+    window.dl = (url, name) => { if (String(name).endsWith('.zip')) zipUrl = url; else realDl(url, name); };
+    await exportSubmissionPackage();
+    window.dl = realDl;
+    if (!zipUrl) return { error: 'no zip' };
+    const buf = new Uint8Array(await (await fetch(zipUrl)).arrayBuffer());
+    const dv = new DataView(buf.buffer);
+    let e = buf.length - 22;
+    while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;              // EOCD
+    const total = dv.getUint16(e + 10, true);
+    const localSigOK = dv.getUint32(0, true) === 0x04034b50;                 // first local header
+    // collect central-directory names
+    let cd = dv.getUint32(e + 16, true); const names = []; const dec = new TextDecoder();
+    for (let i = 0; i < total; i++) {
+      if (dv.getUint32(cd, true) !== 0x02014b50) break;
+      const nlen = dv.getUint16(cd + 28, true), elen = dv.getUint16(cd + 30, true), clen = dv.getUint16(cd + 32, true);
+      names.push(dec.decode(buf.slice(cd + 46, cd + 46 + nlen)));
+      cd += 46 + nlen + elen + clen;
+    }
+    return { total, localSigOK, names };
+  });
+  expect(res.error).toBeUndefined();
+  expect(res.localSigOK).toBe(true);
+  expect(res.total).toBeGreaterThanOrEqual(10);
+  expect(res.names).toContain('README.txt');
+  expect(res.names.some(n => n.endsWith('.tiff'))).toBe(true);
+  expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
+});
+
 test("What's New tab renders dated content and clears the update indicator", async ({ page }) => {
   await loadApp(page);
   await page.evaluate(() => { try { localStorage.setItem('fl-seen-version', '0.0'); } catch (e) {} });

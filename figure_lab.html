@@ -745,6 +745,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="doExportPreflight('svg')">SVG</button>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:3px">Shows an export preflight. The toolbar <b>Quick</b> buttons export instantly.</div>
+    <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
 
     <button class="btn" onclick="exportCSV()" style="width:100%;justify-content:center">⬇ CSV Metadata</button>
     <button class="btn" onclick="batchExportPanels()" style="width:100%;justify-content:center;margin-top:4px" title="Export each panel as a separate image file">⬙ Batch Export Panels</button>
@@ -1781,6 +1782,7 @@ const CMD_REGISTRY=[
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
+  {label:'Export submission package (ZIP)', keys:'submission package zip bundle everything', run:()=>exportSubmissionPackage()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
   {label:'Preset: Nature',           keys:'preset journal nature',         run:()=>applyPreset('nature')},
   {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
@@ -5152,6 +5154,122 @@ async function doExport(fmt){
 // ── CRC32 for PNG pHYs chunk ──────────────────────────────────
 const _crcTable=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):(c>>>1);t[i]=c;}return t;})();
 function crc32(buf,off,len){let c=0xFFFFFFFF;for(let i=0;i<len;i++)c=_crcTable[(c^buf[off+i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENT-SIDE ZIP WRITER (store method — offline, no dependencies)
+// Reused by the submission package and the PowerPoint (.pptx) export.
+// ═══════════════════════════════════════════════════════════════
+function _concatBytes(arrs){ let n=0; for(const a of arrs) n+=a.length; const o=new Uint8Array(n); let p=0; for(const a of arrs){ o.set(a,p); p+=a.length; } return o; }
+function _zipMake(files){
+  const enc=new TextEncoder();
+  const u16=n=>new Uint8Array([n&255,(n>>>8)&255]);
+  const u32=n=>new Uint8Array([n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]);
+  const parts=[], central=[]; let offset=0;
+  for(const f of files){
+    const nb=enc.encode(f.name);
+    const data=(typeof f.data==='string')?enc.encode(f.data):f.data;
+    const crc=crc32(data,0,data.length);
+    const lfh=_concatBytes([u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),
+      u32(data.length),u32(data.length),u16(nb.length),u16(0),nb]);
+    parts.push(lfh,data);
+    central.push(_concatBytes([u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),
+      u32(data.length),u32(data.length),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset),nb]));
+    offset+=lfh.length+data.length;
+  }
+  const cd=_concatBytes(central);
+  const eocd=_concatBytes([u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),
+    u32(cd.length),u32(offset),u16(0)]);
+  return _concatBytes([...parts,cd,eocd]);
+}
+// Capture exactly what an existing exporter produces, without downloading it:
+// temporarily intercept dl()/toast(), run the exporter, fetch its blob bytes.
+async function _captureDownload(fn){
+  const origDl=dl, origToast=toast; let cap=null;
+  window.dl=(url,name)=>{ cap={url,name}; };
+  window.toast=()=>{};
+  try{ await fn(); }catch(e){ /* skip this artifact */ }
+  window.dl=origDl; window.toast=origToast;
+  if(!cap) return null;
+  try{
+    const data=new Uint8Array(await (await fetch(cap.url)).arrayBuffer());
+    return { name: String(cap.name).replace(/^.*[\\/]/,''), data };
+  }catch(e){ return null; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SUBMISSION PACKAGE — one ZIP with every artifact a journal/lab needs
+// ═══════════════════════════════════════════════════════════════
+async function exportSubmissionPackage(){
+  if(!images.length){ toast('Add images first, or ✨ Load example figure','warn'); return; }
+  const grid=layoutMode!=='freeform';
+  const dpi=getExportDPI();
+  const name=(gv('export-name').trim()||'figure');
+  const figc=document.getElementById('fig-canvas');
+  toast('Building submission package…','ok');
+  render();
+  try{
+    const rc=()=> grid?renderExportCanvas(dpi):figc;
+    const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
+    add(await _captureDownload(()=>exportPNGWithMeta(name,dpi,rc())));
+    add(await _captureDownload(()=>exportTIFF(name,dpi,rc(),grid)));
+    add(await _captureDownload(()=>exportPDF(name,dpi,rc(),{lossless:true})));
+    add(await _captureDownload(()=>exportSVG(name,dpi,figc)));
+    add(await _captureDownload(()=>saveJSON()));
+    add(await _captureDownload(()=>exportCSV()));
+    add(await _captureDownload(()=>exportReproLog()));
+    add(await _captureDownload(()=>exportR()));
+    add(await _captureDownload(()=>exportPython()));
+    // caption + notes
+    if(!gv('caption-out').trim()){ generateCaption(); }
+    const cap=gv('caption-out').trim(); if(cap) files.push({name:name+'-caption.txt', data:cap});
+    const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
+    if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
+    // individual panels (movable pieces for downstream editing)
+    try{
+      const sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
+      for(const b of (panelBounds||[])){
+        const pc=document.createElement('canvas');
+        pc.width=Math.max(1,Math.round(b.w*sc)); pc.height=Math.max(1,Math.round(b.h*sc));
+        pc.getContext('2d').drawImage(big, b.x*sc,b.y*sc,b.w*sc,b.h*sc, 0,0,pc.width,pc.height);
+        const blob=await new Promise(r=>pc.toBlob(r,'image/png'));
+        if(blob){ const buf=new Uint8Array(await blob.arrayBuffer());
+          const lbl=(images[b.idx]&&images[b.idx].label)||b.idx;
+          files.push({name:`panels/panel_${lbl}.png`, data:buf}); }
+      }
+    }catch(e){/* panels optional */}
+    // manifest
+    files.push({name:'README.txt', data:_packageManifest(name,dpi,files)});
+    const zip=_zipMake(files);
+    dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), name+'-submission-package.zip');
+    logAction('submissionPackage',{files:files.length});
+    toast(`Submission package ready — ${files.length} files zipped`,'ok');
+  }catch(e){ toast('Package failed: '+(e&&e.message||e),'err'); }
+}
+function _packageManifest(name,dpi,files){
+  const list=files.map(f=>'  - '+f.name).join('\n');
+  return `FigureLab submission package
+=============================
+Figure name : ${name}
+Title       : ${gv('fig-title')||'(untitled)'}
+Created     : ${new Date().toISOString()}
+FigureLab   : v${APP_VERSION}
+Export DPI  : ${dpi}
+Panels      : ${images.filter(Boolean).length}
+
+Contents
+--------
+${list}
+  - README.txt (this file)
+
+Notes
+-----
+- Raster figures are rendered at the true target-DPI pixel count (supersampled).
+- TIFF is uncompressed RGB with the DPI tag set; PDF here is lossless (Flate).
+- session JSON embeds the images, so it reloads the whole figure in FigureLab.
+- The R / Python scripts and metadata CSV document how each panel was processed
+  — paste the key values into your methods section for reproducibility.
+- Everything was produced locally in your browser; no data was uploaded.`;
+}
 
 // (exportPNGwithDPI removed — superseded by embedPNGMetadata, which writes a
 //  spec-correct pHYs chunk and the tEXt metadata in one pass. See exportPNGWithMeta.)
