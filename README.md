@@ -119,7 +119,7 @@ Add a short note to each image in its settings panel, then click **✦ Generate 
 > Figure. Effect of treatment. (A) Control cells. Scale bar, 10µm. (B) Treated cells. Scale bar, 10µm.
 
 ### Session Save / Load
-Save the entire layout as a JSON file and reload it later. Images themselves are not stored — re-drop them after loading.
+Save the entire figure — layout, per-panel settings, annotations, notes, **and the image pixels** — as a JSON file and reload it later to restore everything exactly, no re-dropping required. (Sessions saved by very old versions, before pixel data was embedded, will prompt you to re-drop those images.)
 
 ### Notes Scratchpad
 Expand the **Export** panel to find a **Figure notes** text area — write antibody dilutions, reviewer comments, or anything else that should travel with the session file.
