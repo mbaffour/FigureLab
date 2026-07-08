@@ -4705,9 +4705,10 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
   }
-  // 2. Hit-test all annotations for selection / move
+  // 2. Hit-test all annotations for selection / move (skip hidden & locked)
   let hit=-1;
   for(let i=annotations.length-1;i>=0;i--){
+    if(annotations[i].hidden||annotations[i].locked) continue;
     if(hitAnnotation(annotations[i],x,y,W,H)){hit=i;break;}
   }
   if(hit>=0){
@@ -5267,7 +5268,7 @@ function drawAnnotations(ctx, W, H){
   const st=gc('label-italic')?'italic':'normal';
   // Draw insets first (they sample already-rendered panels)
   annotations.forEach(a => {
-    if(a.type!=='inset') return;
+    if(a.type!=='inset'||a.hidden) return;
     const srcX=Math.min(a.xf,a.x2f)*W, srcY=Math.min(a.yf,a.y2f)*H;
     const srcW=Math.abs(a.x2f-a.xf)*W, srcH=Math.abs(a.y2f-a.yf)*H;
     if(srcW<4||srcH<4) return;
@@ -5299,7 +5300,7 @@ function drawAnnotations(ctx, W, H){
   });
   // Draw all other annotations
   annotations.forEach(a => {
-    if(a.type==='inset') return;
+    if(a.type==='inset'||a.hidden) return;
     drawAnnotationSingle(ctx, a, W, H);
   });
 }
@@ -5368,25 +5369,43 @@ function renderAnnotationList(){
   const list=document.getElementById('ann-list');
   list.innerHTML='';
 
-  // Global annotations
+  // Global annotations — a layer panel: rename, hide, lock, delete
   annotations.forEach((a,i)=>{
     const row=document.createElement('div');
     row.className='ann-row'+(i===selectedAnnotation?' selected':'');
     const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
-    const label=a.type==='text'?`T "${a.text.substring(0,18)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,14)}"`:a.type;
-    row.innerHTML=`${swatch}<span>${esc(label)}</span>
+    const nm = a.name || (a.type==='text'?`T "${(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,10)}"`:a.type);
+    row.innerHTML=`${swatch}<span class="ann-name" style="flex:1;${a.hidden?'opacity:.45':''}">${esc(nm)}</span>
+      <button class="icon-btn ba-rename" title="Rename layer" style="font-size:10px">✎</button>
+      <button class="icon-btn ba-hide" title="${a.hidden?'Show':'Hide'}" style="font-size:10px">${a.hidden?'🙈':'👁'}</button>
+      <button class="icon-btn ba-lock" title="${a.locked?'Unlock':'Lock'}" style="font-size:10px">${a.locked?'🔒':'🔓'}</button>
       <button class="icon-btn del" title="Delete" style="font-size:11px">×</button>`;
     row.addEventListener('click', ev=>{
-      if(ev.target.classList.contains('del')) return;
+      if(ev.target.closest('.icon-btn')) return;
+      if(a.hidden||a.locked){ toast(a.hidden?'Layer is hidden':'Layer is locked','warn'); return; }
       selectedAnnotation=i; selectedPanelAnn=null;
       showAnnFloat(i); drawAnnOverlay(); renderAnnotationList();
     });
-    row.querySelector('.icon-btn').addEventListener('click',e=>{
+    row.querySelector('.del').addEventListener('click',e=>{
       e.stopPropagation(); pushUndo();
       annotations.splice(i,1);
       if(selectedAnnotation===i){ selectedAnnotation=-1; hideAnnFloat(); }
       else if(selectedAnnotation>i) selectedAnnotation--;
       renderAnnotationList(); scheduleRender(0);
+    });
+    row.querySelector('.ba-hide').addEventListener('click',e=>{
+      e.stopPropagation(); a.hidden=!a.hidden;
+      if(a.hidden&&selectedAnnotation===i){ selectedAnnotation=-1; hideAnnFloat(); }
+      renderAnnotationList(); scheduleRender(0);
+    });
+    row.querySelector('.ba-lock').addEventListener('click',e=>{
+      e.stopPropagation(); a.locked=!a.locked;
+      if(a.locked&&selectedAnnotation===i){ selectedAnnotation=-1; hideAnnFloat(); }
+      renderAnnotationList(); scheduleRender(0);
+    });
+    row.querySelector('.ba-rename').addEventListener('click',e=>{
+      e.stopPropagation(); const nn=prompt('Layer name:', a.name||'');
+      if(nn!==null){ a.name=nn.trim()||undefined; renderAnnotationList(); }
     });
     list.appendChild(row);
   });
