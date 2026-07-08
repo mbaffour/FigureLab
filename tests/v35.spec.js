@@ -58,6 +58,49 @@ test('export preflight reports dimensions and a sub-300-DPI warning', async ({ p
   expect(await page.evaluate(() => document.getElementById('preflight-modal').classList.contains('open'))).toBe(false);
 });
 
+test('save dialog: editable name/format/DPI, and fallback download uses a sanitised name', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 2);
+  // open for PNG, then change format + DPI + name — the readout must track the new choices live
+  const readout = await page.evaluate(() => {
+    doExportPreflight('png');
+    document.getElementById('pf-format').value = 'jpeg';
+    document.getElementById('pf-dpi').value = '600';
+    document.getElementById('pf-name').value = 'blot final';
+    _refreshPreflight();
+    return {
+      ext: document.getElementById('pf-ext').textContent,
+      go: document.getElementById('preflight-go').textContent,
+      body: document.getElementById('preflight-body').innerText,
+    };
+  });
+  expect(readout.ext).toBe('.jpg');
+  expect(readout.go).toMatch(/Save JPG/);
+  expect(readout.body).toMatch(/blot final\.jpg/);
+  expect(readout.body).toMatch(/600 DPI/);
+  // with no native Save-As available, saving falls back to a normal download with the chosen
+  // format and a filesystem-safe name (illegal characters replaced)
+  const saved = await page.evaluate(async () => {
+    window.__dlName = null;
+    const savedPicker = window.showSaveFilePicker; window.showSaveFilePicker = undefined;
+    const origDl = window.dl; window.dl = (u, n) => { window.__dlName = n; };
+    document.getElementById('pf-format').value = 'png';
+    document.getElementById('pf-name').value = 'fig 2/final*';   // '/' and '*' are illegal
+    _refreshPreflight();
+    await _saveFromDialog();
+    await new Promise(r => setTimeout(r, 600));                  // fallback doExport() encodes async
+    window.dl = origDl; window.showSaveFilePicker = savedPicker;
+    return {
+      name: window.__dlName,
+      exportName: document.getElementById('export-name').value,
+      closed: !document.getElementById('preflight-modal').classList.contains('open'),
+    };
+  });
+  expect(saved.name).toBe('fig 2_final_.png');
+  expect(saved.exportName).toBe('fig 2_final_');
+  expect(saved.closed).toBe(true);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);
