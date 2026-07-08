@@ -746,6 +746,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:3px">Shows an export preflight. The toolbar <b>Quick</b> buttons export instantly.</div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
+    <button class="btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
 
     <button class="btn" onclick="exportCSV()" style="width:100%;justify-content:center">⬇ CSV Metadata</button>
     <button class="btn" onclick="batchExportPanels()" style="width:100%;justify-content:center;margin-top:4px" title="Export each panel as a separate image file">⬙ Batch Export Panels</button>
@@ -1783,6 +1784,7 @@ const CMD_REGISTRY=[
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
   {label:'Export submission package (ZIP)', keys:'submission package zip bundle everything', run:()=>exportSubmissionPackage()},
+  {label:'Export editable PowerPoint (.pptx)', keys:'powerpoint pptx slides editable ppt', run:()=>exportPPTX()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
   {label:'Preset: Nature',           keys:'preset journal nature',         run:()=>applyPreset('nature')},
   {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
@@ -5228,6 +5230,7 @@ async function exportSubmissionPackage(){
     try{
       const sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
       for(const b of (panelBounds||[])){
+        if(!images[b.idx]) continue;   // skip empty grid cells
         const pc=document.createElement('canvas');
         pc.width=Math.max(1,Math.round(b.w*sc)); pc.height=Math.max(1,Math.round(b.h*sc));
         pc.getContext('2d').drawImage(big, b.x*sc,b.y*sc,b.w*sc,b.h*sc, 0,0,pc.width,pc.height);
@@ -5269,6 +5272,140 @@ Notes
 - The R / Python scripts and metadata CSV document how each panel was processed
   — paste the key values into your methods section for reproducibility.
 - Everything was produced locally in your browser; no data was uploaded.`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EDITABLE POWERPOINT (.pptx) EXPORT
+// Each panel becomes a separate, movable picture placed at its real position;
+// the figure title becomes an editable text box. PPTX is an OOXML zip, so this
+// reuses the ZIP writer. Fully offline, no dependencies.
+// ═══════════════════════════════════════════════════════════════
+const _PPTX_RELNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+function _pptxStaticParts(cx,cy){
+  const A='http://schemas.openxmlformats.org/drawingml/2006/main';
+  const P='http://schemas.openxmlformats.org/presentationml/2006/main';
+  const R=_PPTX_RELNS;
+  const CT=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Default Extension="png" ContentType="image/png"/>
+<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
+<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
+<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
+</Types>`;
+  const rootRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="${R}/officeDocument" Target="ppt/presentation.xml"/></Relationships>`;
+  const presentation=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}">
+<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
+<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>
+<p:sldSz cx="${cx}" cy="${cy}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`;
+  const presRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="${R}/slideMaster" Target="slideMasters/slideMaster1.xml"/>
+<Relationship Id="rId2" Type="${R}/slide" Target="slides/slide1.xml"/></Relationships>`;
+  const master=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}">
+<p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>
+<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>
+<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
+<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`;
+  const masterRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="${R}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+<Relationship Id="rId2" Type="${R}/theme" Target="../theme/theme1.xml"/></Relationships>`;
+  const layout=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldLayout xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}" type="blank" preserve="1">
+<p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>
+<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`;
+  const layoutRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="${R}/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>`;
+  const theme=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="${A}" name="Office Theme"><a:themeElements>
+<a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme>
+<a:fontScheme name="Office"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>
+<a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln><a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>`;
+  return {CT,rootRels,presentation,presRels,master,masterRels,layout,layoutRels,theme};
+}
+async function exportPPTX(){
+  if(!images.length){ toast('Add images first, or ✨ Load example figure','warn'); return; }
+  if(layoutMode==='freeform'){ toast('PowerPoint export works in grid mode','warn'); return; }
+  toast('Building PowerPoint…','ok');
+  render();
+  try{
+    const A='http://schemas.openxmlformats.org/drawingml/2006/main';
+    const P='http://schemas.openxmlformats.org/presentationml/2006/main';
+    const R=_PPTX_RELNS;
+    const EMU=9525; // per logical CSS px (96 dpi)
+    const Lw=canvasLogicalW||document.getElementById('fig-canvas').width;
+    const Lh=canvasLogicalH||document.getElementById('fig-canvas').height;
+    const cx=Math.round(Lw*EMU), cy=Math.round(Lh*EMU);
+    const dpi=300, sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
+    const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const media=[], slideRels=[]; let pics='';
+    slideRels.push(`<Relationship Id="rId1" Type="${R}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`);
+    let idn=0;
+    for(const b of (panelBounds||[])){
+      if(!images[b.idx]) continue;   // skip empty grid cells
+      idn++;
+      const pc=document.createElement('canvas');
+      pc.width=Math.max(1,Math.round(b.w*sc)); pc.height=Math.max(1,Math.round(b.h*sc));
+      pc.getContext('2d').drawImage(big, b.x*sc,b.y*sc,b.w*sc,b.h*sc, 0,0,pc.width,pc.height);
+      const blob=await new Promise(r=>pc.toBlob(r,'image/png'));
+      const buf=new Uint8Array(await blob.arrayBuffer());
+      media.push({name:`ppt/media/image${idn}.png`, data:buf});
+      const rid='rId'+(idn+1);
+      slideRels.push(`<Relationship Id="${rid}" Type="${R}/image" Target="../media/image${idn}.png"/>`);
+      const label=(images[b.idx]&&images[b.idx].label)||idn;
+      pics+=`<p:pic><p:nvPicPr><p:cNvPr id="${idn+1}" name="Panel ${esc(String(label))}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`
+        +`<p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>`
+        +`<p:spPr><a:xfrm><a:off x="${Math.round(b.x*EMU)}" y="${Math.round(b.y*EMU)}"/><a:ext cx="${Math.round(b.w*EMU)}" cy="${Math.round(b.h*EMU)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+    }
+    // editable title text box across the top margin, if a title is set
+    const title=gv('fig-title').trim();
+    let titleSp='';
+    if(title){
+      const topY=Math.min.apply(null,(panelBounds||[{y:0}]).map(b=>b.y));
+      const th=Math.max(Math.round(topY*EMU), 360000);
+      titleSp=`<p:sp><p:nvSpPr><p:cNvPr id="${idn+2}" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>`
+        +`<p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${th}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>`
+        +`<p:txBody><a:bodyPr anchor="ctr"/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${esc(title)}</a:t></a:r></a:p></p:txBody></p:sp>`;
+    }
+    const slide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}"><p:cSld><p:spTree>
+<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/><a:chOff x="0" y="0"/><a:chExt cx="${cx}" cy="${cy}"/></a:xfrm></p:grpSpPr>
+${pics}${titleSp}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+    const slideRelsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slideRels.join('')}</Relationships>`;
+    const S=_pptxStaticParts(cx,cy);
+    const files=[
+      {name:'[Content_Types].xml', data:S.CT},
+      {name:'_rels/.rels', data:S.rootRels},
+      {name:'ppt/presentation.xml', data:S.presentation},
+      {name:'ppt/_rels/presentation.xml.rels', data:S.presRels},
+      {name:'ppt/slideMasters/slideMaster1.xml', data:S.master},
+      {name:'ppt/slideMasters/_rels/slideMaster1.xml.rels', data:S.masterRels},
+      {name:'ppt/slideLayouts/slideLayout1.xml', data:S.layout},
+      {name:'ppt/slideLayouts/_rels/slideLayout1.xml.rels', data:S.layoutRels},
+      {name:'ppt/theme/theme1.xml', data:S.theme},
+      {name:'ppt/slides/slide1.xml', data:slide},
+      {name:'ppt/slides/_rels/slide1.xml.rels', data:slideRelsXml},
+      ...media,
+    ];
+    const zip=_zipMake(files);
+    dl(URL.createObjectURL(new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'})),
+       (gv('export-name').trim()||'figure')+'.pptx');
+    logAction('exportPPTX',{panels:idn});
+    toast(`PowerPoint exported — ${idn} movable panels`,'ok');
+  }catch(e){ toast('PowerPoint export failed: '+(e&&e.message||e),'err'); }
 }
 
 // (exportPNGwithDPI removed — superseded by embedPNGMetadata, which writes a

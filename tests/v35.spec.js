@@ -142,6 +142,41 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('PowerPoint (.pptx) export is a valid OOXML package with well-formed XML', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 4);
+  const res = await page.evaluate(async () => {
+    const realDl = window.dl; let url = null;
+    window.dl = (u, n) => { if (String(n).endsWith('.pptx')) url = u; else realDl(u, n); };
+    await exportPPTX();
+    window.dl = realDl;
+    if (!url) return { error: 'no pptx' };
+    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const dv = new DataView(buf.buffer); const dec = new TextDecoder();
+    let e = buf.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+    const total = dv.getUint16(e + 10, true); let cd = dv.getUint32(e + 16, true);
+    const names = []; const xml = {};
+    for (let i = 0; i < total; i++) {
+      if (dv.getUint32(cd, true) !== 0x02014b50) break;
+      const nlen = dv.getUint16(cd + 28, true), elen = dv.getUint16(cd + 30, true), clen = dv.getUint16(cd + 32, true);
+      const lho = dv.getUint32(cd + 42, true);
+      const name = dec.decode(buf.slice(cd + 46, cd + 46 + nlen)); names.push(name);
+      const lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true), csize = dv.getUint32(lho + 18, true);
+      const ds = lho + 30 + lnlen + lelen;
+      if (name.endsWith('.xml') || name.endsWith('.rels')) xml[name] = dec.decode(buf.slice(ds, ds + csize));
+      cd += 46 + nlen + elen + clen;
+    }
+    const parser = new DOMParser(); const xmlErrors = [];
+    for (const n in xml) if (parser.parseFromString(xml[n], 'application/xml').getElementsByTagName('parsererror').length) xmlErrors.push(n);
+    return { total, names, xmlErrors, media: names.filter(n => n.startsWith('ppt/media/')).length };
+  });
+  expect(res.error).toBeUndefined();
+  expect(res.names).toContain('[Content_Types].xml');
+  expect(res.names).toContain('ppt/slides/slide1.xml');
+  expect(res.media).toBe(4);              // one movable picture per panel
+  expect(res.xmlErrors).toEqual([]);      // every XML part well-formed
+});
+
 test("What's New tab renders dated content and clears the update indicator", async ({ page }) => {
   await loadApp(page);
   await page.evaluate(() => { try { localStorage.setItem('fl-seen-version', '0.0'); } catch (e) {} });
