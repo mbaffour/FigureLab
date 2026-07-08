@@ -2097,6 +2097,7 @@ function renderImgList(){
       <div class="img-meta" style="font-size:9px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
         ${_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
         ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
+        ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
         ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
       </div>
       <div class="img-settings" id="settings-${idx}">
@@ -2189,6 +2190,9 @@ function renderImgList(){
           <button class="btn" style="flex:1;justify-content:center" data-applyall="${idx}">↔ Apply to all</button>
           <button class="btn" style="flex:1;justify-content:center" data-matchall="${idx}" title="Copy LUT, brightness, contrast, gamma, black/white point from this panel to all others">≡ Match all to this</button>
         </div>
+        <div class="field adv" style="margin-top:4px"><label title="Panels sharing a group name can be synced together, so a comparison row is adjusted identically (fair, integrity-safe).">Match group</label>
+          <input type="text" class="f-group" value="${esc(im.group||'')}" maxlength="8" placeholder="e.g. row1" style="width:70px"></div>
+        <button class="btn adv" style="width:100%;justify-content:center" data-syncgroup="${idx}" title="Copy brightness, contrast, gamma, LUT, levels and scale-bar length from this panel to every panel in the same group">⇉ Sync group to this panel</button>
         <div class="divider"></div>
         <div class="sec-lbl">Fluorescence LUT <span class="help-chip" tabindex="0" role="button" aria-label="About LUTs" data-tip="Recolors a grayscale channel (e.g. green for GFP, blue for DAPI) for display only — the underlying intensities are unchanged. Prefer magenta+green over red+green for colourblind readers.">?</span></div>
         <div class="lut-row">
@@ -2299,6 +2303,10 @@ function renderImgList(){
     // Apply to all panels
     item.querySelector('[data-applyall]').addEventListener('click',()=>applySettingsToAll(idx));
     item.querySelector('[data-matchall]').addEventListener('click',()=>matchPanelToAll(idx));
+    const _grp=item.querySelector('.f-group');
+    if(_grp) _grp.addEventListener('change',e=>{ images[idx].group=e.target.value.trim(); renderImgList(); });
+    const _syncBtn=item.querySelector('[data-syncgroup]');
+    if(_syncBtn) _syncBtn.addEventListener('click',()=>syncGroupToPanel(idx));
 
     // Rotation / flip
     item.querySelector('[data-rot="ccw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)-90+360)%360; scheduleRender(); });
@@ -2651,6 +2659,26 @@ function applySettingsToAll(srcIdx){
       logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
       scheduleRender(0); toast(`Settings applied to ${n} panel(s)`,'ok');
     });
+}
+
+// Linked / "matched" panels: sync adjustments across a named comparison group,
+// so every panel in the group is processed identically (fair, integrity-safe).
+function syncGroupToPanel(srcIdx){
+  const src=images[srcIdx]; if(!src) return;
+  const g=(src.group||'').trim();
+  if(!g){ toast('Give this panel a group name first (Match group)','warn'); return; }
+  const targets=images.filter((im,i)=>im&&i!==srcIdx&&(im.group||'').trim()===g);
+  if(!targets.length){ toast(`No other panels are in group "${g}"`,'warn'); return; }
+  pushUndo();
+  targets.forEach(im=>{
+    im.brightness=src.brightness; im.contrast=src.contrast;
+    im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
+    im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
+    im.sbUm=src.sbUm;   // consistent scale-bar length across the comparison group
+  });
+  logAction('syncGroup',{group:g,src:src.label,n:targets.length});
+  renderImgList(); scheduleRender(0);
+  toast(`Synced ${targets.length} panel(s) in group "${g}" to ${src.label}`,'ok');
 }
 
 function exportCSV(){
@@ -5851,7 +5879,7 @@ function saveJSON(){
       captionNote:im.captionNote,metaNote:im.metaNote,grayscale:im.grayscale,invert:im.invert,
       lut:im.lut||'none',blackPt:im.blackPt||0,whitePt:im.whitePt||255,
       gamma:im.gamma||1, rotate:im.rotate||0, flipH:im.flipH||false, flipV:im.flipV||false,
-      locked:im.locked||false,
+      locked:im.locked||false, group:im.group||'',
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,

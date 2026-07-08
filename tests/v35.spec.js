@@ -142,6 +142,22 @@ test('submission package builds a valid multi-entry ZIP', async ({ page }) => {
   expect(res.names.some(n => n.startsWith('panels/'))).toBe(true);
 });
 
+test('matched panels: sync copies adjustments only within a group', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 4);
+  const res = await page.evaluate(() => {
+    images[0].group = 'g'; images[2].group = 'g';
+    Object.assign(images[0], { brightness: 1.5, contrast: 1.3, gamma: 0.7, lut: 'fire', sbUm: 42 });
+    syncGroupToPanel(0);
+    return {
+      synced: images[2].brightness === 1.5 && images[2].lut === 'fire' && images[2].sbUm === 42,
+      untouched: images[1].lut !== 'fire' && images[1].brightness !== 1.5,
+    };
+  });
+  expect(res.synced).toBe(true);
+  expect(res.untouched).toBe(true);
+});
+
 test('import helpers: channel detection, auto-LUT, and natural sort', async ({ page }) => {
   await loadApp(page);
   const det = await page.evaluate(() => ({
