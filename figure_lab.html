@@ -3843,27 +3843,49 @@ function checkCompliance(){
   const panelsWithImages=images.slice(0,cols*rows).filter(Boolean).length;
   const panelsWithLabels=images.slice(0,cols*rows).filter(im=>im&&im.label).length;
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
+  const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
+  const exportPx=W*H*Math.pow(Math.max(1,dpi/96),2);
+  const extreme=images.filter(im=>im&&((im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2)).length;
   const checks=[
-    {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`},
+    {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
+      fix:dpi<300?{a:'dpi300',t:'Set 300'}:null},
     {label:'Figure width',  ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5, note:`${wIn.toFixed(2)}" (Nature/Cell max: 7.2–7.5")`},
     {label:'Figure height', ok:hIn<=9.5, warn:false, note:`${hIn.toFixed(2)}"`},
-    {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${bg} — most journals require white`},
+    {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${bg} — most journals require white`,
+      fix:bgIsWhite?null:{a:'white',t:'Make white'}},
     {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
-      note:`${panelsWithLabels}/${panelsWithImages} panels labelled`},
+      note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
+    {label:'Scale-bar calibration', ok:uncal===0, warn:false, note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:'All calibrated ✓',
+      fix:uncal?{a:'calibrate',t:'Calibrate'}:null},
+    {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
+    {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
+      fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
     {label:'Min panel size',ok:gi('panel-w')>=80&&gi('panel-h')>=80, warn:false, note:`${gi('panel-w')}×${gi('panel-h')} px per panel`},
   ];
   const html=checks.map(c=>{
     const icon=c.ok?'✓':c.warn?'⚠':'✗';
     const color=c.ok?'var(--a2)':c.warn?'var(--warn)':'var(--danger)';
+    const fixBtn=(!c.ok&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${c.fix.a}')">${c.fix.t}</button>`:'';
     return `<div class="compliance-row">
       <span class="c-icon" style="color:${color}">${icon}</span>
       <span class="c-label">${c.label}</span>
-      <span class="c-note">${c.note}</span>
+      <span class="c-note" style="flex:1">${c.note}</span>${fixBtn}
     </div>`;
   }).join('');
   const pass=checks.filter(c=>c.ok).length, total=checks.length;
   showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
     `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against Nature/Science/Cell guidelines</div>${html}`);
+}
+function _auditFix(action){
+  const m=document.getElementById('info-modal-bg');
+  if(action==='dpi300'){ sv('export-dpi','300'); }
+  else if(action==='white'){ sv('bg-color','#ffffff'); scheduleRender(); }
+  else if(action==='labels'){ sc('show-labels',true); scheduleRender(); }
+  else if(action==='calibrate'){
+    const idx=images.findIndex(im=>im&&im.sbOn&&!(im.umPerPx>0));
+    if(idx>=0){ if(m) m.remove(); if(typeof openCalib==='function') openCalib(idx); return; }
+  }
+  checkCompliance();   // re-run to refresh the report
 }
 function showInfoModal(title, bodyHtml){
   let m=document.getElementById('info-modal-bg');
