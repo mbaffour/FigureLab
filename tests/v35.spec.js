@@ -174,6 +174,36 @@ test('lightweight session omits image pixel data; bundled keeps it', async ({ pa
   expect(res.light.length).toBeLessThan(res.bundled.length);
 });
 
+test('customization: greeting by name, and the animated-background toggle', async ({ page }) => {
+  await loadApp(page);
+  const res = await page.evaluate(() => {
+    try { localStorage.removeItem('fl-user-name'); } catch (e) {}
+    const generic = _greeting();
+    localStorage.setItem('fl-user-name', 'Ada'); updateGreeting();
+    const named = _greeting();
+    const el = document.getElementById('es-greeting');
+    // background toggle
+    setBgAnimation(false); const off = bgAnimationEnabled();
+    setBgAnimation(true); const on = bgAnimationEnabled();
+    return { genericHasWelcome: /welcome/i.test(generic), named, elText: el ? el.textContent : '', off, on };
+  });
+  expect(res.named).toContain('Ada');
+  expect(res.elText).toContain('Ada');
+  expect(res.off).toBe(false);
+  expect(res.on).toBe(true);
+});
+
+test('session library exposes save/open helpers (IndexedDB or graceful)', async ({ page }) => {
+  await loadApp(page);
+  const res = await page.evaluate(() => ({
+    save: typeof saveToLibrary, open: typeof loadFromLibrary,
+    render: typeof renderSessionLibrary, hasList: !!document.getElementById('session-library'),
+  }));
+  expect(res.save).toBe('function');
+  expect(res.open).toBe('function');
+  expect(res.hasList).toBe(true);
+});
+
 test('house styles save and re-apply the aesthetic layer', async ({ page }) => {
   await loadApp(page);
   const res = await page.evaluate(() => {

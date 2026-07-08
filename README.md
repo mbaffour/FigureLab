@@ -259,6 +259,11 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **More journal presets** (eLife, PLOS, EMBO, PNAS); **lightweight vs bundled** session saves; **house-style** presets.
 - **First-run guided tour**, **PWA install** (over http/https), **SHA-256 provenance stamp** in export metadata, and **sRGB** colour tagging in PNGs.
 
+**Make it yours:**
+- **Session library** — keep multiple named figures in your browser (IndexedDB, with thumbnails) and switch between them: save the current figure, then open / update / rename / delete any of them from Export → My sessions. All local.
+- **Personalized welcome** — the start screen greets you by name and time of day. Set your name, theme, and the animated background from **⚙ Customize** (also in the command palette).
+- **Animated science background** — the drifting bio-graphics behind an empty canvas now include molecules and cells alongside phage, bacteria, DNA, and vesicles. Toggleable, and it respects `prefers-reduced-motion`.
+
 ### v3.4
 - **Crisp on-screen preview on HiDPI displays** — a separate high-resolution display layer renders the figure at devicePixelRatio once editing settles, so panel labels, scale bars, and annotations stay sharp when zoomed in. The figure buffer that measurements and exports read is left at logical resolution and untouched, so quantification stays exact
 - **Universal undo/redo** — Ctrl+Z / Ctrl+Y now cover layout (grid size, gaps, margins, gutters), per-panel adjustments (brightness/contrast/gamma/LUT/levels/crop/rotate/flip), panel add/delete/duplicate/reorder, label toggles, and annotations — not just annotations. One undo step per edit gesture
