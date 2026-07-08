@@ -893,6 +893,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="labels-toggle-btn" onclick="toggleAllLabels()" title="Show/hide row &amp; column labels in one click">⊞ Labels</button>
     <button class="btn" onclick="copyToClipboard()" title="Copy figure as PNG to clipboard">⎘ Copy</button>
     <div class="toolbar-sep"></div>
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 CVD
+      <select id="cvd-mode" onchange="setCvdMode(this.value)" style="font-size:10px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+        <option value="none">Normal vision</option>
+        <option value="deuter">Deuteranopia (red-green)</option>
+        <option value="protan">Protanopia (red-green)</option>
+        <option value="tritan">Tritanopia (blue-yellow)</option>
+      </select>
+    </label>
+    <div class="toolbar-sep"></div>
     <span id="canvas-info" style="font-size:10px;color:var(--muted)">No figure rendered</span>
   </div>
   <div class="canvas-wrap" id="canvas-wrap">
@@ -903,6 +912,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="padding:2px 7px;font-size:11px" onclick="dismissHint()" aria-label="Dismiss tip">Got it</button>
     </div>
     <canvas id="bio-bg-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.18"></canvas>
+    <!-- Colour-vision-deficiency simulation filters (display only; never applied to exported pixels) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+      <filter id="cvd-deuter" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter>
+      <filter id="cvd-protan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/></filter>
+      <filter id="cvd-tritan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/></filter>
+    </defs></svg>
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
       <canvas id="fig-canvas"></canvas>
       <canvas id="fig-canvas-hd"></canvas>
@@ -1718,6 +1733,21 @@ function _cmdpRun(){
     }
   });
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// COLOUR-VISION-DEFICIENCY SIMULATION (display only)
+// Applies an SVG feColorMatrix filter to the on-screen canvas stack.
+// Exports read the pixel buffers directly, so output is never affected.
+// ═══════════════════════════════════════════════════════════════
+let cvdMode='none';
+function setCvdMode(mode){
+  cvdMode=mode||'none';
+  const cont=document.getElementById('canvas-container');
+  const map={none:'',deuter:'url(#cvd-deuter)',protan:'url(#cvd-protan)',tritan:'url(#cvd-tritan)'};
+  if(cont) cont.style.filter=map[cvdMode]||'';
+  const sel=document.getElementById('cvd-mode'); if(sel&&sel.value!==cvdMode) sel.value=cvdMode;
+  if(cvdMode!=='none') toast('CVD preview on — this only changes the on-screen view, not exports','ok');
+}
 
 // Swap two image slots while keeping labels POSITIONAL (label belongs to slot, not image)
 function swapImages(i, j){
