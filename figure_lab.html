@@ -678,6 +678,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="applyPreset('cell')" style="flex:1;justify-content:center">Cell</button>
       <button class="btn" onclick="applyPreset('poster')" style="flex:1;justify-content:center">Poster</button>
     </div>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="btn" onclick="applyPreset('elife')" style="flex:1;justify-content:center">eLife</button>
+      <button class="btn" onclick="applyPreset('plos')" style="flex:1;justify-content:center">PLOS</button>
+      <button class="btn" onclick="applyPreset('embo')" style="flex:1;justify-content:center">EMBO</button>
+      <button class="btn" onclick="applyPreset('pnas')" style="flex:1;justify-content:center">PNAS</button>
+    </div>
 
     <div class="divider"></div>
     <div class="field"><label>Panel border</label>
@@ -787,13 +793,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Session</div>
+    <div class="sec-lbl">Session <span class="help-chip" tabindex="0" role="button" aria-label="About sessions" data-tip="Bundled = a self-contained file with your images embedded (larger; reloads the whole figure). Lightweight = settings only (small; you re-drop the same images on load).">?</span></div>
     <div style="display:flex;gap:5px">
-      <button class="btn" onclick="saveJSON()" style="flex:1;justify-content:center" title="Save a self-contained session file (includes your images) so you can reload and continue later">💾 Save</button>
-      <label class="btn" style="flex:1;justify-content:center;cursor:pointer" title="Load a saved session file and continue where you left off">
+      <button class="btn" onclick="saveJSON(true)" style="flex:1;justify-content:center" title="Bundled session — includes your images, so it reloads the whole figure with no re-dropping (larger file)">💾 Save (bundled)</button>
+      <label class="btn" style="flex:1;justify-content:center;cursor:pointer" title="Load a saved session file (bundled or lightweight) and continue where you left off">
         📂 Load<input type="file" accept=".json" style="display:none" onchange="loadJSON(this)">
       </label>
     </div>
+    <button class="btn adv" onclick="saveJSON(false)" style="width:100%;justify-content:center;margin-top:4px" title="Lightweight session — settings only (no image data, small file). Re-drop the same images after loading.">🪶 Save (settings only)</button>
     <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
 
     <div class="divider"></div>
@@ -1435,6 +1442,10 @@ const PRESETS = {
   science: {panelW:260,panelH:260,gapH:3,gapV:3,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
   cell:    {panelW:320,panelH:320,gapH:5,gapV:5,labelSize:9,axisFs:9,sbH:4,bgColor:'#ffffff',mTop:35,mLeft:55},
   poster:  {panelW:500,panelH:500,gapH:12,gapV:12,labelSize:22,axisFs:16,sbH:8,bgColor:'#ffffff',mTop:50,mLeft:70},
+  elife:   {panelW:300,panelH:300,gapH:4,gapV:4,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:50},
+  plos:    {panelW:300,panelH:300,gapH:5,gapV:5,labelSize:9,axisFs:9,sbH:4,bgColor:'#ffffff',mTop:32,mLeft:52},
+  embo:    {panelW:280,panelH:280,gapH:4,gapV:4,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:48},
+  pnas:    {panelW:260,panelH:260,gapH:3,gapV:3,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
 };
 
 let images      = [];
@@ -1864,6 +1875,10 @@ const CMD_REGISTRY=[
   {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
   {label:'Preset: Cell',             keys:'preset journal cell',           run:()=>applyPreset('cell')},
   {label:'Preset: Poster',           keys:'preset poster',                 run:()=>applyPreset('poster')},
+  {label:'Preset: eLife',            keys:'preset journal elife',          run:()=>applyPreset('elife')},
+  {label:'Preset: PLOS',             keys:'preset journal plos',           run:()=>applyPreset('plos')},
+  {label:'Preset: EMBO',             keys:'preset journal embo',           run:()=>applyPreset('embo')},
+  {label:'Preset: PNAS',             keys:'preset journal pnas',           run:()=>applyPreset('pnas')},
   {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
   {label:"What's new (v3.5)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
@@ -2215,7 +2230,7 @@ function renderImgList(){
         </div>
         <div class="field adv" style="margin-top:4px"><label title="Panels sharing a group name can be synced together, so a comparison row is adjusted identically (fair, integrity-safe).">Match group</label>
           <input type="text" class="f-group" value="${esc(im.group||'')}" maxlength="8" placeholder="e.g. row1" style="width:70px"></div>
-        <button class="btn adv" style="width:100%;justify-content:center" data-syncgroup="${idx}" title="Copy brightness, contrast, gamma, LUT, levels and scale-bar length from this panel to every panel in the same group">⇉ Sync group to this panel</button>
+        <button class="btn adv" style="width:100%;justify-content:center" data-syncgroup="${idx}" title="Copy brightness, contrast, gamma, LUT, levels, crop, µm/px (field of view) and scale-bar length from this panel to every panel in the same group">⇉ Sync group to this panel</button>
         <div class="divider"></div>
         <div class="sec-lbl">Fluorescence LUT <span class="help-chip" tabindex="0" role="button" aria-label="About LUTs" data-tip="Recolors a grayscale channel (e.g. green for GFP, blue for DAPI) for display only — the underlying intensities are unchanged. Prefer magenta+green over red+green for colourblind readers.">?</span></div>
         <div class="lut-row">
@@ -2700,7 +2715,10 @@ function syncGroupToPanel(srcIdx){
     im.brightness=src.brightness; im.contrast=src.contrast;
     im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
     im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
-    im.sbUm=src.sbUm;   // consistent scale-bar length across the comparison group
+    im.sbUm=src.sbUm;                                  // consistent scale-bar length
+    im.cropT=src.cropT; im.cropL=src.cropL; im.cropB=src.cropB; im.cropR=src.cropR; // same crop
+    im.umPerPx=src.umPerPx;                            // same physical scale → same field of view
+    im._adjCache=undefined; im._adjKey=undefined;      // invalidate render cache
   });
   logAction('syncGroup',{group:g,src:src.label,n:targets.length});
   renderImgList(); scheduleRender(0);
@@ -5456,14 +5474,15 @@ async function exportSubmissionPackage(){
       }
     }catch(e){/* panels optional */}
     // manifest
-    files.push({name:'README.txt', data:_packageManifest(name,dpi,files)});
+    const _prov=await _provenanceHash();
+    files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov)});
     const zip=_zipMake(files);
     dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), name+'-submission-package.zip');
     logAction('submissionPackage',{files:files.length});
     toast(`Submission package ready — ${files.length} files zipped`,'ok');
   }catch(e){ toast('Package failed: '+(e&&e.message||e),'err'); }
 }
-function _packageManifest(name,dpi,files){
+function _packageManifest(name,dpi,files,provHash){
   const list=files.map(f=>'  - '+f.name).join('\n');
   return `FigureLab submission package
 =============================
@@ -5471,6 +5490,7 @@ Figure name : ${name}
 Title       : ${gv('fig-title')||'(untitled)'}
 Created     : ${new Date().toISOString()}
 FigureLab   : v${APP_VERSION}
+Provenance  : SHA-256 ${provHash||'(unavailable)'}
 Export DPI  : ${dpi}
 Panels      : ${images.filter(Boolean).length}
 
@@ -5880,7 +5900,7 @@ function applyPreset(name){
   sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
   sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
   sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
-  sv('export-dpi',{nature:300,science:600,cell:300,poster:150}[name]||300);
+  sv('export-dpi',{nature:300,science:600,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
   scheduleRender(); toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
 }
 
@@ -5984,7 +6004,8 @@ async function aiPolishCaption(){
 // ═══════════════════════════════════════════════════════════════
 // SAVE / LOAD JSON
 // ═══════════════════════════════════════════════════════════════
-function saveJSON(){
+function saveJSON(bundleImages){
+  const _bundle = bundleImages!==false;   // default: bundle images (self-contained)
   const state={
     layout:{ cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
       gapH:gv('gap-h'),gapV:gv('gap-v'),mTop:gv('m-top'),mLeft:gv('m-left'),mBtm:gv('m-btm'),mRight:gv('m-right'),
@@ -6009,9 +6030,9 @@ function saveJSON(){
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
-      // Pixel data + sub-objects so a saved session reloads without re-dropping files
-      src:im.src,
-      channels:(im.channels||[]).map(c=>({name:c.name,src:c.src,lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
+      // Pixel data (bundled mode only) so a saved session reloads without re-dropping files
+      src: _bundle ? im.src : undefined,
+      channels:(im.channels||[]).map(c=>({name:c.name, src:_bundle?c.src:undefined, lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
       panelAnns:im.panelAnns||[] })),
     annotations,
     measurements,
@@ -6020,11 +6041,12 @@ function saveJSON(){
     labelFormat:gv('label-format'),
     labelOffsets,
     layoutMode,
-    freeformElements: freeformElements.map(el=>{ const {img,...rest}=el; return rest; }),
+    freeformElements: freeformElements.map(el=>{ const {img,...rest}=el; if(!_bundle) delete rest.src; return rest; }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
   };
-  dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+'-session.json');
-  toast('Session saved','ok');
+  const suffix = _bundle ? '-session.json' : '-settings.json';
+  dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+suffix);
+  toast(_bundle ? 'Session saved (images bundled)' : 'Settings saved (lightweight — re-drop images on load)','ok');
 }
 
 function loadJSON(input){
@@ -7701,13 +7723,29 @@ function embedPNGMetadata(pngDataUrl, metaObj, dpi){
   });
 }
 
+// Provenance: a SHA-256 of the canonical figure state (settings, not pixels),
+// so a reader can verify which exact settings produced a figure. On-device.
+async function _provenanceHash(){
+  try{
+    const parts=[APP_VERSION, gv('fig-title')||'', gv('cols'),gv('rows'),gv('panel-w'),gv('panel-h'),
+      gv('gap-h'),gv('gap-v'),gv('bg-color')];
+    images.forEach(im=>{ if(!im) return; parts.push([im.label,im.lut,im.grayscale?1:0,im.invert?1:0,
+      im.brightness,im.contrast,im.gamma||1,im.blackPt||0,im.whitePt||255,
+      im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.umPerPx||0,im.sbUm||0,
+      im.rotate||0,im.flipH?1:0,im.flipV?1:0].join(':')); });
+    const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(parts.join('|')));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+  }catch(e){ return ''; }
+}
 async function exportPNGWithMeta(name, dpi, canvas){
   // Build metadata object
+  const provHash=await _provenanceHash();
   const meta={
     'Software':'FigureLab v'+APP_VERSION,
     'Description':(gv('fig-title')||'Untitled figure'),
     'Creation Time':new Date().toISOString(),
     'DPI':String(dpi),
+    'Provenance-SHA256':provHash,
     'Panels':String(images.filter(Boolean).length),
     'FigureLab-Settings':JSON.stringify({
       cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
