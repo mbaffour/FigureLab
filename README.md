@@ -225,6 +225,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ### v3.5 — 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
 
+- **Submission package** — a `📦 Export submission package (ZIP)` button bundles everything a journal or lab needs into one archive: PNG, uncompressed TIFF, lossless PDF, SVG, session JSON (images embedded), metadata CSV, caption, figure notes, R + Python scripts, reproducibility log, each panel as a separate PNG, and a provenance manifest. Built on a dependency-free client-side ZIP writer.
+- **Editable PowerPoint (.pptx) export** — `📊 Export editable PowerPoint` writes an OOXML deck where each panel is a separate, movable picture at its real position and the title is an editable text box — finish the figure in PowerPoint. Fully offline, no dependencies.
+- **Smart image import** — image cards show pixel dimensions, aspect ratio, a channel chip detected from the filename (DAPI/GFP/mCherry/Cy5/phase/merge), and a duplicate-name warning; **Sort by name** natural-sorts and relabels, **Auto-channels** assigns colourblind-safe LUTs from the detected channels.
 - **On-device AI caption polish** (optional) — a `🤖 Polish with on-device AI` button refines your figure legend using **Chrome's built-in Gemini Nano (Prompt API)**, running *entirely on your machine* so nothing is uploaded. Feature-detected; falls back to the rule-based caption when unavailable. See *[On-device AI](#on-device-ai)*.
 - **"What's New" tab** in Help with the dated changelog, plus a "new" dot on the header ❔ after an update.
 
