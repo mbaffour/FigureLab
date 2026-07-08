@@ -388,6 +388,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg" style="display:none">
+    <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
@@ -414,6 +415,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="cols" value="3" min="1" max="12" oninput="onLayoutChange()"></div>
     <div class="field"><label>Rows</label>
       <input type="number" id="rows" value="2" min="1" max="12" oninput="onLayoutChange()"></div>
+    <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="autoArrange()" title="Propose a balanced grid, even spacing and labels for the current number of panels">✨ Auto-arrange panels</button>
     <div class="field"><label>Panel width (px)</label>
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
@@ -1511,6 +1513,106 @@ function nextLabel(){
   const used = new Set(images.map(i=>i&&i.label));
   for(let i=0;i<26;i++){ const l=ALPHABET[i]; if(!used.has(l)) return l; }
   return String(images.length+1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOAD EXAMPLE FIGURE (procedural demo images — no files needed)
+// ═══════════════════════════════════════════════════════════════
+function _demoRnd(seed){ // deterministic mulberry32 so the example looks identical every time
+  return function(){ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed);
+    t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+}
+function _makeDemoImage(kind, seed){
+  const S=280, c=document.createElement('canvas'); c.width=S; c.height=S;
+  const x=c.getContext('2d'); const rnd=_demoRnd(seed);
+  const blob=(px,py,r,inten)=>{ const g=x.createRadialGradient(px,py,0,px,py,r);
+    g.addColorStop(0,`rgba(255,255,255,${inten})`); g.addColorStop(0.5,`rgba(255,255,255,${inten*0.5})`);
+    g.addColorStop(1,'rgba(255,255,255,0)'); x.fillStyle=g; x.beginPath(); x.arc(px,py,r,0,7); x.fill(); };
+  if(kind==='blot'){
+    x.fillStyle='#efeee9'; x.fillRect(0,0,S,S);          // light membrane
+    x.fillStyle='rgba(0,0,0,0.05)'; for(let i=0;i<600;i++) x.fillRect(rnd()*S,rnd()*S,1,1); // grain
+    const lanes=4;
+    for(let L=0;L<lanes;L++){
+      const cx=30+L*((S-50)/lanes)+((S-50)/lanes)/2;
+      [ {y:90,h:9,d:0.72},{y:150,h:7,d:0.4+L*0.14},{y:205,h:11,d:0.6} ].forEach(b=>{
+        const w=((S-50)/lanes)*0.62, grd=x.createRadialGradient(cx,b.y,2,cx,b.y,w);
+        grd.addColorStop(0,`rgba(20,20,25,${Math.min(0.9,b.d)})`); grd.addColorStop(1,'rgba(20,20,25,0)');
+        x.fillStyle=grd; x.beginPath(); x.ellipse(cx,b.y,w,b.h,0,0,7); x.fill();
+      });
+    }
+    return c.toDataURL('image/png');
+  }
+  // fluorescence-style: black field + soft grayscale intensity (LUT colourises it)
+  x.fillStyle='#000'; x.fillRect(0,0,S,S);
+  x.globalCompositeOperation='lighter';
+  if(kind==='nuclei'){ for(let i=0;i<11;i++) blob(20+rnd()*(S-40),20+rnd()*(S-40),16+rnd()*12,0.55+rnd()*0.35); }
+  else if(kind==='puncta'){ for(let i=0;i<160;i++) blob(rnd()*S,rnd()*S,1.5+rnd()*2.5,0.5+rnd()*0.5); }
+  else if(kind==='filaments'){ for(let i=0;i<26;i++){ const px=rnd()*S,py=rnd()*S,a=rnd()*7,len=25+rnd()*55;
+      for(let t=0;t<len;t+=3) blob(px+Math.cos(a)*t,py+Math.sin(a)*t,2.2+rnd()*1.5,0.3+rnd()*0.3); } }
+  else { for(let i=0;i<9;i++) blob(20+rnd()*(S-40),20+rnd()*(S-40),14+rnd()*16,0.4+rnd()*0.4);
+         for(let i=0;i<70;i++) blob(rnd()*S,rnd()*S,1.5+rnd()*2,0.4+rnd()*0.4); }
+  x.globalCompositeOperation='source-over';
+  return c.toDataURL('image/png');
+}
+function _freshPanel(img,src,name,label){
+  return {id:Date.now()+Math.random(),img,src,name,
+    label,sbOn:false,umPerPx:0,sbUm:10,brightness:1,contrast:1,
+    cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
+    captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
+    rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
+    borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
+    lblDX:0,lblDY:0,sbDX:0,sbDY:0};
+}
+async function loadExampleFigure(){
+  if(layoutMode==='freeform'){ toast('Switch to grid mode to load the example','warn'); return; }
+  if(images.length && !confirm('Load the example figure? This replaces the current panels (undo with Ctrl+Z).')) return;
+  const specs=[
+    {name:'nuclei_DAPI.png',      kind:'nuclei',    lut:'blue',    label:'A', seed:11, cap:'Nuclei (DAPI)'},
+    {name:'actin_GFP.png',        kind:'filaments', lut:'green',   label:'B', seed:23, cap:'Actin (GFP)'},
+    {name:'vesicles_mCherry.png', kind:'puncta',    lut:'magenta', label:'C', seed:37, cap:'Vesicles (mCherry)'},
+    {name:'merge.png',            kind:'merge',     lut:'none',    label:'D', seed:41, cap:'Merge'},
+  ];
+  let loaded;
+  try{
+    loaded = await Promise.all(specs.map(s=>new Promise((res,rej)=>{
+      const src=_makeDemoImage(s.kind,s.seed); const img=new Image();
+      img.onload=()=>res({img,src,s}); img.onerror=rej; img.src=src;
+    })));
+  }catch(e){ toast('Could not build the example','err'); return; }
+  pushUndo();
+  images = loaded.map(({img,src,s})=>{
+    const p=_freshPanel(img,src,s.name,s.label); p.lut=s.lut; p.captionNote=s.cap; return p;
+  });
+  // one calibrated panel with a scale bar (40× objective) to showcase calibration
+  images[0].umPerPx=0.16; images[0].sbOn=true; images[0].sbUm=20;
+  // layout + style
+  sv('cols',2); sv('rows',2);
+  sc('show-labels',true);
+  if(!gv('fig-title')) sv('fig-title','Example — subcellular localisation');
+  onLayoutChange();
+  renderImgList(); renderMiniGrid(); scheduleRender();
+  logAction('loadExample',{panels:images.length});
+  toast('Example figure loaded — tweak it, export it, or press Ctrl+Z to clear','ok');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SURPRISE-ME AUTO-LAYOUT (balanced grid from panel count)
+// ═══════════════════════════════════════════════════════════════
+function autoArrange(){
+  if(layoutMode==='freeform'){ toast('Auto-arrange works in grid mode','warn'); return; }
+  const n=images.filter(Boolean).length;
+  if(!n){ toast('Add panels first, or ✨ Load example figure','warn'); return; }
+  pushUndo();
+  const cols=Math.ceil(Math.sqrt(n)), rows=Math.ceil(n/cols);
+  sv('cols',cols); sv('rows',rows);
+  const pw=gi('panel-w')||300;
+  const gap=Math.max(4,Math.round(pw*0.03));   // even, panel-proportional gutter
+  sv('gap-h',gap); sv('gap-v',gap);
+  colGaps=null; rowGaps=null; advancedSpacing=false;
+  const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=false;
+  sc('show-labels',true);
+  onLayoutChange(); scheduleRender();
+  toast(`Arranged ${n} panel${n>1?'s':''} into a balanced ${cols}×${rows} grid`,'ok');
 }
 
 // Swap two image slots while keeping labels POSITIONAL (label belongs to slot, not image)
