@@ -375,6 +375,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   transition:background .1s,border-color .1s}
 #align-bar button:hover{background:var(--border);border-color:var(--border2)}
 #align-bar .snap-btn.active{background:rgba(61,214,140,.15);color:var(--a2);border-color:var(--a2)}
+#elem-props-bar .abar-sep{width:1px;height:18px;background:var(--border);margin:0 4px;flex-shrink:0}
+.ep-tbtn{padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;cursor:pointer;line-height:1.35;font-family:var(--mono)}
+.ep-tbtn:hover{background:var(--border)}
+.ep-tbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 /* ── Freeform element selection overlay ─────────────────────── */
 .elem-handle{position:absolute;width:8px;height:8px;background:#f5a623;border:2px solid #fff;
@@ -953,9 +957,34 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <!-- Freeform element properties bar (single element selected) -->
   <div id="elem-props-bar" style="display:none;align-items:center;gap:6px;padding:5px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:11px">
     <span style="color:var(--muted);font-size:10px">Props:</span>
-    <label style="display:flex;align-items:center;gap:3px">Label<input type="text" id="ep-label" style="width:70px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('label',this.value)"></label>
+    <label id="ep-label-wrap" style="display:flex;align-items:center;gap:3px">Label<input type="text" id="ep-label" style="width:70px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('label',this.value)"></label>
     <label style="display:flex;align-items:center;gap:3px">Opacity<input type="range" id="ep-opacity" min="0" max="1" step="0.05" value="1" style="width:60px" oninput="updateElemProp('opacity',+this.value);document.getElementById('ep-opacity-v').textContent=Math.round(this.value*100)+'%'"><code id="ep-opacity-v" style="width:32px">100%</code></label>
     <label style="display:flex;align-items:center;gap:3px">Color<input type="color" id="ep-color" value="#5b8dee" style="width:28px;height:22px;padding:0;border:none;cursor:pointer" oninput="updateElemProp('color',this.value)"></label>
+    <div id="ep-text-props" style="display:none;align-items:center;gap:5px">
+      <div class="abar-sep"></div>
+      <select id="ep-font" title="Font family" onchange="updateElemProp('fontFamily',this.value)" style="padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px;max-width:112px">
+        <option value="system-ui">Default</option>
+        <option value="Arial, Helvetica, sans-serif">Arial</option>
+        <option value="Helvetica, Arial, sans-serif">Helvetica</option>
+        <option value="Verdana, Geneva, sans-serif">Verdana</option>
+        <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+        <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+        <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+        <option value="'Times New Roman', Times, serif">Times</option>
+        <option value="'Courier New', monospace">Courier</option>
+        <option value="Impact, Charcoal, sans-serif">Impact</option>
+        <option value="'Comic Sans MS', cursive">Comic Sans</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">Size<input type="number" id="ep-fs" min="6" max="300" value="16" style="width:46px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('fontSize',+this.value)"></label>
+      <button id="ep-bold" class="ep-tbtn" title="Bold" onclick="toggleTextStyle('bold')" style="font-weight:bold">B</button>
+      <button id="ep-italic" class="ep-tbtn" title="Italic" onclick="toggleTextStyle('italic')" style="font-style:italic">I</button>
+      <select id="ep-align" title="Text alignment" onchange="updateElemProp('align',this.value)" style="padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px">
+        <option value="left">⯇ Left</option>
+        <option value="center">☰ Center</option>
+        <option value="right">⯈ Right</option>
+      </select>
+      <button class="btn" style="padding:2px 8px;font-size:10px" onclick="editSelectedFreeformText()" title="Edit the words (or just double-click the text)">✎ Edit</button>
+    </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px">Crop%:</span>
@@ -1482,6 +1511,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   background:var(--surface);color:var(--text);
   font-size:14px;font-family:var(--mono);outline:none;min-width:180px;
   box-shadow:0 4px 20px rgba(0,0,0,.5)">
+
+<!-- Inline editor for freeform text objects (double-click to edit) -->
+<textarea id="ff-text-input" placeholder="Type text…  (Enter saves · Shift+Enter = new line · Esc cancels)"
+  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();commitFreeformText(false);}else if(event.key==='Escape'){event.preventDefault();commitFreeformText(true);}"
+  onblur="commitFreeformText(false)"
+  style="position:fixed;display:none;z-index:701;padding:4px 6px;
+  border:2px solid var(--accent);border-radius:6px;
+  background:var(--surface);color:var(--text);
+  font-size:14px;line-height:1.3;outline:none;resize:none;overflow:hidden;
+  box-shadow:0 4px 20px rgba(0,0,0,.5)"></textarea>
 
 <!-- ── Floating annotation toolbar ──────────────────────────── -->
 <div id="ann-float">
@@ -5286,7 +5325,20 @@ annCanvas.addEventListener('mouseup', e=>{
 
 // Double-click a panel to drop editable text directly onto the image.
 annCanvas.addEventListener('dblclick', e=>{
-  if(layoutMode==='freeform'||panelAnnMode||activeTool!=='none') return;
+  // Freeform: double-click a text object to edit its words in place
+  if(layoutMode==='freeform'){
+    if(activeTool!=='none') return;
+    const {x:fx,y:fy}=canvasCoords(annCanvas,e);
+    const sorted=[...freeformElements.map((el,i)=>({el,i}))].sort((a,b)=>b.el.zIndex-a.el.zIndex);
+    for(const {el,i} of sorted){
+      if(el.type==='text'&&hitFreeformElement(el,fx,fy)){
+        selectedElems.clear(); selectedElems.add(i); drawFreeformOverlay();
+        editFreeformText(i); return;
+      }
+    }
+    return;
+  }
+  if(panelAnnMode||activeTool!=='none') return;
   const {x,y}=canvasCoords(annCanvas,e);
   // Double-click a label to snap it back to its default position
   const lb=labelAtPoint(x,y);
@@ -6977,20 +7029,28 @@ function renderFreeform(canvas, ctx){
       panelBounds.push({idx:imgIdx, x:el.x, y:el.y, w:el.w, h:el.h});
     } else if(el.type==='text'){
       const fs=el.fontSize||16;
-      ctx.font=`${el.italic?'italic ':''} ${el.bold?'bold ':''} ${fs}px ${el.fontFamily||gv('label-font')||'system-ui'}`;
-      ctx.fillStyle=el.color||'#000';
+      ctx.font=`${el.italic?'italic ':''}${el.bold?'bold ':''}${fs}px ${el.fontFamily||gv('label-font')||'system-ui'}`;
+      ctx.fillStyle=el.color||'#111';
       ctx.textBaseline='top';
-      // Word wrap
-      const words=(el.text||'Text').split(' '), lines=[];
-      let line='';
-      for(const w of words){
-        const test=line?line+' '+w:w;
-        if(ctx.measureText(test).width>el.w-8&&line){lines.push(line);line=w;}
-        else line=test;
+      const align=el.align||'left';
+      ctx.textAlign=align;
+      const maxW=el.w-12;
+      // Wrap each explicit line (\n) independently, preserving blank lines
+      const lines=[];
+      for(const para of String(el.text??'Text').split('\n')){
+        if(para===''){ lines.push(''); continue; }
+        let line='';
+        for(const w of para.split(' ')){
+          const test=line?line+' '+w:w;
+          if(ctx.measureText(test).width>maxW&&line){ lines.push(line); line=w; }
+          else line=test;
+        }
+        lines.push(line);
       }
-      if(line) lines.push(line);
       const lh=fs*1.3;
-      lines.forEach((ln,li)=>ctx.fillText(ln,el.x+6,el.y+6+li*lh));
+      const tx=align==='center'?el.x+el.w/2:align==='right'?el.x+el.w-6:el.x+6;
+      lines.forEach((ln,li)=>ctx.fillText(ln,tx,el.y+6+li*lh));
+      ctx.textAlign='left';
     } else if(el.type==='rect'){
       if(el.fillOpacity>0){
         ctx.save(); ctx.globalAlpha*=(el.fillOpacity??0.3);
@@ -7127,8 +7187,19 @@ function freeformMouseup(e){
     const ex=Math.min(x,x0), ey=Math.min(y,y0), ew=Math.max(20,Math.abs(x-x0)), eh=Math.max(20,Math.abs(y-y0));
     _pendingUndoSnap=null; // addFreeformElement records its own undo step
     if(ew<8||eh<8){ drawFreeformOverlay(); return true; }
-    addFreeformElement({type:drawType,x:snapValue(ex),y:snapValue(ey),w:snapValue(ew),h:snapValue(eh),
-      label:drawType==='text'?'Text':''});
+    const base={type:drawType,x:snapValue(ex),y:snapValue(ey),w:snapValue(ew),h:snapValue(eh)};
+    if(drawType==='text'){
+      base.text='Text'; base.label='Text'; base.fontFamily='system-ui';
+      base.fontSize=Math.max(12,Math.min(64,Math.round(eh*0.55)));
+      base.color='#111111'; base.align='left';
+    } else base.label='';
+    addFreeformElement(base);
+    if(drawType==='text'){
+      const ni=freeformElements.length-1;
+      selectedElems.clear(); selectedElems.add(ni);
+      setTool('none'); drawFreeformOverlay();
+      editFreeformText(ni);                 // let the user type immediately
+    }
     return true;
   }
   _pendingUndoSnap=null; // gesture ended without a mutation (e.g. plain click / rubber-band)
@@ -7964,11 +8035,22 @@ function updateElemPropsBar(){
   const el=freeformElements[idx]; if(!el){ bar.style.display='none'; return; }
   bar.style.display='flex';
   const isImg=el.type==='image'||el.type==='aiicon';
+  const isText=el.type==='text';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
+  document.getElementById('ep-text-props').style.display=isText?'flex':'none';
+  // The "Label" field is a panel label — hide it for text objects (they use their own content)
+  const lw=document.getElementById('ep-label-wrap'); if(lw) lw.style.display=isText?'none':'flex';
   // Populate fields
   const lbl=document.getElementById('ep-label'); if(lbl) lbl.value=el.label||'';
   const op=document.getElementById('ep-opacity'); if(op){ op.value=el.opacity??1; document.getElementById('ep-opacity-v').textContent=Math.round((el.opacity??1)*100)+'%'; }
-  const col=document.getElementById('ep-color'); if(col) col.value=el.color||'#5b8dee';
+  const col=document.getElementById('ep-color'); if(col) col.value=el.color||(isText?'#111111':'#5b8dee');
+  if(isText){
+    const f=document.getElementById('ep-font'); if(f) f.value=el.fontFamily||'system-ui';
+    const fs=document.getElementById('ep-fs'); if(fs) fs.value=el.fontSize||16;
+    document.getElementById('ep-bold').classList.toggle('active',!!el.bold);
+    document.getElementById('ep-italic').classList.toggle('active',!!el.italic);
+    const al=document.getElementById('ep-align'); if(al) al.value=el.align||'left';
+  }
   if(isImg){
     document.getElementById('ep-cropT').value=el.cropT||0;
     document.getElementById('ep-cropL').value=el.cropL||0;
@@ -7985,6 +8067,65 @@ function updateElemProp(prop, val){
   const el=freeformElements[idx]; if(!el) return;
   el[prop]=val;
   scheduleRender(0);
+}
+
+// Toggle bold/italic on the selected text object
+function toggleTextStyle(prop){
+  if(selectedElems.size!==1) return;
+  const el=freeformElements[[...selectedElems][0]]; if(!el||el.type!=='text') return;
+  pushUndo();
+  el[prop]=!el[prop];
+  const btn=document.getElementById('ep-'+prop); if(btn) btn.classList.toggle('active',!!el[prop]);
+  scheduleRender(0);
+}
+
+// Open the inline editor for the currently-selected text object (used by the ✎ Edit button)
+function editSelectedFreeformText(){
+  if(selectedElems.size!==1) return;
+  editFreeformText([...selectedElems][0]);
+}
+
+// Show a caret-in-place editor sitting exactly over a freeform text element
+function editFreeformText(idx){
+  const el=freeformElements[idx]; if(!el||el.type!=='text') return;
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const rect=annCanvas.getBoundingClientRect();
+  const sx=rect.width/W, sy=rect.height/H;
+  const ta=document.getElementById('ff-text-input');
+  ta._idx=idx; ta._snap=snapshotState();
+  ta.style.left=(rect.left+el.x*sx)+'px';
+  ta.style.top=(rect.top+el.y*sy)+'px';
+  ta.style.width=Math.max(90,el.w*sx)+'px';
+  ta.style.height=Math.max(26,el.h*sy)+'px';
+  ta.style.fontSize=Math.max(11,(el.fontSize||16)*sy)+'px';
+  ta.style.fontFamily=el.fontFamily||'system-ui';
+  ta.style.fontWeight=el.bold?'bold':'normal';
+  ta.style.fontStyle=el.italic?'italic':'normal';
+  ta.style.textAlign=el.align||'left';
+  ta.style.color=el.color||'#111';
+  ta.value=(el.text==null||el.text==='Text')?'':el.text;   // don't force users to erase the placeholder
+  ta.style.display='block';
+  requestAnimationFrame(()=>{ ta.focus(); ta.select(); });
+}
+
+// Commit (or cancel) the inline text editor
+function commitFreeformText(cancel){
+  const ta=document.getElementById('ff-text-input');
+  if(!ta||ta.style.display==='none') return;
+  const idx=ta._idx, el=freeformElements[idx];
+  const snap=ta._snap; ta._snap=null;
+  ta.style.display='none';
+  if(!el||el.type!=='text') return;
+  if(cancel) return;
+  const v=ta.value.replace(/\s+$/,'');           // trim trailing whitespace/newlines
+  const next=v||'Text';
+  if((el.text??'Text')!==next){
+    if(snap) _pushSnap(snap);                     // one undo step back to the pre-edit text
+    el.text=next;
+    if(el.label==null||el.label==='Text'||el.label==='') el.label=next.slice(0,24);  // keep the layer list readable
+    updateFreeformElemList();
+    scheduleRender(0);
+  }
 }
 
 function openFreeformCropEditor(){

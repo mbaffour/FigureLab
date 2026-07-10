@@ -101,6 +101,41 @@ test('save dialog: editable name/format/DPI, and fallback download uses a saniti
   expect(saved.closed).toBe(true);
 });
 
+test('freeform text: per-object styling controls + editable multi-line content', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => {
+    setLayoutMode('freeform');
+    addFreeformElement({ type:'text', x:100, y:80, w:320, h:90, text:'Hello', label:'Hello',
+      fontFamily:'system-ui', fontSize:24, color:'#111111', align:'left' });
+    const idx = freeformElements.length - 1;
+    selectedElems.clear(); selectedElems.add(idx); drawFreeformOverlay();
+    // the text style bar shows and the panel-Label field hides for a text object
+    const propsShown = document.getElementById('ep-text-props').style.display === 'flex'
+      && document.getElementById('ep-label-wrap').style.display === 'none';
+    toggleTextStyle('bold');
+    updateElemProp('align', 'center');
+    updateElemProp('fontSize', 36);
+    // inline editor opens prefilled and commits multi-line content
+    editFreeformText(idx);
+    const ta = document.getElementById('ff-text-input');
+    const opened = ta.style.display === 'block', prefill = ta.value;
+    ta.value = 'Panel A\nline two';
+    commitFreeformText(false);
+    const el = freeformElements[idx];
+    render();
+    return { propsShown, opened, prefill, bold: el.bold, align: el.align, size: el.fontSize,
+      text: el.text, editorHidden: ta.style.display === 'none' };
+  });
+  expect(r.propsShown).toBe(true);
+  expect(r.opened).toBe(true);
+  expect(r.prefill).toBe('Hello');            // placeholder not forced onto the user
+  expect(r.bold).toBe(true);
+  expect(r.align).toBe('center');
+  expect(r.size).toBe(36);
+  expect(r.text).toBe('Panel A\nline two');   // real editable content, newline preserved
+  expect(r.editorHidden).toBe(true);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);
