@@ -1,4 +1,4 @@
-# FigureLab v3.5
+# FigureLab v3.6
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -228,6 +228,19 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.6 — 10 July 2026
+**Focus: a friendly, direct-manipulation figure editor + opening the image formats scientists actually have — same single file, still offline & private.**
+
+- **Friendly figure editor (Freeform mode)** — click-to-select, drag-to-move, handle resize (aspect-locked for images), and a **rotate handle** that snaps to 0/45/90°. Objects **snap into alignment** with live magenta guides, and a floating context toolbar puts duplicate, lock, layer order & delete next to the selection.
+- **Per-object text** — double-click text to edit it in place; set font family, size, bold/italic, colour and alignment per object.
+- **Cover patch** 🩹 — the integrity-safe way to hide or replace baked-in text: an opaque, movable object (with *match background*) you type new text over. Reversible and recorded in the session — never a hidden pixel edit.
+- **TIFF import** — a dependency-free, client-side decoder opens `.tif/.tiff` that browsers can't (Chrome/Edge/Firefox): uncompressed, LZW, PackBits & Deflate; 8/16-bit & 32-bit float; grayscale, RGB, RGBA, CMYK & palette; strips or tiles; little/big-endian; horizontal-differencing predictor. Verified pixel-exact against a `tifffile`-generated fixture matrix.
+- **SVG stays vector** — imported SVGs keep their vector source (crisp at any size) and **re-export as vector** in SVG output, editable in Illustrator/Inkscape.
+- **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
+- **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.
+
+_v3.6 is the current development version. The published, citable release remains v3.5 (DOI below); a v3.6 DOI will be minted when it's tagged on Zenodo._
 
 ### v3.5 — 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
