@@ -240,7 +240,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Starter templates** — 2×2 / 3×3 grids, before/after, or a freeform pathway diagram to start from.
 - **Pop out to free layout** — convert a grid into freely-movable panels in one click.
 - **Format painter** — copy one object's look (colour, fill, stroke, font) onto others.
-- **TIFF import** — a dependency-free, client-side decoder opens `.tif/.tiff` that browsers can't (Chrome/Edge/Firefox): uncompressed, LZW, PackBits & Deflate; 8/16-bit & 32-bit float; grayscale, RGB, RGBA, CMYK & palette; strips or tiles; little/big-endian; horizontal-differencing predictor. Verified pixel-exact against a `tifffile`-generated fixture matrix.
+- **TIFF import** — a dependency-free, client-side decoder opens `.tif/.tiff` that browsers can't (Chrome/Edge/Firefox): uncompressed, LZW, PackBits, Deflate & JPEG-compressed; 8/16-bit & 32-bit float; grayscale, RGB, RGBA, CMYK & palette; strips or tiles; little/big-endian; horizontal-differencing predictor; and **multi-page** TIFFs (each page becomes a panel). Verified pixel-exact against a `tifffile`-generated fixture matrix.
+- **Recolourable science icons** and one-click **Relabel A, B, C…** (renumber panels in reading order).
 - **SVG stays vector** — imported SVGs keep their vector source (crisp at any size) and **re-export as vector** in SVG output, editable in Illustrator/Inkscape.
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
 - **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.

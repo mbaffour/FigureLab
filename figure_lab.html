@@ -493,6 +493,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="rows" value="2" min="1" max="12" oninput="onLayoutChange()"></div>
     <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="autoArrange()" title="Propose a balanced grid, even spacing and labels for the current number of panels">✨ Auto-arrange panels</button>
     <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="convertGridToFreeform()" title="Pop the panels out into a freely-movable (freeform) layout so you can drag and arrange them by hand">⇱ Pop out to free layout</button>
+    <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="relabelPanels()" title="Relabel panels A, B, C… in reading order, using the current label format">🔤 Relabel A, B, C…</button>
     <div class="field"><label>Panel width (px)</label>
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
@@ -577,6 +578,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
       <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
       <div id="icon-palette" class="icon-palette"></div>
+      <button class="btn" onclick="relabelPanels()" style="width:100%;justify-content:center;margin-top:6px" title="Relabel image panels A, B, C… in reading order">🔤 Relabel A, B, C…</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -1003,6 +1005,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 8px;font-size:10px" onclick="matchPatchBackground()" title="Sample the colour just outside the patch so it blends into the background">🎯 Match background</button>
     </div>
+    <div id="ep-icon-props" style="display:none;align-items:center;gap:5px">
+      <div class="abar-sep"></div>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Icon colour<input type="color" id="ep-icon-color" value="#222222" style="width:26px;height:22px;padding:0;border:none;cursor:pointer" oninput="recolorIcon(this.value)"></label>
+    </div>
     <div id="ep-paint-props" style="display:none;align-items:center;gap:5px">
       <div class="abar-sep"></div>
       <button id="pp-brush" class="ep-tbtn active" title="Brush" onclick="setPaintMode('paint')">🖌</button>
@@ -1270,11 +1276,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Real text editing</b> — double-click any text to edit it in place; set font family, size, <b>bold</b>/<i>italic</i>, colour and alignment per object.</li>
   <li><b>Cover patch</b> 🩹 — the honest way to hide or replace baked-in text: drop an opaque, movable patch (with “match background”) and type new text on top. It’s an object — reversible and recorded in the session, never a hidden pixel edit.</li>
   <li><b>Paint layer</b> 🖌 — a brush &amp; eraser that draw on a <b>separate overlay</b>: your original image pixels are never modified, the layer shows in the layer list, and every stroke is recorded in the figure’s provenance. Non-destructive by design, so it can’t be used to quietly alter data.</li>
-  <li><b>Science icon library</b> — drop in vector arrows, brackets, scale bars, cell/nucleus, significance asterisks &amp; error-bar caps; they stay crisp forever and re-export as vector.</li>
+  <li><b>Science icon library</b> — drop in <b>recolourable</b> vector arrows, brackets, scale bars, cell/nucleus, significance asterisks &amp; error-bar caps; they stay crisp forever and re-export as vector.</li>
+  <li><b>Relabel A, B, C…</b> — one click renumbers panels in reading order (grid or freeform), honouring your label format.</li>
   <li><b>Starter templates</b> — begin from a 2×2 / 3×3 grid, a before/after pair, or a freeform pathway diagram instead of a blank canvas.</li>
   <li><b>Pop out to free layout</b> — convert a grid into freely-movable panels in one click, then drag &amp; arrange by hand.</li>
   <li><b>Format painter</b> — copy one object’s look (colour, fill, stroke, font) and apply it to others.</li>
-  <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits &amp; Deflate; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian. 16-bit is linearly scaled to 8-bit for display.</li>
+  <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits, Deflate &amp; JPEG-compressed; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian; and <b>multi-page</b> TIFFs (every page added as a panel). 16-bit is linearly scaled to 8-bit for display.</li>
   <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape).</li>
   <li><b>Save dialog</b> — every export opens a dialog to set the file name, format &amp; DPI first; on Chrome/Edge you pick the folder in your system’s native Save window.</li>
   <li><b>Duplicate</b> (<kbd>Ctrl</kbd>+<kbd>D</kbd>), <b>lock</b>, and multi-object layer ordering for Freeform objects.</li>
@@ -1781,7 +1788,8 @@ function _rasterizeSVG(dataURL, callback, onfail){
 // 1/8/16-bit + 32-bit float, gray/RGB/RGBA/palette, strips OR tiles, predictor.
 // Verified pixel-exact against a broad tifffile-generated fixture matrix.
 // ═══════════════════════════════════════════════════════════════
-async function decodeTIFF(input){
+async function decodeTIFF(input, page){
+  page = page|0;
   const bytes = input instanceof Uint8Array ? input
     : input instanceof ArrayBuffer ? new Uint8Array(input)
     : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
@@ -1797,9 +1805,9 @@ async function decodeTIFF(input){
   while(off && guard++<256){ pageOffsets.push(off);
     const n=view.getUint16(off, le); off=view.getUint32(off+2+n*12, le); }
 
-  const T = parseIFD(pageOffsets[0]);
+  const T = parseIFD(pageOffsets[Math.min(page, pageOffsets.length-1)] || pageOffsets[0]);
   const note=[];
-  if(pageOffsets.length>1) note.push(pageOffsets.length+' pages (first shown)');
+  if(pageOffsets.length>1 && !page) note.push(pageOffsets.length+' pages');
 
   const width=tag(T,256), height=tag(T,257);
   if(!width || !height) throw new Error('TIFF missing dimensions');
@@ -1817,6 +1825,31 @@ async function decodeTIFF(input){
     throw new Error('Unsupported bit depth: '+bitsPerSample);
   if(planar!==1 && spp>1) throw new Error('Planar (separate-plane) TIFFs are not supported yet');
   if(fillOrder===2) throw new Error('Reversed fill order is not supported');
+
+  // JPEG-compressed TIFF: decode each block with the browser's JPEG decoder
+  if(compression===6 || compression===7){
+    if(photometric===5) throw new Error('CMYK JPEG TIFFs are not supported');
+    const out=new Uint8ClampedArray(width*height*4);
+    const tables = T[347] ? Uint8Array.from(T[347].values) : null;
+    const blit=async (jb,bx,by)=>{
+      const idata=await _jpegToImageData(_mergeJpeg(tables,jb));
+      for(let ry=0; ry<idata.height && by+ry<height; ry++){
+        let so=(ry*idata.width)*4, doo=((by+ry)*width+bx)*4;
+        for(let rx=0; rx<idata.width && bx+rx<width; rx++){
+          out[doo]=idata.data[so]; out[doo+1]=idata.data[so+1]; out[doo+2]=idata.data[so+2]; out[doo+3]=255;
+          so+=4; doo+=4;
+        }
+      }
+    };
+    if(T[322]&&T[324]){
+      const tw=tag(T,322), th=tag(T,323), offs=tagArr(T,324,[]), counts=tagArr(T,325,[]), across=Math.ceil(width/tw);
+      for(let t=0;t<offs.length;t++) await blit(bytes.subarray(offs[t],offs[t]+counts[t]), (t%across)*tw, Math.floor(t/across)*th);
+    } else {
+      const rps=tag(T,278,height), offs=tagArr(T,273,[]), counts=tagArr(T,279,[]);
+      for(let s=0;s<offs.length;s++) await blit(bytes.subarray(offs[s],offs[s]+counts[s]), 0, s*rps);
+    }
+    return { width, height, rgba: out, pages: pageOffsets.length, note: note.concat('JPEG-compressed').join('; ') };
+  }
 
   const bytesPerSampleRow=Math.ceil(width*spp*bitsPerSample/8);
   const raster=new Uint8Array(bytesPerSampleRow*height);
@@ -1971,6 +2004,19 @@ function lzwDecodeTIFF(data){
   }
   return Uint8Array.from(out);
 }
+function _mergeJpeg(tables, strip){
+  if(!tables || !tables.length) return strip;
+  let tEnd=tables.length; if(tables[tEnd-2]===0xFF && tables[tEnd-1]===0xD9) tEnd-=2;   // drop trailing EOI
+  const b=(strip[0]===0xFF && strip[1]===0xD8)?strip.subarray(2):strip;                 // drop strip's SOI
+  const out=new Uint8Array(tEnd+b.length); out.set(tables.subarray(0,tEnd),0); out.set(b,tEnd);
+  return out;
+}
+async function _jpegToImageData(bytes){
+  const bmp=await createImageBitmap(new Blob([bytes],{type:'image/jpeg'}));
+  const c=document.createElement('canvas'); c.width=bmp.width; c.height=bmp.height;
+  c.getContext('2d').drawImage(bmp,0,0);
+  return c.getContext('2d').getImageData(0,0,bmp.width,bmp.height);
+}
 async function inflate(data){
   const ds=new DecompressionStream('deflate');
   const w=ds.writable.getWriter(); w.write(data); w.close();
@@ -1980,20 +2026,35 @@ async function inflate(data){
   const out=new Uint8Array(len); let o=0; for(const c of chunks){ out.set(c,o); o+=c.length; }
   return out;
 }
-// Decode a TIFF File → rasterize to PNG → feed the normal import pipeline
+// Decode a TIFF File → rasterize to PNG → feed the normal import pipeline.
+// Multi-page TIFFs add every page as a separate panel.
 async function _loadTIFFFile(f, fail){
   try{
-    const res=await decodeTIFF(new Uint8Array(await f.arrayBuffer()));
-    const c=document.createElement('canvas'); c.width=res.width; c.height=res.height;
-    c.getContext('2d').putImageData(new ImageData(res.rgba, res.width, res.height), 0, 0);
-    const src=c.toDataURL('image/png');
-    const img=new Image();
-    img.onload=()=>{ _preCropQueue.push({img,src,name:f.name.replace(/\.tiff?$/i,'.png')}); _drainPreCrop();
-      toast(`Opened "${f.name}" (${res.width}×${res.height}${res.note?' · '+res.note:''})`,'ok'); };
-    img.onerror=()=>fail();
-    img.src=src;
+    const buf=new Uint8Array(await f.arrayBuffer());
+    const first=await decodeTIFF(buf, 0);
+    const pages=Math.min(first.pages||1, 60);
+    const base=f.name.replace(/\.tiff?$/i,'');
+    const toImg=(res,nm)=>new Promise(resolve=>{
+      const c=document.createElement('canvas'); c.width=res.width; c.height=res.height;
+      c.getContext('2d').putImageData(new ImageData(res.rgba,res.width,res.height),0,0);
+      const img=new Image(); const src=c.toDataURL('image/png');
+      img.onload=()=>resolve({img,src,name:nm}); img.onerror=()=>resolve(null); img.src=src;
+    });
+    if(pages>1){
+      for(let p=0;p<pages;p++){
+        const res = p===0 ? first : await decodeTIFF(buf,p);
+        const it = await toImg(res, `${base}_p${p+1}.png`);
+        if(it) _commitImage(it.img, it.src, it.name);        // add each page directly (no per-page crop modal)
+      }
+      toast(`Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})`,'ok');
+    } else {
+      const it = await toImg(first, base+'.png');
+      if(!it){ fail(); return; }
+      _preCropQueue.push({img:it.img, src:it.src, name:it.name}); _drainPreCrop();
+      toast(`Opened "${f.name}" (${first.width}×${first.height}${first.note?' · '+first.note:''})`,'ok');
+    }
   }catch(e){
-    fail(`Couldn't open "${f.name}": ${(e&&e.message)||e}. Tiled/BigTIFF/JPEG-compressed or other exotic TIFFs may be unsupported — try re-saving as PNG or a standard 8/16-bit TIFF.`);
+    fail(`Couldn't open "${f.name}": ${(e&&e.message)||e}. Some exotic TIFFs (planar-separate, BigTIFF, CMYK-JPEG) may be unsupported — try re-saving as PNG or a standard TIFF.`);
   }
 }
 
@@ -2352,6 +2413,7 @@ const CMD_REGISTRY=[
   {label:'Starter: 3×3 grid',        keys:'starter template 3x3 grid layout',   run:()=>applyStarter('grid3x3')},
   {label:'Starter: pathway diagram', keys:'starter template pathway flow diagram boxes arrows', run:()=>applyStarter('pathway')},
   {label:'Pop grid out to free layout', keys:'freeform free move panels pop out convert drag', run:()=>convertGridToFreeform()},
+  {label:'Relabel panels A, B, C…', keys:'relabel letter panels order abc auto lettering renumber', run:()=>relabelPanels()},
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
@@ -7899,7 +7961,7 @@ function insertIcon(name){
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=ic.w||90, h=ic.h||90;
-    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, isVector:true,
+    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, isVector:true, isIcon:true, iconColor:'#222',
       x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
       blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:ic.label});
@@ -7918,6 +7980,43 @@ function renderIconPalette(){
   });
 }
 renderIconPalette();
+// Recolour a selected icon by rewriting its vector source and re-rasterising
+const _hex6=h=>{ h=(h||'#222222').replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); return '#'+h; };
+function recolorIcon(color){
+  if(selectedElems.size!==1) return;
+  const el=freeformElements[[...selectedElems][0]]; if(!el||!el.isIcon||!el.svgSource) return;
+  const old=el.iconColor||'#222';
+  el.svgSource=el.svgSource.split(old).join(color); el.iconColor=color;
+  const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(el.svgSource);
+  _rasterizeSVG(dataURL,(img,png)=>{ el.src=png; el._imgEl=img; scheduleRender(0); }, ()=>{});
+}
+
+// ── Auto panel-lettering — relabel panels A, B, C… in reading order ──
+function _letterLabel(i){
+  const fmt=(typeof gv==='function'?gv('label-format'):'A')||'A';
+  const U=i<26?String.fromCharCode(65+i):String(i+1);
+  const L=i<26?String.fromCharCode(97+i):String(i+1);
+  if(fmt==='a') return L;
+  if(fmt==='(a)') return '('+L+')';
+  if(fmt==='(A)') return '('+U+')';
+  if(fmt==='1') return String(i+1);
+  return U;
+}
+function relabelPanels(){
+  if(layoutMode==='freeform'){
+    const imgs=freeformElements.filter(e=>e.type==='image');
+    if(!imgs.length){ toast('No image panels to relabel','warn'); return; }
+    pushUndo();
+    imgs.slice().sort((a,b)=>(a.y-b.y)||(a.x-b.x)).forEach((e,i)=>{ e.label=_letterLabel(i); });
+    updateFreeformElemList(); scheduleRender(0);
+  } else {
+    if(!images.length){ toast('No panels to relabel','warn'); return; }
+    pushUndo();
+    images.forEach((im,i)=>{ if(im) im.label=_letterLabel(i); });
+    renderImgList(); scheduleRender(0);
+  }
+  toast('Panels relabelled in order','ok');
+}
 
 // ── Starter templates ──────────────────────────────────────────
 function applyStarter(kind){
@@ -8774,6 +8873,9 @@ function updateElemPropsBar(){
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
   document.getElementById('ep-patch-props').style.display=isPatch?'flex':'none';
   document.getElementById('ep-paint-props').style.display=isPaint?'flex':'none';
+  const isIcon=!!el.isIcon;
+  document.getElementById('ep-icon-props').style.display=isIcon?'flex':'none';
+  if(isIcon){ const c=document.getElementById('ep-icon-color'); if(c) c.value=_hex6(el.iconColor); }
   // The "Label" field is a panel label — hide it for text objects (they use their own content)
   const lw=document.getElementById('ep-label-wrap'); if(lw) lw.style.display=isText?'none':'flex';
   // Populate fields

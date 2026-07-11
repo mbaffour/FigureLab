@@ -332,6 +332,55 @@ test('TIFF decoder: decodes the full compression/bit-depth/layout matrix in-brow
   expect(checked).toBeGreaterThanOrEqual(20);
 });
 
+test('TIFF decoder: multi-page pages + JPEG-compressed decode in-browser', async ({ page }) => {
+  const fs = require('fs'), path = require('path');
+  await loadApp(page);
+  const fxDir = path.join(__dirname, 'fixtures', 'tiff');
+  const man = JSON.parse(fs.readFileSync(path.join(fxDir, 'tail_manifest.json'), 'utf8'));
+  const mpBytes = Array.from(fs.readFileSync(path.join(fxDir, 'multipage.tif')));
+  const jpBytes = Array.from(fs.readFileSync(path.join(fxDir, 'jpeg_rgb.tif')));
+  const r = await page.evaluate(async ({ mpBytes, jpBytes, man }) => {
+    const mp = new Uint8Array(mpBytes), jp = new Uint8Array(jpBytes);
+    const first = await decodeTIFF(mp, 0);
+    const pageSamplesOK = [];
+    for (let p = 0; p < 3; p++) {
+      const res = await decodeTIFF(mp, p);
+      const want = man.multipage.pages[p];
+      let ok = true;
+      man.samples.forEach(([y, x], k) => { const b = (y * res.width + x) * 4;
+        for (let c = 0; c < 4; c++) if (Math.abs(res.rgba[b + c] - want[k][c]) > 2) ok = false; });
+      pageSamplesOK.push(ok);
+    }
+    // JPEG: each vertical band's dominant channel is correct
+    const j = await decodeTIFF(jp, 0);
+    const bandsOK = man.jpeg.bands.map(({ x, y, dom }) => {
+      const b = (y * j.width + x) * 4, px = [j.rgba[b], j.rgba[b + 1], j.rgba[b + 2]];
+      return px[dom] > 130 && px[dom] >= px[(dom + 1) % 3] && px[dom] >= px[(dom + 2) % 3];
+    });
+    return { pages: first.pages, pageSamplesOK, jpW: j.width, jpH: j.height, jpNote: j.note, bandsOK };
+  }, { mpBytes, jpBytes, man });
+  expect(r.pages).toBe(3);
+  expect(r.pageSamplesOK).toEqual([true, true, true]);   // each page decodes to its own pixels
+  expect(r.jpW).toBe(man.jpeg.w); expect(r.jpH).toBe(man.jpeg.h);
+  expect(r.jpNote).toMatch(/JPEG/);
+  expect(r.bandsOK).toEqual([true, true, true]);          // red / green / blue bands decode correctly
+});
+
+test('TIFF import: a multi-page TIFF adds every page as a panel', async ({ page }) => {
+  const fs = require('fs'), path = require('path');
+  await loadApp(page);
+  const mpBytes = Array.from(fs.readFileSync(path.join(__dirname, 'fixtures', 'tiff', 'multipage.tif')));
+  const r = await page.evaluate(async (mpBytes) => {
+    const before = images.length;
+    const f = new File([new Uint8Array(mpBytes)], 'stack.tif', { type: 'image/tiff' });
+    addFiles([f]);
+    await new Promise(resolve => { const iv = setInterval(() => { if (images.length >= 3) { clearInterval(iv); resolve(); } }, 40); setTimeout(() => { clearInterval(iv); resolve(); }, 5000); });
+    return { added: images.length - before, names: images.slice(-3).map(im => im && im.name) };
+  }, mpBytes);
+  expect(r.added).toBe(3);                                // 3 pages → 3 panels
+  expect(r.names.every(n => /_p\d+\.png$/.test(n))).toBe(true);
+});
+
 test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
   const fs = require('fs'), path = require('path');
   await loadApp(page);
@@ -530,6 +579,35 @@ test('pop grid out to freeform creates one movable object per panel, keeps origi
   expect(r.afterMode).toBe('freeform');
   expect(r.ffImages).toBe(r.nImg);        // one freeform object per grid panel
   expect(r.imagesKept).toBe(r.nImg);      // originals retained in the session
+});
+
+test('icons are recolorable (vector source rewritten)', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    insertIcon('cell');
+    await new Promise(res => { const iv = setInterval(() => { if (freeformElements.some(e => e.isIcon)) { clearInterval(iv); res(); } }, 25); setTimeout(() => { clearInterval(iv); res(); }, 3000); });
+    const el = freeformElements.find(e => e.isIcon);
+    selectedElems.clear(); selectedElems.add(freeformElements.indexOf(el)); drawFreeformOverlay();
+    const propsShown = document.getElementById('ep-icon-props').style.display === 'flex';
+    recolorIcon('#ff8800'); await wait(120);
+    return { propsShown, recolored: /#ff8800/.test(el.svgSource) && !/#222/.test(el.svgSource) && el.iconColor === '#ff8800' };
+  });
+  expect(r.propsShown).toBe(true);
+  expect(r.recolored).toBe(true);
+});
+
+test('auto panel-lettering relabels panels in reading order', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(() => {
+    images.forEach((im, i) => { im.label = 'Z' + i; });   // scramble
+    relabelPanels();
+    return { labels: images.map(im => im.label), expected: [0, 1, 2].map(i => _letterLabel(i)) };
+  });
+  expect(r.labels).toEqual(r.expected);   // sequential in order
+  expect(new Set(r.labels).size).toBe(3); // distinct
 });
 
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
