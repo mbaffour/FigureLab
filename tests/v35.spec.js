@@ -177,6 +177,133 @@ test('freeform: rotate handle rotates an object, snaps to 45/90, hit-test follow
   expect(r.rot45).toBe(45);
 });
 
+test('freeform: aspect-locked corner resize + snap-to-object alignment guides', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    snapGrid = false;                                       // isolate from grid snapping
+    // ---- aspect lock: image corner resize keeps the 2:1 ratio ----
+    addFreeformElement({ type:'image', x:100, y:100, w:200, h:100 });
+    render(); await wait(50);
+    const iA = freeformElements.length - 1, A = freeformElements[iA];
+    selectedElems.clear(); selectedElems.add(iA); drawFreeformOverlay();
+    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const mk = (lx, ly, mod={}) => ({ clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H,
+      shiftKey: !!mod.shift, altKey: !!mod.alt });
+    freeformMousedown(mk(A.x + A.w, A.y + A.h));            // grab bottom-right corner
+    freeformMousemove(mk(A.x + A.w + 100, A.y + A.h));      // widen by 100 → height auto-tracks
+    freeformMouseup(mk(A.x + A.w + 100, A.y + A.h));
+    const lockedW = Math.round(A.w), lockedH = Math.round(A.h);
+    // Shift frees the ratio (drag height only)
+    freeformMousedown(mk(A.x + A.w, A.y + A.h));
+    freeformMousemove(mk(A.x + A.w, A.y + A.h + 80, { shift:true }));
+    freeformMouseup(mk(A.x + A.w, A.y + A.h + 80, { shift:true }));
+    const freeH = Math.round(A.h);
+    // ---- snap guides: drag one rect's left edge onto another's left edge ----
+    freeformElements.length = 0; selectedElems.clear();
+    addFreeformElement({ type:'rect', x:120, y:120, w:100, h:100 });
+    addFreeformElement({ type:'rect', x:400, y:300, w:120, h:80 });
+    render(); await wait(50);
+    const B = freeformElements[1];
+    freeformMousedown(mk(B.x + B.w/2, B.y + B.h/2));        // grab B by its body
+    freeformMousemove(mk(120 + B.w/2, B.y + B.h/2));        // move so B.x ≈ 120 (== other rect's left)
+    const snappedX = Math.round(B.x), guideGx = _snapGuides && _snapGuides.gx;
+    freeformMouseup(mk(120 + B.w/2, B.y + B.h/2));
+    const guidesClearedAfterUp = _snapGuides;
+    return { lockedW, lockedH, freeH, snappedX, guideGx, guidesClearedAfterUp };
+  });
+  expect(r.lockedW).toBe(300);
+  expect(r.lockedH).toBe(150);          // 2:1 aspect preserved on corner drag
+  expect(r.freeH).toBe(230);            // Shift frees the ratio (150 + 80)
+  expect(r.snappedX).toBe(120);         // B's left edge snapped to the other rect's left
+  expect(r.guideGx).toBe(120);          // magenta guide drawn at x = 120
+  expect(r.guidesClearedAfterUp).toBe(null);
+});
+
+test('freeform: duplicate, z-order on all selected, lock, and context toolbar', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform'); snapGrid = false;
+    addFreeformElement({ type:'rect', x:100, y:100, w:80, h:80 });
+    addFreeformElement({ type:'rect', x:300, y:100, w:80, h:80 });
+    addFreeformElement({ type:'rect', x:500, y:100, w:80, h:80 });
+    render(); await wait(50);
+    const n0 = freeformElements.length;
+    // z-order: select first TWO, bring to front → both above the third (fixes single-element bug)
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); drawFreeformOverlay();
+    changeZOrder('front');
+    const z = freeformElements.map(e => e.zIndex);
+    const frontOK = z[0] > z[2] && z[1] > z[2];
+    // duplicate → +1 element, offset by 16, copy selected
+    selectedElems.clear(); selectedElems.add(0);
+    duplicateSelectedElems();
+    const dupAdded = freeformElements.length === n0 + 1;
+    const copy = freeformElements[freeformElements.length - 1];
+    const offsetOK = copy.x === 116 && copy.y === 116;
+    const copySelected = selectedElems.size === 1 && selectedElems.has(freeformElements.length - 1);
+    // lock → no handles, and mousedown selects but doesn't start a move
+    toggleLockSelected();
+    const locked = copy.locked === true;
+    const noHandles = hitFreeformHandle(copy, copy.x, copy.y) === null;
+    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const mk = (lx, ly) => ({ clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H, shiftKey:false, altKey:false });
+    selectedElems.clear();
+    freeformMousedown(mk(copy.x + copy.w/2, copy.y + copy.h/2));
+    const noDragOnLocked = !elemDragState;
+    freeformMouseup(mk(copy.x + copy.w/2, copy.y + copy.h/2));
+    // context toolbar appears for a selection
+    selectedElems.clear(); selectedElems.add(0); drawFreeformOverlay();
+    const toolbarShown = document.getElementById('ctx-toolbar').style.display === 'flex';
+    return { frontOK, dupAdded, offsetOK, copySelected, locked, noHandles, noDragOnLocked, toolbarShown };
+  });
+  expect(r.frontOK).toBe(true);
+  expect(r.dupAdded).toBe(true);
+  expect(r.offsetOK).toBe(true);
+  expect(r.copySelected).toBe(true);
+  expect(r.locked).toBe(true);
+  expect(r.noHandles).toBe(true);
+  expect(r.noDragOnLocked).toBe(true);
+  expect(r.toolbarShown).toBe(true);
+});
+
+test('freeform: cover patch is an opaque object with a match-background sampler', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    document.getElementById('fm-canvas-w').value = 400; document.getElementById('fm-canvas-h').value = 300;
+    addFreeformElement({ type:'rect', x:0, y:0, w:400, h:300, color:'#3366cc', fillColor:'#3366cc', fillOpacity:1, strokeWidth:0 });
+    addCoverPatch();
+    render(); await wait(60);
+    const patch = freeformElements[freeformElements.length - 1];
+    const isPatch = patch.type === 'patch';
+    const selected = selectedElems.has(freeformElements.length - 1);
+    drawFreeformOverlay();
+    const patchPropsShown = document.getElementById('ep-patch-props').style.display === 'flex';
+    const c = document.getElementById('fig-canvas'), cx = c.getContext('2d');
+    const W = canvasLogicalW || c.width, H = canvasLogicalH || c.height, sx = c.width/W, sy = c.height/H;
+    const smp = (lx, ly) => cx.getImageData(Math.round(lx*sx), Math.round(ly*sy), 1, 1).data;
+    let px = smp(patch.x + patch.w/2, patch.y + patch.h/2);
+    const drawsWhite = px[0] > 240 && px[1] > 240 && px[2] > 240;      // opaque white cover
+    updateElemProp('color', '#00ff00'); render(); await wait(40);
+    px = smp(patch.x + patch.w/2, patch.y + patch.h/2);
+    const recolored = px[1] > 200 && px[0] < 80 && px[2] < 80;         // recolour works
+    // move fully over the blue backdrop and match its colour
+    patch.x = 150; patch.y = 120; patch.color = '#ffffff'; render(); await wait(40);
+    matchPatchBackground();
+    const matched = /^#[0-9a-f]{6}$/i.test(patch.color) && patch.color.toLowerCase() !== '#ffffff';
+    return { isPatch, selected, patchPropsShown, drawsWhite, recolored, matched };
+  });
+  expect(r.isPatch).toBe(true);
+  expect(r.selected).toBe(true);
+  expect(r.patchPropsShown).toBe(true);
+  expect(r.drawsWhite).toBe(true);
+  expect(r.recolored).toBe(true);
+  expect(r.matched).toBe(true);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

@@ -379,6 +379,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 .ep-tbtn{padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;cursor:pointer;line-height:1.35;font-family:var(--mono)}
 .ep-tbtn:hover{background:var(--border)}
 .ep-tbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+#ctx-toolbar{position:fixed;display:none;z-index:650;gap:1px;padding:4px;border-radius:9px;
+  background:var(--surface);border:1px solid var(--border2);box-shadow:0 6px 22px rgba(0,0,0,.45)}
+#ctx-toolbar button{background:transparent;border:none;color:var(--text);font-size:14px;cursor:pointer;
+  padding:5px 8px;border-radius:6px;line-height:1}
+#ctx-toolbar button:hover{background:var(--surf2)}
 
 /* ── Freeform element selection overlay ─────────────────────── */
 .elem-handle{position:absolute;width:8px;height:8px;background:#f5a623;border:2px solid #fff;
@@ -563,6 +568,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <input type="number" id="fm-snap-size" value="20" min="5" max="100"></div>
       <div class="sec-lbl" style="margin-top:4px">Elements <span id="fm-elem-count" class="badge">0</span></div>
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
+      <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -984,6 +990,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="right">⯈ Right</option>
       </select>
       <button class="btn" style="padding:2px 8px;font-size:10px" onclick="editSelectedFreeformText()" title="Edit the words (or just double-click the text)">✎ Edit</button>
+    </div>
+    <div id="ep-patch-props" style="display:none;align-items:center;gap:5px">
+      <div class="abar-sep"></div>
+      <button class="btn" style="padding:2px 8px;font-size:10px" onclick="matchPatchBackground()" title="Sample the colour just outside the patch so it blends into the background">🎯 Match background</button>
     </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
@@ -1522,6 +1532,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   font-size:14px;line-height:1.3;outline:none;resize:none;overflow:hidden;
   box-shadow:0 4px 20px rgba(0,0,0,.5)"></textarea>
 
+<!-- Floating context toolbar for the selected freeform object(s) -->
+<div id="ctx-toolbar">
+  <button title="Duplicate (Ctrl+D)" onclick="duplicateSelectedElems()">⧉</button>
+  <button title="Lock / unlock" id="ctx-lock" onclick="toggleLockSelected()">🔒</button>
+  <button title="Bring to front" onclick="changeZOrder('front')">⬆</button>
+  <button title="Send to back" onclick="changeZOrder('back')">⬇</button>
+  <button title="Delete (Del)" onclick="deleteSelectedElems()" style="color:var(--danger)">🗑</button>
+</div>
+
 <!-- ── Floating annotation toolbar ──────────────────────────── -->
 <div id="ann-float">
   <span class="fl-lbl">Color</span>
@@ -1622,6 +1641,7 @@ let elemDragState    = null;        // {indices:[],origPositions:[],mx,my}
 let elemResizeState  = null;        // {idx,handle,origX,origY,origW,origH,mx,my}
 let elemRubberState  = null;        // {x0,y0,x,y} rubber-band selection
 let elemRotateState  = null;        // {idx,cx,cy,start,orig} rotate-handle drag
+let _snapGuides      = null;        // {gx,gy} magenta alignment guides while dragging
 let snapGrid         = false;
 let _fmZCounter      = 0;          // zIndex counter
 
@@ -2039,6 +2059,7 @@ const CMD_REGISTRY=[
   {label:'Match physical scale',     keys:'match physical scale um bars',       run:()=>matchScalePhysical()},
   {label:'Batch crop images',        keys:'batch crop images',                  run:()=>startBatchCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
+  {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
@@ -6758,6 +6779,7 @@ document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='0'){ e.preventDefault(); zoomToFit(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='1'){ e.preventDefault(); zoomTo100(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='a'&&layoutMode==='freeform'){ e.preventDefault(); freeformElements.forEach((_,i)=>selectedElems.add(i)); updateFreeformElemList(); drawFreeformOverlay(); }
+  if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); duplicateSelectedElems(); }
   if(e.key===' '){
     e.preventDefault(); spaceDown=true;
     if(activeTool==='none') annCanvas.style.cursor='grab';
@@ -6891,6 +6913,7 @@ function getFreeformHandles(el){
 }
 
 function hitFreeformHandle(el,x,y){
+  if(el.locked) return null;                     // locked objects expose no resize/rotate handles
   if(!selectedElems.has(freeformElements.indexOf(el))) return null;
   const p=_toLocal(el,x,y);                      // test in the element's local frame
   const rh=getFreeformRotateHandle(el);
@@ -6933,26 +6956,41 @@ function drawFreeformOverlay(){
     const cx=el.x+el.w/2, cy=el.y+el.h/2;
     ctx.save();
     if(el.rotation){ ctx.translate(cx,cy); ctx.rotate(el.rotation*Math.PI/180); ctx.translate(-cx,-cy); }
-    ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([]);
+    ctx.strokeStyle=el.locked?'#8892a6':'#f5a623'; ctx.lineWidth=2; ctx.setLineDash(el.locked?[3,3]:[]);
     ctx.strokeRect(el.x-1,el.y-1,el.w+2,el.h+2);
-    // stem up to the rotate handle
-    const rh=getFreeformRotateHandle(el);
-    ctx.beginPath(); ctx.moveTo(cx,el.y); ctx.lineTo(rh.x,rh.y); ctx.stroke();
-    ctx.beginPath(); ctx.arc(rh.x,rh.y,6,0,Math.PI*2);
-    ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.fill(); ctx.stroke();
-    // resize handles
-    getFreeformHandles(el).forEach(h=>{
-      ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.rect(h.x-4,h.y-4,8,8); ctx.fill(); ctx.stroke();
-    });
+    ctx.setLineDash([]);
+    if(el.locked){
+      ctx.font='12px system-ui'; ctx.fillStyle='#8892a6'; ctx.textBaseline='top';
+      ctx.fillText('🔒', el.x+3, el.y+3);                 // locked: badge, no handles
+    } else {
+      // stem up to the rotate handle
+      const rh=getFreeformRotateHandle(el);
+      ctx.beginPath(); ctx.moveTo(cx,el.y); ctx.lineTo(rh.x,rh.y); ctx.stroke();
+      ctx.beginPath(); ctx.arc(rh.x,rh.y,6,0,Math.PI*2);
+      ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.fill(); ctx.stroke();
+      // resize handles
+      getFreeformHandles(el).forEach(h=>{
+        ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.rect(h.x-4,h.y-4,8,8); ctx.fill(); ctx.stroke();
+      });
+    }
     ctx.restore();
   });
 
+  // Alignment guides (shown while dragging an element into alignment)
+  if(_snapGuides){
+    ctx.save(); ctx.strokeStyle='#ff36c0'; ctx.lineWidth=1; ctx.setLineDash([5,3]);
+    if(_snapGuides.gx!=null){ ctx.beginPath(); ctx.moveTo(_snapGuides.gx+0.5,0); ctx.lineTo(_snapGuides.gx+0.5,H); ctx.stroke(); }
+    if(_snapGuides.gy!=null){ ctx.beginPath(); ctx.moveTo(0,_snapGuides.gy+0.5); ctx.lineTo(W,_snapGuides.gy+0.5); ctx.stroke(); }
+    ctx.restore();
+  }
   // Update alignment bar visibility
   const ab=document.getElementById('align-bar');
   ab.classList.toggle('visible', selectedElems.size>=2);
   // Update element properties bar (single selection)
   updateElemPropsBar();
+  // Floating context toolbar next to the selection
+  positionCtxToolbar();
 }
 
 function updateFreeformElemList(){
@@ -6967,7 +7005,7 @@ function updateFreeformElemList(){
     row.className='tpl-saved';
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
-    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':'◻';
+    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':'◻';
     row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
@@ -7096,6 +7134,10 @@ function renderFreeform(canvas, ctx){
     } else if(el.type==='line'){
       ctx.strokeStyle=el.color||'#5b8dee'; ctx.lineWidth=el.strokeWidth||2; ctx.lineCap='round';
       ctx.beginPath(); ctx.moveTo(el.x,el.y); ctx.lineTo(el.x2??el.x+el.w,el.y2??el.y+el.h); ctx.stroke();
+    } else if(el.type==='patch'){
+      // Opaque cover patch — an object, never a destructive pixel edit
+      ctx.fillStyle=el.color||'#ffffff';
+      ctx.fillRect(el.x,el.y,el.w,el.h);
     }
     ctx.restore();
   });
@@ -7148,9 +7190,11 @@ function freeformMousedown(e){
     if(hitFreeformElement(el,x,y)){
       if(!e.shiftKey) selectedElems.clear();
       selectedElems.add(i);
-      // Start drag
-      const origPositions=freeformElements.map(e2=>({x:e2.x,y:e2.y}));
-      elemDragState={moving:true,indices:[...selectedElems],origPositions,mx:x,my:y,preDrag:JSON.stringify(freeformElements)};
+      // Start drag — unless the clicked object is locked (then just select it)
+      if(!el.locked){
+        const origPositions=freeformElements.map(e2=>({x:e2.x,y:e2.y}));
+        elemDragState={moving:true,indices:[...selectedElems],origPositions,mx:x,my:y,preDrag:JSON.stringify(freeformElements)};
+      }
       updateFreeformElemList(); drawFreeformOverlay();
       return true;
     }
@@ -7179,10 +7223,24 @@ function freeformMousemove(e){
     let rdx=x-mx, rdy=y-my;
     if(el.rotation){ const r=-el.rotation*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r), t=rdx*cs-rdy*sn; rdy=rdx*sn+rdy*cs; rdx=t; }
     const dx=snapValue(rdx), dy=snapValue(rdy);
-    if(handle.includes('r')){ el.w=Math.max(20,snapValue(origW+dx)); }
-    if(handle.includes('l')){ const nw=Math.max(20,snapValue(origW-dx)); el.x=snapValue(origX+origW-nw); el.w=nw; }
-    if(handle.includes('b')){ el.h=Math.max(20,snapValue(origH+dy)); }
-    if(handle.includes('t')){ const nh=Math.max(20,snapValue(origH-dy)); el.y=snapValue(origY+origH-nh); el.h=nh; }
+    const corner=(handle.includes('l')||handle.includes('r'))&&(handle.includes('t')||handle.includes('b'));
+    const isImg=el.type==='image'||el.type==='aiicon';
+    // Corners keep aspect for images by default (Shift frees them); for shapes/text it's the reverse.
+    const lockAspect=corner&&(isImg?!e.shiftKey:e.shiftKey);
+    let nw=origW, nh=origH;
+    if(handle.includes('r')) nw=Math.max(20,origW+dx);
+    if(handle.includes('l')) nw=Math.max(20,origW-dx);
+    if(handle.includes('b')) nh=Math.max(20,origH+dy);
+    if(handle.includes('t')) nh=Math.max(20,origH-dy);
+    if(lockAspect&&origH>0){
+      const ar=origW/origH;                                  // drive by the axis that moved more
+      if(Math.abs(nw/origW-1)>=Math.abs(nh/origH-1)) nh=nw/ar; else nw=nh*ar;
+      nw=Math.max(20,nw); nh=Math.max(20,nh);
+    }
+    nw=snapValue(nw); nh=snapValue(nh);
+    el.w=nw; el.h=nh;
+    if(handle.includes('l')) el.x=snapValue(origX+origW-nw);  // keep the opposite edge/corner fixed
+    if(handle.includes('t')) el.y=snapValue(origY+origH-nh);
     drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.moving){
@@ -7192,6 +7250,10 @@ function freeformMousemove(e){
       const orig=elemDragState.origPositions[i];
       el.x=snapValue(orig.x+dx); el.y=snapValue(orig.y+dy);
     });
+    // object-alignment snap (single element only; Alt bypasses)
+    _snapGuides = (elemDragState.indices.length===1)
+      ? _applyObjectSnap(freeformElements[elemDragState.indices[0]], e.altKey)
+      : null;
     drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.drawing){
@@ -7223,8 +7285,8 @@ function freeformMouseup(e){
   if(elemRotateState){ elemRotateState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemDragState?.moving){
-    elemDragState=null; annCanvas.style.cursor='default';
-    _commitFF(); updateFreeformElemList(); scheduleRender(0); return true;
+    elemDragState=null; _snapGuides=null; annCanvas.style.cursor='default';
+    _commitFF(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.drawing){
     const {x0,y0,drawType}=elemDragState; elemDragState=null;
@@ -7258,6 +7320,24 @@ function freeformMouseup(e){
     updateFreeformElemList(); drawFreeformOverlay(); return true;
   }
   return false;
+}
+
+// Snap a dragged element's edges/centre to nearby object edges/centres and the
+// canvas edges/centre. Nudges el.x/el.y and returns the guide lines to draw.
+function _applyObjectSnap(el, bypass){
+  if(bypass) return null;
+  const TH=6;                                              // snap threshold (logical px)
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const meIdx=freeformElements.indexOf(el);
+  const xs=[0,W/2,W], ys=[0,H/2,H];                        // canvas edges + centre
+  freeformElements.forEach((e,i)=>{ if(i===meIdx) return;
+    xs.push(e.x, e.x+e.w/2, e.x+e.w); ys.push(e.y, e.y+e.h/2, e.y+e.h); });
+  let gx=null, gy=null;
+  const ex=[el.x, el.x+el.w/2, el.x+el.w];                 // my left / centre / right
+  for(const c of xs){ for(const e of ex){ if(Math.abs(e-c)<=TH){ el.x=Math.round(el.x+(c-e)); gx=c; break; } } if(gx!=null) break; }
+  const ey=[el.y, el.y+el.h/2, el.y+el.h];                 // my top / middle / bottom
+  for(const c of ys){ for(const e of ey){ if(Math.abs(e-c)<=TH){ el.y=Math.round(el.y+(c-e)); gy=c; break; } } if(gy!=null) break; }
+  return (gx!=null||gy!=null)?{gx,gy}:null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7302,15 +7382,17 @@ function distributeElems(dir){
 
 function changeZOrder(dir){
   if(!selectedElems.size) return;
-  const idx=[...selectedElems][0], el=freeformElements[idx];
-  if(dir==='front') el.zIndex=++_fmZCounter;
-  else if(dir==='back') el.zIndex=0;
-  else if(dir==='forward') el.zIndex+=1.5;
-  else if(dir==='backward') el.zIndex=Math.max(0,el.zIndex-1.5);
+  pushUndo();
+  [...selectedElems].map(i=>freeformElements[i]).forEach(el=>{
+    if(dir==='front') el.zIndex=++_fmZCounter;
+    else if(dir==='back') el.zIndex=0;
+    else if(dir==='forward') el.zIndex+=1.5;
+    else if(dir==='backward') el.zIndex=Math.max(0,el.zIndex-1.5);
+  });
   // Re-normalize zIndices
   [...freeformElements].sort((a,b)=>a.zIndex-b.zIndex).forEach((e,i)=>e.zIndex=i+1);
   _fmZCounter=freeformElements.length;
-  scheduleRender(0);
+  drawFreeformOverlay(); scheduleRender(0);
 }
 
 function deleteSelectedElems(){
@@ -7319,6 +7401,90 @@ function deleteSelectedElems(){
   sorted.forEach(i=>freeformElements.splice(i,1));
   selectedElems.clear(); updateFreeformElemList(); scheduleRender(0);
 }
+
+// Duplicate the selected element(s), offset slightly, and select the copies
+function duplicateSelectedElems(){
+  if(!selectedElems.size) return;
+  pushUndo();
+  const src=[...selectedElems].sort((a,b)=>a-b).map(i=>freeformElements[i]);
+  const newIdx=[];
+  src.forEach(el=>{
+    const copy=JSON.parse(JSON.stringify(el)); delete copy._imgEl;   // rebuild image from src, don't clone the node
+    copy.id=Date.now()+Math.random();
+    copy.x=(el.x||0)+16; copy.y=(el.y||0)+16;
+    copy.zIndex=++_fmZCounter;
+    freeformElements.push(copy); newIdx.push(freeformElements.length-1);
+  });
+  selectedElems.clear(); newIdx.forEach(i=>selectedElems.add(i));
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast(newIdx.length+' object'+(newIdx.length>1?'s':'')+' duplicated','ok');
+}
+
+// Add an opaque "cover patch" — the integrity-safe way to hide baked-in text or a
+// blemish. It's a movable object (not a pixel edit), so it's reversible and disclosed.
+function addCoverPatch(){
+  if(layoutMode!=='freeform'){
+    if(typeof setLayoutMode==='function'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  }
+  const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+  const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+  addFreeformElement({ type:'patch', x:Math.round(W/2-90), y:Math.round(H/2-24), w:180, h:48,
+    color:'#ffffff', label:'Cover patch' });
+  const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+  drawFreeformOverlay(); scheduleRender(0);
+  if(typeof logAction==='function') logAction('coverPatch',{});   // disclosed in the provenance log
+  toast('Cover patch added — drag it over the area, recolour to match, then add text on top','ok');
+}
+// Sample the colour just outside the patch so it blends with the surrounding image
+function matchPatchBackground(){
+  if(selectedElems.size!==1) return;
+  const el=freeformElements[[...selectedElems][0]]; if(!el||el.type!=='patch') return;
+  const c=document.getElementById('fig-canvas'), cx=c.getContext('2d');
+  const W=canvasLogicalW||c.width, H=canvasLogicalH||c.height;
+  const sx=c.width/W, sy=c.height/H;
+  let px=Math.round((el.x-6)*sx), py=Math.round((el.y+el.h/2)*sy);   // a hair to the left of the patch
+  px=Math.max(0,Math.min(c.width-1,px)); py=Math.max(0,Math.min(c.height-1,py));
+  const d=cx.getImageData(px,py,1,1).data;
+  const hex='#'+[d[0],d[1],d[2]].map(v=>v.toString(16).padStart(2,'0')).join('');
+  el.color=hex; const col=document.getElementById('ep-color'); if(col) col.value=hex;
+  scheduleRender(0); toast('Patch colour matched to the background','ok');
+}
+
+// Lock / unlock selected objects (locked = can't be moved, resized, or rotated)
+function toggleLockSelected(){
+  if(!selectedElems.size) return;
+  pushUndo();
+  const sel=[...selectedElems].map(i=>freeformElements[i]);
+  const lock=sel.some(e=>!e.locked);           // if any is unlocked, lock all; else unlock all
+  sel.forEach(e=>e.locked=lock);
+  updateFreeformElemList(); drawFreeformOverlay();
+  toast(lock?'Locked':'Unlocked','ok');
+}
+
+// Position the floating context toolbar above (or below) the current selection
+function positionCtxToolbar(){
+  const tb=document.getElementById('ctx-toolbar'); if(!tb) return;
+  const gesture=elemDragState||elemResizeState||elemRotateState||elemRubberState;
+  if(layoutMode!=='freeform'||selectedElems.size<1||gesture){ tb.style.display='none'; return; }
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  selectedElems.forEach(i=>{ const e=freeformElements[i]; if(!e) return;
+    minX=Math.min(minX,e.x); minY=Math.min(minY,e.y); maxX=Math.max(maxX,e.x+e.w); maxY=Math.max(maxY,e.y+e.h); });
+  if(!isFinite(minX)){ tb.style.display='none'; return; }
+  const rect=annCanvas.getBoundingClientRect();
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const sx=rect.width/W, sy=rect.height/H;
+  const anyLocked=[...selectedElems].some(i=>freeformElements[i]&&freeformElements[i].locked);
+  const lb=document.getElementById('ctx-lock'); if(lb) lb.textContent=anyLocked?'🔓':'🔒';
+  tb.style.display='flex';
+  const tbW=tb.offsetWidth||160, tbH=tb.offsetHeight||34;
+  let left=rect.left+((minX+maxX)/2)*sx-tbW/2;
+  left=Math.max(6,Math.min(window.innerWidth-tbW-6,left));
+  let top=rect.top+minY*sy-tbH-12;
+  if(top<rect.top+2) top=rect.top+maxY*sy+12;   // flip below when there's no room above
+  tb.style.left=Math.round(left)+'px'; tb.style.top=Math.round(Math.max(6,top))+'px';
+}
+window.addEventListener('resize', ()=>{ if(typeof positionCtxToolbar==='function') positionCtxToolbar(); });
+window.addEventListener('scroll', ()=>{ if(typeof positionCtxToolbar==='function') positionCtxToolbar(); }, true);
 
 function toggleSnap(){
   snapGrid=!snapGrid;
@@ -8080,8 +8246,10 @@ function updateElemPropsBar(){
   bar.style.display='flex';
   const isImg=el.type==='image'||el.type==='aiicon';
   const isText=el.type==='text';
+  const isPatch=el.type==='patch';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
+  document.getElementById('ep-patch-props').style.display=isPatch?'flex':'none';
   // The "Label" field is a panel label — hide it for text objects (they use their own content)
   const lw=document.getElementById('ep-label-wrap'); if(lw) lw.style.display=isText?'none':'flex';
   // Populate fields
