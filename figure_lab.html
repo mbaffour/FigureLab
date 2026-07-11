@@ -1621,6 +1621,7 @@ let selectedElems    = new Set();   // indices into freeformElements[]
 let elemDragState    = null;        // {indices:[],origPositions:[],mx,my}
 let elemResizeState  = null;        // {idx,handle,origX,origY,origW,origH,mx,my}
 let elemRubberState  = null;        // {x0,y0,x,y} rubber-band selection
+let elemRotateState  = null;        // {idx,cx,cy,start,orig} rotate-handle drag
 let snapGrid         = false;
 let _fmZCounter      = 0;          // zIndex counter
 
@@ -6832,6 +6833,7 @@ function setLayoutMode(mode){
   document.getElementById('freeform-controls').style.display=mode==='freeform'?'':'none';
   // Update mini-grid visibility
   document.querySelector('.mini-grid-wrap').style.display=mode==='grid'?'':'none';
+  if(typeof updateEmptyState==='function') updateEmptyState();
   scheduleRender(0);
 }
 
@@ -6856,8 +6858,22 @@ function addFreeformElement(props){
   scheduleRender(0);
 }
 
+// Rotate point (px,py) around centre (cx,cy) by deg degrees
+function _rotPt(px,py,cx,cy,deg){
+  const r=deg*Math.PI/180, cos=Math.cos(r), sin=Math.sin(r), dx=px-cx, dy=py-cy;
+  return { x:cx+dx*cos-dy*sin, y:cy+dx*sin+dy*cos };
+}
+// Map a canvas point into an element's un-rotated local frame
+function _toLocal(el,x,y){
+  if(!el.rotation) return {x,y};
+  return _rotPt(x,y,el.x+el.w/2,el.y+el.h/2,-el.rotation);
+}
+// The rotate handle sits above the top edge (in the element's local frame)
+function getFreeformRotateHandle(el){ return {id:'rot', x:el.x+el.w/2, y:el.y-26, cx:'grab'}; }
+
 function hitFreeformElement(el,x,y){
-  return x>=el.x&&x<=el.x+el.w&&y>=el.y&&y<=el.y+el.h;
+  const p=_toLocal(el,x,y);
+  return p.x>=el.x&&p.x<=el.x+el.w&&p.y>=el.y&&p.y<=el.y+el.h;
 }
 
 function getFreeformHandles(el){
@@ -6876,8 +6892,11 @@ function getFreeformHandles(el){
 
 function hitFreeformHandle(el,x,y){
   if(!selectedElems.has(freeformElements.indexOf(el))) return null;
+  const p=_toLocal(el,x,y);                      // test in the element's local frame
+  const rh=getFreeformRotateHandle(el);
+  if(Math.hypot(p.x-rh.x,p.y-rh.y)<11) return rh;
   for(const h of getFreeformHandles(el)){
-    if(Math.hypot(x-h.x,y-h.y)<9) return h;
+    if(Math.hypot(p.x-h.x,p.y-h.y)<9) return h;
   }
   return null;
 }
@@ -6908,19 +6927,25 @@ function drawFreeformOverlay(){
     ctx.restore();
   }
 
-  // Selection boxes + handles
+  // Selection boxes + handles (rotation-aware: drawn in each element's local frame)
   freeformElements.forEach((el,i)=>{
     if(!selectedElems.has(i)) return;
+    const cx=el.x+el.w/2, cy=el.y+el.h/2;
     ctx.save();
+    if(el.rotation){ ctx.translate(cx,cy); ctx.rotate(el.rotation*Math.PI/180); ctx.translate(-cx,-cy); }
     ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([]);
     ctx.strokeRect(el.x-1,el.y-1,el.w+2,el.h+2);
-    ctx.restore();
+    // stem up to the rotate handle
+    const rh=getFreeformRotateHandle(el);
+    ctx.beginPath(); ctx.moveTo(cx,el.y); ctx.lineTo(rh.x,rh.y); ctx.stroke();
+    ctx.beginPath(); ctx.arc(rh.x,rh.y,6,0,Math.PI*2);
+    ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.fill(); ctx.stroke();
+    // resize handles
     getFreeformHandles(el).forEach(h=>{
-      ctx.save();
       ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2;
       ctx.beginPath(); ctx.rect(h.x-4,h.y-4,8,8); ctx.fill(); ctx.stroke();
-      ctx.restore();
     });
+    ctx.restore();
   });
 
   // Update alignment bar visibility
@@ -6956,6 +6981,7 @@ function updateFreeformElemList(){
     });
     list.appendChild(row);
   });
+  if(typeof updateEmptyState==='function') updateEmptyState();   // reveal canvas once objects exist
 }
 
 function clearFreeformElements(){
@@ -7100,11 +7126,17 @@ function freeformMousedown(e){
     elemDragState={drawing:true,x0:x,y0:y,drawType:activeTool};
     return true;
   }
-  // Check resize handles on selected elements
+  // Check resize/rotate handles on selected elements
   for(let i=freeformElements.length-1;i>=0;i--){
     const el=freeformElements[i];
     const h=hitFreeformHandle(el,x,y);
     if(h){
+      if(h.id==='rot'){
+        const cx=el.x+el.w/2, cy=el.y+el.h/2;
+        elemRotateState={idx:i,cx,cy,start:Math.atan2(y-cy,x-cx)*180/Math.PI,orig:el.rotation||0};
+        annCanvas.style.cursor='grabbing';
+        return true;
+      }
       elemResizeState={idx:i,handle:h.id,origX:el.x,origY:el.y,origW:el.w,origH:el.h,mx:x,my:y};
       annCanvas.style.cursor=h.cx;
       return true;
@@ -7132,10 +7164,21 @@ function freeformMousedown(e){
 
 function freeformMousemove(e){
   const {x,y}=canvasCoords(annCanvas,e);
+  if(elemRotateState){
+    const {idx,cx,cy,start,orig}=elemRotateState;
+    const el=freeformElements[idx];
+    let rot=orig+(Math.atan2(y-cy,x-cx)*180/Math.PI-start);
+    if(e.shiftKey){ rot=Math.round(rot/15)*15; }                                   // Shift = coarse 15° steps
+    else { const s=Math.round(rot/45)*45; if(Math.abs(rot-s)<4&&!e.altKey) rot=s; } // gentle snap to 0/45/90…
+    el.rotation=((rot%360)+360)%360;
+    drawFreeformOverlay(); scheduleRender(0); return true;
+  }
   if(elemResizeState){
     const {idx,handle,origX,origY,origW,origH,mx,my}=elemResizeState;
     const el=freeformElements[idx];
-    const dx=snapValue(x-mx), dy=snapValue(y-my);
+    let rdx=x-mx, rdy=y-my;
+    if(el.rotation){ const r=-el.rotation*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r), t=rdx*cs-rdy*sn; rdy=rdx*sn+rdy*cs; rdx=t; }
+    const dx=snapValue(rdx), dy=snapValue(rdy);
     if(handle.includes('r')){ el.w=Math.max(20,snapValue(origW+dx)); }
     if(handle.includes('l')){ const nw=Math.max(20,snapValue(origW-dx)); el.x=snapValue(origX+origW-nw); el.w=nw; }
     if(handle.includes('b')){ el.h=Math.max(20,snapValue(origH+dy)); }
@@ -7177,6 +7220,7 @@ function freeformMousemove(e){
 function freeformMouseup(e){
   const {x,y}=canvasCoords(annCanvas,e);
   const _commitFF=()=>{ if(_pendingUndoSnap){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; } };
+  if(elemRotateState){ elemRotateState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemDragState?.moving){
     elemDragState=null; annCanvas.style.cursor='default';

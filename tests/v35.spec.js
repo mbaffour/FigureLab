@@ -136,6 +136,47 @@ test('freeform text: per-object styling controls + editable multi-line content',
   expect(r.editorHidden).toBe(true);
 });
 
+test('freeform: rotate handle rotates an object, snaps to 45/90, hit-test follows rotation', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    addFreeformElement({ type:'rect', x:200, y:170, w:200, h:100, color:'#5b8dee', fillColor:'#5b8dee', fillOpacity:0.3 });
+    render(); await wait(60);                        // ensure canvasLogicalW is set
+    const idx = freeformElements.length - 1, el = freeformElements[idx];
+    selectedElems.clear(); selectedElems.add(idx); drawFreeformOverlay();
+    const rect = annCanvas.getBoundingClientRect();
+    const W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const laidOut = rect.width > 0 && W > 0;
+    const cx = el.x + el.w/2, cy = el.y + el.h/2;
+    const mk = (lx, ly, mod={}) => ({ clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H,
+      shiftKey: !!mod.shift, altKey: !!mod.alt });
+    const rh = getFreeformRotateHandle(el);
+    // grab the rotate handle (top, ≡ -90°) and drag to the right → +90°, snaps
+    freeformMousedown(mk(rh.x, rh.y));
+    const grabbed = !!elemRotateState;
+    freeformMousemove(mk(cx + 90, cy));
+    const rot90 = Math.round(el.rotation);
+    freeformMouseup(mk(cx + 90, cy));
+    const cleared = elemRotateState === null;
+    const hitCentreRotated = hitFreeformElement(el, cx, cy);
+    const missOutside = !hitFreeformElement(el, cx + 400, cy + 400);
+    // 45° snap
+    el.rotation = 0; freeformMousedown(mk(rh.x, rh.y));
+    freeformMousemove(mk(cx + 90, cy - 90));
+    const rot45 = Math.round(el.rotation);
+    freeformMouseup(mk(cx + 90, cy - 90));
+    return { laidOut, grabbed, rot90, cleared, hitCentreRotated, missOutside, rot45 };
+  });
+  expect(r.laidOut).toBe(true);
+  expect(r.grabbed).toBe(true);
+  expect(r.rot90).toBe(90);
+  expect(r.cleared).toBe(true);
+  expect(r.hitCentreRotated).toBe(true);
+  expect(r.missOutside).toBe(true);
+  expect(r.rot45).toBe(45);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);
