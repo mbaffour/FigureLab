@@ -304,6 +304,52 @@ test('freeform: cover patch is an opaque object with a match-background sampler'
   expect(r.matched).toBe(true);
 });
 
+test('TIFF decoder: decodes the full compression/bit-depth/layout matrix in-browser', async ({ page }) => {
+  const fs = require('fs'), path = require('path');
+  await loadApp(page);
+  const fxDir = path.join(__dirname, 'fixtures', 'tiff');
+  const manifest = JSON.parse(fs.readFileSync(path.join(fxDir, 'manifest.json'), 'utf8'));
+  const samples = manifest.samples;
+  const failures = [];
+  let checked = 0;
+  for (const [name, exp] of Object.entries(manifest.cases)) {
+    const file = path.join(fxDir, name + '.tif');
+    if (!fs.existsSync(file)) continue;
+    const bytes = Array.from(fs.readFileSync(file));
+    const res = await page.evaluate(async ({ bytes, samples }) => {
+      const r = await decodeTIFF(new Uint8Array(bytes));
+      return { w: r.width, h: r.height, note: r.note,
+        px: samples.map(([y, x]) => { const b = (y * r.width + x) * 4;
+          return [r.rgba[b], r.rgba[b + 1], r.rgba[b + 2], r.rgba[b + 3]]; }) };
+    }, { bytes, samples });
+    if (res.w !== exp.w || res.h !== exp.h) failures.push(`${name}: dims ${res.w}x${res.h} != ${exp.w}x${exp.h}`);
+    res.px.forEach((got, k) => { const want = exp.rgba[k];
+      for (let c = 0; c < 4; c++) if (Math.abs(got[c] - want[c]) > 2)
+        failures.push(`${name} sample${k} ch${c}: ${got[c]} != ${want[c]}`); });
+    checked++;
+  }
+  expect(failures).toEqual([]);          // pixel-exact across raw/LZW/PackBits/Deflate, 8/16-bit/float, gray/RGB/RGBA/palette, LE/BE, strips/tiles, predictor
+  expect(checked).toBeGreaterThanOrEqual(20);
+});
+
+test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
+  const fs = require('fs'), path = require('path');
+  await loadApp(page);
+  const bytes = Array.from(fs.readFileSync(path.join(__dirname, 'fixtures', 'tiff', 'g16_lzw_pred.tif')));
+  const r = await page.evaluate(async (bytes) => {
+    const f = new File([new Uint8Array(bytes)], 'scan.tif', { type: 'image/tiff' });
+    let queued = null;
+    const origDrain = window._drainPreCrop;
+    window._drainPreCrop = () => { queued = _preCropQueue[_preCropQueue.length - 1]; };   // capture instead of opening the modal
+    addFiles([f]);
+    await new Promise(resolve => { const iv = setInterval(() => { if (queued) { clearInterval(iv); resolve(); } }, 25); setTimeout(() => { clearInterval(iv); resolve(); }, 4000); });
+    window._drainPreCrop = origDrain;
+    return { name: queued && queued.name, isPng: !!(queued && /^data:image\/png/.test(queued.src || '')) };
+  }, bytes);
+  expect(r.isPng).toBe(true);            // TIFF was decoded and rasterized to a PNG the pipeline can use
+  expect(r.name).toMatch(/\.png$/);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

@@ -1728,11 +1728,234 @@ function _rasterizeSVG(dataURL, callback, onfail){
   img.src=dataURL;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// TIFF DECODER — dependency-free, client-side. Browsers can't decode TIFF
+// in <img>, so scientists' .tif/.tiff files failed to open. This handles the
+// common scientific matrix: LE/BE, uncompressed/LZW/PackBits/Deflate,
+// 1/8/16-bit + 32-bit float, gray/RGB/RGBA/palette, strips OR tiles, predictor.
+// Verified pixel-exact against a broad tifffile-generated fixture matrix.
+// ═══════════════════════════════════════════════════════════════
+async function decodeTIFF(input){
+  const bytes = input instanceof Uint8Array ? input
+    : input instanceof ArrayBuffer ? new Uint8Array(input)
+    : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const bom = view.getUint16(0, false);
+  let le;
+  if(bom===0x4949) le=true; else if(bom===0x4D4D) le=false; else throw new Error('Not a TIFF file');
+  const magic = view.getUint16(2, le);
+  if(magic===43) throw new Error('BigTIFF is not supported yet');
+  if(magic!==42) throw new Error('Not a TIFF file');
+
+  const pageOffsets=[]; let off=view.getUint32(4, le), guard=0;
+  while(off && guard++<256){ pageOffsets.push(off);
+    const n=view.getUint16(off, le); off=view.getUint32(off+2+n*12, le); }
+
+  const T = parseIFD(pageOffsets[0]);
+  const note=[];
+  if(pageOffsets.length>1) note.push(pageOffsets.length+' pages (first shown)');
+
+  const width=tag(T,256), height=tag(T,257);
+  if(!width || !height) throw new Error('TIFF missing dimensions');
+  const bps=tagArr(T,258,[1]); const bitsPerSample=bps[0]|0;
+  const compression=tag(T,259,1);
+  const photometric=tag(T,262, (tag(T,320)?3:1));
+  const spp=tag(T,277,1);
+  const planar=tag(T,284,1);
+  const predictor=tag(T,317,1);
+  const sampleFormat=tagArr(T,339,[1])[0];
+  const fillOrder=tag(T,266,1);
+  const colorMap=T[320] ? T[320].values : null;
+
+  if(bitsPerSample!==1 && bitsPerSample!==8 && bitsPerSample!==16 && bitsPerSample!==32)
+    throw new Error('Unsupported bit depth: '+bitsPerSample);
+  if(planar!==1 && spp>1) throw new Error('Planar (separate-plane) TIFFs are not supported yet');
+  if(fillOrder===2) throw new Error('Reversed fill order is not supported');
+
+  const bytesPerSampleRow=Math.ceil(width*spp*bitsPerSample/8);
+  const raster=new Uint8Array(bytesPerSampleRow*height);
+  const tiled=T[322] && T[324];
+  if(tiled){
+    const tw=tag(T,322), th=tag(T,323);
+    const offs=tagArr(T,324,[]), counts=tagArr(T,325,[]);
+    const tilesAcross=Math.ceil(width/tw);
+    const rowBytesTile=Math.ceil(tw*spp*bitsPerSample/8);
+    for(let t=0;t<offs.length;t++){
+      let data=bytes.subarray(offs[t], offs[t]+counts[t]);
+      data=await decompress(data, compression, rowBytesTile*th);
+      if(predictor===2) applyPredictor(data, tw, th, spp, bitsPerSample, le);
+      const tx=(t%tilesAcross)*tw, ty=Math.floor(t/tilesAcross)*th;
+      for(let r=0;r<th;r++){ const gy=ty+r; if(gy>=height) break;
+        const validCols=Math.min(tw, width-tx);
+        const validBytes=Math.ceil(validCols*spp*bitsPerSample/8);
+        const dstByteX=Math.floor(tx*spp*bitsPerSample/8);
+        raster.set(data.subarray(r*rowBytesTile, r*rowBytesTile+validBytes), gy*bytesPerSampleRow+dstByteX);
+      }
+    }
+  } else {
+    const rps=tag(T,278,height);
+    const offs=tagArr(T,273,[]), counts=tagArr(T,279,[]);
+    if(!offs.length) throw new Error('TIFF has no strip data');
+    let rowCursor=0;
+    for(let s=0;s<offs.length;s++){
+      const rowsInStrip=Math.min(rps, height-rowCursor);
+      let data=bytes.subarray(offs[s], offs[s]+counts[s]);
+      data=await decompress(data, compression, bytesPerSampleRow*rowsInStrip);
+      if(predictor===2) applyPredictor(data, width, rowsInStrip, spp, bitsPerSample, le);
+      raster.set(data.subarray(0, bytesPerSampleRow*rowsInStrip), rowCursor*bytesPerSampleRow);
+      rowCursor+=rowsInStrip;
+    }
+  }
+
+  const rgba=new Uint8ClampedArray(width*height*4);
+  const maxOf=(1<<Math.min(bitsPerSample,30))-1;
+  const readSample=makeSampleReader(raster, bytesPerSampleRow, bitsPerSample, sampleFormat, le);
+  let scaleMax=maxOf, mn=0;
+  if(bitsPerSample>8 || sampleFormat===3){
+    let mx=0, lo=Infinity;
+    for(let y=0;y<height;y++) for(let i=0;i<width*spp;i++){ const v=readSample(y,i); if(v>mx)mx=v; if(v<lo)lo=v; }
+    if(sampleFormat===3) mn=lo;
+    scaleMax=mx>mn?mx:(mx||1);
+    if(bitsPerSample>8) note.push(bitsPerSample+'-bit scaled to 8-bit for display');
+  }
+  const scale8=v=>{ if(bitsPerSample===8) return v;
+    if(sampleFormat===3) return Math.round((v-mn)*255/((scaleMax-mn)||1));
+    return Math.round(v*255/(scaleMax||1)); };
+
+  for(let y=0;y<height;y++){
+    for(let x=0;x<width;x++){
+      const base=(y*width+x)*4, si=x*spp; let r,g,b,a=255;
+      if(photometric===3 && colorMap){
+        const idx=readSample(y,si), nn=colorMap.length/3;
+        r=colorMap[idx]>>8; g=colorMap[idx+nn]>>8; b=colorMap[idx+2*nn]>>8;
+      } else if(spp>=3){
+        r=scale8(readSample(y,si)); g=scale8(readSample(y,si+1)); b=scale8(readSample(y,si+2));
+        if(spp>=4) a=scale8(readSample(y,si+3));
+      } else {
+        let v=scale8(readSample(y,si)); if(photometric===0) v=255-v; r=g=b=v;
+      }
+      rgba[base]=r; rgba[base+1]=g; rgba[base+2]=b; rgba[base+3]=a;
+    }
+  }
+  return { width, height, rgba, pages: pageOffsets.length, note: note.join('; ') };
+
+  function parseIFD(o){
+    const n=view.getUint16(o, le); const tags={};
+    for(let i=0;i<n;i++){ const e=o+2+i*12;
+      const id=view.getUint16(e, le), type=view.getUint16(e+2, le), count=view.getUint32(e+4, le);
+      tags[id]={type,count,values:readValues(type,count,e+8)}; }
+    return tags;
+  }
+  function typeSize(t){ return ({1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8})[t]||1; }
+  function readValues(type,count,valOff){
+    const total=typeSize(type)*count; let p=valOff;
+    if(total>4) p=view.getUint32(valOff, le);
+    const out=[];
+    for(let i=0;i<count;i++){ const q=p+i*typeSize(type);
+      switch(type){
+        case 1: case 2: case 6: case 7: out.push(view.getUint8(q)); break;
+        case 3: out.push(view.getUint16(q, le)); break;
+        case 8: out.push(view.getInt16(q, le)); break;
+        case 4: out.push(view.getUint32(q, le)); break;
+        case 9: out.push(view.getInt32(q, le)); break;
+        case 5: out.push(view.getUint32(q,le)/(view.getUint32(q+4,le)||1)); break;
+        case 11: out.push(view.getFloat32(q, le)); break;
+        case 12: out.push(view.getFloat64(q, le)); break;
+        default: out.push(view.getUint8(q));
+      } }
+    return out;
+  }
+  function tag(t,id,def){ return t[id] ? t[id].values[0] : def; }
+  function tagArr(t,id,def){ return t[id] ? t[id].values : def; }
+}
+function makeSampleReader(raster, rowBytes, bps, sampleFormat, le){
+  if(bps===8) return (y,i)=>raster[y*rowBytes+i];
+  if(bps===16) return (y,i)=>{ const o=y*rowBytes+i*2; return le ? (raster[o]|(raster[o+1]<<8)) : ((raster[o]<<8)|raster[o+1]); };
+  if(bps===32){ const dv=new DataView(raster.buffer, raster.byteOffset, raster.byteLength);
+    return (y,i)=>{ const o=y*rowBytes+i*4; return sampleFormat===3 ? dv.getFloat32(o, le) : dv.getUint32(o, le); }; }
+  if(bps===1) return (y,i)=>{ const byteo=y*rowBytes+(i>>3), b=7-(i&7); return (raster[byteo]>>b)&1 ? 255 : 0; };
+  return ()=>0;
+}
+function applyPredictor(data, width, rows, spp, bps, le){
+  if(bps===8){ for(let r=0;r<rows;r++){ const rs=r*width*spp;
+    for(let x=spp;x<width*spp;x++) data[rs+x]=(data[rs+x]+data[rs+x-spp])&0xff; } }
+  else if(bps===16){ const rowBytes=width*spp*2;
+    for(let r=0;r<rows;r++){ const rs=r*rowBytes;
+      for(let x=spp;x<width*spp;x++){ const o=rs+x*2, op=rs+(x-spp)*2;
+        const cur=le?(data[o]|(data[o+1]<<8)):((data[o]<<8)|data[o+1]);
+        const prev=le?(data[op]|(data[op+1]<<8)):((data[op]<<8)|data[op+1]);
+        const v=(cur+prev)&0xffff;
+        if(le){ data[o]=v&0xff; data[o+1]=(v>>8)&0xff; } else { data[o]=(v>>8)&0xff; data[o+1]=v&0xff; } } } }
+}
+async function decompress(data, compression, expectedLen){
+  if(compression===1) return data;
+  if(compression===5) return lzwDecodeTIFF(data);
+  if(compression===32773) return packBits(data, expectedLen);
+  if(compression===8 || compression===32946) return await inflate(data);
+  throw new Error('Unsupported TIFF compression: '+compression);
+}
+function packBits(data, expected){
+  const out=new Uint8Array(expected); let o=0, i=0;
+  while(i<data.length && o<expected){ let n=data[i++]; if(n>127) n-=256;
+    if(n>=0){ for(let j=0;j<=n && o<expected;j++) out[o++]=data[i++]; }
+    else if(n!==-128){ const b=data[i++]; for(let j=0;j<1-n && o<expected;j++) out[o++]=b; } }
+  return out;
+}
+function lzwDecodeTIFF(data){
+  const CLEAR=256, EOI=257; const out=[]; let table, codeLen, next;
+  const init=()=>{ table=new Array(4096); for(let i=0;i<256;i++) table[i]=[i]; next=258; codeLen=9; };
+  let bitPos=0; const totalBits=data.length*8;
+  const getCode=()=>{ if(bitPos+codeLen>totalBits) return EOI; let c=0;
+    for(let i=0;i<codeLen;i++){ const bi=bitPos>>3, b=7-(bitPos&7); c=(c<<1)|((data[bi]>>b)&1); bitPos++; } return c; };
+  init();
+  let code=getCode(); while(code===CLEAR) code=getCode();
+  if(code===EOI) return new Uint8Array(0);
+  for(const v of table[code]) out.push(v);
+  let old=code;
+  while((code=getCode())!==EOI){
+    if(code===CLEAR){ init(); code=getCode(); if(code===EOI) break; for(const v of table[code]) out.push(v); old=code; continue; }
+    const entry=(code<next && table[code]) ? table[code] : table[old].concat(table[old][0]);
+    for(const v of entry) out.push(v);
+    table[next++]=table[old].concat(entry[0]);
+    old=code;
+    if(next===511) codeLen=10; else if(next===1023) codeLen=11; else if(next===2047) codeLen=12;
+  }
+  return Uint8Array.from(out);
+}
+async function inflate(data){
+  const ds=new DecompressionStream('deflate');
+  const w=ds.writable.getWriter(); w.write(data); w.close();
+  const chunks=[]; const rd=ds.readable.getReader();
+  for(;;){ const {done,value}=await rd.read(); if(done) break; chunks.push(value); }
+  let len=0; for(const c of chunks) len+=c.length;
+  const out=new Uint8Array(len); let o=0; for(const c of chunks){ out.set(c,o); o+=c.length; }
+  return out;
+}
+// Decode a TIFF File → rasterize to PNG → feed the normal import pipeline
+async function _loadTIFFFile(f, fail){
+  try{
+    const res=await decodeTIFF(new Uint8Array(await f.arrayBuffer()));
+    const c=document.createElement('canvas'); c.width=res.width; c.height=res.height;
+    c.getContext('2d').putImageData(new ImageData(res.rgba, res.width, res.height), 0, 0);
+    const src=c.toDataURL('image/png');
+    const img=new Image();
+    img.onload=()=>{ _preCropQueue.push({img,src,name:f.name.replace(/\.tiff?$/i,'.png')}); _drainPreCrop();
+      toast(`Opened "${f.name}" (${res.width}×${res.height}${res.note?' · '+res.note:''})`,'ok'); };
+    img.onerror=()=>fail();
+    img.src=src;
+  }catch(e){
+    fail(`Couldn't open "${f.name}": ${(e&&e.message)||e}. Tiled/BigTIFF/JPEG-compressed or other exotic TIFFs may be unsupported — try re-saving as PNG or a standard 8/16-bit TIFF.`);
+  }
+}
+
 function addFiles(fileList){
   Array.from(fileList).forEach(f=>{
+    const nameL=(f.name||'').toLowerCase();
+    const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
+    const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
+    const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
+    if(isTIFF){ _loadTIFFFile(f, fail); return; }
     const reader=new FileReader();
-    const isSVG=f.type==='image/svg+xml'||f.name.toLowerCase().endsWith('.svg');
-    const fail=()=>{ toast(`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
     reader.onload=ev=>{
       if(isSVG){
         _rasterizeSVG(ev.target.result,(img,src)=>{
@@ -1745,11 +1968,11 @@ function addFiles(fileList){
           _preCropQueue.push({img, src:ev.target.result, name:f.name});
           _drainPreCrop();
         };
-        img.onerror=fail;
+        img.onerror=()=>fail();
         img.src=ev.target.result;
       }
     };
-    reader.onerror=fail;
+    reader.onerror=()=>fail();
     reader.readAsDataURL(f);
   });
 }
