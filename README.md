@@ -1,4 +1,4 @@
-# FigureLab v3.6
+# FigureLab v3.6.1
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -246,7 +246,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
 - **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.
 
-_v3.6 is published & citable — version DOI [`10.5281/zenodo.21305029`](https://doi.org/10.5281/zenodo.21305029). The concept DOI below always resolves to the latest._
+_Published & citable — latest version DOI [`10.5281/zenodo.21305142`](https://doi.org/10.5281/zenodo.21305142) (v3.6.1). The concept DOI below always resolves to the latest._
 
 ### v3.5 — 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
@@ -347,7 +347,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.6) [Computer software].
+> publication-quality scientific figures* (Version 3.6.1) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -357,7 +357,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.6},
+  version   = {3.6.1},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
@@ -365,7 +365,7 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** — it always resolves to the latest version.
-To cite this exact release, use the v3.6 DOI [`10.5281/zenodo.21305029`](https://doi.org/10.5281/zenodo.21305029).
+To cite this exact release, use the v3.6.1 DOI [`10.5281/zenodo.21305142`](https://doi.org/10.5281/zenodo.21305142).
 
 ---
 
