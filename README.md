@@ -236,6 +236,10 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Per-object text** — double-click text to edit it in place; set font family, size, bold/italic, colour and alignment per object.
 - **Cover patch** 🩹 — the integrity-safe way to hide or replace baked-in text: an opaque, movable object (with *match background*) you type new text over. Reversible and recorded in the session — never a hidden pixel edit.
 - **Paint layer** 🖌 — a brush & eraser that draw on a *separate overlay*, so your original image pixels are never modified. The layer appears in the layer list and every stroke is logged in the figure's provenance — non-destructive by design, so it can't be used to quietly alter data.
+- **Science icon library** — drop in vector arrows, brackets, scale bars, cell/nucleus, significance asterisks & error-bar caps; they stay crisp and re-export as vector.
+- **Starter templates** — 2×2 / 3×3 grids, before/after, or a freeform pathway diagram to start from.
+- **Pop out to free layout** — convert a grid into freely-movable panels in one click.
+- **Format painter** — copy one object's look (colour, fill, stroke, font) onto others.
 - **TIFF import** — a dependency-free, client-side decoder opens `.tif/.tiff` that browsers can't (Chrome/Edge/Firefox): uncompressed, LZW, PackBits & Deflate; 8/16-bit & 32-bit float; grayscale, RGB, RGBA, CMYK & palette; strips or tiles; little/big-endian; horizontal-differencing predictor. Verified pixel-exact against a `tifffile`-generated fixture matrix.
 - **SVG stays vector** — imported SVGs keep their vector source (crisp at any size) and **re-export as vector** in SVG output, editable in Illustrator/Inkscape.
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.

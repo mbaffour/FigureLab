@@ -384,6 +384,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 #ctx-toolbar button{background:transparent;border:none;color:var(--text);font-size:14px;cursor:pointer;
   padding:5px 8px;border-radius:6px;line-height:1}
 #ctx-toolbar button:hover{background:var(--surf2)}
+.icon-palette{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.icon-btn-sci{width:34px;height:34px;padding:4px;border:1px solid var(--border);border-radius:6px;background:#f5f5f5;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.icon-btn-sci:hover{border-color:var(--accent)}
+.icon-btn-sci svg{width:100%;height:100%;display:block}
 
 /* ── Freeform element selection overlay ─────────────────────── */
 .elem-handle{position:absolute;width:8px;height:8px;background:#f5a623;border:2px solid #fff;
@@ -488,6 +492,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Rows</label>
       <input type="number" id="rows" value="2" min="1" max="12" oninput="onLayoutChange()"></div>
     <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="autoArrange()" title="Propose a balanced grid, even spacing and labels for the current number of panels">✨ Auto-arrange panels</button>
+    <button class="btn" style="width:100%;font-size:11px;margin:1px 0 5px" onclick="convertGridToFreeform()" title="Pop the panels out into a freely-movable (freeform) layout so you can drag and arrange them by hand">⇱ Pop out to free layout</button>
     <div class="field"><label>Panel width (px)</label>
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
@@ -570,6 +575,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
       <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
       <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
+      <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
+      <div id="icon-palette" class="icon-palette"></div>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -1072,6 +1079,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn btn-primary" onclick="loadExampleFigure()">✨ Try the example figure</button>
           <button class="btn" onclick="openCustomize()">⚙ Customize</button>
         </div>
+        <div class="es-actions" style="margin-top:6px">
+          <span style="font-size:10.5px;color:var(--muted);align-self:center">Starter:</span>
+          <button class="btn" onclick="applyStarter('grid2x2')" title="2×2 panel grid">▦ 2×2</button>
+          <button class="btn" onclick="applyStarter('beforeafter')" title="Before / after (2×1)">◧ Before/after</button>
+          <button class="btn" onclick="applyStarter('grid3x3')" title="3×3 panel grid">▩ 3×3</button>
+          <button class="btn" onclick="applyStarter('pathway')" title="Freeform pathway/flow diagram">➜ Pathway</button>
+        </div>
         <div class="es-flow">
           <span class="es-step es-cur">Import</span>›<span class="es-step">Layout</span>›<span class="es-step">Calibrate</span>›<span class="es-step">Annotate</span>›<span class="es-step">Audit</span>›<span class="es-step">Export</span>
         </div>
@@ -1256,6 +1270,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Real text editing</b> — double-click any text to edit it in place; set font family, size, <b>bold</b>/<i>italic</i>, colour and alignment per object.</li>
   <li><b>Cover patch</b> 🩹 — the honest way to hide or replace baked-in text: drop an opaque, movable patch (with “match background”) and type new text on top. It’s an object — reversible and recorded in the session, never a hidden pixel edit.</li>
   <li><b>Paint layer</b> 🖌 — a brush &amp; eraser that draw on a <b>separate overlay</b>: your original image pixels are never modified, the layer shows in the layer list, and every stroke is recorded in the figure’s provenance. Non-destructive by design, so it can’t be used to quietly alter data.</li>
+  <li><b>Science icon library</b> — drop in vector arrows, brackets, scale bars, cell/nucleus, significance asterisks &amp; error-bar caps; they stay crisp forever and re-export as vector.</li>
+  <li><b>Starter templates</b> — begin from a 2×2 / 3×3 grid, a before/after pair, or a freeform pathway diagram instead of a blank canvas.</li>
+  <li><b>Pop out to free layout</b> — convert a grid into freely-movable panels in one click, then drag &amp; arrange by hand.</li>
+  <li><b>Format painter</b> — copy one object’s look (colour, fill, stroke, font) and apply it to others.</li>
   <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits &amp; Deflate; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian. 16-bit is linearly scaled to 8-bit for display.</li>
   <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape).</li>
   <li><b>Save dialog</b> — every export opens a dialog to set the file name, format &amp; DPI first; on Chrome/Edge you pick the folder in your system’s native Save window.</li>
@@ -2329,6 +2347,11 @@ const CMD_REGISTRY=[
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
+  {label:'Starter: 2×2 grid',        keys:'starter template 2x2 grid layout',   run:()=>applyStarter('grid2x2')},
+  {label:'Starter: before / after',  keys:'starter template before after 2x1',  run:()=>applyStarter('beforeafter')},
+  {label:'Starter: 3×3 grid',        keys:'starter template 3x3 grid layout',   run:()=>applyStarter('grid3x3')},
+  {label:'Starter: pathway diagram', keys:'starter template pathway flow diagram boxes arrows', run:()=>applyStarter('pathway')},
+  {label:'Pop grid out to free layout', keys:'freeform free move panels pop out convert drag', run:()=>convertGridToFreeform()},
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
@@ -7851,6 +7874,102 @@ function pasteElemStyle(){
   [...selectedElems].forEach(i=>{ const el=freeformElements[i]; if(el) Object.assign(el,_copiedStyle); });
   updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
   toast('Style applied','ok');
+}
+
+// ── Built-in vector science icons ──────────────────────────────
+// Inserted as vector freeform objects (via the SVG pipeline) so they stay crisp.
+const _icoWrap=(inner)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${inner}</svg>`;
+const SCIENCE_ICONS={
+  arrow:{label:'Arrow',w:150,h:64,svg:_icoWrap('<line x1="8" y1="50" x2="82" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round"/><polyline points="64,28 92,50 64,72" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
+  arrowDouble:{label:'Double arrow',w:150,h:64,svg:_icoWrap('<line x1="18" y1="50" x2="82" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round"/><polyline points="36,32 12,50 36,68" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="64,32 88,50 64,68" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
+  arrowDashed:{label:'Dashed arrow',w:150,h:64,svg:_icoWrap('<line x1="8" y1="50" x2="80" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-dasharray="12 10"/><polyline points="64,28 92,50 64,72" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
+  bracket:{label:'Bracket',w:52,h:120,svg:_icoWrap('<path d="M64 10 q-16 0 -16 16 v14 q0 8 -12 10 q12 2 12 10 v14 q0 16 16 16" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round"/>')},
+  scalebar:{label:'Scale bar',w:150,h:44,svg:_icoWrap('<rect x="10" y="42" width="80" height="14" rx="2" fill="#222"/>')},
+  cell:{label:'Cell',w:96,h:96,svg:_icoWrap('<circle cx="50" cy="50" r="38" fill="none" stroke="#222" stroke-width="7"/>')},
+  nucleus:{label:'Cell + nucleus',w:96,h:96,svg:_icoWrap('<circle cx="50" cy="50" r="40" fill="none" stroke="#222" stroke-width="6"/><circle cx="50" cy="50" r="16" fill="#222"/>')},
+  plus:{label:'Plus',w:80,h:80,svg:_icoWrap('<line x1="50" y1="16" x2="50" y2="84" stroke="#222" stroke-width="9" stroke-linecap="round"/><line x1="16" y1="50" x2="84" y2="50" stroke="#222" stroke-width="9" stroke-linecap="round"/>')},
+  asterisk:{label:'Asterisk (significance)',w:70,h:70,svg:_icoWrap('<g stroke="#222" stroke-width="9" stroke-linecap="round"><line x1="50" y1="16" x2="50" y2="84"/><line x1="21" y1="33" x2="79" y2="67"/><line x1="79" y1="33" x2="21" y2="67"/></g>')},
+  ibeam:{label:'Error-bar cap',w:60,h:110,svg:_icoWrap('<g stroke="#222" stroke-width="7" stroke-linecap="round"><line x1="50" y1="18" x2="50" y2="82"/><line x1="28" y1="18" x2="72" y2="18"/><line x1="28" y1="82" x2="72" y2="82"/></g>')},
+};
+function insertIcon(name){
+  const ic=SCIENCE_ICONS[name]; if(!ic) return;
+  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(ic.svg);
+  _rasterizeSVG(dataURL,(img,pngSrc)=>{
+    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    const w=ic.w||90, h=ic.h||90;
+    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, isVector:true,
+      x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
+      brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
+      blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:ic.label});
+    const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+    drawFreeformOverlay(); scheduleRender(0);
+  }, ()=>toast('Could not add icon','err'));
+}
+function renderIconPalette(){
+  const el=document.getElementById('icon-palette'); if(!el) return;
+  el.innerHTML='';
+  Object.entries(SCIENCE_ICONS).forEach(([k,ic])=>{
+    const b=document.createElement('button');
+    b.className='icon-btn-sci'; b.title='Insert '+ic.label; b.innerHTML=ic.svg;
+    b.addEventListener('click',()=>insertIcon(k));
+    el.appendChild(b);
+  });
+}
+renderIconPalette();
+
+// ── Starter templates ──────────────────────────────────────────
+function applyStarter(kind){
+  if(kind==='pathway'){
+    const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
+    pushUndo();
+    const W=canvasLogicalW||parseInt(gv('fm-canvas-w'))||1200, H=canvasLogicalH||parseInt(gv('fm-canvas-h'))||900;
+    const bw=170, bh=90, cy=Math.round(H/2-bh/2), gap=80;
+    const total=3*bw+2*gap, x0=Math.round((W-total)/2);
+    for(let i=0;i<3;i++){ const x=x0+i*(bw+gap);
+      addFreeformElement({type:'rect',x,y:cy,w:bw,h:bh,color:'#5b8dee',fillColor:'#eaf0ff',fillOpacity:1,strokeWidth:2,label:'Step '+(i+1)}); }
+    for(let i=0;i<2;i++){ const ax=x0+i*(bw+gap)+bw+8, ay=cy+bh/2;
+      addFreeformElement({type:'line',x:ax,y:ay,w:gap-16,h:1,x2:ax+gap-16,y2:ay,color:'#333',strokeWidth:3,label:'→'}); }
+    selectedElems.clear(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+    toast('Pathway starter added — edit the boxes & arrows','ok'); return;
+  }
+  const sel=document.getElementById('layout-mode'); if(sel){ sel.value='grid'; } setLayoutMode('grid');
+  const d={grid2x2:[2,2],grid3x3:[3,3],beforeafter:[2,1]}[kind]||[2,2];
+  sv('cols',d[0]); sv('rows',d[1]);
+  if(typeof onLayoutChange==='function') onLayoutChange();
+  scheduleRender(0);
+  toast('Template applied — drop images into the grid','ok');
+}
+
+// ── Pop a grid out to a freely-movable (freeform) layout ────────
+function convertGridToFreeform(){
+  if(layoutMode!=='grid'){ toast('This pops a grid out — switch to grid mode first','warn'); return; }
+  if(!images.length){ toast('Add panels first','warn'); return; }
+  render();                                            // make sure panelBounds is current
+  const pbs=panelBounds.slice();
+  if(!pbs.length){ toast('Nothing to convert','warn'); return; }
+  pushUndo();
+  const W=canvasLogicalW||1200, H=canvasLogicalH||900;
+  sv('fm-canvas-w',Math.round(W)); sv('fm-canvas-h',Math.round(H));
+  const els=[];
+  pbs.forEach((pb,i)=>{
+    const im=images[pb.idx]; if(!im) return;
+    const ar=(im.img&&im.img.naturalWidth)? im.img.naturalWidth/im.img.naturalHeight : (pb.w/pb.h);
+    let fw=pb.w, fh=pb.w/ar; if(fh>pb.h){ fh=pb.h; fw=pb.h*ar; }   // keep the image's fitted aspect
+    els.push({id:Date.now()+Math.random()+i, type:'image', src:im.src, img:im.img, _imgEl:im.img,
+      svgSource:im.svgSource||null, isVector:!!im.isVector,
+      x:Math.round(pb.x+(pb.w-fw)/2), y:Math.round(pb.y+(pb.h-fh)/2), w:Math.round(fw), h:Math.round(fh),
+      zIndex:i+1, rotation:0, locked:false, opacity:1,
+      brightness:im.brightness||1, contrast:im.contrast||1,
+      cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0, cropShape:im.cropShape||'rect',
+      blackPt:im.blackPt||0, whitePt:im.whitePt||255, grayscale:!!im.grayscale, invert:!!im.invert,
+      lut:im.lut||'none', gamma:im.gamma||1, label:im.label||''});
+  });
+  freeformElements=els; _fmZCounter=els.length;
+  const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
+  selectedElems.clear(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast(els.length+' panel(s) popped out — drag them freely (originals kept in the session)','ok');
 }
 
 // Lock / unlock selected objects (locked = can't be moved, resized, or rotated)

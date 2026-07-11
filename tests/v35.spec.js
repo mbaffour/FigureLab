@@ -477,6 +477,61 @@ test('format painter copies one object style onto another', async ({ page }) => 
   expect(r.strokeWidth).toBe(5);
 });
 
+test('science icon library inserts crisp vector icons', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    setLayoutMode('freeform');
+    const paletteCount = document.querySelectorAll('#icon-palette .icon-btn-sci').length;
+    insertIcon('arrow');
+    await new Promise(res => { const iv = setInterval(() => { if (freeformElements.some(e => e.isVector)) { clearInterval(iv); res(); } }, 25); setTimeout(() => { clearInterval(iv); res(); }, 3000); });
+    const el = freeformElements.find(e => e.isVector);
+    return { paletteCount, type: el && el.type, isVector: !!(el && el.isVector), hasSvg: !!(el && /polyline|line/.test(el.svgSource || '')) };
+  });
+  expect(r.paletteCount).toBeGreaterThanOrEqual(8);
+  expect(r.type).toBe('image');
+  expect(r.isVector).toBe(true);           // icon added as a vector object → stays crisp / re-exports vector
+  expect(r.hasSvg).toBe(true);
+});
+
+test('starter templates set up grid dims and a freeform pathway', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => {
+    applyStarter('grid2x2');
+    const g = { mode: layoutMode, cols: gv('cols'), rows: gv('rows') };
+    applyStarter('beforeafter');
+    const ba = { cols: gv('cols'), rows: gv('rows') };
+    applyStarter('pathway');
+    return { g, ba, pathwayMode: layoutMode,
+      boxes: freeformElements.filter(e => e.type === 'rect').length,
+      lines: freeformElements.filter(e => e.type === 'line').length };
+  });
+  expect(r.g.mode).toBe('grid');
+  expect(r.g.cols).toBe('2'); expect(r.g.rows).toBe('2');
+  expect(r.ba.cols).toBe('2'); expect(r.ba.rows).toBe('1');
+  expect(r.pathwayMode).toBe('freeform');
+  expect(r.boxes).toBe(3);
+  expect(r.lines).toBe(2);
+});
+
+test('pop grid out to freeform creates one movable object per panel, keeps originals', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    const sel = document.getElementById('layout-mode'); sel.value = 'grid'; setLayoutMode('grid');
+    render(); await wait(80);
+    const beforeMode = layoutMode, nImg = images.length;
+    convertGridToFreeform();
+    await wait(80);
+    return { beforeMode, nImg, afterMode: layoutMode,
+      ffImages: freeformElements.filter(e => e.type === 'image').length, imagesKept: images.length };
+  });
+  expect(r.beforeMode).toBe('grid');
+  expect(r.afterMode).toBe('freeform');
+  expect(r.ffImages).toBe(r.nImg);        // one freeform object per grid panel
+  expect(r.imagesKept).toBe(r.nImg);      // originals retained in the session
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);
