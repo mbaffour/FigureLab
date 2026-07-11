@@ -1557,6 +1557,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- Floating context toolbar for the selected freeform object(s) -->
 <div id="ctx-toolbar">
   <button title="Duplicate (Ctrl+D)" onclick="duplicateSelectedElems()">⧉</button>
+  <button title="Copy style" onclick="copyElemStyle()">🎨</button>
+  <button title="Paste style onto selection" id="ctx-paste" style="display:none" onclick="pasteElemStyle()">⇥</button>
   <button title="Lock / unlock" id="ctx-lock" onclick="toggleLockSelected()">🔒</button>
   <button title="Bring to front" onclick="changeZOrder('front')">⬆</button>
   <button title="Send to back" onclick="changeZOrder('back')">⬇</button>
@@ -1665,6 +1667,7 @@ let elemRubberState  = null;        // {x0,y0,x,y} rubber-band selection
 let elemRotateState  = null;        // {idx,cx,cy,start,orig} rotate-handle drag
 let _snapGuides      = null;        // {gx,gy} magenta alignment guides while dragging
 let _paintStroke     = null;        // {idx,last} active brush stroke on a paint layer
+let _copiedStyle     = null;        // format-painter clipboard for object style
 let snapGrid         = false;
 let _fmZCounter      = 0;          // zIndex counter
 
@@ -7830,6 +7833,24 @@ function _paintDab(el, px, py, prev){
   else { ctx.beginPath(); ctx.arc(px,py,size/2,0,Math.PI*2); ctx.fill(); }
   ctx.globalCompositeOperation='source-over';
   el._paintDirty=true;
+}
+
+// Format painter — copy one object's look and apply it to others
+const _STYLE_KEYS=['color','fillColor','fillOpacity','strokeWidth','opacity','fontFamily','fontSize','bold','italic','align'];
+function copyElemStyle(){
+  if(selectedElems.size!==1){ toast('Select one object to copy its style','warn'); return; }
+  const el=freeformElements[[...selectedElems][0]]; if(!el) return;
+  _copiedStyle={}; _STYLE_KEYS.forEach(k=>{ if(el[k]!==undefined) _copiedStyle[k]=el[k]; });
+  const pb=document.getElementById('ctx-paste'); if(pb) pb.style.display='';
+  toast('Style copied — select other objects and paste','ok');
+}
+function pasteElemStyle(){
+  if(!_copiedStyle){ toast('Copy a style first','warn'); return; }
+  if(!selectedElems.size) return;
+  pushUndo();
+  [...selectedElems].forEach(i=>{ const el=freeformElements[i]; if(el) Object.assign(el,_copiedStyle); });
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast('Style applied','ok');
 }
 
 // Lock / unlock selected objects (locked = can't be moved, resized, or rotated)

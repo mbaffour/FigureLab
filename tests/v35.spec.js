@@ -456,6 +456,27 @@ test('paint layer is non-destructive: brushes on an overlay, undoable, session r
   expect(r.serNoLiveCanvas).toBe(true);     // live canvas not serialized
 });
 
+test('format painter copies one object style onto another', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => {
+    setLayoutMode('freeform');
+    addFreeformElement({ type:'rect', x:20, y:20, w:100, h:80, color:'#ff0000', fillColor:'#ffcc00', fillOpacity:0.7, strokeWidth:5 });
+    addFreeformElement({ type:'rect', x:200, y:20, w:100, h:80, color:'#000000', fillColor:'#cccccc', fillOpacity:0.2, strokeWidth:1 });
+    selectedElems.clear(); selectedElems.add(0); drawFreeformOverlay();
+    copyElemStyle();
+    const pasteShown = document.getElementById('ctx-paste').style.display !== 'none';
+    selectedElems.clear(); selectedElems.add(1); drawFreeformOverlay();
+    pasteElemStyle();
+    const b = freeformElements[1];
+    return { pasteShown, color: b.color, fillColor: b.fillColor, fillOpacity: b.fillOpacity, strokeWidth: b.strokeWidth };
+  });
+  expect(r.pasteShown).toBe(true);
+  expect(r.color).toBe('#ff0000');
+  expect(r.fillColor).toBe('#ffcc00');
+  expect(r.fillOpacity).toBe(0.7);
+  expect(r.strokeWidth).toBe(5);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);
