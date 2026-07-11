@@ -245,7 +245,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
 - **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.
 
-_v3.6 is the current development version. The published, citable release remains v3.5 (DOI below); a v3.6 DOI will be minted when it's tagged on Zenodo._
+_v3.6 is published & citable — version DOI [`10.5281/zenodo.21305029`](https://doi.org/10.5281/zenodo.21305029). The concept DOI below always resolves to the latest._
 
 ### v3.5 — 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
@@ -346,7 +346,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.5) [Computer software].
+> publication-quality scientific figures* (Version 3.6) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -356,7 +356,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.5},
+  version   = {3.6},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
@@ -364,7 +364,7 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** — it always resolves to the latest version.
-To cite this exact release, use the v3.5 DOI [`10.5281/zenodo.21269457`](https://doi.org/10.5281/zenodo.21269457).
+To cite this exact release, use the v3.6 DOI [`10.5281/zenodo.21305029`](https://doi.org/10.5281/zenodo.21305029).
 
 ---
 
