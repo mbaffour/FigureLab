@@ -350,6 +350,41 @@ test('TIFF import: addFiles routes .tif through the decoder into the crop pipeli
   expect(r.name).toMatch(/\.png$/);
 });
 
+test('SVG import stays vector: source retained, round-trips, and SVG export re-embeds vector', async ({ page }) => {
+  await loadApp(page);
+  const svgMarkup = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" fill="#eef"/><circle cx="60" cy="40" r="30" fill="#ff8800"/></svg>';
+  const r = await page.evaluate(async (svgMarkup) => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    const until = async fn => { for (let i = 0; i < 200; i++) { if (fn()) return true; await wait(25); } return false; };
+    setLayoutMode('freeform');
+    addFiles([new File([svgMarkup], 'diagram.svg', { type: 'image/svg+xml' })]);
+    await until(() => cropEdState && cropEdState._preCrop);     // pre-crop modal armed
+    skipPreCrop();                                              // add without cropping → keep the vector source
+    await until(() => freeformElements.some(e => e.isVector));
+    const el = freeformElements.find(e => e.isVector);
+    render(); await wait(60);
+    const state = serializeSession(true);                       // session round-trip
+    const serEl = (state.freeformElements || []).find(e => e.isVector);
+    sv('export-name', 'vectest');                               // SVG export re-embeds vector
+    const cap = await _captureDownload(() => doExport('svg'));
+    const text = new TextDecoder().decode(cap.data);
+    return {
+      isVector: !!(el && el.isVector),
+      sourceKept: !!(el && el.svgSource && /<circle/.test(el.svgSource)),
+      serializedKept: !!(serEl && serEl.isVector && /<circle/.test(serEl.svgSource || '')),
+      imageCount: (text.match(/<image/g) || []).length,
+      hasVectorHref: /data:image\/svg\+xml/.test(text),
+      encodesMarker: /%23ff8800/i.test(text),
+    };
+  }, svgMarkup);
+  expect(r.isVector).toBe(true);
+  expect(r.sourceKept).toBe(true);
+  expect(r.serializedKept).toBe(true);
+  expect(r.imageCount).toBeGreaterThanOrEqual(2);   // raster background + vector overlay
+  expect(r.hasVectorHref).toBe(true);
+  expect(r.encodesMarker).toBe(true);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

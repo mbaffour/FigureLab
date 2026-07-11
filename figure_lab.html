@@ -1712,8 +1712,10 @@ function _rasterizeSVG(dataURL, callback, onfail){
   const img=new Image();
   img.onload=()=>{
     const nw=img.naturalWidth||800, nh=img.naturalHeight||800;
-    const scale=Math.max(1, Math.min(8, 2048/Math.max(nw,nh)));
-    const rw=Math.round(nw*scale), rh=Math.round(nh*scale);
+    // Rasterise crisp (4096 longest side vs the old 2048). The original vector
+    // source is kept separately so SVG export can stay truly vector.
+    const scale=Math.min(12, 4096/(Math.max(nw,nh)||800));
+    const rw=Math.max(1,Math.round(nw*scale)), rh=Math.max(1,Math.round(nh*scale));
     const c=document.createElement('canvas');
     c.width=rw; c.height=rh;
     const cx=c.getContext('2d');
@@ -1948,6 +1950,22 @@ async function _loadTIFFFile(f, fail){
   }
 }
 
+// Load an SVG as TEXT so we can keep the original vector source (for crisp
+// display + vector SVG export), while also rasterising a high-res preview.
+function _loadSVGFile(f, fail){
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const svgSource=ev.target.result;
+    const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgSource);
+    _rasterizeSVG(dataURL,(img,pngSrc)=>{
+      _preCropQueue.push({img, src:pngSrc, name:f.name, svgSource});
+      _drainPreCrop();
+    }, ()=>fail());
+  };
+  reader.onerror=()=>fail();
+  reader.readAsText(f);
+}
+
 function addFiles(fileList){
   Array.from(fileList).forEach(f=>{
     const nameL=(f.name||'').toLowerCase();
@@ -1955,22 +1973,16 @@ function addFiles(fileList){
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
     const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
     if(isTIFF){ _loadTIFFFile(f, fail); return; }
+    if(isSVG){ _loadSVGFile(f, fail); return; }
     const reader=new FileReader();
     reader.onload=ev=>{
-      if(isSVG){
-        _rasterizeSVG(ev.target.result,(img,src)=>{
-          _preCropQueue.push({img,src,name:f.name});
-          _drainPreCrop();
-        }, fail);
-      } else {
-        const img=new Image();
-        img.onload=()=>{
-          _preCropQueue.push({img, src:ev.target.result, name:f.name});
-          _drainPreCrop();
-        };
-        img.onerror=()=>fail();
-        img.src=ev.target.result;
-      }
+      const img=new Image();
+      img.onload=()=>{
+        _preCropQueue.push({img, src:ev.target.result, name:f.name});
+        _drainPreCrop();
+      };
+      img.onerror=()=>fail();
+      img.src=ev.target.result;
     };
     reader.onerror=()=>fail();
     reader.readAsDataURL(f);
@@ -1984,9 +1996,9 @@ function _drainPreCrop(){
   _openPreCrop(item);
 }
 
-function _openPreCrop({img,src,name}){
+function _openPreCrop({img,src,name,svgSource}){
   const total=_preCropQueue.length+1; // remaining including this one
-  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name},
+  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name,svgSource},
     img,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0};
   // Update modal UI for pre-crop mode
   document.getElementById('crop-modal-title').textContent='✂ Pre-crop Image';
@@ -2009,9 +2021,11 @@ function _openPreCrop({img,src,name}){
   });
 }
 
-function _finishPreCrop(croppedSrc,croppedImg){
-  const name=cropEdState._preCrop?.name||'image';
-  _commitImage(croppedImg,croppedSrc,name);
+function _finishPreCrop(croppedSrc,croppedImg,keepVector){
+  const pc=cropEdState._preCrop||{};
+  const name=pc.name||'image';
+  // keep the vector source only when the image wasn't cropped (a crop makes it raster)
+  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null);
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
   cropEdState._preCrop=null;
@@ -2022,7 +2036,7 @@ function _finishPreCrop(croppedSrc,croppedImg){
 function skipPreCrop(){
   if(!cropEdState._preCrop) return;
   const {img,src,name}=cropEdState._preCrop;
-  _finishPreCrop(src,img);
+  _finishPreCrop(src,img,true);          // not cropped → keep the vector source
 }
 
 function _resetCropModalUI(){
@@ -2034,7 +2048,7 @@ function _resetCropModalUI(){
   document.getElementById('crop-apply-btn').textContent='✓ Apply Crop';
 }
 
-function _commitImage(img,src,name){
+function _commitImage(img,src,name,svgSource){
   if(layoutMode==='freeform'){
     const W=parseInt(document.getElementById('fm-canvas-w').value)||1200;
     const H=parseInt(document.getElementById('fm-canvas-h').value)||900;
@@ -2044,9 +2058,11 @@ function _commitImage(img,src,name){
       x:Math.round((W-ew)/2),y:Math.round((H-eh)/2),w:ew,h:eh,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
-      invert:false,lut:'none',gamma:1.0});
+      invert:false,lut:'none',gamma:1.0,
+      svgSource:svgSource||null, isVector:!!svgSource});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
+      svgSource:svgSource||null, isVector:!!svgSource,
       label:nextLabel(),sbOn:true,umPerPx:0,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
@@ -4142,7 +4158,7 @@ function applyCropModal(){
     c.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
     const newSrc=c.toDataURL('image/png');
     const newImg=new Image();
-    newImg.onload=()=>_finishPreCrop(newSrc,newImg);
+    newImg.onload=()=>_finishPreCrop(newSrc,newImg,false);   // cropped → vector source no longer matches
     newImg.src=newSrc;
     return;
   }
@@ -6406,7 +6422,22 @@ function exportSVG(name, dpi, canvas){
       annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
     }
   });
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
+  // Vector round-trip: re-embed freeform SVG objects as TRUE vector (crisp & editable),
+  // overlaying their raster region. Only when nothing raster-only was applied to them.
+  let vecSVG='';
+  if(layoutMode==='freeform' && typeof freeformElements!=='undefined'){
+    [...freeformElements].sort((a,b)=>a.zIndex-b.zIndex).forEach(el=>{
+      if(el.type==='image' && el.isVector && el.svgSource && !el.rotation
+         && !(el.cropT||el.cropL||el.cropB||el.cropR)
+         && (el.brightness==null||el.brightness===1) && (el.contrast==null||el.contrast===1)
+         && !el.grayscale && !el.invert && (el.lut==null||el.lut==='none')){
+        const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(el.svgSource);
+        const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
+        vecSVG+=`<image x="${(+el.x).toFixed(2)}" y="${(+el.y).toFixed(2)}" width="${(+el.w).toFixed(2)}" height="${(+el.h).toFixed(2)}" preserveAspectRatio="none"${op} xlink:href="${uri}"/>`;
+      }
+    });
+  }
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
 }
 
@@ -6726,8 +6757,10 @@ function serializeSession(bundleImages){
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
+      isVector: im.isVector||false,
       // Pixel data (bundled mode only) so a saved session reloads without re-dropping files
       src: _bundle ? im.src : undefined,
+      svgSource: (_bundle && im.svgSource) ? im.svgSource : undefined,
       channels:(im.channels||[]).map(c=>({name:c.name, src:_bundle?c.src:undefined, lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
       panelAnns:im.panelAnns||[] })),
     annotations,
