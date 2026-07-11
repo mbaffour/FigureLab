@@ -385,6 +385,77 @@ test('SVG import stays vector: source retained, round-trips, and SVG export re-e
   expect(r.encodesMarker).toBe(true);
 });
 
+test('paint layer is non-destructive: brushes on an overlay, undoable, session round-trips', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    document.getElementById('fm-canvas-w').value = 300; document.getElementById('fm-canvas-h').value = 200;
+    // underlying blue image (the "data" we must not alter)
+    const bc = document.createElement('canvas'); bc.width = 300; bc.height = 200;
+    const bcx = bc.getContext('2d'); bcx.fillStyle = '#0000ff'; bcx.fillRect(0, 0, 300, 200);
+    const blueSrc = bc.toDataURL('image/png');
+    const im = new Image(); await new Promise(res => { im.onload = res; im.src = blueSrc; });
+    addFreeformElement({ type:'image', src:blueSrc, img:im, x:0, y:0, w:300, h:200, brightness:1, contrast:1,
+      cropT:0, cropL:0, cropB:0, cropR:0, lut:'none', gamma:1 });
+    const imgIdx = freeformElements.length - 1;
+    render(); await wait(50);
+    // paint layer on top + red brush
+    addPaintLayer();
+    const paint = freeformElements[freeformElements.length - 1];
+    document.getElementById('pp-size').value = 22; document.getElementById('pp-color').value = '#ff0000';
+    setPaintMode('paint');
+    render(); await wait(40);
+    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const mk = (lx, ly) => ({ clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H, shiftKey:false, altKey:false });
+    const c = document.getElementById('fig-canvas'), cx = c.getContext('2d');
+    const smp = (lx, ly) => cx.getImageData(Math.round(lx*c.width/W), Math.round(ly*c.height/H), 1, 1).data;
+    // stroke across the middle
+    freeformMousedown(mk(50, 100)); freeformMousemove(mk(150, 100)); freeformMousemove(mk(250, 100)); freeformMouseup(mk(250, 100));
+    render(); await wait(50);
+    const painted = smp(150, 100), unpainted = smp(150, 30);
+    const isPaintType = paint.type === 'paint', toolPaint = activeTool === 'paint';
+    const imgUntouched = freeformElements[imgIdx].src === blueSrc;              // data image never modified
+    const hasPaintData = !!paint.paintData && paint.paintData.startsWith('data:image');
+    // undo removes the stroke (blue shows again)
+    undo(); render(); await wait(60);
+    const afterUndo = smp(150, 100);
+    // redo restores it (paintData → canvas is async, so give it time + re-render)
+    redo(); await wait(160); render(); await wait(60);
+    const afterRedo = smp(150, 100);
+    // eraser clears a spot
+    setPaintMode('erase'); document.getElementById('pp-size').value = 34;
+    freeformMousedown(mk(150, 100)); freeformMouseup(mk(150, 100));
+    render(); await wait(50);
+    const afterErase = smp(150, 100);
+    // session round-trip: paint bitmap serialized, live canvas stripped
+    const state = serializeSession(true);
+    const serPaint = (state.freeformElements || []).find(e => e.type === 'paint');
+    return {
+      isPaintType, toolPaint,
+      paintedRed: painted[0] > 180 && painted[1] < 80 && painted[2] < 80,
+      unpaintedBlue: unpainted[2] > 180 && unpainted[0] < 80,
+      imgUntouched, hasPaintData,
+      undoBlue: afterUndo[2] > 180 && afterUndo[0] < 80,
+      redoRed: afterRedo[0] > 180 && afterRedo[2] < 80,
+      eraseBlue: afterErase[2] > 180 && afterErase[0] < 80,
+      serPaintHasData: !!(serPaint && serPaint.paintData && serPaint.paintData.startsWith('data:image')),
+      serNoLiveCanvas: !!serPaint && !('_paintCanvas' in serPaint),
+    };
+  });
+  expect(r.isPaintType).toBe(true);
+  expect(r.toolPaint).toBe(true);
+  expect(r.paintedRed).toBe(true);          // brush drew red
+  expect(r.unpaintedBlue).toBe(true);       // image shows through where not painted
+  expect(r.imgUntouched).toBe(true);        // ← the integrity guarantee: source pixels untouched
+  expect(r.hasPaintData).toBe(true);
+  expect(r.undoBlue).toBe(true);            // undo removed the stroke
+  expect(r.redoRed).toBe(true);             // redo restored it
+  expect(r.eraseBlue).toBe(true);           // eraser cleared it
+  expect(r.serPaintHasData).toBe(true);     // bitmap saved in session
+  expect(r.serNoLiveCanvas).toBe(true);     // live canvas not serialized
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

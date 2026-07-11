@@ -569,6 +569,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="sec-lbl" style="margin-top:4px">Elements <span id="fm-elem-count" class="badge">0</span></div>
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
       <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
+      <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -995,6 +996,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 8px;font-size:10px" onclick="matchPatchBackground()" title="Sample the colour just outside the patch so it blends into the background">🎯 Match background</button>
     </div>
+    <div id="ep-paint-props" style="display:none;align-items:center;gap:5px">
+      <div class="abar-sep"></div>
+      <button id="pp-brush" class="ep-tbtn active" title="Brush" onclick="setPaintMode('paint')">🖌</button>
+      <button id="pp-erase" class="ep-tbtn" title="Eraser" onclick="setPaintMode('erase')">▨</button>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Size<input type="range" id="pp-size" min="1" max="80" value="14" style="width:64px"></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="pp-color" value="#ff3b30" style="width:26px;height:22px;padding:0;border:none;cursor:pointer"></label>
+      <span style="font-size:10px;color:var(--muted)">on-top only · image untouched</span>
+    </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px">Crop%:</span>
@@ -1246,6 +1255,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Friendly figure editor</b> (Freeform mode) — click to select, drag to move, resize with handles, and a <b>rotate handle</b> that snaps to 0/45/90°. Objects <b>snap into alignment</b> with magenta guides, and a floating toolbar puts duplicate, lock, layer-order &amp; delete right next to your selection.</li>
   <li><b>Real text editing</b> — double-click any text to edit it in place; set font family, size, <b>bold</b>/<i>italic</i>, colour and alignment per object.</li>
   <li><b>Cover patch</b> 🩹 — the honest way to hide or replace baked-in text: drop an opaque, movable patch (with “match background”) and type new text on top. It’s an object — reversible and recorded in the session, never a hidden pixel edit.</li>
+  <li><b>Paint layer</b> 🖌 — a brush &amp; eraser that draw on a <b>separate overlay</b>: your original image pixels are never modified, the layer shows in the layer list, and every stroke is recorded in the figure’s provenance. Non-destructive by design, so it can’t be used to quietly alter data.</li>
   <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits &amp; Deflate; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian. 16-bit is linearly scaled to 8-bit for display.</li>
   <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape).</li>
   <li><b>Save dialog</b> — every export opens a dialog to set the file name, format &amp; DPI first; on Chrome/Edge you pick the folder in your system’s native Save window.</li>
@@ -1654,6 +1664,7 @@ let elemResizeState  = null;        // {idx,handle,origX,origY,origW,origH,mx,my
 let elemRubberState  = null;        // {x0,y0,x,y} rubber-band selection
 let elemRotateState  = null;        // {idx,cx,cy,start,orig} rotate-handle drag
 let _snapGuides      = null;        // {gx,gy} magenta alignment guides while dragging
+let _paintStroke     = null;        // {idx,last} active brush stroke on a paint layer
 let snapGrid         = false;
 let _fmZCounter      = 0;          // zIndex counter
 
@@ -2314,6 +2325,7 @@ const CMD_REGISTRY=[
   {label:'Batch crop images',        keys:'batch crop images',                  run:()=>startBatchCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
+  {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
@@ -4672,7 +4684,12 @@ function cloneImageForUndo(im){
     panelAnns:(im.panelAnns||[]).map(a=>({...a})),
     _adjCache:undefined, _adjKey:undefined};
 }
-function cloneElemForUndo(el){ return {...el}; } // shallow: keeps img/_imgEl refs
+function cloneElemForUndo(el){
+  // Paint layers: drop the live canvas so each snapshot is independent; the
+  // bitmap is carried in paintData (kept current on each stroke) and re-hydrated on render.
+  if(el&&el.type==='paint'){ const {_paintCanvas,_paintDirty,...rest}=el; return rest; }
+  return {...el};                                          // shallow: keeps img/_imgEl refs
+}
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
@@ -6785,7 +6802,12 @@ function serializeSession(bundleImages){
     labelFormat:gv('label-format'),
     labelOffsets,
     layoutMode,
-    freeformElements: freeformElements.map(el=>{ const {img,...rest}=el; if(!_bundle) delete rest.src; return rest; }),
+    freeformElements: freeformElements.map(el=>{
+      const {img,_imgEl,_paintCanvas,_paintDirty,...rest}=el;
+      if(el.type==='paint' && _paintCanvas && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
+      if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
+      return rest;
+    }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
   };
   return state;
@@ -7276,7 +7298,7 @@ function updateFreeformElemList(){
     row.className='tpl-saved';
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
-    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':'◻';
+    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':'◻';
     row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
@@ -7409,6 +7431,10 @@ function renderFreeform(canvas, ctx){
       // Opaque cover patch — an object, never a destructive pixel edit
       ctx.fillStyle=el.color||'#ffffff';
       ctx.fillRect(el.x,el.y,el.w,el.h);
+    } else if(el.type==='paint'){
+      // Brush strokes live on the layer's own canvas — the source image is never touched
+      const cv=_ensurePaintCanvas(el);
+      if(cv) ctx.drawImage(cv, el.x, el.y, el.w, el.h);
     }
     ctx.restore();
   });
@@ -7434,6 +7460,16 @@ function freeformMousedown(e){
   const {x,y}=canvasCoords(annCanvas,e);
   // Arm a pre-edit snapshot for the upcoming move/resize/draw gesture.
   _pendingUndoSnap=_pendingUndoSnap||snapshotState();
+  // Paint / erase → brush onto the target paint layer (never the source image)
+  if(activeTool==='paint'||activeTool==='erase'){
+    const ti=_paintTargetAt(x,y);
+    if(ti<0){ toast('Add a 🖌 Paint layer first (Freeform panel)','warn'); _pendingUndoSnap=null; return true; }
+    const el=freeformElements[ti], cv=_ensurePaintCanvas(el);
+    const px=(x-el.x)*cv.width/el.w, py=(y-el.y)*cv.height/el.h;
+    _paintDab(el, px, py, null);
+    _paintStroke={idx:ti, last:{x:px,y:py}};
+    scheduleRender(0); return true;
+  }
   // Drawing tool → create new element
   if(activeTool!=='none'&&activeTool!=='measure-roi'&&activeTool!=='measure-line'&&activeTool!=='measure-count'){
     elemDragState={drawing:true,x0:x,y0:y,drawType:activeTool};
@@ -7479,6 +7515,16 @@ function freeformMousedown(e){
 
 function freeformMousemove(e){
   const {x,y}=canvasCoords(annCanvas,e);
+  if(_paintStroke){
+    const el=freeformElements[_paintStroke.idx];
+    if(el&&el._paintCanvas){
+      const px=(x-el.x)*el._paintCanvas.width/el.w, py=(y-el.y)*el._paintCanvas.height/el.h;
+      _paintDab(el, px, py, _paintStroke.last);
+      _paintStroke.last={x:px,y:py};
+      scheduleRender(0);
+    }
+    return true;
+  }
   if(elemRotateState){
     const {idx,cx,cy,start,orig}=elemRotateState;
     const el=freeformElements[idx];
@@ -7553,6 +7599,13 @@ function freeformMousemove(e){
 function freeformMouseup(e){
   const {x,y}=canvasCoords(annCanvas,e);
   const _commitFF=()=>{ if(_pendingUndoSnap){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; } };
+  if(_paintStroke){
+    const el=freeformElements[_paintStroke.idx];
+    if(el&&el._paintCanvas){ el.paintData=el._paintCanvas.toDataURL(); el._paintDirty=false; }
+    _paintStroke=null; _commitFF();
+    if(typeof logAction==='function') logAction('paintStroke',{});
+    scheduleRender(0); return true;
+  }
   if(elemRotateState){ elemRotateState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
   if(elemDragState?.moving){
@@ -7719,6 +7772,64 @@ function matchPatchBackground(){
   const hex='#'+[d[0],d[1],d[2]].map(v=>v.toString(16).padStart(2,'0')).join('');
   el.color=hex; const col=document.getElementById('ep-color'); if(col) col.value=hex;
   scheduleRender(0); toast('Patch colour matched to the background','ok');
+}
+
+// ── Honest paint layer ─────────────────────────────────────────
+// A brush/eraser that paints on a SEPARATE overlay canvas — the underlying
+// image pixels are never modified. Disclosed (layer list + provenance) and
+// fully reversible, so it can't be used to quietly doctor data.
+function _ensurePaintCanvas(el){
+  if(el._paintCanvas) return el._paintCanvas;
+  const cv=document.createElement('canvas');
+  cv.width=Math.max(1,Math.round(el.pw||el.w||100));
+  cv.height=Math.max(1,Math.round(el.ph||el.h||100));
+  el._paintCanvas=cv;
+  if(el.paintData){ const im=new Image(); im.onload=()=>{ try{ cv.getContext('2d').drawImage(im,0,0); }catch(e){} scheduleRender(0); }; im.src=el.paintData; }
+  return cv;
+}
+function addPaintLayer(){
+  if(layoutMode!=='freeform'){
+    const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
+  }
+  const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+  const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+  addFreeformElement({type:'paint', x:0, y:0, w:W, h:H, pw:W, ph:H, paintData:'', label:'Paint layer'});
+  const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+  setPaintMode('paint'); drawFreeformOverlay(); scheduleRender(0);
+  if(typeof logAction==='function') logAction('paintLayer',{});    // disclosed in the provenance log
+  if(!localStorage.getItem('fl-paint-notice')){
+    toast('Paint layers draw ON TOP — your image pixels are never changed, and the layer is recorded in the figure’s provenance.','ok');
+    try{ localStorage.setItem('fl-paint-notice','1'); }catch(e){}
+  } else { toast('Paint layer added — brush over the figure','ok'); }
+}
+function setPaintMode(m){
+  activeTool = m;                                            // 'paint' or 'erase'
+  document.querySelectorAll('.ann-tool').forEach(b=>b.classList.remove('active'));
+  const bb=document.getElementById('pp-brush'), eb=document.getElementById('pp-erase');
+  if(bb) bb.classList.toggle('active', m==='paint');
+  if(eb) eb.classList.toggle('active', m==='erase');
+  if(typeof annCanvas!=='undefined' && annCanvas) annCanvas.style.cursor='crosshair';
+}
+function _brushSize(){ return Math.max(1, parseInt((document.getElementById('pp-size')||{}).value)||14); }
+function _brushColor(){ return (document.getElementById('pp-color')||{}).value||'#ff3b30'; }
+function _paintTargetAt(x,y){
+  if(selectedElems.size===1){ const i=[...selectedElems][0]; const el=freeformElements[i]; if(el&&el.type==='paint') return i; }
+  const sorted=[...freeformElements.map((el,i)=>({el,i}))].sort((a,b)=>b.el.zIndex-a.el.zIndex);
+  for(const {el,i} of sorted){ if(el.type==='paint'&&hitFreeformElement(el,x,y)) return i; }
+  return -1;
+}
+function _paintDab(el, px, py, prev){
+  const cv=_ensurePaintCanvas(el); if(!cv) return;
+  const ctx=cv.getContext('2d');
+  const size=_brushSize();
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  if(activeTool==='erase'){ ctx.globalCompositeOperation='destination-out'; ctx.strokeStyle='rgba(0,0,0,1)'; ctx.fillStyle='rgba(0,0,0,1)'; }
+  else { ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=_brushColor(); ctx.fillStyle=_brushColor(); }
+  ctx.lineWidth=size;
+  if(prev){ ctx.beginPath(); ctx.moveTo(prev.x,prev.y); ctx.lineTo(px,py); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.arc(px,py,size/2,0,Math.PI*2); ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+  el._paintDirty=true;
 }
 
 // Lock / unlock selected objects (locked = can't be moved, resized, or rotated)
@@ -8518,9 +8629,11 @@ function updateElemPropsBar(){
   const isImg=el.type==='image'||el.type==='aiicon';
   const isText=el.type==='text';
   const isPatch=el.type==='patch';
+  const isPaint=el.type==='paint';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
   document.getElementById('ep-patch-props').style.display=isPatch?'flex':'none';
+  document.getElementById('ep-paint-props').style.display=isPaint?'flex':'none';
   // The "Label" field is a panel label — hide it for text objects (they use their own content)
   const lw=document.getElementById('ep-label-wrap'); if(lw) lw.style.display=isText?'none':'flex';
   // Populate fields
