@@ -1830,6 +1830,9 @@ async function decodeTIFF(input){
       if(photometric===3 && colorMap){
         const idx=readSample(y,si), nn=colorMap.length/3;
         r=colorMap[idx]>>8; g=colorMap[idx+nn]>>8; b=colorMap[idx+2*nn]>>8;
+      } else if(photometric===5 && spp>=4){                 // CMYK (separated) → approximate RGB
+        const c=scale8(readSample(y,si)), m=scale8(readSample(y,si+1)), yy=scale8(readSample(y,si+2)), k=scale8(readSample(y,si+3));
+        r=Math.round((255-c)*(255-k)/255); g=Math.round((255-m)*(255-k)/255); b=Math.round((255-yy)*(255-k)/255);
       } else if(spp>=3){
         r=scale8(readSample(y,si)); g=scale8(readSample(y,si+1)); b=scale8(readSample(y,si+2));
         if(spp>=4) a=scale8(readSample(y,si+3));
@@ -1875,7 +1878,7 @@ function makeSampleReader(raster, rowBytes, bps, sampleFormat, le){
   if(bps===16) return (y,i)=>{ const o=y*rowBytes+i*2; return le ? (raster[o]|(raster[o+1]<<8)) : ((raster[o]<<8)|raster[o+1]); };
   if(bps===32){ const dv=new DataView(raster.buffer, raster.byteOffset, raster.byteLength);
     return (y,i)=>{ const o=y*rowBytes+i*4; return sampleFormat===3 ? dv.getFloat32(o, le) : dv.getUint32(o, le); }; }
-  if(bps===1) return (y,i)=>{ const byteo=y*rowBytes+(i>>3), b=7-(i&7); return (raster[byteo]>>b)&1 ? 255 : 0; };
+  if(bps===1) return (y,i)=>{ const byteo=y*rowBytes+(i>>3), b=7-(i&7); return (raster[byteo]>>b)&1; };
   return ()=>0;
 }
 function applyPredictor(data, width, rows, spp, bps, le){
