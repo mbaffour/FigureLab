@@ -639,6 +639,21 @@ test('guided tour: every step renders fully on-screen and the tour completes', a
   expect(r.overlayGone).toBe(true);      // completing removes the overlay → scroll restored
 });
 
+test('onboarding: tour is opt-in — welcome shows first, no auto-launch, Quick tour button starts it', async ({ page }) => {
+  await loadApp(page);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.waitForTimeout(1200);       // past the old 800ms auto-start window
+  // the welcome/empty-state is visible and NOT covered by an auto-launched tour
+  expect(await page.evaluate(() => !!document.getElementById('tour-ov'))).toBe(false);
+  expect(await page.evaluate(() => getComputedStyle(document.getElementById('empty-state')).display)).toBe('flex');
+  expect(await page.evaluate(() => (document.getElementById('es-greeting') || {}).textContent || '')).toMatch(/welcome to FigureLab/i);
+  // the tour is opt-in via the Quick tour button
+  await page.locator('#empty-state').getByText('Quick tour').click();
+  await page.waitForFunction(() => { const c = document.getElementById('tour-card'); return c && c.style.visibility === 'visible'; }, { timeout: 4000 });
+  expect(await page.evaluate(() => !!document.getElementById('tour-ov'))).toBe(true);
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

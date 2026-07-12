@@ -1083,6 +1083,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="esOpenTemplates()">⊞ Start from a template</button>
           <button class="btn" onclick="esLoadSession()">📂 Load a session</button>
           <button class="btn btn-primary" onclick="loadExampleFigure()">✨ Try the example figure</button>
+          <button class="btn" onclick="startTour(true)" title="A quick 5-step walkthrough of the workflow">🧭 Quick tour</button>
           <button class="btn" onclick="openCustomize()">⚙ Customize</button>
         </div>
         <div class="es-actions" style="margin-top:6px">
@@ -3595,9 +3596,9 @@ function _tourRender(step, el){
 }
 // Safety hatch: Escape always dismisses the tour, so it can never trap you.
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('tour-ov')){ e.preventDefault(); e.stopPropagation(); _tourEnd(); } }, true);
-(function initTour(){
-  try{ if(!localStorage.getItem('fl-tour-done') && !localStorage.getItem('fl-hints-seen')) setTimeout(()=>startTour(false), 800); }catch(e){}
-})();
+// The tour is OPT-IN: the welcome / empty-state shows first (never covered by an
+// auto-launched modal). Users start it from the ✦ button or the command palette.
+
 
 function exportCSV(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
