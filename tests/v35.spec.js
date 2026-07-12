@@ -610,6 +610,35 @@ test('auto panel-lettering relabels panels in reading order', async ({ page }) =
   expect(new Set(r.labels).size).toBe(3); // distinct
 });
 
+test('guided tour: every step renders fully on-screen and the tour completes', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    localStorage.setItem('fl-tour-done', '1');   // disable the delayed auto-start so it can't re-enter
+    const waitCard = async () => { for (let i = 0; i < 80; i++) { const c = document.getElementById('tour-card'); if (c && c.style.visibility === 'visible') return c; await wait(25); } return null; };
+    const inView = c => { const b = c.getBoundingClientRect(); return b.top >= 0 && b.left >= 0 && b.bottom <= innerHeight + 1 && b.right <= innerWidth + 1; };
+    startTour(true);
+    const steps = [];
+    for (let i = 0; i < 5; i++) {
+      const c = await waitCard();
+      if (!c) { steps.push({ i, cardShown: false }); break; }
+      const next = c.querySelector('#tour-next');
+      steps.push({ i, cardShown: true, onScreen: inView(c),
+        nextReachable: next.getBoundingClientRect().bottom <= innerHeight, label: next.textContent });
+      next.click(); await wait(70);
+    }
+    return { steps, overlayGone: !document.getElementById('tour-ov') };
+  });
+  expect(r.steps.length).toBe(5);
+  r.steps.forEach(s => {
+    expect(s.cardShown).toBe(true);
+    expect(s.onScreen).toBe(true);       // ← the bug: below-fold steps used to land off-screen
+    expect(s.nextReachable).toBe(true);
+  });
+  expect(r.steps[4].label).toMatch(/Done/);
+  expect(r.overlayGone).toBe(true);      // completing removes the overlay → scroll restored
+});
+
 test('CVD simulation filters the display only, never the export buffer', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 2);

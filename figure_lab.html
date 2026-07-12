@@ -3549,18 +3549,28 @@ function _tourShow(){
   _tourClose();
   const step=TOUR_STEPS[_tourI]; if(!step){ _tourEnd(); return; }
   const el=document.querySelector(step.sel);
-  let r={left:innerWidth/2-110,top:innerHeight/2-40,width:220,height:80};
-  if(el){ const b=el.getBoundingClientRect(); if(b.width){ r={left:b.left-6,top:b.top-6,width:b.width+12,height:b.height+12}; el.scrollIntoView({block:'center'}); } }
+  const visible = el && el.getBoundingClientRect().width>0;
+  // Scroll the target into view FIRST, then measure once layout has settled — otherwise
+  // targets below the fold (e.g. the Export section) get a stale off-screen rect and the
+  // card lands off-screen, leaving you unable to reach Next while the overlay blocks scroll.
+  if(visible){ try{ el.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'}); }catch(e){ try{ el.scrollIntoView({block:'center'}); }catch(_){} } }
+  requestAnimationFrame(()=>requestAnimationFrame(()=>_tourRender(step, visible?el:null)));
+}
+function _tourRender(step, el){
+  _tourClose();
+  let r={left:innerWidth/2-110, top:innerHeight/2-40, width:220, height:80};
+  if(el){ const b=el.getBoundingClientRect(); if(b.width){ r={left:b.left-6, top:b.top-6, width:b.width+12, height:b.height+12}; } }
   const ov=document.createElement('div'); ov.id='tour-ov'; ov.style.cssText='position:fixed;inset:0;z-index:10000';
   const hole=document.createElement('div');
   hole.style.cssText=`position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`+
     `border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.6);pointer-events:none;transition:all .2s`;
   ov.appendChild(hole);
-  const below=r.top<innerHeight/2;
-  const card=document.createElement('div');
-  card.style.cssText=`position:absolute;max-width:280px;background:var(--surface);border:1px solid var(--border2);`+
-    `border-radius:10px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);font-family:var(--mono);`+
-    `left:${Math.min(Math.max(8,r.left), innerWidth-300)}px;${below?`top:${r.top+r.height+12}px`:`top:${Math.max(8,r.top-170)}px`}`;
+  const CARD_W=280;
+  const cLeft=Math.min(Math.max(8, r.left), innerWidth-CARD_W-8);
+  const card=document.createElement('div'); card.id='tour-card';
+  card.style.cssText=`position:absolute;width:${CARD_W}px;max-width:calc(100vw - 16px);background:var(--surface);`+
+    `border:1px solid var(--border2);border-radius:10px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);`+
+    `font-family:var(--mono);left:${cLeft}px;top:8px;visibility:hidden`;
   card.innerHTML=`<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">${step.title}</div>
     <div style="font-size:11.5px;color:var(--muted);line-height:1.55">${step.body}</div>
     <div style="display:flex;gap:6px;align-items:center;margin-top:12px">
@@ -3571,10 +3581,18 @@ function _tourShow(){
     </div>`;
   ov.appendChild(card);
   document.body.appendChild(ov);
-  ov.querySelector('#tour-next').addEventListener('click',()=>{ if(_tourI===TOUR_STEPS.length-1) _tourEnd(); else { _tourI++; _tourShow(); } });
-  const bk=ov.querySelector('#tour-back'); if(bk) bk.addEventListener('click',()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); });
-  ov.querySelector('#tour-skip').addEventListener('click',_tourEnd);
+  // Clamp the card fully inside the viewport so Next / Skip are ALWAYS reachable.
+  const ch=card.offsetHeight||160;
+  const below = r.top < innerHeight/2;
+  let cTop = below ? (r.top+r.height+12) : (r.top-ch-12);
+  cTop = Math.min(Math.max(8, cTop), innerHeight-ch-8);
+  card.style.top=cTop+'px'; card.style.visibility='visible';
+  card.querySelector('#tour-next').addEventListener('click',()=>{ if(_tourI===TOUR_STEPS.length-1) _tourEnd(); else { _tourI++; _tourShow(); } });
+  const bk=card.querySelector('#tour-back'); if(bk) bk.addEventListener('click',()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); });
+  card.querySelector('#tour-skip').addEventListener('click',_tourEnd);
 }
+// Safety hatch: Escape always dismisses the tour, so it can never trap you.
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('tour-ov')){ e.preventDefault(); e.stopPropagation(); _tourEnd(); } }, true);
 (function initTour(){
   try{ if(!localStorage.getItem('fl-tour-done') && !localStorage.getItem('fl-hints-seen')) setTimeout(()=>startTour(false), 800); }catch(e){}
 })();
