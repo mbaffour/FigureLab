@@ -414,6 +414,30 @@ test('scale auto-calibration: reads µm/px from ImageJ/OME/cm-resolution metadat
   expect(Math.abs(imp.metaUm - 0.16)).toBeLessThanOrEqual(1e-4);    // stored + re-applied by the button
 });
 
+test('scale bar units: nm/µm/mm labels, value conversion, Auto SB unit, and round-trip', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    const im = images[0]; im.umPerPx = 0.01; im.sbOn = true;
+    im.sbUnit = 'nm'; im.sbUm = 0.5;  const nm = _sbLabel(im);   // 0.5 µm shown as 500 nm
+    im.sbUnit = 'µm';                 const um = _sbLabel(im);   // same length shown as 0.5 µm
+    im.sbUm = 2000; im.sbUnit = 'mm'; const mm = _sbLabel(im);   // 2 mm
+    // Auto SB picks a clean unit for a sub-µm bar
+    im.umPerPx = 0.002; im.sbUnit = undefined; autoScaleBar(0);
+    const autoUnit = im.sbUnit;
+    // round-trip through a saved session
+    im.sbUnit = 'nm'; im.sbUm = 0.25;
+    const ser = serializeSession(true).images[0];
+    return { nm, um, mm, autoUnit, serUnit: ser.sbUnit, serUm: ser.sbUm };
+  });
+  expect(r.nm).toBe('500 nm');
+  expect(r.um).toBe('0.5 µm');
+  expect(r.mm).toBe('2 mm');
+  expect(['nm', 'µm', 'mm']).toContain(r.autoUnit);   // Auto SB set a sensible unit
+  expect(r.serUnit).toBe('nm');                        // unit round-trips
+  expect(Math.abs(r.serUm - 0.25)).toBeLessThan(1e-9); // stored in µm
+});
+
 test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
   const fs = require('fs'), path = require('path');
   await loadApp(page);

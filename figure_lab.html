@@ -2746,6 +2746,15 @@ function swapImages(i, j){
   if(images[j]) images[j].label=lj??nextLabel();
 }
 
+// Scale-bar unit helpers. sbUm is always stored in µm; sbUnit is the display unit.
+function _sbUnitFactor(u){ return u==='nm'?0.001 : u==='mm'?1000 : 1; }   // µm per unit
+function _sbLabel(im){
+  const u=(im&&im.sbUnit)||'µm';
+  const v=(im.sbUm||0)/_sbUnitFactor(u);
+  return `${+(Math.round(v*1000)/1000).toFixed(3)} ${u}`;                 // trim trailing zeros
+}
+function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // pick a clean unit for a µm length
+
 // ═══════════════════════════════════════════════════════════════
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
@@ -2791,8 +2800,13 @@ function renderImgList(){
           <select class="f-obj"><option value="">Custom…</option>${objOpts}</select></div>
         <div class="field"><label>µm / px</label>
           <input type="number" class="f-umppx" value="${im.umPerPx||''}" placeholder="0" step="0.001" min="0"></div>
-        <div class="field"><label>Bar length (µm)</label>
-          <input type="number" class="f-sbum" value="${im.sbUm}" min="0.1" step="0.5">
+        <div class="field"><label>Bar length</label>
+          <input type="number" class="f-sbum" value="${+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit||'µm')*1000)/1000)}" min="0" step="any" style="width:56px">
+          <select class="f-sbunit" style="width:50px">
+            <option value="nm" ${(im.sbUnit||'µm')==='nm'?'selected':''}>nm</option>
+            <option value="µm" ${(im.sbUnit||'µm')==='µm'?'selected':''}>µm</option>
+            <option value="mm" ${(im.sbUnit||'µm')==='mm'?'selected':''}>mm</option>
+          </select>
           <button class="btn" style="padding:2px 6px" data-autosb="${idx}">Auto</button></div>
         <button class="btn" onclick="openCalib(${idx})" style="width:100%;justify-content:center;margin-top:2px">🔬 Calibrate from image</button>
         <button class="btn" onclick="autoDetectScaleBar(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Scan image for an embedded scale bar">🔍 Auto-detect scale bar</button>
@@ -2937,7 +2951,8 @@ function renderImgList(){
       images[idx].umPerPx=parseFloat(e.target.value)||0;
       item.querySelector('.f-obj').value=''; scheduleRender();
     });
-    item.querySelector('.f-sbum').addEventListener('input', e=>{ images[idx].sbUm=parseFloat(e.target.value)||10; scheduleRender(); });
+    item.querySelector('.f-sbum').addEventListener('input', e=>{ const im=images[idx]; const u=im.sbUnit||'µm'; im.sbUnit=u; im.sbUm=(parseFloat(e.target.value)||0)*_sbUnitFactor(u); scheduleRender(); });
+    { const us=item.querySelector('.f-sbunit'); if(us) us.addEventListener('change', e=>{ const im=images[idx]; im.sbUnit=e.target.value; const inp=item.querySelector('.f-sbum'); if(inp) inp.value=+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit)*1000)/1000); scheduleRender(); }); }
 
     // Crop
     ['ct','cl','cb','cr'].forEach(k => {
@@ -3326,9 +3341,9 @@ function autoScaleBar(idx){
   const mag=Math.pow(10,Math.floor(Math.log10(targetUm)));
   const nice=[1,2,5,10,20,50,100,200,500,1000,2000,5000];
   const best=nice.reduce((a,b)=>Math.abs(b-targetUm/mag)<Math.abs(a-targetUm/mag)?b:a)*mag;
-  im.sbUm=best; im.sbOn=true;
+  im.sbUm=best; im.sbOn=true; im.sbUnit=_sbUnitFor(best);   // pick a clean unit for the length
   renderImgList(); scheduleRender(0);
-  toast(`Auto scale bar: ${best>=1000?best/1000+' mm':best<1?Math.round(best*1000)+' nm':best+' µm'}`,'ok');
+  toast(`Auto scale bar: ${_sbLabel(im)}`,'ok');
 }
 
 function applySettingsToAll(srcIdx){
@@ -3363,7 +3378,7 @@ function syncGroupToPanel(srcIdx){
     im.brightness=src.brightness; im.contrast=src.contrast;
     im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
     im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
-    im.sbUm=src.sbUm;                                  // consistent scale-bar length
+    im.sbUm=src.sbUm; im.sbUnit=src.sbUnit;            // consistent scale-bar length + unit
     im.cropT=src.cropT; im.cropL=src.cropL; im.cropB=src.cropB; im.cropR=src.cropR; // same crop
     im.umPerPx=src.umPerPx;                            // same physical scale → same field of view
     im._adjCache=undefined; im._adjKey=undefined;      // invalidate render cache
@@ -3385,7 +3400,7 @@ function splitChannelRow(srcIdx){
   const mk=(src,imgEl,lut,cap,bp,wp)=>{
     const p=_freshPanel(imgEl, src, (cap||'channel')+'.png', 'tmp');
     p.lut=lut||'none'; p.blackPt=(bp!=null?bp:0); p.whitePt=(wp!=null?wp:255);
-    p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
+    p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.sbUnit=im.sbUnit; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
     return p;
   };
   const parts=[ mk(im.src, im.img, im.lut, _lutChannelName(im.lut), im.blackPt, im.whitePt) ];
@@ -3964,7 +3979,7 @@ function render(targetCanvas, exportScale, opts){
             ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*dw/300));
-              const lbl=im.sbUm>=1000?`${im.sbUm/1000} mm`:im.sbUm<1?`${Math.round(im.sbUm*1000)} nm`:`${im.sbUm} µm`;
+              const lbl=_sbLabel(im);
               emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, sbClr, 'center','alphabetic',0);
               ctx.textAlign='left';
             }
@@ -6839,7 +6854,7 @@ function generateCaption(){
     // Scale bar
     if(im.sbOn&&im.sbUm>0){
       const magHint=im.umPerPx>0?` (${(1/im.umPerPx).toFixed(0)}×)`:'';
-      s+=` Scale bar, ${im.sbUm}\u00b5m${magHint}.`;
+      s+=` Scale bar, ${_sbLabel(im)}${magHint}.`;
     }
     // Metadata note
     if(meta) s+=` ${meta}.`;
@@ -6931,7 +6946,7 @@ function serializeSession(bundleImages){
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
     exportDpi:gv('export-dpi'), exportName:gv('export-name'),
     images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
-      sbUm:im.sbUm,brightness:im.brightness,contrast:im.contrast,
+      sbUm:im.sbUm,sbUnit:im.sbUnit||'µm',brightness:im.brightness,contrast:im.contrast,
       cropT:im.cropT,cropL:im.cropL,cropB:im.cropB,cropR:im.cropR,cropShape:im.cropShape||'rect',
       captionNote:im.captionNote,metaNote:im.metaNote,grayscale:im.grayscale,invert:im.invert,
       lut:im.lut||'none',blackPt:im.blackPt||0,whitePt:im.whitePt||255,
@@ -9462,7 +9477,7 @@ function shareSession(){
     annotations,
     // Panel labels/settings but NO src/img data
     panelSettings: images.map(im=>({
-      label:im.label, sbOn:im.sbOn, umPerPx:im.umPerPx, sbUm:im.sbUm,
+      label:im.label, sbOn:im.sbOn, umPerPx:im.umPerPx, sbUm:im.sbUm, sbUnit:im.sbUnit,
       brightness:im.brightness, contrast:im.contrast, gamma:im.gamma||1,
       blackPt:im.blackPt||0, whitePt:im.whitePt||255,
       lut:im.lut||'none', grayscale:im.grayscale, invert:im.invert,
