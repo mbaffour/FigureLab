@@ -241,6 +241,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Pop out to free layout** — convert a grid into freely-movable panels in one click.
 - **Format painter** — copy one object's look (colour, fill, stroke, font) onto others.
 - **TIFF import** — a dependency-free, client-side decoder opens `.tif/.tiff` that browsers can't (Chrome/Edge/Firefox): uncompressed, LZW, PackBits, Deflate & JPEG-compressed; 8/16-bit & 32-bit float; grayscale, RGB, RGBA, CMYK & palette; strips or tiles; little/big-endian; horizontal-differencing predictor; and **multi-page** TIFFs (each page becomes a panel). Verified pixel-exact against a `tifffile`-generated fixture matrix.
+- **Scale auto-calibration** — importing a TIFF with pixel-size metadata (OME-TIFF, ImageJ, Zeiss LSM, or a cm-resolution tag) sets µm/px automatically, so the scale bar is calibrated with no clicking. Print-DPI (inch resolution) is ignored so it's never mistaken for a real scale; you can always override.
 - **Recolourable science icons** and one-click **Relabel A, B, C…** (renumber panels in reading order).
 - **SVG stays vector** — imported SVGs keep their vector source (crisp at any size) and **re-export as vector** in SVG output, editable in Illustrator/Inkscape.
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.

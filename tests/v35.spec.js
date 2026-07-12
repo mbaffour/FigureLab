@@ -381,6 +381,39 @@ test('TIFF import: a multi-page TIFF adds every page as a panel', async ({ page 
   expect(r.names.every(n => /_p\d+\.png$/.test(n))).toBe(true);
 });
 
+test('scale auto-calibration: reads µm/px from ImageJ/OME/cm-resolution metadata (and ignores print DPI)', async ({ page }) => {
+  const fs = require('fs'), path = require('path');
+  await loadApp(page);
+  const fxDir = path.join(__dirname, 'fixtures', 'tiff');
+  const man = JSON.parse(fs.readFileSync(path.join(fxDir, 'calib_manifest.json'), 'utf8'));
+  // 1) decoder extracts the right µm/px in-browser (incl. UTF-8 OME unit)
+  const failures = [];
+  for (const [name, exp] of Object.entries(man)) {
+    const bytes = Array.from(fs.readFileSync(path.join(fxDir, name + '.tif')));
+    const r = await page.evaluate(async bytes => { const d = await decodeTIFF(new Uint8Array(bytes)); return { umPerPx: d.umPerPx, src: d.calibSource }; }, bytes);
+    if (Math.abs((r.umPerPx || 0) - exp.umPerPx) > 1e-4) failures.push(`${name}: ${r.umPerPx} != ${exp.umPerPx}`);
+    if (exp.umPerPx > 0 && r.src !== exp.source) failures.push(`${name}: src ${r.src} != ${exp.source}`);
+  }
+  expect(failures).toEqual([]);
+  // 2) importing an ImageJ TIFF auto-applies the calibration to the panel
+  const ijBytes = Array.from(fs.readFileSync(path.join(fxDir, 'cal_imagej.tif')));
+  const imp = await page.evaluate(async bytes => {
+    const before = images.length;
+    addFiles([new File([new Uint8Array(bytes)], 'scan.tif', { type: 'image/tiff' })]);
+    await new Promise(res => { const iv = setInterval(() => { if (images.length > before || (cropEdState && cropEdState._preCrop)) { clearInterval(iv); res(); } }, 30); setTimeout(() => { clearInterval(iv); res(); }, 5000); });
+    if (cropEdState && cropEdState._preCrop) skipPreCrop();       // single page → pre-crop modal; add without cropping
+    await new Promise(r => setTimeout(r, 200));
+    const im = images[images.length - 1];
+    // 3) the manual "Read TIFF metadata" button re-applies the stored value
+    im.umPerPx = 0;
+    readTIFFMetadata(images.length - 1);
+    return { umPerPx: im.umPerPx, metaUm: im._metaUmPerPx, source: im._metaCalibSource, sbOn: im.sbOn };
+  }, ijBytes);
+  expect(Math.abs(imp.umPerPx - 0.16)).toBeLessThanOrEqual(1e-4);   // auto-calibrated on import
+  expect(imp.source).toBe('ImageJ');
+  expect(Math.abs(imp.metaUm - 0.16)).toBeLessThanOrEqual(1e-4);    // stored + re-applied by the button
+});
+
 test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
   const fs = require('fs'), path = require('path');
   await loadApp(page);

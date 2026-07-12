@@ -1233,7 +1233,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <p class="help-p">Open a panel's settings to fine-tune it with live preview: <b>Brightness</b>, <b>Contrast</b>, and <b>Gamma</b> sliders (gamma is great for dim fluorescence), plus grayscale/invert, black/white points, fluorescence LUTs, rotate, and flip. <span class="help-ui">Apply to all</span> copies brightness, contrast, gamma, LUT, and B/W points to every panel at once.</p>
 
 <h4 class="help-sub">3. Add a calibrated scale bar</h4>
-<p class="help-p">Click <span class="help-ui">🔬 Calibrate from image</span> in a panel's settings, click two points a known distance apart, and enter the real-world distance — FigureLab computes the µm/px ratio for you. (Objective presets from 4× to 100× are also available.) Then enable the scale bar; <span class="help-ui">Auto SB</span> picks a clean length automatically.</p>
+<p class="help-p"><b>Automatic:</b> when you import a TIFF that carries pixel-size metadata — <b>OME-TIFF</b>, <b>ImageJ</b>, Zeiss LSM, or a centimetre-resolution tag — FigureLab reads the µm/px and calibrates the panel on import (you'll see a toast; print-DPI resolution is ignored so it's never mistaken for a scale). <span class="help-ui">📎 Read TIFF metadata</span> in a panel re-applies it.</p>
+<p class="help-p"><b>Manual:</b> click <span class="help-ui">🔬 Calibrate from image</span> in a panel's settings, click two points a known distance apart, and enter the real-world distance — FigureLab computes the µm/px ratio. (Objective presets from 4× to 100× are also available.) Then enable the scale bar; <span class="help-ui">Auto SB</span> picks a clean length automatically.</p>
 <div class="help-callout help-warn"><b>Note</b> An uncalibrated warning badge (⚠) appears on a scale bar when µm/px has not been set. Calibrate first so the bar is accurate.</div>
 
 <h4 class="help-sub">4. Label the panels</h4>
@@ -1284,6 +1285,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Format painter</b> — copy one object’s look (colour, fill, stroke, font) and apply it to others.</li>
   <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits, Deflate &amp; JPEG-compressed; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian; and <b>multi-page</b> TIFFs (every page added as a panel). 16-bit is linearly scaled to 8-bit for display.</li>
   <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape).</li>
+  <li><b>Scale auto-calibration</b> — importing a TIFF with pixel-size metadata (OME-TIFF, ImageJ, Zeiss LSM, cm-resolution) sets µm/px automatically, so the scale bar is calibrated with no clicking (print-DPI is ignored; you can override).</li>
   <li><b>Save dialog</b> — every export opens a dialog to set the file name, format &amp; DPI first; on Chrome/Edge you pick the folder in your system’s native Save window.</li>
   <li><b>Duplicate</b> (<kbd>Ctrl</kbd>+<kbd>D</kbd>), <b>lock</b>, and multi-object layer ordering for Freeform objects.</li>
 </ul>
@@ -1408,7 +1410,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details class="faq-item"><summary class="faq-q">Is it free? Is it open source?</summary><div class="faq-a"><p class="help-p">Yes — FigureLab is free and open source under the MIT licence. You may use, modify, and redistribute it, including for commercial and academic work.</p></div></details>
 
 <h3 class="help-h">Images &amp; formats</h3>
-<details class="faq-item"><summary class="faq-q">What image formats can I import?</summary><div class="faq-a"><p class="help-p">Drag any common raster image the browser can decode onto the drop zone (or click to browse) — microscopy exports, western blots, histology, gels, or clinical photos. FigureLab can also read µm/px calibration metadata from TIFF/LSM files when present.</p></div></details>
+<details class="faq-item"><summary class="faq-q">What image formats can I import?</summary><div class="faq-a"><p class="help-p">Drag any common raster image the browser can decode onto the drop zone (or click to browse) — microscopy exports, western blots, histology, gels, or clinical photos. FigureLab automatically reads µm/px scale calibration from OME-TIFF, ImageJ, Zeiss LSM and cm-resolution TIFF metadata on import, so a calibrated scale bar is ready with no clicking (you can always override it).</p></div></details>
 <details class="faq-item"><summary class="faq-q">What can I export, and which format should I use?</summary><div class="faq-a"><p class="help-p">Pick the format that matches where the figure is going:</p><ul class="help-ul"><li><b>PNG</b> — lossless raster with true DPI embedded; a safe default for most submissions.</li><li><b>TIFF</b> — uncompressed RGB scaled to your target DPI; <b>preferred by most journals</b>.</li><li><b>PDF</b> / <b>PDF (lossless)</b> — embedded raster at the correct physical page size; use lossless for line art and blots.</li><li><b>SVG</b> — background raster plus your annotations as native vector elements (labels and scale bars stay razor-sharp).</li><li><b>JPEG</b> — smallest file, but lossy; fine for drafts and slides, not for line art.</li><li><b>WebP</b> — a good size/quality balance for the web.</li></ul></div></details>
 <details class="faq-item"><summary class="faq-q">How do I make a multi-channel fluorescence merge?</summary><div class="faq-a"><p class="help-p">Open a panel's settings and use <span class="help-ui">Add channel</span> to layer extra images, each with its own fluorescence LUT (Fire, Green, Cyan, Magenta, Yellow, Blue); the channels are combined with a screen blend. New channels default to a colourblind-safe <b>magenta / green</b> pairing rather than red / green, so overlap reads white and the merge stays readable for viewers with red-green colour vision deficiency.</p></div></details>
 <details class="faq-item"><summary class="faq-q">My fluorescence image is too dim to see — what should I adjust?</summary><div class="faq-a"><p class="help-p">Use the per-panel <b>Gamma</b> slider for nonlinear brightening that lifts dim signal without blowing out bright areas, and set the <b>Black / White point</b> to clip and stretch the useful intensity range. Brightness and Contrast are also available with live preview. Use <span class="help-ui">Apply to all</span> to copy these settings to every panel for consistency.</p></div></details>
@@ -1834,6 +1836,8 @@ async function decodeTIFF(input, page){
   if(planar!==1 && spp>1) throw new Error('Planar (separate-plane) TIFFs are not supported yet');
   if(fillOrder===2) throw new Error('Reversed fill order is not supported');
 
+  const _cal=_tiffCalibration(T, le);   // physical pixel size (µm/px) from metadata, if present
+
   // JPEG-compressed TIFF: decode each block with the browser's JPEG decoder
   if(compression===6 || compression===7){
     if(photometric===5) throw new Error('CMYK JPEG TIFFs are not supported');
@@ -1856,7 +1860,7 @@ async function decodeTIFF(input, page){
       const rps=tag(T,278,height), offs=tagArr(T,273,[]), counts=tagArr(T,279,[]);
       for(let s=0;s<offs.length;s++) await blit(bytes.subarray(offs[s],offs[s]+counts[s]), 0, s*rps);
     }
-    return { width, height, rgba: out, pages: pageOffsets.length, note: note.concat('JPEG-compressed').join('; ') };
+    return { width, height, rgba: out, pages: pageOffsets.length, note: note.concat('JPEG-compressed').join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource };
   }
 
   const bytesPerSampleRow=Math.ceil(width*spp*bitsPerSample/8);
@@ -1927,7 +1931,7 @@ async function decodeTIFF(input, page){
       rgba[base]=r; rgba[base+1]=g; rgba[base+2]=b; rgba[base+3]=a;
     }
   }
-  return { width, height, rgba, pages: pageOffsets.length, note: note.join('; ') };
+  return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource };
 
   function parseIFD(o){
     const n=view.getUint16(o, le); const tags={};
@@ -1957,6 +1961,30 @@ async function decodeTIFF(input, page){
   }
   function tag(t,id,def){ return t[id] ? t[id].values[0] : def; }
   function tagArr(t,id,def){ return t[id] ? t[id].values : def; }
+}
+// Derive physical pixel size (µm/px) from TIFF metadata, if present.
+// Priority: OME-TIFF → ImageJ → Zeiss LSM → cm-resolution. Inch resolution is
+// skipped (it's almost always print DPI, not a microscopy scale).
+function _tiffCalibration(T, le){
+  const ascii=t=>{ if(!T[t]) return ''; try{ return new TextDecoder('utf-8').decode(Uint8Array.from(T[t].values)); }catch(e){ let s=''; for(const c of T[t].values){ if(c) s+=String.fromCharCode(c); } return s; } };
+  const desc=ascii(270);
+  const xres=T[282]?T[282].values[0]:0;
+  const resUnit=T[296]?T[296].values[0]:2;
+  const U={m:1e6,meter:1e6,metre:1e6,cm:1e4,centimeter:1e4,centimetre:1e4,mm:1e3,millimeter:1e3,millimetre:1e3,
+           um:1,micron:1,microns:1,micrometer:1,micrometre:1,nm:1e-3,nanometer:1e-3,nanometre:1e-3,pm:1e-6};
+  const toUm=(v,u)=>{ if(!(v>0)) return 0; u=(u||'').toLowerCase().trim().replace(/[µμ]/g,'u');
+    if(U[u]!=null) return v*U[u]; if(u==='u'||u.startsWith('um')||u.startsWith('mic')) return v; return 0; };
+  let umPerPx=0, src='';
+  let m=desc.match(/PhysicalSizeX\s*=\s*"([\d.eE+-]+)"/);                    // OME-TIFF
+  if(m){ const um=desc.match(/PhysicalSizeXUnit\s*=\s*"([^"]+)"/); const v=toUm(parseFloat(m[1]), um?um[1]:'um'); if(v){ umPerPx=v; src='OME-TIFF'; } }
+  if(!umPerPx && /ImageJ=/.test(desc) && xres>0){                            // ImageJ
+    const um=desc.match(/unit=([^\n\r]*)/); const v=toUm(1/xres, um?um[1]:'um'); if(v){ umPerPx=v; src='ImageJ'; } }
+  if(!umPerPx && T[34412] && T[34412].values && T[34412].values.length>=20){ // Zeiss LSM VoxelSizeX (metres)
+    const b=Uint8Array.from(T[34412].values.slice(12,20)); const vx=new DataView(b.buffer).getFloat64(0, le);
+    if(vx>0){ umPerPx=vx*1e6; src='ZeissLSM'; } }
+  if(!umPerPx && xres>0 && resUnit===3){ umPerPx=1e4/xres; src='Resolution'; } // cm resolution
+  if(!(umPerPx>1e-4 && umPerPx<1e4)){ umPerPx=0; src=''; }                    // sanity: microscopy range
+  return { umPerPx, calibSource:src };
 }
 function makeSampleReader(raster, rowBytes, bps, sampleFormat, le){
   if(bps===8) return (y,i)=>raster[y*rowBytes+i];
@@ -2048,18 +2076,20 @@ async function _loadTIFFFile(f, fail){
       const img=new Image(); const src=c.toDataURL('image/png');
       img.onload=()=>resolve({img,src,name:nm}); img.onerror=()=>resolve(null); img.src=src;
     });
+    const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||''});
+    const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
     if(pages>1){
       for(let p=0;p<pages;p++){
         const res = p===0 ? first : await decodeTIFF(buf,p);
         const it = await toImg(res, `${base}_p${p+1}.png`);
-        if(it) _commitImage(it.img, it.src, it.name);        // add each page directly (no per-page crop modal)
+        if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res));   // add each page directly
       }
-      toast(`Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})`,'ok');
+      toast(`Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})${calNote(first)}`,'ok');
     } else {
       const it = await toImg(first, base+'.png');
       if(!it){ fail(); return; }
-      _preCropQueue.push({img:it.img, src:it.src, name:it.name}); _drainPreCrop();
-      toast(`Opened "${f.name}" (${first.width}×${first.height}${first.note?' · '+first.note:''})`,'ok');
+      _preCropQueue.push({img:it.img, src:it.src, name:it.name, calib:calibOf(first)}); _drainPreCrop();
+      toast(`Opened "${f.name}" (${first.width}×${first.height}${first.note?' · '+first.note:''}${calNote(first)})`,'ok');
     }
   }catch(e){
     fail(`Couldn't open "${f.name}": ${(e&&e.message)||e}. Some exotic TIFFs (planar-separate, BigTIFF, CMYK-JPEG) may be unsupported — try re-saving as PNG or a standard TIFF.`);
@@ -2112,9 +2142,9 @@ function _drainPreCrop(){
   _openPreCrop(item);
 }
 
-function _openPreCrop({img,src,name,svgSource}){
+function _openPreCrop({img,src,name,svgSource,calib}){
   const total=_preCropQueue.length+1; // remaining including this one
-  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name,svgSource},
+  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name,svgSource,calib},
     img,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0};
   // Update modal UI for pre-crop mode
   document.getElementById('crop-modal-title').textContent='✂ Pre-crop Image';
@@ -2140,8 +2170,9 @@ function _openPreCrop({img,src,name,svgSource}){
 function _finishPreCrop(croppedSrc,croppedImg,keepVector){
   const pc=cropEdState._preCrop||{};
   const name=pc.name||'image';
-  // keep the vector source only when the image wasn't cropped (a crop makes it raster)
-  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null);
+  // keep the vector source only when the image wasn't cropped (a crop makes it raster).
+  // Calibration (µm/px) is per-pixel, so it survives cropping either way.
+  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib);
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
   cropEdState._preCrop=null;
@@ -2164,7 +2195,9 @@ function _resetCropModalUI(){
   document.getElementById('crop-apply-btn').textContent='✓ Apply Crop';
 }
 
-function _commitImage(img,src,name,svgSource){
+function _commitImage(img,src,name,svgSource,calib){
+  const cu=(calib&&calib.umPerPx>0)?calib.umPerPx:0;      // µm/px auto-read from metadata
+  const cs=(calib&&calib.source)||'';
   if(layoutMode==='freeform'){
     const W=parseInt(document.getElementById('fm-canvas-w').value)||1200;
     const H=parseInt(document.getElementById('fm-canvas-h').value)||900;
@@ -2175,11 +2208,13 @@ function _commitImage(img,src,name,svgSource){
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
+      umPerPx:cu, sbUm:10, sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
       svgSource:svgSource||null, isVector:!!svgSource});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
       svgSource:svgSource||null, isVector:!!svgSource,
-      label:nextLabel(),sbOn:true,umPerPx:0,sbUm:10,brightness:1,contrast:1,
+      _metaUmPerPx:cu, _metaCalibSource:cs,
+      label:nextLabel(),sbOn:true,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
@@ -9381,103 +9416,20 @@ async function exportMultiPagePDF(){
 // ═══════════════════════════════════════════════════════════════
 // TIFF METADATA READER
 // ═══════════════════════════════════════════════════════════════
-// Reads µm/px calibration from TIFF IFD tags:
-//   XResolution (tag 282), ResolutionUnit (tag 296),
-//   Zeiss LSM VoxelSizeX (stored in CZ-LSMINFO private tag 34412).
+// Re-apply the µm/px scale calibration auto-read from this panel's TIFF metadata
+// on import (OME-TIFF / ImageJ / Zeiss LSM / cm-resolution). The original TIFF bytes
+// aren't kept after import, so the derived value is stored on the panel.
 function readTIFFMetadata(idx){
   const im = images[idx];
   if(!im){ toast('No image at this slot','warn'); return; }
-
-  // We need the raw file bytes — re-read from the stored src DataURL
-  const src = im.src;
-  if(!src || !src.startsWith('data:')){ toast('No raw data available for this image','warn'); return; }
-
-  // Convert data URL → Uint8Array
-  const b64 = src.split(',')[1];
-  const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-
-  // Check TIFF magic: 0x4949 (LE) or 0x4D4D (BE)
-  const view = new DataView(raw.buffer);
-  const magic = view.getUint16(0, true);
-  const isLE  = magic === 0x4949;
-  const isBE  = magic === 0x4D4D;
-  if(!isLE && !isBE){ toast('Not a TIFF file — only TIFF/LSM carry pixel size metadata','warn'); return; }
-  const le = isLE;
-
-  const u16 = (off) => view.getUint16(off, le);
-  const u32 = (off) => view.getUint32(off, le);
-  const u64 = (off) => u32(off) + u32(off+4) * 2**32; // approx for large offsets
-  const rational = (off) => { const n = u32(off), d = u32(off+4); return d ? n/d : 0; };
-
-  let xRes = 0, yRes = 0, resUnit = 2; // resUnit: 1=none, 2=inch, 3=cm
-  let voxelX = 0; // Zeiss LSM VoxelSizeX in metres
-
-  try {
-    let ifdOff = u32(4);
-    // Walk up to 3 IFDs (handles multi-directory TIFFs)
-    for(let ifdPass = 0; ifdPass < 3 && ifdOff > 0 && ifdOff < raw.length - 2; ifdPass++){
-      const entryCount = u16(ifdOff);
-      for(let e = 0; e < entryCount; e++){
-        const base  = ifdOff + 2 + e * 12;
-        if(base + 12 > raw.length) break;
-        const tag   = u16(base);
-        const type  = u16(base + 2);
-        const count = u32(base + 4);
-        const valOff= base + 8; // value or offset to value
-
-        // type 5 = RATIONAL (two LONGs), fits in 8 bytes → always pointed to by offset
-        if(tag === 282 && type === 5){           // XResolution
-          xRes = rational(u32(valOff));
-        } else if(tag === 283 && type === 5){    // YResolution
-          yRes = rational(u32(valOff));
-        } else if(tag === 296){                   // ResolutionUnit
-          resUnit = type === 3 ? u16(valOff) : u32(valOff);
-        } else if(tag === 34412){                 // CZ-LSMINFO (Zeiss LSM)
-          // VoxelSizeX is a DOUBLE at offset +12 inside the CZ-LSMINFO block
-          const lsmOff = u32(valOff);
-          if(lsmOff + 20 < raw.length){
-            voxelX = view.getFloat64(lsmOff + 12, le); // metres per voxel
-          }
-        }
-      }
-      // Next IFD offset is the LONG after the last entry
-      const nextOff = ifdOff + 2 + entryCount * 12;
-      ifdOff = (nextOff + 4 <= raw.length) ? u32(nextOff) : 0;
-    }
-  } catch(err){
-    toast('Could not parse TIFF tags: ' + err.message, 'err'); return;
-  }
-
-  // Priority: Zeiss LSM VoxelSizeX (most accurate)
-  if(voxelX > 0){
-    const umPerPx = voxelX * 1e6; // metres → µm
-    im.umPerPx = umPerPx;
+  if(im._metaUmPerPx>0){
+    im.umPerPx = im._metaUmPerPx;
     renderImgList(); scheduleRender(0);
-    toast(`Panel ${im.label}: ${umPerPx.toFixed(4)} µm/px (from Zeiss LSM metadata)`, 'ok');
-    logAction('tiffMeta', { label: im.label, umPerPx, source: 'ZeissLSM' });
+    toast(`Panel ${im.label}: ${(+im._metaUmPerPx).toPrecision(4)} µm/px (from ${im._metaCalibSource||'TIFF'} metadata)`, 'ok');
+    if(typeof logAction==='function') logAction('tiffMeta', { label: im.label, umPerPx: im._metaUmPerPx, source: im._metaCalibSource });
     return;
   }
-
-  // Fallback: XResolution + ResolutionUnit
-  if(xRes > 0){
-    // XResolution is pixels per inch (unit=2) or pixels per cm (unit=3)
-    let pxPerUm;
-    if(resUnit === 2)      pxPerUm = xRes / 25400;  // pixels per inch → per µm
-    else if(resUnit === 3) pxPerUm = xRes / 10000;  // pixels per cm   → per µm
-    else { toast('Resolution unit unknown — enter µm/px manually', 'warn'); return; }
-    const umPerPx = pxPerUm > 0 ? 1 / pxPerUm : 0;
-    if(umPerPx < 0.001 || umPerPx > 1000){
-      toast(`Panel ${im.label}: TIFF resolution (${xRes.toFixed(1)} px/${resUnit===2?'in':'cm'}) doesn't look like microscopy calibration — check manually`, 'warn');
-      return;
-    }
-    im.umPerPx = umPerPx;
-    renderImgList(); scheduleRender(0);
-    toast(`Panel ${im.label}: ${umPerPx.toFixed(4)} µm/px (from TIFF XResolution tag)`, 'ok');
-    logAction('tiffMeta', { label: im.label, umPerPx, source: 'XResolution' });
-    return;
-  }
-
-  toast(`No calibration metadata found in Panel ${im.label}. Use "Calibrate from image" instead.`, 'warn');
+  toast(`No pixel-size metadata was found in Panel ${im.label}. Use “🔬 Calibrate from image” instead.`, 'warn');
 }
 
 // ═══════════════════════════════════════════════════════════════
