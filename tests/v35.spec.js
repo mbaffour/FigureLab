@@ -438,6 +438,33 @@ test('scale bar units: nm/µm/mm labels, value conversion, Auto SB unit, and rou
   expect(Math.abs(r.serUm - 0.25)).toBeLessThan(1e-9); // stored in µm
 });
 
+test('scale bar drag-to-resize changes the length', async ({ page }) => {
+  await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    const im = images[0]; im.umPerPx = 0.5; im.sbOn = true; im.sbUm = 20; im.sbUnit = 'µm';
+    render(); await wait(80);
+    const bar = _sbBars.find(b => b.idx === 0);
+    if (!bar) return { noBar: true };
+    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const midY = (bar.top + bar.bottom) / 2;
+    const ev = (type, lx, ly) => new MouseEvent(type, { clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H, button: 0, bubbles: true, cancelable: true });
+    const hit = !!_sbResizeHitAt(bar.left, midY);
+    const before = im.sbUm;
+    annCanvas.dispatchEvent(ev('mousedown', bar.left, midY));
+    const grabbed = !!_sbResizeState;
+    annCanvas.dispatchEvent(ev('mousemove', 2*bar.left - bar.right, midY));   // drag outward → longer bar
+    await wait(40);
+    const afterWiden = im.sbUm;
+    annCanvas.dispatchEvent(ev('mouseup', 2*bar.left - bar.right, midY));
+    return { hit, grabbed, before, afterWiden, cleared: _sbResizeState === null, rectW: Math.round(rect.width), barL: Math.round(bar.left), barR: Math.round(bar.right) };
+  });
+  expect(r.grabbed).toBe(true);            // the bar's left end is grabbable
+  expect(r.afterWiden).toBeGreaterThan(r.before);   // dragging outward lengthened it
+  expect(r.cleared).toBe(true);
+});
+
 test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
   const fs = require('fs'), path = require('path');
   await loadApp(page);

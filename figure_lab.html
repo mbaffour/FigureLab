@@ -1235,6 +1235,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h4 class="help-sub">3. Add a calibrated scale bar</h4>
 <p class="help-p"><b>Automatic:</b> when you import a TIFF that carries pixel-size metadata — <b>OME-TIFF</b>, <b>ImageJ</b>, Zeiss LSM, or a centimetre-resolution tag — FigureLab reads the µm/px and calibrates the panel on import (you'll see a toast; print-DPI resolution is ignored so it's never mistaken for a scale). <span class="help-ui">📎 Read TIFF metadata</span> in a panel re-applies it.</p>
 <p class="help-p"><b>Manual:</b> click <span class="help-ui">🔬 Calibrate from image</span> in a panel's settings, click two points a known distance apart, and enter the real-world distance — FigureLab computes the µm/px ratio. (Objective presets from 4× to 100× are also available.) Then enable the scale bar; <span class="help-ui">Auto SB</span> picks a clean length automatically.</p>
+<div class="help-callout help-tip"><b>Tip</b> Pick the bar's <b>unit</b> (nm / µm / mm) next to its length — handy for EM (nm) or gross specimens (mm). You can also <b>drag the left end of the scale bar</b> on the canvas to resize it (it snaps to clean values).</div>
 <div class="help-callout help-warn"><b>Note</b> An uncalibrated warning badge (⚠) appears on a scale bar when µm/px has not been set. Calibrate first so the bar is accurate.</div>
 
 <h4 class="help-sub">4. Label the panels</h4>
@@ -1662,6 +1663,8 @@ let panelBounds = [];       // [{idx, x, y, w, h}] populated on render
 let figTextItems = [];      // text drawn each render: for label drag hit-test + vector SVG export
 let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{} }; // drag offsets for shared labels
 let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
+let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
+let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
 let selectedPanel = -1;
 let zoom = 1;
@@ -3760,7 +3763,7 @@ function render(targetCanvas, exportScale, opts){
   const S = exportScale || 1;
   const skipLabels = !!(opts && opts.skipLabels);
   figTextItems = [];
-  if(!isExport) panelBounds = [];
+  if(!isExport){ panelBounds = []; _sbBars = []; }
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
@@ -3977,6 +3980,7 @@ function render(targetCanvas, exportScale, opts){
             const sp=Math.max(6,Math.round(dw*.04));
             const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
             ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
+            if(!isExport) _sbBars.push({idx:imgIdx, left:sbX, right:sbX+barPx, top:sbY, bottom:sbY+sbH, scale:(dw/sw)});
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*dw/300));
               const lbl=_sbLabel(im);
@@ -4794,6 +4798,15 @@ function labelAtPoint(x,y){
   }
   return null;
 }
+// Grab-region for resizing a scale bar (its LEFT end is the handle)
+function _sbResizeHitAt(x,y){
+  for(let i=_sbBars.length-1;i>=0;i--){ const b=_sbBars[i];
+    if(x>=b.left-7 && x<=b.left+7 && y>=b.top-8 && y<=b.bottom+8) return b; }
+  return null;
+}
+// Snap a scale-bar length to a clean 1/1.5/2/2.5/3/4/5/7.5 × 10ⁿ value
+function _niceSnap(v){ if(!(v>0)) return 0; const mag=Math.pow(10,Math.floor(Math.log10(v))); const n=v/mag;
+  const s=[1,1.5,2,2.5,3,4,5,7.5,10].reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return +(s*mag).toPrecision(3); }
 
 // ── Hit-testing ─────────────────────────────────────────────
 function distToSeg(px,py,ax,ay,bx,by){
@@ -5468,6 +5481,14 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
   }
+  // Scale-bar resize — grab the bar's left end to change its length by dragging
+  {
+    const sb=_sbResizeHitAt(x,y);
+    if(sb && images[sb.idx] && images[sb.idx].umPerPx>0){
+      _sbResizeState={idx:sb.idx, right:sb.right, scale:sb.scale, preSnap:snapshotState()};
+      annCanvas.style.cursor='ew-resize'; return;
+    }
+  }
   // Label drag — labels sit on top of panels, so claim the click first
   {
     const lb=labelAtPoint(x,y);
@@ -5503,6 +5524,19 @@ annCanvas.addEventListener('mousemove', e=>{
     const wrap=document.getElementById('canvas-wrap');
     wrap.scrollLeft=panState.scrollLeft-(e.clientX-panState.startX);
     wrap.scrollTop=panState.scrollTop-(e.clientY-panState.startY);
+    return;
+  }
+  // Scale-bar resize — drag the bar's left end; snaps to clean lengths
+  if(_sbResizeState){
+    const {x}=canvasCoords(annCanvas,e);
+    const im=images[_sbResizeState.idx];
+    if(im){
+      const barPx=Math.max(3, _sbResizeState.right - x);
+      const umNew=barPx * im.umPerPx / (_sbResizeState.scale||1);
+      const u=im.sbUnit||'µm';
+      im.sbUnit=u; im.sbUm=_niceSnap(umNew/_sbUnitFactor(u))*_sbUnitFactor(u);
+      scheduleRender(0);
+    }
     return;
   }
   // Label drag — reposition a figure label live
@@ -5649,6 +5683,7 @@ annCanvas.addEventListener('mousemove', e=>{
       if(hitAnnotation(annotations[i],x,y,W,H)){annHit=true;break;}
     }
     if(spaceDown){ annCanvas.style.cursor='grab'; hidePanelTooltip(); return; }
+    if(_sbResizeHitAt(x,y)){ annCanvas.style.cursor='ew-resize'; hidePanelTooltip(); return; }   // resize the scale bar
     if(annHit){ annCanvas.style.cursor='move'; hidePanelTooltip(); return; }
     // Show grab cursor and tooltip over filled panels
     let hoveredIm=null;
@@ -5671,6 +5706,12 @@ annCanvas.addEventListener('mouseup', e=>{
     freeformMouseup(e); return;
   }
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
+  // Scale-bar resize commit
+  if(_sbResizeState){
+    if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
+    _sbResizeState=null; annCanvas.style.cursor='default';
+    renderImgList(); scheduleRender(0); return;
+  }
   // Label drag commit
   if(labelDragState){
     if(labelDragState.moved && labelDragState.preSnap) _pushSnap(labelDragState.preSnap);
