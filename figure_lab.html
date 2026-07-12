@@ -3587,6 +3587,8 @@ function _tourRender(step, el){
   let cTop = below ? (r.top+r.height+12) : (r.top-ch-12);
   cTop = Math.min(Math.max(8, cTop), innerHeight-ch-8);
   card.style.top=cTop+'px'; card.style.visibility='visible';
+  // Clicking the dimmed area outside the card also dismisses the tour (belt & suspenders).
+  ov.addEventListener('click', e=>{ if(e.target===ov || e.target===hole) _tourEnd(); });
   card.querySelector('#tour-next').addEventListener('click',()=>{ if(_tourI===TOUR_STEPS.length-1) _tourEnd(); else { _tourI++; _tourShow(); } });
   const bk=card.querySelector('#tour-back'); if(bk) bk.addEventListener('click',()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); });
   card.querySelector('#tour-skip').addEventListener('click',_tourEnd);
