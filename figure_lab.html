@@ -1028,6 +1028,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Brightness<input type="range" id="ep-br" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('brightness',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Contrast<input type="range" id="ep-ct" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('contrast',+this.value)"></label>
+      <div class="abar-sep"></div>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px" title="Show a scale bar on this image">SB<input type="checkbox" id="ep-sb-on" onchange="updateElemProp('sbOn',this.checked)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px" title="Micrometres per pixel">µm/px<input type="number" id="ep-umppx" min="0" step="0.0001" style="width:56px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('umPerPx',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">Len<input type="number" id="ep-sbum" min="0" step="any" style="width:48px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="_epSbLen(this.value)"></label>
+      <select id="ep-sbunit" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epSbUnit(this.value)"><option value="nm">nm</option><option value="µm">µm</option><option value="mm">mm</option></select>
+      <button class="btn" style="padding:2px 6px;font-size:10px" onclick="_epAutoSB()" title="Snap the bar to a clean length (~20% of the image)">Auto</button>
     </div>
   </div>
   <div class="canvas-toolbar">
@@ -2211,7 +2217,7 @@ function _commitImage(img,src,name,svgSource,calib){
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
-      umPerPx:cu, sbUm:10, sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
+      umPerPx:cu, sbUm:10, sbUnit:'µm', sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
       svgSource:svgSource||null, isVector:!!svgSource});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
@@ -4807,6 +4813,16 @@ function _sbResizeHitAt(x,y){
 // Snap a scale-bar length to a clean 1/1.5/2/2.5/3/4/5/7.5 × 10ⁿ value
 function _niceSnap(v){ if(!(v>0)) return 0; const mag=Math.pow(10,Math.floor(Math.log10(v))); const n=v/mag;
   const s=[1,1.5,2,2.5,3,4,5,7.5,10].reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return +(s*mag).toPrecision(3); }
+// Apply a scale-bar resize drag (works for grid panels and freeform image objects)
+function _sbResizeApply(x){
+  const st=_sbResizeState; if(!st) return;
+  const t=st.ff ? freeformElements[st.idx] : images[st.idx]; if(!t || !(t.umPerPx>0)) return;
+  const barPx=Math.max(3, st.right - x);
+  const umNew=barPx * t.umPerPx / (st.scale||1);
+  const u=t.sbUnit||'µm';
+  t.sbUnit=u; t.sbUm=_niceSnap(umNew/_sbUnitFactor(u))*_sbUnitFactor(u);
+  scheduleRender(0);
+}
 
 // ── Hit-testing ─────────────────────────────────────────────
 function distToSeg(px,py,ax,ay,bx,by){
@@ -5485,7 +5501,7 @@ annCanvas.addEventListener('mousedown', e=>{
   {
     const sb=_sbResizeHitAt(x,y);
     if(sb && images[sb.idx] && images[sb.idx].umPerPx>0){
-      _sbResizeState={idx:sb.idx, right:sb.right, scale:sb.scale, preSnap:snapshotState()};
+      _sbResizeState={idx:sb.idx, right:sb.right, scale:sb.scale, ff:!!sb.ff, preSnap:snapshotState()};
       annCanvas.style.cursor='ew-resize'; return;
     }
   }
@@ -5527,18 +5543,7 @@ annCanvas.addEventListener('mousemove', e=>{
     return;
   }
   // Scale-bar resize — drag the bar's left end; snaps to clean lengths
-  if(_sbResizeState){
-    const {x}=canvasCoords(annCanvas,e);
-    const im=images[_sbResizeState.idx];
-    if(im){
-      const barPx=Math.max(3, _sbResizeState.right - x);
-      const umNew=barPx * im.umPerPx / (_sbResizeState.scale||1);
-      const u=im.sbUnit||'µm';
-      im.sbUnit=u; im.sbUm=_niceSnap(umNew/_sbUnitFactor(u))*_sbUnitFactor(u);
-      scheduleRender(0);
-    }
-    return;
-  }
+  if(_sbResizeState){ _sbResizeApply(canvasCoords(annCanvas,e).x); return; }
   // Label drag — reposition a figure label live
   if(labelDragState){
     const {x,y}=canvasCoords(annCanvas,e);
@@ -7531,6 +7536,7 @@ function clearFreeformElements(){
 
 function renderFreeform(canvas, ctx){
   if(typeof hideHD==='function') hideHD(); // freeform preview stays logical
+  _sbBars=[];   // rebuilt below for scale-bar drag-resize hit-testing
   const W=Math.max(200,parseInt(document.getElementById('fm-canvas-w').value)||1200);
   const H=Math.max(200,parseInt(document.getElementById('fm-canvas-h').value)||900);
   canvas.width=W; canvas.height=H;
@@ -7571,13 +7577,22 @@ function renderFreeform(canvas, ctx){
       }
       // Scale bar for calibrated image elements
       if(el.sbOn&&el.umPerPx>0){
-        const sbPxW=(el.sbUm||10)/el.umPerPx*(el.w/((el._imgEl?.width||el.w)));
-        if(sbPxW>4&&sbPxW<el.w*0.4){
+        const scale=el.w/((el._imgEl?.width)||el.w);
+        const sbPxW=(el.sbUm||10)/el.umPerPx*scale;
+        if(sbPxW>4&&sbPxW<el.w*0.6){
           const sbH2=Math.max(1,gi('sb-h'));
           const pad=Math.max(6,Math.round(el.w*0.04));
           const sbX=el.x+el.w-pad-sbPxW, sbY=el.y+el.h-pad-sbH2;
           ctx.fillStyle=gv('sb-color')||'#fff';
           ctx.fillRect(sbX,sbY,sbPxW,sbH2);
+          if(gc('sb-text')){
+            const sfs=Math.max(8,Math.round(el.w*0.05));
+            ctx.font=`${sfs}px system-ui,sans-serif`; ctx.fillStyle=gv('sb-color')||'#fff';
+            ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+            ctx.fillText(_sbLabel(el), sbX+sbPxW/2, sbY-3);
+            ctx.textAlign='left';
+          }
+          _sbBars.push({ff:true, idx:freeformElements.indexOf(el), left:sbX, right:sbX+sbPxW, top:sbY, bottom:sbY+sbH2, scale});
         }
       }
       // Panel label for image elements
@@ -7667,6 +7682,14 @@ function freeformMousedown(e){
   const {x,y}=canvasCoords(annCanvas,e);
   // Arm a pre-edit snapshot for the upcoming move/resize/draw gesture.
   _pendingUndoSnap=_pendingUndoSnap||snapshotState();
+  // Scale-bar resize — grab a calibrated image object's bar by its left end
+  if(activeTool==='none'){
+    const sb=_sbResizeHitAt(x,y);
+    if(sb && sb.ff && freeformElements[sb.idx] && freeformElements[sb.idx].umPerPx>0){
+      _sbResizeState={idx:sb.idx, right:sb.right, scale:sb.scale, ff:true, preSnap:_pendingUndoSnap};
+      _pendingUndoSnap=null; annCanvas.style.cursor='ew-resize'; return true;
+    }
+  }
   // Paint / erase → brush onto the target paint layer (never the source image)
   if(activeTool==='paint'||activeTool==='erase'){
     const ti=_paintTargetAt(x,y);
@@ -7722,6 +7745,7 @@ function freeformMousedown(e){
 
 function freeformMousemove(e){
   const {x,y}=canvasCoords(annCanvas,e);
+  if(_sbResizeState){ _sbResizeApply(x); return true; }
   if(_paintStroke){
     const el=freeformElements[_paintStroke.idx];
     if(el&&el._paintCanvas){
@@ -7794,6 +7818,7 @@ function freeformMousemove(e){
     drawFreeformOverlay(); return true;
   }
   // Hover cursor
+  if(activeTool==='none' && _sbResizeHitAt(x,y)){ annCanvas.style.cursor='ew-resize'; return true; }
   const sorted=[...freeformElements.map((el,i)=>({el,i}))].sort((a,b)=>b.el.zIndex-a.el.zIndex);
   for(const {el,i} of sorted){
     const h=hitFreeformHandle(el,x,y);
@@ -7806,6 +7831,11 @@ function freeformMousemove(e){
 function freeformMouseup(e){
   const {x,y}=canvasCoords(annCanvas,e);
   const _commitFF=()=>{ if(_pendingUndoSnap){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; } };
+  if(_sbResizeState){
+    if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
+    _sbResizeState=null; annCanvas.style.cursor='default';
+    updateElemPropsBar(); scheduleRender(0); return true;
+  }
   if(_paintStroke){
     const el=freeformElements[_paintStroke.idx];
     if(el&&el._paintCanvas){ el.paintData=el._paintCanvas.toDataURL(); el._paintDirty=false; }
@@ -9015,6 +9045,11 @@ function updateElemPropsBar(){
     document.getElementById('ep-cropR').value=el.cropR||0;
     document.getElementById('ep-br').value=el.brightness||1;
     document.getElementById('ep-ct').value=el.contrast||1;
+    const u=el.sbUnit||'µm';
+    const sbOnEl=document.getElementById('ep-sb-on'); if(sbOnEl) sbOnEl.checked=!!el.sbOn;
+    const umppxEl=document.getElementById('ep-umppx'); if(umppxEl) umppxEl.value=el.umPerPx||'';
+    const sbumEl=document.getElementById('ep-sbum'); if(sbumEl) sbumEl.value=+(Math.round((el.sbUm||0)/_sbUnitFactor(u)*1000)/1000);
+    const sbunitEl=document.getElementById('ep-sbunit'); if(sbunitEl) sbunitEl.value=u;
   }
 }
 
@@ -9024,6 +9059,16 @@ function updateElemProp(prop, val){
   const el=freeformElements[idx]; if(!el) return;
   el[prop]=val;
   scheduleRender(0);
+}
+// Freeform scale-bar helpers (image objects)
+function _epSbEl(){ if(selectedElems.size!==1) return null; const el=freeformElements[[...selectedElems][0]]; return (el&&(el.type==='image'||el.type==='aiicon'))?el:null; }
+function _epSbLen(v){ const el=_epSbEl(); if(!el) return; const u=el.sbUnit||'µm'; el.sbUnit=u; el.sbUm=(parseFloat(v)||0)*_sbUnitFactor(u); scheduleRender(0); }
+function _epSbUnit(u){ const el=_epSbEl(); if(!el) return; el.sbUnit=u; const inp=document.getElementById('ep-sbum'); if(inp) inp.value=+(Math.round((el.sbUm||0)/_sbUnitFactor(u)*1000)/1000); scheduleRender(0); }
+function _epAutoSB(){ const el=_epSbEl(); if(!el) return; if(!(el.umPerPx>0)){ toast('Set µm/px first','warn'); return; }
+  const scale=el.w/((el._imgEl?.width)||el.w);
+  const best=_niceSnap((el.w*0.20)/scale*el.umPerPx);   // bar ≈ 20% of the object width
+  el.sbUm=best; el.sbUnit=_sbUnitFor(best); el.sbOn=true;
+  updateElemPropsBar(); scheduleRender(0); toast(`Scale bar: ${_sbLabel(el)}`,'ok');
 }
 
 // Toggle bold/italic on the selected text object

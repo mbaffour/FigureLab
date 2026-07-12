@@ -465,6 +465,51 @@ test('scale bar drag-to-resize changes the length', async ({ page }) => {
   expect(r.cleared).toBe(true);
 });
 
+test('freeform scale bar: label + unit, props controls, and drag-resize', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const wait = ms => new Promise(res => setTimeout(res, ms));
+    setLayoutMode('freeform');
+    document.getElementById('fm-canvas-w').value = 400; document.getElementById('fm-canvas-h').value = 300;
+    const bc = document.createElement('canvas'); bc.width = 200; bc.height = 200;
+    bc.getContext('2d').fillStyle = '#345'; bc.getContext('2d').fillRect(0, 0, 200, 200);
+    const src = bc.toDataURL('image/png'); const img = new Image(); await new Promise(res => { img.onload = res; img.src = src; });
+    addFreeformElement({ type:'image', src, img, _imgEl:img, x:40, y:40, w:200, h:200, brightness:1, contrast:1,
+      cropT:0, cropL:0, cropB:0, cropR:0, lut:'none', gamma:1, umPerPx:0.5, sbUm:20, sbUnit:'µm', sbOn:true });
+    const idx = freeformElements.length - 1, el = freeformElements[idx];
+    selectedElems.clear(); selectedElems.add(idx); drawFreeformOverlay();
+    render(); await wait(80);
+    const props = { on: document.getElementById('ep-sb-on').checked, umppx: +document.getElementById('ep-umppx').value,
+      len: +document.getElementById('ep-sbum').value, unit: document.getElementById('ep-sbunit').value };
+    const bar = _sbBars.find(b => b.ff && b.idx === idx);
+    const label = _sbLabel(el);
+    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const midY = bar ? (bar.top + bar.bottom) / 2 : 0;
+    const ev = (t, lx, ly) => new MouseEvent(t, { clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H, button: 0, bubbles: true });
+    const before = el.sbUm; let grabbed = false, after = before;
+    if (bar) {
+      freeformMousedown(ev('mousedown', bar.left, midY)); grabbed = !!_sbResizeState;
+      freeformMousemove(ev('mousemove', 2*bar.left - bar.right, midY)); await wait(40);
+      after = el.sbUm;
+      freeformMouseup(ev('mouseup', 2*bar.left - bar.right, midY));
+    }
+    _epSbUnit('nm'); const afterUnit = el.sbUnit;
+    _epAutoSB(); const autoUnit = el.sbUnit;
+    return { props, hasBar: !!bar, label, grabbed, wider: after > before, afterUnit, autoUnit, cleared: _sbResizeState === null };
+  });
+  expect(r.hasBar).toBe(true);            // bar recorded (so it can be resized) + label drawn
+  expect(r.props.on).toBe(true);
+  expect(r.props.umppx).toBe(0.5);
+  expect(r.props.len).toBe(20);
+  expect(r.props.unit).toBe('µm');
+  expect(r.label).toBe('20 µm');
+  expect(r.grabbed).toBe(true);
+  expect(r.wider).toBe(true);             // drag lengthened the freeform bar
+  expect(r.afterUnit).toBe('nm');         // unit control works
+  expect(['nm', 'µm', 'mm']).toContain(r.autoUnit);
+  expect(r.cleared).toBe(true);
+});
+
 test('TIFF import: addFiles routes .tif through the decoder into the crop pipeline', async ({ page }) => {
   const fs = require('fs'), path = require('path');
   await loadApp(page);
