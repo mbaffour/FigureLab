@@ -1434,7 +1434,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h3 class="help-h">Troubleshooting</h3>
 <details class="faq-item"><summary class="faq-q">My annotations moved or look wrong after I changed the layout.</summary><div class="faq-a"><p class="help-p">Annotations are baked into the exported figure, so finalise your grid and panel order before annotating. To keep an annotation tied to a specific panel, draw it in <span class="help-ui">📌 panel</span> mode — it will follow that panel if you reorder. Full <b>Undo / Redo</b> (Ctrl+Z / Ctrl+Y) covers layout, per-panel adjustments, and annotations, one step per edit.</p></div></details>
 <details class="faq-item"><summary class="faq-q">A panel won't drag to reorder.</summary><div class="faq-a"><p class="help-p">It is probably <b>locked</b>. Locked panels cannot be dragged (this prevents accidental reordering). Unlock the panel, then drag the <span class="help-ui">⠿</span> handle in the image list to move it.</p></div></details>
-<details class="faq-item"><summary class="faq-q">How should I cite FigureLab?</summary><div class="faq-a"><p class="help-p">Cite the software using the archived release. FigureLab ships a <span class="help-ui">CITATION.cff</span> file, so GitHub shows a <b>"Cite this repository"</b> button with ready-made metadata. Once the release is archived on Zenodo it mints a DOI (a version-independent concept DOI plus a per-version DOI) — use that DOI in your reference. The DOI is pending, so check the repository for the current value before submitting.</p></div></details>
+<details class="faq-item" id="faq-cite"><summary class="faq-q">How should I cite FigureLab?</summary><div class="faq-a"><p class="help-p">FigureLab is archived on <b>Zenodo</b> with a citable DOI. Use the <b>concept DOI</b> — it always resolves to the latest version:</p>
+<p class="help-p" style="font-family:var(--mono);font-size:12px;line-height:1.6;background:var(--surf2);border:1px solid var(--border);border-radius:6px;padding:9px 11px">Awuah, M. B. (2026). <i>FigureLab: a browser-based tool for assembling publication-quality scientific figures</i>. Zenodo. <a href="https://doi.org/10.5281/zenodo.21269456" target="_blank" rel="noopener" style="color:var(--accent)">https://doi.org/10.5281/zenodo.21269456</a></p>
+<p class="help-p">To cite the <b>exact version</b> you used, use its version DOI instead — e.g. v3.6.1 = <a href="https://doi.org/10.5281/zenodo.21305142" target="_blank" rel="noopener" style="color:var(--accent)">10.5281/zenodo.21305142</a>. The repository also ships a <span class="help-ui">CITATION.cff</span>, so GitHub shows a <b>"Cite this repository"</b> button with ready-made APA &amp; BibTeX metadata.</p></div></details>
 <!-- /HELP:FAQ -->
       </div>
     </div>
@@ -1618,7 +1620,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->
-<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab <span id="version-footer">v3.6.1</span> · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="openHelp();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Help &amp; FAQ</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
+<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab <span id="version-footer">v3.6.1</span> · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="openCite();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px" title="How to cite FigureLab (Zenodo DOI)">Cite</a> · <a href="#" onclick="openHelp();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Help &amp; FAQ</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -1724,6 +1726,11 @@ function markVersionSeen(){
   try{ localStorage.setItem('fl-seen-version', APP_VERSION); }catch(e){}
 }
 function openWhatsNew(){ openHelp('whatsnew'); }
+function openCite(){
+  openHelp('faq');
+  requestAnimationFrame(()=>{ const el=document.getElementById('faq-cite');
+    if(el){ el.open=true; el.scrollIntoView({behavior:'smooth',block:'center'}); } });
+}
 (function initWhatsNew(){
   let seen=''; try{ seen=localStorage.getItem('fl-seen-version')||''; }catch(e){}
   if(seen && seen!==APP_VERSION){ const b=document.getElementById('help-btn'); if(b) b.classList.add('has-new'); }
