@@ -3774,7 +3774,7 @@ function render(targetCanvas, exportScale, opts){
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
     if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.'); return; }
-    renderFreeform(canvas, ctx);
+    renderFreeform(canvas, ctx, S, Object.assign({}, opts, {export:isExport}));
     return;
   }
   if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
@@ -4074,18 +4074,21 @@ function applyAdjust(im, sx, sy, sw, sh){
   const needLut=im.lut&&im.lut!=='none';
   const needBW=(im.blackPt||0)>0||(im.whitePt||255)<255;
   const needGamma=(im.gamma||1)!==1;
-  const needFilter=im.brightness!==1||im.contrast!==1||im.grayscale||im.invert||needLut||needBW||needGamma;
+  // Freeform elements only gain brightness/contrast once a slider is touched, so treat
+  // a missing value as the 1.0 identity rather than as "needs processing" (undefined!==1).
+  const br=im.brightness??1, ct=im.contrast??1;
+  const needFilter=br!==1||ct!==1||im.grayscale||im.invert||needLut||needBW||needGamma;
   if(!needFilter) return {off:false};
   // Cache the processed canvas per-image: the expensive per-pixel pass only re-runs
   // when an adjustment or the source crop rect actually changes. Big win when one
   // slider moves in a multi-panel figure (the other panels reuse their cache).
-  const key=`${im.brightness}|${im.contrast}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}`;
+  const key=`${br}|${ct}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}`;
   if(im._adjKey===key && im._adjCache) return {off:true,canvas:im._adjCache};
   const c=document.createElement('canvas');
   c.width=Math.round(sw); c.height=Math.round(sh);
   const ctx=c.getContext('2d');
   // CSS filters first (fast GPU path)
-  let f=`brightness(${im.brightness}) contrast(${im.contrast})`;
+  let f=`brightness(${br}) contrast(${ct})`;
   if(im.grayscale||needLut) f+=' grayscale(1)'; // LUTs need grayscale input
   if(im.invert) f+=' invert(1)';
   ctx.filter=f;
@@ -4883,7 +4886,9 @@ function cloneElemForUndo(el){
   // Paint layers: drop the live canvas so each snapshot is independent; the
   // bitmap is carried in paintData (kept current on each stroke) and re-hydrated on render.
   if(el&&el.type==='paint'){ const {_paintCanvas,_paintDirty,...rest}=el; return rest; }
-  return {...el};                                          // shallow: keeps img/_imgEl refs
+  // Shallow otherwise (keeps img/_imgEl refs), but drop the adjustment cache so it
+  // recomputes after a restore — same rule as cloneImageForUndo.
+  return {...el, _adjCache:undefined, _adjKey:undefined};
 }
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
@@ -6311,9 +6316,9 @@ async function doExport(fmt){
   try{
     render();
     const name=gv('export-name').trim()||'figure';
-    // Raster formats get a true supersampled re-render (grid mode only).
+    // Raster formats get a true supersampled re-render (grid and freeform alike).
     const raster=fmt==='png'||fmt==='jpeg'||fmt==='webp';
-    const canvas=(raster && layoutMode!=='freeform')
+    const canvas=raster
       ? renderExportCanvas(dpi)
       : document.getElementById('fig-canvas');
     if(fmt==='png')  { await exportPNGWithMeta(name, dpi, canvas); }
@@ -6321,14 +6326,10 @@ async function doExport(fmt){
     if(fmt==='webp') { dl(_safeDataURL(canvas,'image/webp',0.92), `${name}.webp`); }
     if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
     if(fmt==='tiff') {
-      const grid=layoutMode!=='freeform';
-      const tc=grid?renderExportCanvas(dpi):document.getElementById('fig-canvas');
-      exportTIFF(name, dpi, tc, grid);
+      exportTIFF(name, dpi, renderExportCanvas(dpi), true);
     }
     if(fmt==='pdf' || fmt==='pdf-lossless'){
-      const grid=layoutMode!=='freeform';
-      const pc=grid?renderExportCanvas(dpi):document.getElementById('fig-canvas');
-      await exportPDF(name, dpi, pc, {lossless: fmt==='pdf-lossless'});
+      await exportPDF(name, dpi, renderExportCanvas(dpi), {lossless: fmt==='pdf-lossless'});
     }
     logAction('export',{format:fmt,dpi,name});
     const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
@@ -6686,9 +6687,9 @@ function exportSVG(name, dpi, canvas){
 }
 
 function exportTIFF(name, dpi, canvas, preScaled){
-  // Grid exports arrive already re-rendered at the target DPI (crisp text,
-  // lines and scale bars). Freeform falls back to interpolating the on-screen
-  // canvas up to the target DPI.
+  // Exports arrive already re-rendered at the target DPI (crisp text, lines and
+  // scale bars). The interpolating fallback remains for any caller that passes a
+  // logical-size canvas.
   const scale=preScaled?1:Math.max(1, dpi/96);
   const W=Math.round(canvas.width*scale), H=Math.round(canvas.height*scale);
   let src=canvas;
@@ -7015,7 +7016,7 @@ function serializeSession(bundleImages){
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
-      const {img,_imgEl,_paintCanvas,_paintDirty,...rest}=el;
+      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,...rest}=el;
       if(el.type==='paint' && _paintCanvas && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
       return rest;
@@ -7534,14 +7535,24 @@ function clearFreeformElements(){
   updateFreeformElemList(); scheduleRender(0);
 }
 
-function renderFreeform(canvas, ctx){
-  if(typeof hideHD==='function') hideHD(); // freeform preview stays logical
-  _sbBars=[];   // rebuilt below for scale-bar drag-resize hit-testing
+function renderFreeform(canvas, ctx, S, opts){
+  // S ⇒ export supersampling factor; opts.export marks an off-screen export render.
+  // Mirrors the grid path: every draw call below stays in logical units and one
+  // outer transform scales to backing pixels.
+  S = S || 1;
+  const isExport = !!(opts && opts.export);
+  if(!isExport){
+    if(typeof hideHD==='function') hideHD(); // freeform preview stays logical
+    _sbBars=[];   // rebuilt below for scale-bar drag-resize hit-testing
+  }
   const W=Math.max(200,parseInt(document.getElementById('fm-canvas-w').value)||1200);
   const H=Math.max(200,parseInt(document.getElementById('fm-canvas-h').value)||900);
-  canvas.width=W; canvas.height=H;
-  annCanvas.width=W; annCanvas.height=H;
-  canvasLogicalW=W; canvasLogicalH=H;
+  canvas.width=Math.round(W*S); canvas.height=Math.round(H*S);
+  ctx.setTransform(S,0,0,S,0,0);
+  if(!isExport){
+    annCanvas.width=W; annCanvas.height=H;
+    canvasLogicalW=W; canvasLogicalH=H;
+  }
 
   const bgColor=gv('bg-color');
   ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
@@ -7568,8 +7579,11 @@ function renderFreeform(canvas, ctx){
         const sw=imgEl.naturalWidth*(1-((el.cropL||0)+(el.cropR||0))/100);
         const sh=imgEl.naturalHeight*(1-((el.cropT||0)+(el.cropB||0))/100);
         if(sw>0&&sh>0){
-          // applyAdjust expects im.img — temporarily alias
-          const adj=applyAdjust({...el,img:imgEl},sx,sy,sw,sh);
+          // applyAdjust expects im.img — alias it on the element itself so the
+          // _adjKey/_adjCache write lands on a persistent object. A spread copy
+          // discards the cache, re-running the per-pixel pass on every frame.
+          el.img=imgEl;
+          const adj=applyAdjust(el,sx,sy,sw,sh);
           const src=adj?.off?adj.canvas:null;
           if(src) ctx.drawImage(src,0,0,src.width,src.height,el.x,el.y,el.w,el.h);
           else ctx.drawImage(imgEl,sx,sy,sw,sh,el.x,el.y,el.w,el.h);
@@ -7592,7 +7606,7 @@ function renderFreeform(canvas, ctx){
             ctx.fillText(_sbLabel(el), sbX+sbPxW/2, sbY-3);
             ctx.textAlign='left';
           }
-          _sbBars.push({ff:true, idx:freeformElements.indexOf(el), left:sbX, right:sbX+sbPxW, top:sbY, bottom:sbY+sbH2, scale});
+          if(!isExport) _sbBars.push({ff:true, idx:freeformElements.indexOf(el), left:sbX, right:sbX+sbPxW, top:sbY, bottom:sbY+sbH2, scale});
         }
       }
       // Panel label for image elements
@@ -7603,9 +7617,12 @@ function renderFreeform(canvas, ctx){
         ctx.textBaseline='top';
         ctx.fillText(el.label, el.x+6, el.y+5);
       }
-      // Add to panelBounds for annotation compatibility
-      const imgIdx=freeformElements.indexOf(el);
-      panelBounds.push({idx:imgIdx, x:el.x, y:el.y, w:el.w, h:el.h});
+      // Add to panelBounds for annotation compatibility (preview only — render()
+      // clears panelBounds when !isExport, so pushing during an export duplicates).
+      if(!isExport){
+        const imgIdx=freeformElements.indexOf(el);
+        panelBounds.push({idx:imgIdx, x:el.x, y:el.y, w:el.w, h:el.h});
+      }
     } else if(el.type==='text'){
       const fs=el.fontSize||16;
       ctx.font=`${el.italic?'italic ':''}${el.bold?'bold ':''}${fs}px ${el.fontFamily||gv('label-font')||'system-ui'}`;
@@ -7661,9 +7678,11 @@ function renderFreeform(canvas, ctx){
     ctx.restore();
   });
 
-  drawAnnotations(ctx,W,H);
-  drawFreeformOverlay();
-  setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
+  drawAnnotations(ctx,W,H);   // annotations are baked into exports too
+  if(!isExport){
+    drawFreeformOverlay();
+    setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
+  }
 }
 
 // Build an HTMLImageElement for a freeform image element

@@ -51,6 +51,43 @@ async function seedPanels(page, n = 4) {
   await page.waitForFunction(() => Array.isArray(panelBounds) && panelBounds.length > 0);
 }
 
+/**
+ * Switch to freeform mode and seed it with the given element specs (passed
+ * straight to addFreeformElement). Specs with type:'image' get a deterministic
+ * solid-colour bitmap generated in-page; `iw`/`ih` set its natural size and
+ * `fill` its colour. Waits until every image element has finished decoding so
+ * renders are deterministic.
+ */
+async function seedFreeform(page, elements) {
+  await page.evaluate(async (els) => {
+    const sel = document.getElementById('layout-mode');
+    if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform');
+    freeformElements.length = 0;
+    selectedElems.clear();
+    for (const spec of els) {
+      if (spec.type === 'image') {
+        const c = document.createElement('canvas');
+        c.width = spec.iw || 100; c.height = spec.ih || 100;
+        const x = c.getContext('2d');
+        x.fillStyle = spec.fill || '#3366cc'; x.fillRect(0, 0, c.width, c.height);
+        x.fillStyle = '#ffffff'; x.fillRect(4, 4, 10, 10);   // marker so crops are visible
+        const { iw, ih, fill, ...rest } = spec;
+        addFreeformElement({ ...rest, src: c.toDataURL('image/png') });
+      } else {
+        addFreeformElement({ ...spec });
+      }
+    }
+    render();
+  }, elements);
+  // buildImgEl decodes lazily via img.onload — wait it out before asserting.
+  await page.waitForFunction(() =>
+    layoutMode === 'freeform' &&
+    freeformElements.filter(e => e.type === 'image')
+      .every(e => e._imgEl && e._imgEl.complete && e._imgEl.naturalWidth > 0));
+  await page.evaluate(() => render());
+}
+
 /** Set a grid/layout input by id and trigger its handlers, then render. */
 async function setInput(page, id, value, evt = 'input') {
   await page.evaluate(({ id, value, evt }) => {
@@ -107,4 +144,4 @@ async function panelCenter(page, idx = 0) {
   }, idx);
 }
 
-module.exports = { APP_URL, loadApp, seedPanels, setInput, state, gesture, panelCenter };
+module.exports = { APP_URL, loadApp, seedPanels, seedFreeform, setInput, state, gesture, panelCenter };
