@@ -1042,6 +1042,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <select id="ep-chart-kind" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epChartKind(this.value)">
           <option value="bar">Bar</option><option value="groupedBar">Grouped</option><option value="stackedBar">Stacked</option>
           <option value="line">Line</option><option value="scatter">Scatter</option><option value="box">Box</option>
+          <option value="heatmap">Heatmap</option><option value="survival">Survival</option>
         </select></label>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Palette
         <select id="ep-chart-palette" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epChartPalette(this.value)">
@@ -1210,7 +1211,27 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
             <option value="bar">Bar</option><option value="groupedBar">Grouped bar</option>
             <option value="stackedBar">Stacked bar</option><option value="line">Line</option>
             <option value="scatter">Scatter</option><option value="box">Box &amp; whisker</option>
+            <option value="heatmap">Heatmap</option><option value="survival">Survival (Kaplan–Meier)</option>
           </select></label>
+        <div id="chart-surv-wrap" style="display:none;gap:6px;flex-direction:column">
+          <div style="display:flex;gap:6px">
+            <label style="font-size:11px;flex:1">Time col<select id="chart-timecol" style="width:100%"></select></label>
+            <label style="font-size:11px;flex:1">Event col (1/0)<select id="chart-eventcol" style="width:100%"></select></label>
+          </div>
+          <label style="font-size:11px">Group col (optional)<select id="chart-groupcol" style="width:100%"><option value="">—</option></select></label>
+          <div style="font-size:10px;color:var(--muted)">Kaplan–Meier survival is computed from your data. FigureLab does not run a log-rank test — report your own.</div>
+        </div>
+        <div id="chart-heat-wrap" style="display:none;gap:6px;flex-direction:column">
+          <label style="font-size:11px">Colour scale
+            <select id="chart-colorscale" onchange="_chartModalKindChange()" style="width:100%">
+              <option value="viridis">Viridis (sequential)</option><option value="magma">Magma (sequential)</option>
+              <option value="blues">Blues (sequential)</option><option value="diverging">Diverging (blue–white–red)</option>
+            </select></label>
+          <div style="display:flex;gap:10px;font-size:11px;align-items:center">
+            <label><input type="checkbox" id="chart-heat-values"> show values</label>
+            <label id="chart-heat-mid-wrap" style="display:none">midpoint <input type="number" id="chart-heat-mid" value="0" style="width:60px"></label>
+          </div>
+        </div>
         <label style="font-size:11px">X / category column
           <select id="chart-xcol" style="width:100%"></select></label>
         <div style="font-size:11px">Y columns
@@ -2566,6 +2587,8 @@ const CMD_REGISTRY=[
   {label:'Add scatter plot',         keys:'chart scatter plot xy data',    run:()=>addChartElement('scatter')},
   {label:'Add line chart',           keys:'chart line plot time course',   run:()=>addChartElement('line')},
   {label:'Add box plot',             keys:'chart box whisker plot data',   run:()=>addChartElement('box')},
+  {label:'Add heatmap',              keys:'chart heatmap matrix omics expression', run:()=>addChartElement('heatmap')},
+  {label:'Add survival curve',       keys:'chart survival kaplan meier km curve clinical', run:()=>addChartElement('survival')},
   {label:'Edit chart data…',         keys:'chart edit data csv',           run:()=>openChartModal()},
   {label:'Theme: Grayscale for print', keys:'theme grayscale greyscale print mono black white', run:()=>applyBuiltinTheme('grayscale-print')},
   {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
@@ -8996,17 +9019,56 @@ function _chartLinFit(pts){
   return {m,b,r2:sst>0?Math.max(0,Math.min(1,ssr/sst)):0,n};
 }
 
+// ── Colour scales for heatmaps ──────────────────────────────────
+// Sequential defaults are perceptually ordered so darker = higher unambiguously.
+// Diverging requires an explicit midpoint (set below) so it can't silently
+// exaggerate differences by centring on the data mean.
+const _CSCALE_STOPS={
+  viridis:[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],
+  blues:[[247,251,255],[198,219,239],[107,174,214],[33,113,181],[8,48,107]],
+  magma:[[0,0,4],[81,18,124],[183,55,121],[252,137,97],[252,253,191]],
+  diverging:[[33,102,172],[247,247,247],[178,24,43]],   // blue → white → red
+};
+function _lerpRGB(a,b,t){ return [Math.round(a[0]+(b[0]-a[0])*t), Math.round(a[1]+(b[1]-a[1])*t), Math.round(a[2]+(b[2]-a[2])*t)]; }
+function _colorScale(t, name){
+  const stops=_CSCALE_STOPS[name]||_CSCALE_STOPS.viridis;
+  t=Math.max(0,Math.min(1,t));
+  const seg=(stops.length-1)*t, i=Math.min(stops.length-2,Math.floor(seg));
+  const c=_lerpRGB(stops[i],stops[i+1],seg-i);
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+// ── Kaplan–Meier estimator ──────────────────────────────────────
+// Standard product-limit estimate. events: 1 = event, 0 = censored. Returns the
+// step function [{t,s,atRisk}], censoring times, and the number of subjects.
+// No inference (no log-rank) is computed — that stays the user's own test.
+function _kmEstimate(rows){
+  const data=rows.filter(r=>isFinite(r.time)).slice().sort((a,b)=>a.time-b.time);
+  const n0=data.length;
+  const steps=[{t:0,s:1,atRisk:n0}]; const censors=[];
+  let s=1, atRisk=n0, i=0;
+  while(i<data.length){
+    const t=data[i].time; let d=0, c=0;
+    while(i<data.length && data[i].time===t){ if(data[i].event) d++; else c++; i++; }
+    if(d>0){ s=s*(1-d/atRisk); steps.push({t,s,atRisk}); }
+    for(let k=0;k<c;k++) censors.push({t, s});   // censoring ticks sit on the current survival level
+    atRisk-=(d+c);
+  }
+  return {steps, censors, n:n0};
+}
+
 // Default chart config for a freshly-added chart of the given kind.
 function _defaultChart(kind){
   return {
     kind:kind||'bar',
     data:{columns:['Group','Value'], rows:[['A',3],['B',5],['C',4]], source:'demo', sourceName:''},
-    mapping:{xCol:0, yCols:[1], seriesCol:null, errCol:null},
+    mapping:{xCol:0, yCols:[1], seriesCol:null, errCol:null, timeCol:0, eventCol:1, groupCol:null},
     agg:'none', error:'none',
     axes:{x:{title:'',min:null,max:null,log:false}, y:{title:'',min:null,max:null,log:false}},
     style:{palette:'okabeIto', fontFamily:'system-ui, sans-serif', fontSize:12,
       showLegend:true, legendPos:'tr', showGrid:false, showPoints:false, pointSize:4,
-      lineWidth:2, barGap:0.2, groupGap:0.35, frame:'lb'},
+      lineWidth:2, barGap:0.2, groupGap:0.35, frame:'lb',
+      colorscale:'viridis', diverging:false, midpoint:0, showValues:false, atRiskTable:false},
     fit:{on:false, kind:'linear', showEq:false, showR2:false},
     annos:[], caption:''
   };
@@ -9029,6 +9091,31 @@ function _chartStats(el){
 
   // Category label for a row (x column stringified).
   const catOf=r=>String(r[xc]??'');
+
+  if(kind==='heatmap'){
+    // Matrix: row labels from xCol, columns = the value columns; cells = numeric values.
+    const rowLabels=rows.map(catOf);
+    const valCols=yCols.length?yCols:cols.map((_,i)=>i).filter(i=>i!==xc);
+    const colLabels=valCols.map(c=>cols[c]||('Col '+(c+1)));
+    const matrix=rows.map(r=>valCols.map(c=>num(r[c])));
+    let mn=Infinity, mx=-Infinity;
+    matrix.forEach(rr=>rr.forEach(v=>{ if(isFinite(v)){ mn=Math.min(mn,v); mx=Math.max(mx,v); } }));
+    if(!isFinite(mn)){ mn=0; mx=1; }
+    return {kind, matrix, rowLabels, colLabels, min:mn, max:mx, warn};
+  }
+
+  if(kind==='survival'){
+    // Kaplan–Meier per group. Columns: time, event (1/0), optional group.
+    const tc=ch.mapping.timeCol??0, ec=ch.mapping.eventCol??1, gc=ch.mapping.groupCol;
+    const groups={};
+    rows.forEach(r=>{ const t=num(r[tc]); if(!isFinite(t)) { warn.dropped++; return; }
+      const g=(gc!=null)?String(r[gc]??''):'All';
+      (groups[g]=groups[g]||[]).push({time:t, event:num(r[ec])?1:0}); });
+    const gnames=Object.keys(groups);
+    const curves=gnames.map((g,i)=>{ const km=_kmEstimate(groups[g]); return {name:g, color:colours[i%colours.length], ...km}; });
+    let tmax=0; curves.forEach(c=>c.steps.forEach(s=>{ tmax=Math.max(tmax,s.t); }));
+    return {kind, curves, tmax:tmax||1, singleGroup:(gc==null), warn};
+  }
 
   if(kind==='scatter'||kind==='line'){
     // Each y column is a series of (x,y) points against a numeric x.
@@ -9131,6 +9218,8 @@ function _chartDraw(el, emit){
   const stat=_chartStatsCached(el);
   const font=(sz,wt)=>`${wt?wt+' ':''}${sz}px ${st.fontFamily||'system-ui,sans-serif'}`;
   const fs=st.fontSize||12, ink='#222222', grid='#e2e2e2';
+  if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink); return; }
+  if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink); return; }
   // Plot rectangle: leave room for axis titles + tick labels + legend.
   const padL=48, padR=(st.showLegend?96:16), padT=14, padB=ch.axes.x.title?40:28;
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
@@ -9263,6 +9352,72 @@ function _chartDraw(el, emit){
     }
   }
 }
+// Heatmap: coloured matrix + a MANDATORY colourbar showing the true numeric range.
+function _chartDrawHeatmap(el, emit, stat, font, fs, ink){
+  const ch=el.chart, st=ch.style, W=el.w, H=el.h;
+  emit.rect(0,0,W,H,'#ffffff',null,0);
+  const nR=stat.matrix.length, nC=(stat.matrix[0]||[]).length;
+  if(!nR||!nC){ emit.text('No matrix data', W/2, H/2, font(fs), ink, 'center', 'middle'); return; }
+  const padL=Math.min(90, Math.max(40, W*0.18)), padT=ch.axes.y.title?24:14, padR=64, padB=Math.min(70,Math.max(28,H*0.14));
+  const gw=Math.max(10,W-padL-padR), gh=Math.max(10,H-padT-padB);
+  const cw=gw/nC, chh=gh/nR;
+  // Diverging scales must centre on an explicit midpoint (never the data mean).
+  const useDiv=!!st.diverging;
+  const mid=useDiv?(st.midpoint||0):null;
+  const scaleName=useDiv?'diverging':(st.colorscale||'viridis');
+  const norm=v=>{
+    if(!isFinite(v)) return null;
+    if(useDiv){ const half=Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid))||1; return 0.5+(v-mid)/(2*half); }
+    return (stat.max===stat.min)?0.5:(v-stat.min)/(stat.max-stat.min);
+  };
+  stat.matrix.forEach((row,ri)=>row.forEach((v,ci)=>{
+    const t=norm(v); const col=(t==null)?'#dddddd':_colorScale(t,scaleName);
+    emit.rect(padL+ci*cw, padT+ri*chh, cw, chh, col, null, 0);
+    if(st.showValues && isFinite(v) && cw>22 && chh>14){ emit.text((+v.toFixed(2)).toString(), padL+ci*cw+cw/2, padT+ri*chh+chh/2, font(Math.min(fs-2,cw*0.28)), (t>0.6?'#fff':'#222'), 'center', 'middle'); }
+  }));
+  // Row + column labels.
+  stat.rowLabels.forEach((r,ri)=>{ if(chh>10) emit.text(String(r), padL-5, padT+ri*chh+chh/2, font(fs-2), ink, 'right', 'middle'); });
+  stat.colLabels.forEach((c,ci)=>{ if(cw>10) emit.text(String(c), padL+ci*cw+cw/2, padT+gh+12, font(fs-2), ink, 'center', 'alphabetic'); });
+  if(ch.axes.y.title) emit.text(ch.axes.y.title, 10, padT+gh/2, font(fs), ink, 'center', 'alphabetic', -90);
+  // Mandatory colourbar (numeric range always shown).
+  const barX=W-padR+18, barY=padT, barW=12, barH=gh;
+  const steps=40;
+  for(let i=0;i<steps;i++){ const t=1-i/steps; emit.rect(barX, barY+i*(barH/steps), barW, barH/steps+0.5, _colorScale(useDiv?t:t, scaleName), null, 0); }
+  emit.rect(barX,barY,barW,barH,null,ink,0.5);
+  const hi=useDiv?(mid+Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid))):stat.max;
+  const lo=useDiv?(mid-Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid))):stat.min;
+  emit.text(_fmtTick(hi), barX+barW+3, barY+4, font(fs-3), ink, 'left', 'middle');
+  emit.text(_fmtTick((hi+lo)/2), barX+barW+3, barY+barH/2, font(fs-3), ink, 'left', 'middle');
+  emit.text(_fmtTick(lo), barX+barW+3, barY+barH-2, font(fs-3), ink, 'left', 'middle');
+}
+// Survival: Kaplan–Meier step curves with censoring ticks. No p-value computed.
+function _chartDrawSurvival(el, emit, stat, font, fs, ink){
+  const ch=el.chart, st=ch.style, W=el.w, H=el.h;
+  emit.rect(0,0,W,H,'#ffffff',null,0);
+  const padL=48, padR=(st.showLegend&&!stat.singleGroup?96:16), padT=14, padB=ch.axes.x.title?40:28;
+  const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
+  const px1=px0+pw, py1=py0+ph;
+  emit.line(px0,py1,px1,py1,ink,1); emit.line(px0,py0,px0,py1,ink,1);
+  const tmax=stat.tmax||1;
+  const xS=t=>px0+(t/tmax)*pw, yS=s=>py1-s*ph;           // survival 0..1
+  // Y ticks 0..1.
+  [0,0.25,0.5,0.75,1].forEach(s=>{ const y=yS(s); emit.line(px0-3,y,px0,y,ink,1); emit.text(s.toFixed(2),px0-6,y,font(fs-1),ink,'right','middle'); });
+  // X ticks.
+  _niceTicks(0,tmax,5).forEach(t=>{ if(t<0||t>tmax) return; const x=xS(t); emit.line(x,py1,x,py1+3,ink,1); emit.text(_fmtTick(t),x,py1+14,font(fs-1),ink,'center','alphabetic'); });
+  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6, font(fs), ink, 'center', 'alphabetic');
+  emit.text(ch.axes.y.title||'Survival probability', 12, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
+  stat.curves.forEach(cv=>{
+    // Step function: horizontal then vertical drops.
+    const pts=[]; let prev=null;
+    cv.steps.forEach(st2=>{ if(prev){ pts.push([xS(st2.t),yS(prev.s)]); } pts.push([xS(st2.t),yS(st2.s)]); prev=st2; });
+    pts.push([xS(tmax), yS(prev?prev.s:1)]);
+    emit.poly(pts, cv.color, null, st.lineWidth||2);
+    cv.censors.forEach(c=>{ const x=xS(c.t), y=yS(c.s); emit.line(x,y-3,x,y+3,cv.color,1.5); });   // censoring ticks
+  });
+  if(st.showLegend && !stat.singleGroup){
+    let ly=py0+4; stat.curves.forEach(cv=>{ emit.line(px1+10,ly+5,px1+22,ly+5,cv.color,2); emit.text(cv.name,px1+26,ly+9,font(fs-1),ink,'left','alphabetic'); ly+=16; });
+  }
+}
 function _fmtTick(v){
   if(v===0) return '0';
   const a=Math.abs(v);
@@ -9297,9 +9452,24 @@ function addChartElement(kind){
   if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
   const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
   const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
-  const w=360,h=260;
+  const w=(kind==='heatmap'||kind==='survival')?420:360, h=(kind==='survival')?300:260;
+  const ch=_defaultChart(kind);
+  // Seed demo data appropriate to the kind so the new chart isn't empty.
+  if(kind==='heatmap'){
+    ch.data={columns:['Gene','Sample1','Sample2','Sample3','Sample4'],
+      rows:[['GeneA',1.2,0.4,-0.8,2.1],['GeneB',-1.5,0.2,1.1,-0.3],['GeneC',0.6,1.8,-2.0,0.9],['GeneD',2.0,-0.5,0.3,-1.2]],
+      source:'demo', sourceName:''};
+    ch.mapping.xCol=0; ch.mapping.yCols=[1,2,3,4];
+  } else if(kind==='survival'){
+    ch.data={columns:['time','event','group'],
+      rows:[[2,1,'A'],[4,1,'A'],[5,0,'A'],[7,1,'A'],[10,1,'A'],[12,0,'A'],
+            [3,1,'B'],[6,1,'B'],[8,0,'B'],[9,1,'B'],[14,0,'B'],[16,1,'B']],
+      source:'demo', sourceName:''};
+    ch.mapping.timeCol=0; ch.mapping.eventCol=1; ch.mapping.groupCol=2;
+    ch.axes.x.title='Time'; ch.axes.y.title='Survival probability';
+  }
   addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
-    chart:_defaultChart(kind), label:(kind||'bar')+' chart'});
+    chart:ch, label:(kind||'bar')+' chart'});
   const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
   logAction('chartAdd',{kind:kind||'bar'});
   updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
@@ -9369,6 +9539,13 @@ function _chartModalSync(){
   const fitWrap=document.getElementById('chart-fit-wrap'); if(fitWrap) fitWrap.style.display=(ch.kind==='scatter'||ch.kind==='line')?'flex':'none';
   sc('chart-fit', !!ch.fit.on); sc('chart-fit-r2', !!ch.fit.showR2);
   sv('chart-caption', ch.caption||'');
+  // Survival + heatmap specifics.
+  const colOpts=(sel)=>cols.map((c,i)=>`<option value="${i}"${sel===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
+  const tcs=document.getElementById('chart-timecol'); if(tcs) tcs.innerHTML=colOpts(ch.mapping.timeCol??0);
+  const ecs=document.getElementById('chart-eventcol'); if(ecs) ecs.innerHTML=colOpts(ch.mapping.eventCol??1);
+  const gcs=document.getElementById('chart-groupcol'); if(gcs) gcs.innerHTML='<option value="">—</option>'+cols.map((c,i)=>`<option value="${i}"${ch.mapping.groupCol===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
+  sv('chart-colorscale', ch.style.colorscale||'viridis'); sc('chart-heat-values', !!ch.style.showValues); sv('chart-heat-mid', ch.style.midpoint||0);
+  _chartModalKindChange();
   _chartRenderSigList();
 }
 // Serialise the dataset back to a tab-separated block for the textarea.
@@ -9408,6 +9585,11 @@ function applyChartModal(){
   ch.style.palette=gv('chart-palette');
   ch.style.showLegend=gc('chart-legend'); ch.style.showGrid=gc('chart-grid'); ch.style.showPoints=gc('chart-points');
   ch.fit.on=gc('chart-fit'); ch.fit.showR2=gc('chart-fit-r2'); ch.fit.showEq=gc('chart-fit-r2');
+  // Survival mapping + heatmap style.
+  ch.mapping.timeCol=+gv('chart-timecol'); ch.mapping.eventCol=+gv('chart-eventcol');
+  const gcv=gv('chart-groupcol'); ch.mapping.groupCol=gcv===''?null:+gcv;
+  const csv=gv('chart-colorscale'); ch.style.colorscale=(csv==='diverging'?'diverging':csv); ch.style.diverging=(csv==='diverging');
+  ch.style.showValues=gc('chart-heat-values'); ch.style.midpoint=+gv('chart-heat-mid')||0;
   ch.caption=gv('chart-caption');
   el._chartKey=''; el._chartStat=null;       // force stats recompute
   el.label=el.label||(ch.kind+' chart');
@@ -9451,7 +9633,14 @@ function _chartDelSig(i){
 }
 // Live-toggle the error-column picker / fit block when those selects change in the modal.
 function _chartModalErrChange(){ const w=document.getElementById('chart-errcol-wrap'); if(w) w.style.display=(gv('chart-err')==='column')?'inline-flex':'none'; }
-function _chartModalKindChange(){ const el=_selectedChartEl(); const k=gv('chart-kind'); const w=document.getElementById('chart-fit-wrap'); if(w) w.style.display=(k==='scatter'||k==='line')?'flex':'none'; }
+function _chartModalKindChange(){
+  const k=gv('chart-kind');
+  const show=(id,on)=>{ const w=document.getElementById(id); if(w) w.style.display=on?'flex':'none'; };
+  show('chart-fit-wrap', k==='scatter'||k==='line');
+  show('chart-surv-wrap', k==='survival');
+  show('chart-heat-wrap', k==='heatmap');
+  const midWrap=document.getElementById('chart-heat-mid-wrap'); if(midWrap) midWrap.style.display=(gv('chart-colorscale')==='diverging')?'inline-flex':'none';
+}
 
 // ── Auto panel-lettering — relabel panels A, B, C… in reading order ──
 function _letterLabel(i){

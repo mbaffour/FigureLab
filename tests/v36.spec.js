@@ -1097,6 +1097,93 @@ test('flow template round-trips through a session with connectors intact', async
   expect(errors).toEqual([]);
 });
 
+// ── Phase 7: heatmaps + survival curves ──
+
+test('Kaplan–Meier step function matches a hand-computed reference incl. censoring', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    // 4 subjects: events at t=2,4,7; one censored at t=5.
+    const km = _kmEstimate([{ time: 2, event: 1 }, { time: 4, event: 1 }, { time: 5, event: 0 }, { time: 7, event: 1 }]);
+    return { steps: km.steps.map(s => [s.t, +s.s.toFixed(6)]), censors: km.censors.map(c => c.t), n: km.n };
+  });
+  // S: 1 → 1*(1-1/4)=0.75 → 0.75*(1-1/3)=0.5 → 0.5*(1-1/1)=0
+  expect(r.steps).toEqual([[0, 1], [2, 0.75], [4, 0.5], [7, 0]]);
+  expect(r.censors).toEqual([5]);          // the censored subject shows a tick at t=5
+  expect(r.n).toBe(4);
+  expect(errors).toEqual([]);
+});
+
+test('survival computes no inference: no log-rank function anywhere', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    addChartElement('survival'); closeChartModal();
+    const globals = Object.keys(window).filter(k => /logrank|log_rank|coxph|hazard.*ratio|survdiff/i.test(k));
+    const el = freeformElements[0];
+    const stat = _chartStatsCached(el);
+    // The stat object carries curves, never a p-value.
+    const hasP = JSON.stringify(stat).match(/"p(value)?":/i);
+    return { globals, hasCurves: Array.isArray(stat.curves) && stat.curves.length === 2, hasP: !!hasP };
+  });
+  expect(r.globals).toEqual([]);
+  expect(r.hasCurves).toBe(true);
+  expect(r.hasP).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('heatmap builds a matrix with the true numeric range for the colourbar', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    addChartElement('heatmap'); closeChartModal();
+    const el = freeformElements[0];
+    el.chart.data = { columns: ['g', 's1', 's2'], rows: [['A', -2, 5], ['B', 0, 3]], source: 't' };
+    el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2];
+    el._chartKey = ''; el._chartStat = null;
+    const stat = _chartStatsCached(el);
+    return { rows: stat.matrix.length, cols: stat.matrix[0].length, min: stat.min, max: stat.max, rowLabels: stat.rowLabels, colLabels: stat.colLabels };
+  });
+  expect(r.rows).toBe(2);
+  expect(r.cols).toBe(2);
+  expect(r.min).toBe(-2);                  // true data min/max drive the colourbar
+  expect(r.max).toBe(5);
+  expect(r.rowLabels).toEqual(['A', 'B']);
+  expect(r.colLabels).toEqual(['s1', 's2']);
+  expect(errors).toEqual([]);
+});
+
+test('colour scale is monotonic and diverging centres on the explicit midpoint', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const lum = c => { const m = c.match(/(\d+),(\d+),(\d+)/); return +m[1] * 0.299 + +m[2] * 0.587 + +m[3] * 0.114; };
+    // Sequential viridis: t=1 (yellow) is much brighter than t=0 (purple).
+    const seqOrdered = lum(_colorScale(1, 'viridis')) > lum(_colorScale(0, 'viridis'));
+    // Diverging midpoint renders near white/grey (high, balanced luminance).
+    const midCol = _colorScale(0.5, 'diverging');
+    const m = midCol.match(/(\d+),(\d+),(\d+)/);
+    const midNeutral = Math.abs(+m[1] - +m[2]) < 40 && Math.abs(+m[2] - +m[3]) < 40 && lum(midCol) > 180;
+    return { seqOrdered, midNeutral };
+  });
+  expect(r.seqOrdered).toBe(true);         // darker ≠ higher ambiguity: viridis is ordered
+  expect(r.midNeutral).toBe(true);         // diverging centre is neutral, not a hue
+  expect(errors).toEqual([]);
+});
+
+test('heatmap and survival export to SVG as vector without throwing', async ({ page }) => {
+  const errors = await loadApp(page);
+  const svgs = await page.evaluate(async () => {
+    const out = {};
+    for (const kind of ['heatmap', 'survival']) {
+      freeformElements.length = 0;
+      addChartElement(kind); closeChartModal(); render();
+      const cap = await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')));
+      out[kind] = new TextDecoder().decode(cap.data);
+    }
+    return out;
+  });
+  expect(svgs.heatmap).toMatch(/<rect/);   // matrix cells + colourbar as vector rects
+  expect(svgs.survival).toMatch(/<polyline/); // KM step curve as a polyline
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
