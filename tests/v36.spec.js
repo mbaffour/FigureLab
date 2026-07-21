@@ -1519,6 +1519,28 @@ test('submission package includes a Source Data CSV for each chart', async ({ pa
   expect(errors).toEqual([]);
 });
 
+test('measurements disclose that they read the 8-bit display, not raw data', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    const c = document.getElementById('fig-canvas');
+    const ctx = c.getContext('2d');
+    // Measure an ROI over the first panel.
+    const b = panelBounds[0];
+    measureAndShowROI(ctx, b.x + 5, b.y + 5, 20, 20);
+    const roiHtml = document.getElementById('roi-results').innerHTML;
+    const cap = await _captureDownload(() => exportMeasurements());
+    const csv = new TextDecoder().decode(cap.data);
+    return {
+      resultDisclaims: /8-bit display/i.test(roiHtml),
+      csvDisclaims: /^# .*8-bit display/i.test(csv),
+    };
+  });
+  expect(r.resultDisclaims).toBe(true);   // shown with the on-screen result
+  expect(r.csvDisclaims).toBe(true);      // and as a CSV header comment
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);

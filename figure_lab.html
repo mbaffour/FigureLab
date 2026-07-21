@@ -10504,6 +10504,15 @@ function handleMeasureTool(e, phase){
   }
 }
 
+// Every measurement reads the RENDERED 8-bit display (after brightness/contrast/
+// gamma/LUT), NOT the raw image samples — so values are relative, not absolute
+// quantification. This disclaimer travels with every result and the CSV.
+const _MEASURE_DISCLAIMER='Measured on the 8-bit display (after any brightness/contrast/gamma/LUT), not raw pixel data. Use for relative comparison within this figure; quantify from raw unprocessed images.';
+function _adjustedPanelNote(im){
+  if(!im) return '';
+  const adj=(im.brightness!=null&&im.brightness!==1)||(im.contrast!=null&&im.contrast!==1)||(im.gamma!=null&&im.gamma!==1)||(im.lut&&im.lut!=='none')||im.invert||(im.blackPt||0)>0||(im.whitePt||255)<255;
+  return adj?' This panel HAS display adjustments applied — values reflect the adjusted display.':'';
+}
 function measureAndShowROI(ctx,rx,ry,rw,rh){
   const data=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh))).data;
   let sumR=0,sumG=0,sumB=0,minV=255,maxV=0;
@@ -10529,7 +10538,8 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     Area: ${Math.round(area)} px²${areaUm?` (${areaUm} µm²)`:''}<br>
     Mean intensity: ${meanGray.toFixed(1)} <span style="color:var(--muted)">(R:${meanR.toFixed(0)} G:${meanG.toFixed(0)} B:${meanB.toFixed(0)})</span><br>
     Min: ${minV.toFixed(0)} · Max: ${maxV.toFixed(0)}<br>
-    Integrated density: ${intDens.toFixed(0)}`;
+    Integrated density: ${intDens.toFixed(0)}
+    <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`;
 
   measurements.push({type:'roi',label:`ROI ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
@@ -10562,7 +10572,8 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
   });
   pctx.stroke();
   document.getElementById('roi-results').className='show';
-  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${Math.max(...vals).toFixed(0)} · mean: ${(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1)}`;
+  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${Math.max(...vals).toFixed(0)} · mean: ${(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1)}
+    <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}</div>`;
   measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(',')});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
@@ -10575,7 +10586,7 @@ function exportMeasurements(){
     rows.push([m.type,m.label,m.x||'',m.y||'',m.w||'',m.h||'',
       m.meanGray||'',m.minV||'',m.maxV||'',m.intDens||'',m.area||'',m.areaUm||'',m.values||'']);
   });
-  const csv=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+  const csv='# '+_MEASURE_DISCLAIMER+'\n'+rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   dl(blobUrl(csv),'figurelab-measurements.csv');
 }
 
@@ -10870,7 +10881,8 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     Objects detected: <b>${count}</b><br>
     Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
-    <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>`;
+    <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
+    <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`;
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
     count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||''});
@@ -11762,8 +11774,8 @@ function runExposureAnalysis(){
     const warnings=[];
     if(mean>210) warnings.push({s:'warn',m:`Overexposed — mean intensity ${mean.toFixed(0)}/255`});
     if(mean<35) warnings.push({s:'warn',m:`Underexposed — mean intensity ${mean.toFixed(0)}/255`});
-    if(parseFloat(hiPct)>5) warnings.push({s:'fail',m:`${hiPct}% pixels clipped to white (saturated)`});
-    if(parseFloat(loPct)>15) warnings.push({s:'warn',m:`${loPct}% pixels at black — may hide detail`});
+    if(parseFloat(hiPct)>5) warnings.push({s:'fail',m:`${hiPct}% pixels clipped to white on the display`});
+    if(parseFloat(loPct)>15) warnings.push({s:'warn',m:`${loPct}% pixels at black on the display`});
     if(range<40) warnings.push({s:'warn',m:`Low contrast — dynamic range only ${range} levels (p5–p95)`});
     if(!warnings.length) warnings.push({s:'pass',m:`Well-exposed — mean ${mean.toFixed(0)}, range ${range} levels`});
     results.push({label:im.label, warnings});
@@ -11782,6 +11794,7 @@ function runExposureAnalysis(){
   modal.innerHTML=`<div class="modal" style="max-width:500px;padding:22px;max-height:80vh;overflow-y:auto">
     <div style="font-weight:600;font-size:14px;margin-bottom:12px">⚡ Exposure Analysis</div>
     ${rows}
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:6px;border-top:1px solid var(--border);padding-top:8px">Computed on the rendered 8-bit display, after any brightness/contrast/gamma/LUT. Display clipping is not the same as acquisition saturation — check saturation on the raw image before adjustment.</div>
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:10px">Close</button>
   </div>`;
   document.body.appendChild(modal);
