@@ -3144,12 +3144,12 @@ function renderImgList(){
 
     // Adjustments
     const brSlider = item.querySelector('.f-br'), brVal = item.querySelector('.f-br-v');
-    brSlider.addEventListener('input', e=>{ images[idx].brightness=parseFloat(e.target.value); brVal.textContent=images[idx].brightness.toFixed(2); scheduleRender(); });
+    brSlider.addEventListener('input', e=>{ images[idx].brightness=parseFloat(e.target.value); brVal.textContent=images[idx].brightness.toFixed(2); scheduleRender(0); });
     const ctSlider = item.querySelector('.f-ctr'), ctVal = item.querySelector('.f-ct-v');
-    ctSlider.addEventListener('input', e=>{ images[idx].contrast=parseFloat(e.target.value); ctVal.textContent=images[idx].contrast.toFixed(2); scheduleRender(); });
+    ctSlider.addEventListener('input', e=>{ images[idx].contrast=parseFloat(e.target.value); ctVal.textContent=images[idx].contrast.toFixed(2); scheduleRender(0); });
 
-    item.querySelector('.f-gray').addEventListener('click', ()=>{ images[idx].grayscale=!images[idx].grayscale; scheduleRender(); });
-    item.querySelector('.f-inv').addEventListener('click',  ()=>{ images[idx].invert=!images[idx].invert; scheduleRender(); });
+    item.querySelector('.f-gray').addEventListener('click', ()=>{ images[idx].grayscale=!images[idx].grayscale; scheduleRender(0); });
+    item.querySelector('.f-inv').addEventListener('click',  ()=>{ images[idx].invert=!images[idx].invert; scheduleRender(0); });
     item.querySelector('.f-reset').addEventListener('click',()=>{
       images[idx].brightness=1; images[idx].contrast=1; images[idx].grayscale=false;
       images[idx].invert=false; images[idx].lut='none'; images[idx].blackPt=0; images[idx].whitePt=255;
@@ -3159,7 +3159,7 @@ function renderImgList(){
 
     // Gamma slider
     const gmSlider=item.querySelector('.f-gm'), gmVal=item.querySelector('.f-gm-v');
-    gmSlider.addEventListener('input',e=>{ images[idx].gamma=parseFloat(e.target.value)||1; gmVal.textContent=images[idx].gamma.toFixed(2); scheduleRender(); });
+    gmSlider.addEventListener('input',e=>{ images[idx].gamma=parseFloat(e.target.value)||1; gmVal.textContent=images[idx].gamma.toFixed(2); scheduleRender(0); });
 
     // Lock button
     item.querySelector('[data-lock]').addEventListener('click',()=>{
@@ -3205,12 +3205,12 @@ function renderImgList(){
     bptSlider.addEventListener('input',e=>{
       images[idx].blackPt=parseInt(e.target.value)||0;
       if(images[idx].blackPt>=images[idx].whitePt) images[idx].blackPt=images[idx].whitePt-1;
-      bptVal.textContent=images[idx].blackPt; scheduleRender();
+      bptVal.textContent=images[idx].blackPt; scheduleRender(0);
     });
     wptSlider.addEventListener('input',e=>{
       images[idx].whitePt=parseInt(e.target.value)||255;
       if(images[idx].whitePt<=images[idx].blackPt) images[idx].whitePt=images[idx].blackPt+1;
-      wptVal.textContent=images[idx].whitePt; scheduleRender();
+      wptVal.textContent=images[idx].whitePt; scheduleRender(0);
     });
 
     // LUT buttons
@@ -3219,7 +3219,7 @@ function renderImgList(){
         images[idx].lut=btn.dataset.lut||'none';
         item.querySelectorAll('.f-lut').forEach(b=>b.classList.remove('lut-active'));
         btn.classList.add('lut-active');
-        scheduleRender();
+        scheduleRender(0);
       });
     });
 
@@ -8259,6 +8259,8 @@ function renderFreeform(canvas, ctx, S, opts){
   if(typeof _syncConnectorBBoxes==='function') _syncConnectorBBoxes();   // derive connector geometry first
   // Sort by zIndex
   const sorted=[...freeformElements].sort((a,b)=>a.zIndex-b.zIndex);
+  // O(1) original-index lookup — avoids an O(n) indexOf per element (was O(n²) per render).
+  const _elIdx=new Map(freeformElements.map((e,i)=>[e,i]));
 
   sorted.forEach(el=>{
     ctx.save();
@@ -8268,7 +8270,7 @@ function renderFreeform(canvas, ctx, S, opts){
     // re-emits as true vector; otherwise they'd double-draw over the raster.
     if(el.type==='connector'){
       if(!skipCharts) _drawConnector(el, _chartEmitCanvas(ctx));   // reuse the chart emit backend
-      if(!isExport){ const ci=freeformElements.indexOf(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
+      if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
       ctx.restore(); return;
     }
     // Rotate around element center
@@ -8313,7 +8315,7 @@ function renderFreeform(canvas, ctx, S, opts){
             ctx.fillText(_sbLabel(el), sbX+sbPxW/2, sbY-3);
             ctx.textAlign='left';
           }
-          if(!isExport) _sbBars.push({ff:true, idx:freeformElements.indexOf(el), left:sbX, right:sbX+sbPxW, top:sbY, bottom:sbY+sbH2, scale});
+          if(!isExport) _sbBars.push({ff:true, idx:_elIdx.get(el), left:sbX, right:sbX+sbPxW, top:sbY, bottom:sbY+sbH2, scale});
         }
       }
       // Panel label for image elements
@@ -8327,7 +8329,7 @@ function renderFreeform(canvas, ctx, S, opts){
       // Add to panelBounds for annotation compatibility (preview only — render()
       // clears panelBounds when !isExport, so pushing during an export duplicates).
       if(!isExport){
-        const imgIdx=freeformElements.indexOf(el);
+        const imgIdx=_elIdx.get(el);
         panelBounds.push({idx:imgIdx, x:el.x, y:el.y, w:el.w, h:el.h});
       }
     } else if(el.type==='text'){
@@ -8385,7 +8387,7 @@ function renderFreeform(canvas, ctx, S, opts){
       // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
       // SVG export skips the raster here and re-emits the chart as true vector.
       if(!skipCharts && typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
-      if(!isExport){ const ci=freeformElements.indexOf(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
+      if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
   });
