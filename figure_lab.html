@@ -1689,6 +1689,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- Floating context toolbar for the selected freeform object(s) -->
 <div id="ctx-toolbar">
   <button title="Duplicate (Ctrl+D)" onclick="duplicateSelectedElems()">⧉</button>
+  <button title="Group (Ctrl+G)" id="ctx-group" style="display:none" onclick="groupSelectedElems()">⧉̲</button>
+  <button title="Ungroup (Ctrl+Shift+G)" id="ctx-ungroup" style="display:none" onclick="ungroupSelectedElems()">⿴</button>
   <button title="Copy style" onclick="copyElemStyle()">🎨</button>
   <button title="Paste style onto selection" id="ctx-paste" style="display:none" onclick="pasteElemStyle()">⇥</button>
   <button title="Lock / unlock" id="ctx-lock" onclick="toggleLockSelected()">🔒</button>
@@ -2533,6 +2535,8 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Group selection',          keys:'group combine objects together', run:()=>groupSelectedElems()},
+  {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
   {label:'Add bar chart',            keys:'chart bar plot data graph',     run:()=>addChartElement('bar')},
   {label:'Add scatter plot',         keys:'chart scatter plot xy data',    run:()=>addChartElement('scatter')},
   {label:'Add line chart',           keys:'chart line plot time course',   run:()=>addChartElement('line')},
@@ -5118,6 +5122,7 @@ function restoreState(s){
   if(s.images) images=s.images.map(cloneImageForUndo);
   annotations=(s.annotations||[]).map(a=>({...a}));
   freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
+  _normalizeElemIds(freeformElements);   // snapshots already have string ids; safety for legacy stacks
   if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
   if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
   if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
@@ -7301,6 +7306,7 @@ function applySession(s,_opts){
           }
           return el;
         });
+        _normalizeElemIds(freeformElements);   // legacy numeric ids → strings, refs remapped
         updateFreeformElemList();
       }
       if(s.fmCanvasW) sv('fm-canvas-w',s.fmCanvasW);
@@ -7594,6 +7600,7 @@ document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='1'){ e.preventDefault(); zoomTo100(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='a'&&layoutMode==='freeform'){ e.preventDefault(); freeformElements.forEach((_,i)=>selectedElems.add(i)); updateFreeformElemList(); drawFreeformOverlay(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); duplicateSelectedElems(); }
+  if((e.ctrlKey||e.metaKey)&&(e.key==='g'||e.key==='G')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); if(e.shiftKey) ungroupSelectedElems(); else groupSelectedElems(); }
   if(e.key===' '){
     e.preventDefault(); spaceDown=true;
     if(activeTool==='none') annCanvas.style.cursor='grab';
@@ -7679,10 +7686,70 @@ function snapValue(v){
   return Math.round(v/s)*s;
 }
 
+// ── Stable element ids + object grouping ───────────────────────
+// Elements carry a unique STRING id (e_…) so connectors and groups can reference
+// them by identity, not by array index (indices shift when elements are deleted).
+let _uidElemN=0;
+function _uidElem(){ return 'e_'+(_fmZCounter*1000+(++_uidElemN)).toString(36)+Math.round(performance.now()%1e6).toString(36); }
+// Normalise a list to valid, unique string ids. Returns an old→new id map so any
+// references (groupId, connector endpoints) can be remapped. Reference-safe: an id
+// that is already a unique string is left untouched, so existing references survive.
+function _ensureElemIds(list){
+  const seen=new Set(), map={};
+  (list||[]).forEach(el=>{
+    const old=el.id;
+    if(!el.id || typeof el.id!=='string' || seen.has(el.id)){
+      el.id=_uidElem();
+      if(old!=null && old!==el.id) map[old]=el.id;   // e.g. legacy numeric id → new string id
+    }
+    seen.add(el.id);
+  });
+  return map;
+}
+function _remapElemRefs(list, map){
+  if(!map||!Object.keys(map).length) return;
+  (list||[]).forEach(el=>{
+    if(el.groupId && map[el.groupId]) el.groupId=map[el.groupId];
+    if(el.type==='connector'){
+      if(el.from&&el.from.el&&map[el.from.el]) el.from.el=map[el.from.el];
+      if(el.to&&el.to.el&&map[el.to.el]) el.to.el=map[el.to.el];
+    }
+  });
+}
+// Convenience: normalise ids AND fix references in one call, for load paths.
+function _normalizeElemIds(list){ _remapElemRefs(list, _ensureElemIds(list)); }
+
+function _uidGroup(){ return 'g_'+(++_uidElemN).toString(36)+Math.round(performance.now()%1e6).toString(36); }
+function _groupMembers(gid){ return freeformElements.map((e,i)=>({e,i})).filter(o=>o.e.groupId===gid); }
+// Expand a set of selected indices so selecting one grouped member selects them all.
+function _expandSelectionToGroups(){
+  const gids=new Set();
+  selectedElems.forEach(i=>{ const el=freeformElements[i]; if(el&&el.groupId) gids.add(el.groupId); });
+  if(!gids.size) return;
+  freeformElements.forEach((el,i)=>{ if(el.groupId&&gids.has(el.groupId)) selectedElems.add(i); });
+}
+function groupSelectedElems(){
+  if(selectedElems.size<2){ toast('Select two or more objects to group','warn'); return; }
+  pushUndo();
+  const gid=_uidGroup();
+  selectedElems.forEach(i=>{ if(freeformElements[i]) freeformElements[i].groupId=gid; });
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast('Grouped','ok');
+}
+function ungroupSelectedElems(){
+  if(!selectedElems.size) return;
+  const gids=new Set(); selectedElems.forEach(i=>{ const el=freeformElements[i]; if(el&&el.groupId) gids.add(el.groupId); });
+  if(!gids.size){ toast('Nothing grouped in the selection','info'); return; }
+  pushUndo();
+  freeformElements.forEach(el=>{ if(el.groupId&&gids.has(el.groupId)) delete el.groupId; });
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast('Ungrouped','ok');
+}
+
 function addFreeformElement(props){
   pushUndo();
   freeformElements.push({
-    id:Date.now()+Math.random(),
+    id:_uidElem(),
     type:'rect', x:100, y:100, w:200, h:200,
     zIndex:++_fmZCounter,
     rotation:0, locked:false,
@@ -7819,8 +7886,9 @@ function updateFreeformElemList(){
     row.className='tpl-saved';
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
-    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':'◻';
-    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}</span>
+    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='connector'?'↳':'◻';
+    const grp=el.groupId?' <span title="Grouped" style="opacity:.6">⧉</span>':'';
+    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}${grp}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
       if(ev.target.tagName==='BUTTON') return;
@@ -8062,6 +8130,8 @@ function freeformMousedown(e){
     if(hitFreeformElement(el,x,y)){
       if(!e.shiftKey) selectedElems.clear();
       selectedElems.add(i);
+      // Clicking one member of a group selects the whole group (Alt = just this member).
+      if(!e.altKey) _expandSelectionToGroups();
       // Start drag — unless the clicked object is locked (then just select it)
       if(!el.locked){
         const origPositions=freeformElements.map(e2=>({x:e2.x,y:e2.y}));
@@ -8212,6 +8282,7 @@ function freeformMouseup(e){
       freeformElements.forEach((el,i)=>{
         if(el.x+el.w>rx&&el.x<rx+rw&&el.y+el.h>ry&&el.y<ry+rh) selectedElems.add(i);
       });
+      _expandSelectionToGroups();   // marquee behaves like click: partial group hit selects the whole group
     }
     updateFreeformElemList(); drawFreeformOverlay(); return true;
   }
@@ -8302,15 +8373,27 @@ function deleteSelectedElems(){
 function duplicateSelectedElems(){
   if(!selectedElems.size) return;
   pushUndo();
+  _expandSelectionToGroups();                          // duplicating a grouped member copies the whole group
   const src=[...selectedElems].sort((a,b)=>a-b).map(i=>freeformElements[i]);
-  const newIdx=[];
-  src.forEach(el=>{
+  const idMap={}, groupMap={};
+  const copies=src.map(el=>{
     const copy=JSON.parse(JSON.stringify(el)); delete copy._imgEl;   // rebuild image from src, don't clone the node
-    copy.id=Date.now()+Math.random();
+    const oldId=el.id; copy.id=_uidElem(); if(oldId!=null) idMap[oldId]=copy.id;
+    if(el.groupId){ groupMap[el.groupId]=groupMap[el.groupId]||_uidGroup(); copy.groupId=groupMap[el.groupId]; }
     copy.x=(el.x||0)+16; copy.y=(el.y||0)+16;
     copy.zIndex=++_fmZCounter;
-    freeformElements.push(copy); newIdx.push(freeformElements.length-1);
+    return copy;
   });
+  // Rewire intra-selection references to the copies; refs to elements that weren't
+  // duplicated stay pointing at the originals (fall through: idMap has no entry).
+  copies.forEach(c=>{
+    if(c.type==='connector'){
+      if(c.from&&c.from.el&&idMap[c.from.el]) c.from.el=idMap[c.from.el];
+      if(c.to&&c.to.el&&idMap[c.to.el]) c.to.el=idMap[c.to.el];
+    }
+  });
+  const newIdx=[];
+  copies.forEach(c=>{ freeformElements.push(c); newIdx.push(freeformElements.length-1); });
   selectedElems.clear(); newIdx.forEach(i=>selectedElems.add(i));
   updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
   toast(newIdx.length+' object'+(newIdx.length>1?'s':'')+' duplicated','ok');
@@ -9236,7 +9319,7 @@ function convertGridToFreeform(){
     const im=images[pb.idx]; if(!im) return;
     const ar=(im.img&&im.img.naturalWidth)? im.img.naturalWidth/im.img.naturalHeight : (pb.w/pb.h);
     let fw=pb.w, fh=pb.w/ar; if(fh>pb.h){ fh=pb.h; fw=pb.h*ar; }   // keep the image's fitted aspect
-    els.push({id:Date.now()+Math.random()+i, type:'image', src:im.src, img:im.img, _imgEl:im.img,
+    els.push({id:_uidElem(), type:'image', src:im.src, img:im.img, _imgEl:im.img,
       svgSource:im.svgSource||null, isVector:!!im.isVector,
       x:Math.round(pb.x+(pb.w-fw)/2), y:Math.round(pb.y+(pb.h-fh)/2), w:Math.round(fw), h:Math.round(fh),
       zIndex:i+1, rotation:0, locked:false, opacity:1,
@@ -9276,6 +9359,10 @@ function positionCtxToolbar(){
   const sx=rect.width/W, sy=rect.height/H;
   const anyLocked=[...selectedElems].some(i=>freeformElements[i]&&freeformElements[i].locked);
   const lb=document.getElementById('ctx-lock'); if(lb) lb.textContent=anyLocked?'🔓':'🔒';
+  // Group button shows for 2+ objects; ungroup shows when the selection contains a group.
+  const anyGrouped=[...selectedElems].some(i=>freeformElements[i]&&freeformElements[i].groupId);
+  const gb=document.getElementById('ctx-group'); if(gb) gb.style.display=(selectedElems.size>=2&&!anyGrouped)?'':'none';
+  const ub=document.getElementById('ctx-ungroup'); if(ub) ub.style.display=anyGrouped?'':'none';
   tb.style.display='flex';
   const tbW=tb.offsetWidth||160, tbH=tb.offsetHeight||34;
   let left=rect.left+((minX+maxX)/2)*sx-tbW/2;
@@ -9376,6 +9463,7 @@ function loadTemplate(t){
   } else {
     sv('fm-canvas-w',t.fmW||1200); sv('fm-canvas-h',t.fmH||900);
     freeformElements=JSON.parse(JSON.stringify(t.freeformElements||[]));
+    _normalizeElemIds(freeformElements);   // fresh ids per instance; remap groups/connectors
     updateFreeformElemList();
   }
   scheduleRender(0); toast(`Template "${t.name}" loaded`,'ok');

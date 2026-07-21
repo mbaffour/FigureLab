@@ -690,6 +690,142 @@ test('a chart with no data exports to SVG without throwing', async ({ page }) =>
   expect(errors).toEqual([]);       // loadApp's collector stays empty
 });
 
+// ── Phase 4: stable string ids + grouping ──
+
+test('elements get unique string ids across every creation path', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0; selectedElems.clear();
+    addFreeformElement({ type: 'rect', x: 10, y: 10, w: 50, h: 50 });
+    addFreeformElement({ type: 'text', x: 80, y: 10, w: 100, h: 30, text: 'hi' });
+    selectedElems.add(0); duplicateSelectedElems();
+    const ids = freeformElements.map(e => e.id);
+    return { ids, allStrings: ids.every(id => typeof id === 'string' && id.length > 0), unique: new Set(ids).size === ids.length };
+  });
+  expect(r.allStrings).toBe(true);
+  expect(r.unique).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('legacy numeric ids are normalised to strings on session load', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const s = { layoutMode: 'freeform',
+      freeformElements: [
+        { id: 1234.5678, type: 'rect', x: 10, y: 10, w: 40, h: 40, groupId: 1234.5678 },
+        { id: 9999.1111, type: 'rect', x: 60, y: 10, w: 40, h: 40, groupId: 1234.5678 },
+      ] };
+    applySession(s);
+    const els = freeformElements;
+    return {
+      types: els.map(e => typeof e.id),
+      // The group reference must have been remapped to the same NEW string id.
+      groupMatches: els[0].groupId === els[0].id && els[1].groupId === els[0].id,
+    };
+  });
+  expect(r.types).toEqual(['string', 'string']);
+  expect(r.groupMatches).toBe(true);    // legacy numeric groupId → the new string id
+  expect(errors).toEqual([]);
+});
+
+test('grouping: click selects the whole group, Alt selects one member', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'rect', x: 100, y: 100, w: 80, h: 80 },
+    { type: 'rect', x: 250, y: 100, w: 80, h: 80 },
+  ]);
+  const mk = (page, lx, ly, mod) => page.evaluate(({ lx, ly, mod }) => {
+    const c = document.getElementById('ann-canvas'); const r = c.getBoundingClientRect();
+    const w = canvasLogicalW || c.width, h = canvasLogicalH || c.height;
+    const ev = new MouseEvent('mousedown', { bubbles: true, clientX: r.left + lx * r.width / w, clientY: r.top + ly * r.height / h, button: 0, altKey: !!(mod && mod.alt) });
+    freeformMousedown(ev); freeformMouseup(new MouseEvent('mouseup', { bubbles: true }));
+  }, { lx, ly, mod });
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); groupSelectedElems(); });
+  // Plain click on member 0 selects both.
+  await mk(page, 140, 140, null);
+  let sel = await page.evaluate(() => [...selectedElems].sort());
+  expect(sel).toEqual([0, 1]);
+  // Alt-click on member 0 selects only it.
+  await mk(page, 140, 140, { alt: true });
+  sel = await page.evaluate(() => [...selectedElems].sort());
+  expect(sel).toEqual([0]);
+  expect(errors).toEqual([]);
+});
+
+test('grouped members move together; ungroup detaches them', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'rect', x: 100, y: 100, w: 60, h: 60 },
+    { type: 'rect', x: 220, y: 100, w: 60, h: 60 },
+  ]);
+  const r = await page.evaluate(() => {
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); groupSelectedElems();
+    // Drag member 0 by (30,0): both should move.
+    selectedElems.clear(); selectedElems.add(0); _expandSelectionToGroups();
+    const x0 = [freeformElements[0].x, freeformElements[1].x];
+    freeformElements.forEach(e => { if (selectedElems.has(freeformElements.indexOf(e))) e.x += 30; });
+    const movedBoth = freeformElements[0].x - x0[0] === 30 && freeformElements[1].x - x0[1] === 30;
+    // Ungroup, then a plain selection of member 0 stays just member 0.
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); ungroupSelectedElems();
+    selectedElems.clear(); selectedElems.add(0); _expandSelectionToGroups();
+    const soloAfterUngroup = selectedElems.size === 1;
+    return { movedBoth, soloAfterUngroup, noGroupIds: freeformElements.every(e => !e.groupId) };
+  });
+  expect(r.movedBoth).toBe(true);
+  expect(r.soloAfterUngroup).toBe(true);
+  expect(r.noGroupIds).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('duplicating a group makes a distinct new group and keeps originals intact', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'rect', x: 100, y: 100, w: 60, h: 60 },
+    { type: 'rect', x: 220, y: 100, w: 60, h: 60 },
+  ]);
+  const r = await page.evaluate(() => {
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); groupSelectedElems();
+    const origGid = freeformElements[0].groupId;
+    selectedElems.clear(); selectedElems.add(0); duplicateSelectedElems();   // one member → whole group duplicates
+    const copies = [...selectedElems].map(i => freeformElements[i]);
+    const copyGids = new Set(copies.map(e => e.groupId));
+    return {
+      count: freeformElements.length,                 // 2 originals + 2 copies
+      copyCount: copies.length,
+      copyGid: [...copyGids][0], origGid,
+      oneCopyGroup: copyGids.size === 1,
+      distinct: [...copyGids][0] !== origGid,
+      origUntouched: freeformElements[0].groupId === origGid && freeformElements[1].groupId === origGid,
+    };
+  });
+  expect(r.count).toBe(4);
+  expect(r.copyCount).toBe(2);
+  expect(r.oneCopyGroup).toBe(true);
+  expect(r.distinct).toBe(true);           // copies share a NEW group, not the original's
+  expect(r.origUntouched).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('groupId round-trips through a session save/load', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'rect', x: 100, y: 100, w: 60, h: 60 },
+    { type: 'rect', x: 220, y: 100, w: 60, h: 60 },
+  ]);
+  const r = await page.evaluate(() => {
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); groupSelectedElems();
+    const gid = freeformElements[0].groupId;
+    const ser = serializeSession(true);
+    applySession(JSON.parse(JSON.stringify(ser)));
+    const els = freeformElements;
+    return { bothGrouped: !!els[0].groupId && els[0].groupId === els[1].groupId, stringId: typeof els[0].id === 'string' };
+  });
+  expect(r.bothGrouped).toBe(true);
+  expect(r.stringId).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
