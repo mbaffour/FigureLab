@@ -1137,6 +1137,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="applyStarter('pathway')" title="Freeform pathway/flow diagram">➜ Pathway</button>
           <button class="btn" onclick="addChartElement('bar')" title="Add a data chart from a CSV or pasted data">📊 Chart</button>
         </div>
+        <div class="es-actions" style="margin-top:6px">
+          <span style="font-size:10.5px;color:var(--muted);align-self:center">Flow:</span>
+          <button class="btn" onclick="applyFlowTemplate('prisma2020')" title="PRISMA 2020 systematic-review flow">⬇ PRISMA</button>
+          <button class="btn" onclick="applyFlowTemplate('consort')" title="CONSORT trial participant flow">⬇ CONSORT</button>
+          <button class="btn" onclick="applyFlowTemplate('fishbone')" title="Fishbone / Ishikawa cause-and-effect">⌥ Fishbone</button>
+        </div>
         <div class="es-flow">
           <span class="es-step es-cur">Import</span>›<span class="es-step">Layout</span>›<span class="es-step">Calibrate</span>›<span class="es-step">Annotate</span>›<span class="es-step">Audit</span>›<span class="es-step">Export</span>
         </div>
@@ -2553,6 +2559,9 @@ const CMD_REGISTRY=[
   {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
   {label:'Connect two objects',      keys:'connect connector arrow link line flow', run:()=>connectSelected()},
   {label:'Prune dangling connectors',keys:'connector dangling prune clean',  run:()=>_pruneDanglingConnectors()},
+  {label:'Flow: PRISMA 2020',        keys:'prisma flow systematic review flowchart', run:()=>applyFlowTemplate('prisma2020')},
+  {label:'Flow: CONSORT',            keys:'consort trial flow participant flowchart', run:()=>applyFlowTemplate('consort')},
+  {label:'Flow: Fishbone (Ishikawa)',keys:'fishbone ishikawa cause effect diagram',   run:()=>applyFlowTemplate('fishbone')},
   {label:'Add bar chart',            keys:'chart bar plot data graph',     run:()=>addChartElement('bar')},
   {label:'Add scatter plot',         keys:'chart scatter plot xy data',    run:()=>addChartElement('scatter')},
   {label:'Add line chart',           keys:'chart line plot time course',   run:()=>addChartElement('line')},
@@ -9492,6 +9501,122 @@ function applyStarter(kind){
   if(typeof onLayoutChange==='function') onLayoutChange();
   scheduleRender(0);
   toast('Template applied — drop images into the grid','ok');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FLOW TEMPLATES — PRISMA / CONSORT / fishbone
+// ───────────────────────────────────────────────────────────────
+// Each build() returns freeform elements: a rect + a text per box sharing a
+// per-box groupId (so a box drags its label as one), plus connectors that
+// reference the rect ids (so they reroute when a box moves). Built from our own
+// geometry and wording — the STRUCTURE follows the named guideline; no published
+// diagram artwork is reproduced. Counts are placeholders the user edits in place.
+// ═══════════════════════════════════════════════════════════════
+// Build one flow box (rect + centred wrapped text, grouped). Returns {id, els}.
+function _flowBox(x,y,w,h,text,opts){
+  opts=opts||{};
+  const gid=_uidGroup();
+  const rect={id:_uidElem(), type:'rect', x,y,w,h, groupId:gid, rotation:0, locked:false, opacity:1,
+    color:opts.color||'#5b8dee', fillColor:opts.fill||'#eef3ff', fillOpacity:1, strokeWidth:opts.strokeWidth||1.5,
+    zIndex:++_fmZCounter, label:''};
+  const txt={id:_uidElem(), type:'text', x:x+6, y:y+6, w:w-12, h:h-12, groupId:gid, rotation:0, locked:false, opacity:1,
+    text, fontSize:opts.fontSize||12, color:opts.textColor||'#12233f', align:'center', bold:!!opts.bold,
+    fontFamily:'system-ui, sans-serif', zIndex:++_fmZCounter, label:''};
+  return {id:rect.id, els:[rect,txt]};
+}
+function _flowConn(fromId,toId,opts){
+  opts=opts||{};
+  return {id:_uidElem(), type:'connector', zIndex:++_fmZCounter, locked:false, opacity:1, fillOpacity:0,
+    from:{el:fromId, side:opts.fromSide||'auto', dx:0, dy:0}, to:{el:toId, side:opts.toSide||'auto', dx:0, dy:0},
+    route:opts.route||'straight', arrow:opts.arrow||'end', arrowSize:10,
+    color:opts.color||'#33415a', strokeWidth:opts.strokeWidth||2, dash:opts.dash||null, labelText:opts.label||'', label:'connector'};
+}
+const FLOW_TEMPLATES={
+  prisma2020:{ label:'PRISMA 2020 flow', cite:'Structure follows PRISMA 2020 (Page et al., BMJ 2021).', build(ox,oy){
+    const els=[], W=200, H=64, colX=ox+40, exX=ox+300, gapY=100;
+    const main=[
+      'Records identified\n(databases, n = __)',
+      'Records screened\n(n = __)',
+      'Reports sought for retrieval\n(n = __)',
+      'Reports assessed for\neligibility (n = __)',
+      'Studies included in\nreview (n = __)'];
+    const side=[
+      'Records removed before\nscreening (duplicates, n = __)',
+      'Records excluded\n(n = __)',
+      'Reports not retrieved\n(n = __)',
+      'Reports excluded (n = __)\nwith reasons'];
+    const mb=main.map((t,i)=>_flowBox(colX, oy+i*gapY, W, H, t, {fill:'#eef3ff',color:'#3b6fd4'}));
+    const sb=side.map((t,i)=>_flowBox(exX, oy+i*gapY + (i===0?0:0)*0, W, H, t, {fill:'#f6f6f6',color:'#8a8f98',textColor:'#444'}));
+    mb.forEach(b=>els.push(...b.els)); sb.forEach(b=>els.push(...b.els));
+    const cs=[];
+    for(let i=0;i<mb.length-1;i++) cs.push(_flowConn(mb[i].id, mb[i+1].id, {fromSide:'b', toSide:'t'}));
+    // side exclusions branch off boxes 0..3
+    cs.push(_flowConn(mb[0].id, sb[0].id, {fromSide:'r', toSide:'l'}));
+    cs.push(_flowConn(mb[1].id, sb[1].id, {fromSide:'r', toSide:'l'}));
+    cs.push(_flowConn(mb[2].id, sb[2].id, {fromSide:'r', toSide:'l'}));
+    cs.push(_flowConn(mb[3].id, sb[3].id, {fromSide:'r', toSide:'l'}));
+    return els.concat(cs);
+  }},
+  consort:{ label:'CONSORT participant flow', cite:'Structure follows CONSORT 2010 (Schulz et al., BMJ 2010).', build(ox,oy){
+    const els=[], W=190, H=58, midX=ox+150, leftX=ox+20, rightX=ox+300, exX=ox+320, gapY=95;
+    const elig=_flowBox(midX, oy, W, H, 'Assessed for eligibility\n(n = __)', {fill:'#eef3ff',color:'#3b6fd4'});
+    const excl=_flowBox(exX, oy, W, H, 'Excluded (n = __)\n(did not meet criteria / declined)', {fill:'#f6f6f6',color:'#8a8f98',textColor:'#444'});
+    const rand=_flowBox(midX, oy+gapY, W, H, 'Randomised (n = __)', {fill:'#eef3ff',color:'#3b6fd4',bold:true});
+    const allocA=_flowBox(leftX, oy+2*gapY, W, H, 'Allocated to intervention\n(n = __)', {fill:'#eef3ff',color:'#3b6fd4'});
+    const allocB=_flowBox(rightX, oy+2*gapY, W, H, 'Allocated to control\n(n = __)', {fill:'#eef3ff',color:'#3b6fd4'});
+    const folA=_flowBox(leftX, oy+3*gapY, W, H, 'Lost to follow-up (n = __)', {fill:'#fbfbfb',color:'#8a8f98',textColor:'#444'});
+    const folB=_flowBox(rightX, oy+3*gapY, W, H, 'Lost to follow-up (n = __)', {fill:'#fbfbfb',color:'#8a8f98',textColor:'#444'});
+    const anA=_flowBox(leftX, oy+4*gapY, W, H, 'Analysed (n = __)', {fill:'#eef3ff',color:'#3b6fd4'});
+    const anB=_flowBox(rightX, oy+4*gapY, W, H, 'Analysed (n = __)', {fill:'#eef3ff',color:'#3b6fd4'});
+    [elig,excl,rand,allocA,allocB,folA,folB,anA,anB].forEach(b=>els.push(...b.els));
+    const cs=[
+      _flowConn(elig.id, excl.id, {fromSide:'r', toSide:'l'}),
+      _flowConn(elig.id, rand.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(rand.id, allocA.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(rand.id, allocB.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(allocA.id, folA.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(allocB.id, folB.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(folA.id, anA.id, {fromSide:'b', toSide:'t'}),
+      _flowConn(folB.id, anB.id, {fromSide:'b', toSide:'t'}),
+    ];
+    return els.concat(cs);
+  }},
+  fishbone:{ label:'Fishbone (Ishikawa)', cite:'', build(ox,oy){
+    const els=[], cy=oy+180;
+    const effect=_flowBox(ox+560, cy-34, 150, 68, 'Effect /\nproblem', {fill:'#fff3e0',color:'#e08a1e',bold:true});
+    els.push(...effect.els);
+    // Spine as a thick connector from a left anchor box to the effect box.
+    const spineStart=_flowBox(ox+20, cy-2, 4, 4, '', {fill:'#33415a',color:'#33415a'}); // tiny invisible anchor
+    spineStart.els.forEach(e=>{ if(e.type==='rect'){ e.opacity=0; } if(e.type==='text'){ e.opacity=0; } });
+    els.push(...spineStart.els);
+    els.push(_flowConn(spineStart.id, effect.id, {fromSide:'r', toSide:'l', arrow:'end', strokeWidth:3, color:'#33415a'}));
+    // Six category bones angled onto the spine.
+    const cats=['Methods','Materials','Equipment','Environment','People','Measurement'];
+    cats.forEach((c,i)=>{
+      const top=i<3; const col=i%3;
+      const bx=ox+120+col*150, by=top? cy-150 : cy+90;
+      const b=_flowBox(bx, by, 130, 44, c, {fill:'#eef3ff',color:'#3b6fd4',bold:true});
+      els.push(...b.els);
+      // Bone connects the category box down/up to a point on the spine.
+      els.push(_flowConn(b.id, effect.id, {fromSide:top?'b':'t', toSide:'l', arrow:'none', color:'#7f8794', strokeWidth:2, route:'straight'}));
+    });
+    return els;
+  }},
+};
+function applyFlowTemplate(name){
+  const t=FLOW_TEMPLATES[name]; if(!t){ toast('Unknown flow template','warn'); return; }
+  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  pushUndo();
+  // Append, never replace. Offset the insertion if the canvas already has content.
+  const occupied=freeformElements.length>0;
+  const ox=occupied?40:20, oy=occupied?40:20;
+  const built=t.build(ox,oy);   // zIndexes already assigned via ++_fmZCounter inside the builders
+  built.forEach(el=>freeformElements.push(el));
+  selectedElems.clear();
+  _syncConnectorBBoxes(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  logAction('flowTemplate',{name});
+  const citeMsg=t.cite?` — ${t.cite}`:'';
+  toast(`${t.label} added — edit the boxes & counts in place${citeMsg}`,'ok');
 }
 
 // ── Pop a grid out to a freely-movable (freeform) layout ────────

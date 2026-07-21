@@ -998,6 +998,105 @@ test('self-connection is refused', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ── Phase 6: flow templates ──
+
+test('PRISMA template builds grouped boxes + connectors that all resolve', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0;
+    applyFlowTemplate('prisma2020'); render();
+    const conns = freeformElements.filter(e => e.type === 'connector');
+    const rects = freeformElements.filter(e => e.type === 'rect');
+    const texts = freeformElements.filter(e => e.type === 'text');
+    const allResolve = conns.every(c => freeformElements.find(e => e.id === c.from.el) && freeformElements.find(e => e.id === c.to.el));
+    const boxesGrouped = rects.every(rr => !!rr.groupId);
+    return { conns: conns.length, rects: rects.length, texts: texts.length, allResolve, boxesGrouped };
+  });
+  expect(r.conns).toBeGreaterThan(4);
+  expect(r.rects).toBe(r.texts);          // one text per box
+  expect(r.allResolve).toBe(true);        // every connector endpoint resolves
+  expect(r.boxesGrouped).toBe(true);      // each rect is grouped with its label
+  expect(errors).toEqual([]);
+});
+
+test('flow template appends and never destroys existing elements', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'rect', x: 600, y: 500, w: 80, h: 60, label: 'keep1' },
+    { type: 'rect', x: 700, y: 500, w: 80, h: 60, label: 'keep2' },
+  ]);
+  const r = await page.evaluate(() => {
+    const before = freeformElements.slice(0, 2).map(e => ({ id: e.id, x: e.x, y: e.y }));
+    applyFlowTemplate('consort');
+    const survivors = before.filter(b => { const e = freeformElements.find(f => f.id === b.id); return e && e.x === b.x && e.y === b.y; });
+    return { survived: survivors.length, grew: freeformElements.length > 2 };
+  });
+  expect(r.survived).toBe(2);             // originals untouched
+  expect(r.grew).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('moving a flow box drags its label and reroutes its connectors', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0;
+    applyFlowTemplate('consort'); render();
+  });
+  const r = await page.evaluate(() => {
+    // Pick the first rect and its grouped text.
+    const rectIdx = freeformElements.findIndex(e => e.type === 'rect');
+    const rect = freeformElements[rectIdx];
+    const text = freeformElements.find(e => e.type === 'text' && e.groupId === rect.groupId);
+    const conn = freeformElements.find(e => e.type === 'connector' && (e.from.el === rect.id || e.to.el === rect.id));
+    const g0 = _connGeom(conn);
+    const tx0 = text.x, ty0 = text.y;
+    // Select the box (expands to its group) and move it.
+    selectedElems.clear(); selectedElems.add(rectIdx); _expandSelectionToGroups();
+    selectedElems.forEach(i => { freeformElements[i].x += 40; freeformElements[i].y += 25; });
+    _syncConnectorBBoxes();
+    const g1 = _connGeom(conn);
+    return {
+      labelMoved: text.x === tx0 + 40 && text.y === ty0 + 25,
+      connRerouted: (conn.from.el === rect.id ? (g1.from.x !== g0.from.x || g1.from.y !== g0.from.y) : (g1.to.x !== g0.to.x || g1.to.y !== g0.to.y)),
+    };
+  });
+  expect(r.labelMoved).toBe(true);        // the grouped label moved with the box
+  expect(r.connRerouted).toBe(true);      // the connector followed
+  expect(errors).toEqual([]);
+});
+
+test('CONSORT and fishbone build and export to SVG without errors', async ({ page }) => {
+  const errors = await loadApp(page);
+  for (const name of ['consort', 'fishbone']) {
+    await page.evaluate(async (nm) => {
+      const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+      setLayoutMode('freeform'); freeformElements.length = 0;
+      applyFlowTemplate(nm); render();
+      await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    }, name);
+  }
+  expect(errors).toEqual([]);             // both built and exported clean
+});
+
+test('flow template round-trips through a session with connectors intact', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0;
+    applyFlowTemplate('prisma2020');
+    const ser = serializeSession(true);
+    applySession(JSON.parse(JSON.stringify(ser)));
+    const conns = freeformElements.filter(e => e.type === 'connector');
+    const allResolve = conns.every(c => freeformElements.find(e => e.id === c.from.el) && freeformElements.find(e => e.id === c.to.el));
+    return { conns: conns.length, allResolve };
+  });
+  expect(r.conns).toBeGreaterThan(4);
+  expect(r.allResolve).toBe(true);        // ids still resolve after reload
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
