@@ -272,7 +272,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Save dialog** — every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
 - **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.
 
-_Published & citable — latest version DOI [`10.5281/zenodo.21466208`](https://doi.org/10.5281/zenodo.21466208) (v3.7.0). The concept DOI below always resolves to the latest._
+_Published & citable — latest version DOI [`10.5281/zenodo.21478410`](https://doi.org/10.5281/zenodo.21478410) (v3.8.0). The concept DOI below always resolves to the latest._
 
 ### v3.5 — 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability — without changing the single-file, offline, privacy-first identity.**
@@ -391,7 +391,7 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** — it always resolves to the latest version.
-To cite this exact release, use the v3.7.0 DOI [`10.5281/zenodo.21466208`](https://doi.org/10.5281/zenodo.21466208).
+To cite this exact release, use the v3.8.0 DOI [`10.5281/zenodo.21478410`](https://doi.org/10.5281/zenodo.21478410).
 
 ---
 
