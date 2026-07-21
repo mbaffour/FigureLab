@@ -9295,7 +9295,8 @@ function _chartStats(el){
         if(ch.error==='sd') err=_sd(vals); else if(ch.error==='sem') err=_sem(vals);
       } else { value=vals.length?vals[0]:0; }
       if(ch.error==='column' && errCol!=null){ const e=num((crows[0]||[])[errCol]); if(isFinite(e)) err=e; }
-      return {series:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], value, err, n:vals.length};
+      // Keep the raw replicate values so "show points" can overlay them (exposes n + spread).
+      return {series:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], value, err, n:vals.length, vals};
     });
     return {cat:c, bars};
   });
@@ -9414,7 +9415,7 @@ function _chartDraw(el, emit){
     else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14, font(fs-1), ink, 'center', 'alphabetic'));
 
     if(stat.kind==='box'){
-      const bw=band*0.5;
+      const bw=band*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
       stat.boxes.forEach((b,ci)=>{
         const cx=xCenter(ci), x0=cx-bw/2;
         emit.line(cx,yScale(b.min),cx,yScale(b.max),ink,1);          // whisker
@@ -9422,6 +9423,8 @@ function _chartDraw(el, emit){
         emit.line(cx-bw*0.25,yScale(b.max),cx+bw*0.25,yScale(b.max),ink,1);
         emit.rect(x0,yScale(b.q3),bw,yScale(b.q1)-yScale(b.q3),b.color,ink,1);  // IQR box
         emit.line(x0,yScale(b.med),x0+bw,yScale(b.med),ink,1.5);     // median
+        // Overlay every raw value (jittered) — exposes n + spread the box summarises.
+        if(st.showPoints && b.raw) b.raw.forEach((v,k)=>emit.circle(cx+_jit(k)*bw*0.7, yScale(v), pr, 'rgba(20,20,20,0.55)', null, 0));
       });
     } else {
       // Bar family.
@@ -9441,16 +9444,28 @@ function _chartDraw(el, emit){
             emit.rect(bx,Math.min(by,base),barW,Math.abs(base-by),b.color,ink,0.5);
             if(b.err>0){ const ex=bx+barW/2; emit.line(ex,yScale(b.value+b.err),ex,yScale(Math.max(0,b.value-b.err)),ink,1);
               emit.line(ex-barW*0.2,yScale(b.value+b.err),ex+barW*0.2,yScale(b.value+b.err),ink,1); }
+            // Overlay the replicate values (jittered) so the bar never hides its n/spread.
+            if(st.showPoints && b.vals && b.vals.length>1){ const bcx=bx+barW/2, pr=Math.max(1.8,(st.pointSize||4)-1.5);
+              b.vals.forEach((v,k)=>emit.circle(bcx+_jit(k)*barW*0.6, yScale(v), pr, 'rgba(20,20,20,0.6)', '#ffffff', 0.5)); }
           });
         }
       });
-      // Significance annotations (user-entered strings) between category centres.
+      // Significance annotations (user-entered strings). Anchored just above the
+      // TALLEST element in the compared span (bar+error, stack total, or overlaid
+      // point), not a fixed ceiling — so brackets sit over what they compare.
+      // Still no computed p-value: an.text is the author's own symbol.
+      const catTopY=ci=>{ const g=stat.groups[ci]; if(!g) return py1; let y=py1;
+        if(stacked){ let tot=0; g.bars.forEach(bb=>{ tot+=bb.value; }); y=yScale(tot); }
+        else g.bars.forEach(bb=>{ y=Math.min(y, yScale(bb.value+bb.err)); });
+        if(st.showPoints) g.bars.forEach(bb=>(bb.vals||[]).forEach(v=>{ y=Math.min(y,yScale(v)); }));
+        return y; };
       (ch.annos||[]).forEach(an=>{
         if(an.kind!=='sig') return;
         const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
         if(a<0||b>=cats.length) return;
         const x1=xCenter(a), x2=xCenter(b);
-        const yTop=py0+8+(an.level||0)*16, drop=6;
+        let topY=Infinity; for(let ci=a;ci<=b;ci++) topY=Math.min(topY, catTopY(ci));
+        const yTop=Math.max(py0+8, topY - 12 - (an.level||0)*15), drop=6;
         emit.line(x1,yTop+drop,x1,yTop,ink,1); emit.line(x1,yTop,x2,yTop,ink,1); emit.line(x2,yTop,x2,yTop+drop,ink,1);
         emit.text(an.text||'*', (x1+x2)/2, yTop-2, font(fs), ink, 'center', 'alphabetic');
       });
@@ -9569,6 +9584,9 @@ function _chartDrawSurvival(el, emit, stat, font, fs, ink){
     let ly=py0+4; stat.curves.forEach(cv=>{ emit.line(px1+10,ly+5,px1+22,ly+5,cv.color,2); emit.text(cv.name,px1+26,ly+9,font(fs-1),ink,'left','alphabetic'); ly+=16; });
   }
 }
+// Deterministic jitter in [-0.5,0.5] seeded by an index — so overlaid raw points
+// land identically on the canvas preview and in the SVG export (no Math.random).
+function _jit(i){ const s=Math.sin((i+1)*12.9898)*43758.5453; return (s-Math.floor(s))-0.5; }
 function _fmtTick(v){
   if(v===0) return '0';
   const a=Math.abs(v);

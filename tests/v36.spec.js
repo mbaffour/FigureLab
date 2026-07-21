@@ -1401,6 +1401,67 @@ test('crowded category labels auto-rotate so they never overlap; short ones stay
   expect(errors).toEqual([]);
 });
 
+test('bar & box charts overlay every raw replicate as a deterministic jittered point', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform'; setLayoutMode('freeform');
+    freeformElements.length = 0;
+    const bar = { kind: 'bar',
+      data: { columns: ['g', 'v'], rows: [['A', 4], ['A', 5], ['A', 6], ['B', 8], ['B', 9], ['B', 7]], source: 't' },
+      mapping: { xCol: 0, yCols: [1] }, agg: 'mean', error: 'sem',
+      axes: { x: {}, y: {} }, style: { palette: 'okabeIto', showLegend: false, showPoints: true, frame: 'lb', fontSize: 12 }, annos: [] };
+    addFreeformElement({ type: 'chart', x: 20, y: 20, w: 360, h: 260, chart: bar });
+    render();
+    const cap1 = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const svg1 = new TextDecoder().decode(cap1.data);
+    // Points off → no overlay circles beyond any legend swatches (there are none here).
+    freeformElements[0].chart.style.showPoints = false; freeformElements[0]._chartKey = ''; render();
+    const cap2 = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const svg2 = new TextDecoder().decode(cap2.data);
+    // Determinism: re-render with points and confirm identical circle geometry.
+    freeformElements[0].chart.style.showPoints = true; freeformElements[0]._chartKey = ''; render();
+    const cap3 = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const svg3 = new TextDecoder().decode(cap3.data);
+    const circ = s => (s.match(/<circle /g) || []).length;
+    const firstCircle = s => (s.match(/<circle cx="[^"]+" cy="[^"]+"/) || [])[0] || '';
+    return { withPoints: circ(svg1), noPoints: circ(svg2), deterministic: firstCircle(svg1) === firstCircle(svg3) && circ(svg1) === circ(svg3) };
+  });
+  expect(r.withPoints).toBe(6);        // all 6 replicate values overlaid as circles
+  expect(r.noPoints).toBe(0);          // none when the flag is off
+  expect(r.deterministic).toBe(true);  // identical jitter across renders (canvas ≡ SVG)
+  expect(errors).toEqual([]);
+});
+
+test('significance brackets anchor above the tallest bar in their span, not a fixed ceiling', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    // A recording emit backend to capture where the bracket text lands.
+    const rec = () => { const texts = []; return { obj: {
+      rect() {}, line() {}, poly() {}, circle() {},
+      text(str, x, y) { texts.push({ str, x, y }); },
+    }, texts }; };
+    // A very tall 3rd bar fixes the y-domain; compare a bracket over the two SHORT
+    // bars vs one that reaches the tall bar — same domain, so height-tracking shows.
+    const mk = (spanB) => {
+      const el = { type: 'chart', x: 0, y: 0, w: 300, h: 240,
+        chart: { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', 2], ['B', 4], ['C', 20]], source: 't' },
+          mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} },
+          style: { palette: 'okabeIto', showLegend: false, frame: 'lb', fontSize: 12 },
+          annos: [{ kind: 'sig', a: 0, b: spanB, text: '#', level: 0 }] } };
+      el._chartKey = ''; el._chartStat = null;
+      const r = rec(); _chartDraw(el, r.obj);
+      return r.texts.find(t => t.str === '#');  // the sig symbol
+    };
+    const shortSpan = mk(1);    // A↔B (both short) → bracket sits low over B=4
+    const tallSpan = mk(2);     // A↔C (reaches C=20) → bracket high, near the top
+    return { shortY: shortSpan.y, tallY: tallSpan.y, both: !!shortSpan && !!tallSpan };
+  });
+  expect(r.both).toBe(true);
+  // A taller compared bar pushes the bracket higher up (smaller y).
+  expect(r.tallY).toBeLessThan(r.shortY - 20);
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
