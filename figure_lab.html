@@ -1276,6 +1276,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div style="font-size:10px;color:var(--muted);margin:2px 0">FigureLab does not compute p-values — enter the symbol from your own test and name the test in your legend.</div>
       <div id="chart-sig-list"></div>
     </div>
+    <div style="margin-top:8px">
+      <div class="sec-lbl">Reference / threshold lines
+        <span class="help-chip" tabindex="0" role="button" aria-label="About reference lines" data-tip="A dashed line at a value you supply — a limit of detection, baseline, or cutoff. It is drawn, not computed.">?</span>
+        <button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_chartAddRef()">+ Add</button></div>
+      <div id="chart-ref-list"></div>
+    </div>
     <label style="font-size:11px;display:block;margin-top:8px">Caption note<input type="text" id="chart-caption" style="width:100%" placeholder="e.g. Mean ± SEM, n = 3, two-tailed t-test"></label>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
       <button class="btn" onclick="closeChartModal()">Cancel</button>
@@ -6664,7 +6670,7 @@ async function _captureDownload(fn){
 // SUBMISSION PACKAGE — one ZIP with every artifact a journal/lab needs
 // ═══════════════════════════════════════════════════════════════
 async function exportSubmissionPackage(){
-  if(!images.length){ toast('Add images first, or ✨ Load example figure','warn'); return; }
+  if(!images.length && !(typeof freeformElements!=='undefined' && freeformElements.length)){ toast('Add images or objects first, or ✨ Load example figure','warn'); return; }
   const grid=layoutMode!=='freeform';
   const dpi=getExportDPI();
   const name=(gv('export-name').trim()||'figure');
@@ -6672,10 +6678,10 @@ async function exportSubmissionPackage(){
   toast('Building submission package…','ok');
   render();
   try{
-    const rc=()=> grid?renderExportCanvas(dpi):figc;
+    const rc=()=> renderExportCanvas(dpi);   // supersample grid AND freeform (true target DPI)
     const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
     add(await _captureDownload(()=>exportPNGWithMeta(name,dpi,rc())));
-    add(await _captureDownload(()=>exportTIFF(name,dpi,rc(),grid)));
+    add(await _captureDownload(()=>exportTIFF(name,dpi,rc(),true)));
     add(await _captureDownload(()=>exportPDF(name,dpi,rc(),{lossless:true})));
     add(await _captureDownload(()=>exportSVG(name,dpi,figc)));
     add(await _captureDownload(()=>saveJSON()));
@@ -6702,6 +6708,18 @@ async function exportSubmissionPackage(){
           files.push({name:`panels/panel_${lbl}.png`, data:buf}); }
       }
     }catch(e){/* panels optional */}
+    // Per-chart Source Data CSVs — the exact user data behind each plotted chart
+    // (a mandatory requirement at Nature/EMBO). Writes the retained rows verbatim.
+    (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart&&e.chart.data&&(e.chart.data.rows||[]).length).forEach((el,ci)=>{
+      const D=el.chart.data;
+      const q=v=>{ const s=String(v??''); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+      const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
+      if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
+      (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between groups ${(+a.a)+1} and ${(+a.b)+1} — author-supplied from their own test, NOT computed by FigureLab`));
+      const csv=head.join('\n')+'\n'+D.columns.map(q).join(',')+'\n'+D.rows.map(r=>r.map(q).join(',')).join('\n')+'\n';
+      const safe=(el.label||('chart_'+(ci+1))).replace(/[^\w.-]+/g,'_');
+      files.push({name:`source-data/${safe}.csv`, data:csv});
+    });
     // manifest
     const _prov=await _provenanceHash();
     files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov)});
@@ -9404,6 +9422,20 @@ function _chartDraw(el, emit){
   if(ch.axes.y.title) emit.text(ch.axes.y.title, 12, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
   if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6, font(fs), ink, 'center', 'alphabetic');
 
+  // User reference / threshold lines — a DRAWN value the author supplies (LOD,
+  // baseline, cutoff), never a computed statistic.
+  (ch.refs||[]).forEach(rf=>{
+    if((rf.axis||'y')!=='y') return;
+    if(!(rf.value>=ymin && rf.value<=ymax)) return;
+    const y=yScale(rf.value);
+    emit.line(px0,y,px1,y, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
+    if(rf.label) emit.text(rf.label, px1-2, y-3, font(fs-2), rf.color||'#c0392b', 'right', 'alphabetic');
+  });
+  // Integrity: a non-zero bar baseline visually exaggerates differences — disclose it.
+  if(stat.categories && stat.kind!=='box' && ch.axes.y.min!=null && ch.axes.y.min>0){
+    emit.text(`⚠ y-axis starts at ${ch.axes.y.min}, not 0 — bar differences are visually exaggerated`, px0, H-2, font(fs-2), '#b00', 'left', 'alphabetic');
+  }
+
   const colours=_chartColors(ch);
 
   // ── Category charts (bar family + box) share an x band layout ──
@@ -9486,6 +9518,10 @@ function _chartDraw(el, emit){
       if(st.showGrid) emit.line(x,py0,x,py1,grid,1);
       emit.line(x,py1,x,py1+3,ink,1);
       emit.text(_fmtTick(t),x,py1+14,font(fs-1),ink,'center','alphabetic'); });
+    // Vertical reference lines (author-supplied x threshold).
+    (ch.refs||[]).forEach(rf=>{ if(rf.axis!=='x') return; if(!(rf.value>=xmin && rf.value<=xmax)) return;
+      const x=xScale(rf.value); emit.line(x,py0,x,py1, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
+      if(rf.label) emit.text(rf.label, x+3, py0+10, font(fs-2), rf.color||'#c0392b', 'left', 'alphabetic'); });
     stat.series.forEach(s=>{
       if(stat.kind==='line'){
         const pts=s.points.map(p=>[xScale(p.x),yScale(p.y)]);
@@ -9716,6 +9752,7 @@ function _chartModalSync(){
   sv('chart-colorscale', ch.style.colorscale||'viridis'); sc('chart-heat-values', !!ch.style.showValues); sv('chart-heat-mid', ch.style.midpoint||0);
   _chartModalKindChange();
   _chartRenderSigList();
+  _chartRenderRefList();
 }
 // Serialise the dataset back to a tab-separated block for the textarea.
 function _chartDataToText(data){
@@ -9799,6 +9836,39 @@ function _chartSigEdit(i,prop,val){
 function _chartDelSig(i){
   const el=_selectedChartEl(); if(!el) return;
   el.chart.annos.splice(i,1); _chartRenderSigList();
+}
+// Reference / threshold lines (drawn author-supplied values — never computed).
+function _chartRenderRefList(){
+  const el=_selectedChartEl(); if(!el) return;
+  const wrap=document.getElementById('chart-ref-list'); if(!wrap) return;
+  const refs=el.chart.refs||[];
+  wrap.innerHTML=refs.length?'':'<span style="font-size:10px;color:var(--muted)">No reference lines</span>';
+  refs.forEach((rf,i)=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
+    row.innerHTML=`<select onchange="_chartRefEdit(${i},'axis',this.value)" style="font-size:11px">
+        <option value="y"${(rf.axis||'y')==='y'?' selected':''}>y =</option><option value="x"${rf.axis==='x'?' selected':''}>x =</option></select>
+      <input type="number" step="any" value="${rf.value??0}" style="width:64px" onchange="_chartRefEdit(${i},'value',this.value)">
+      <input type="text" value="${esc(rf.label||'')}" placeholder="label" style="width:90px" onchange="_chartRefEdit(${i},'label',this.value)">
+      <input type="color" value="${rf.color||'#c0392b'}" style="width:26px;height:20px;padding:0" onchange="_chartRefEdit(${i},'color',this.value)">
+      <button class="icon-btn" title="Remove" onclick="_chartDelRef(${i})">×</button>`;
+    wrap.appendChild(row);
+  });
+}
+function _chartAddRef(){
+  const el=_selectedChartEl(); if(!el) return;
+  el.chart.refs=el.chart.refs||[];
+  el.chart.refs.push({axis:'y', value:0, label:'', color:'#c0392b'});
+  logAction('chartRefLine',{axis:'y'});
+  _chartRenderRefList();
+}
+function _chartRefEdit(i,prop,val){
+  const el=_selectedChartEl(); if(!el||!el.chart.refs[i]) return;
+  el.chart.refs[i][prop]=(prop==='value')?(parseFloat(val)||0):String(val);
+}
+function _chartDelRef(i){
+  const el=_selectedChartEl(); if(!el) return;
+  el.chart.refs.splice(i,1); _chartRenderRefList();
 }
 // Live-toggle the error-column picker / fit block when those selects change in the modal.
 function _chartModalErrChange(){ const w=document.getElementById('chart-errcol-wrap'); if(w) w.style.display=(gv('chart-err')==='column')?'inline-flex':'none'; }

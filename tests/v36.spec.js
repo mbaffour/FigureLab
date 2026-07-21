@@ -1462,6 +1462,63 @@ test('significance brackets anchor above the tallest bar in their span, not a fi
   expect(errors).toEqual([]);
 });
 
+test('reference lines draw at the author value and a truncated baseline is disclosed', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const texts = [], lines = [];
+    const rec = { rect() {}, line(x1, y1, x2, y2, s, w, d) { lines.push({ y1, y2, dash: !!d }); }, poly() {}, circle() {}, text(str) { texts.push(str); } };
+    const el = { type: 'chart', x: 0, y: 0, w: 320, h: 240,
+      chart: { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', 5], ['B', 8]], source: 't' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none',
+        axes: { x: {}, y: { min: 3 } },   // truncated baseline
+        refs: [{ axis: 'y', value: 6, label: 'LOD' }],
+        style: { palette: 'okabeIto', showLegend: false, frame: 'lb', fontSize: 12 }, annos: [] } };
+    _chartDraw(el, rec);
+    // Also confirm the ref survives to vector SVG.
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform'; setLayoutMode('freeform');
+    freeformElements.length = 0; el.x = 20; el.y = 20; freeformElements.push(el); el._chartKey = ''; render();
+    const cap = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const svg = new TextDecoder().decode(cap.data);
+    return {
+      hasLODlabel: texts.includes('LOD'),
+      hasBaselineWarning: texts.some(t => /starts at 3.*not 0|exaggerat/i.test(t)),
+      svgHasDashedRef: /stroke-dasharray/.test(svg) && svg.includes('LOD'),
+    };
+  });
+  expect(r.hasLODlabel).toBe(true);
+  expect(r.hasBaselineWarning).toBe(true);   // integrity disclosure on the figure
+  expect(r.svgHasDashedRef).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('submission package includes a Source Data CSV for each chart', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform'; setLayoutMode('freeform');
+    freeformElements.length = 0;
+    addFreeformElement({ type: 'chart', x: 20, y: 20, w: 300, h: 220,
+      chart: { kind: 'bar', data: { columns: ['Group', 'Value'], rows: [['Ctrl', 3.14], ['Drug', 9.99]], source: 't' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'mean', error: 'sem', axes: { x: {}, y: {} },
+        style: { palette: 'okabeIto' }, annos: [] }, label: 'panelA' });
+    render();
+  });
+  const r = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportSubmissionPackage());
+    if (!cap || !cap.data) return null;
+    const zip = new TextDecoder('latin1').decode(cap.data);   // "store" zip → filenames + CSV are plaintext
+    return {
+      hasSourceDir: zip.includes('source-data/panelA.csv'),
+      hasData: zip.includes('9.99') && zip.includes('Ctrl'),
+      hasErrNote: /SEM = SD\/sqrt\(n\)/.test(zip),
+    };
+  });
+  expect(r).not.toBeNull();
+  expect(r.hasSourceDir).toBe(true);
+  expect(r.hasData).toBe(true);       // the exact user rows
+  expect(r.hasErrNote).toBe(true);    // error-metric provenance in the CSV header
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
