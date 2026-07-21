@@ -1,4 +1,4 @@
-# FigureLab v3.7.0
+# FigureLab v3.8.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -228,6 +228,17 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.8 — 21 July 2026
+**Focus: transparency, honesty, and polish — driven by a deep review of what scientists actually need. Same single, offline, private file.**
+
+- **Show every data point** — bar and box charts can overlay all raw replicate values as jittered dots (deterministic, so the SVG export matches the preview), exposing the n and spread a bare bar hides — now an explicit Nature/eLife/JCB expectation. Two new distribution kinds join them: **violin** (Gaussian KDE) and **beeswarm** (dots with a mean ± SD summary).
+- **Significance brackets anchored to bar heights** — brackets sit just above the bars they compare and stack when nested, instead of floating at a fixed ceiling. Still the author's own typed symbol; no p-value is ever computed.
+- **Reference / threshold lines** — an author-supplied dashed line at a limit of detection, baseline, or cutoff (y or x), drawn as vector.
+- **Submission-ready packages** — each chart's exact rows are written to a **Source Data CSV** (with the error-metric formula and any significance symbols noted), and a bar chart whose y-axis doesn't start at zero is flagged on the figure as visually exaggerating differences.
+- **Honest measurements** — ROI area/intensity, line profile, cell count, and exposure analysis now disclose that they read the **8-bit display** (after any brightness/contrast/gamma/LUT), not raw data — strengthened when the measured panel has adjustments applied. Exposure "saturated" is relabelled "clipped on the display".
+- **Full adjustments on freeform panels** — gamma, black/white levels, fluorescence LUTs, grayscale, and invert are now reachable on freeform image elements (🎚 More…), matching grid mode and closing the largest grid↔freeform gap.
+- **Performance & polish** — image adjustment sliders preview live as you drag (rAF-coalesced) instead of after a pause; the freeform render loop drops an O(n²) index lookup; and chart legends auto-size to fit long labels instead of clipping them.
 
 ### v3.7 — 20 July 2026
 **Focus: the data figures, flowcharts and asset-rich schematics that used to need a second tool — all in the same single, offline, private file. Every chart draws as true vector.**
