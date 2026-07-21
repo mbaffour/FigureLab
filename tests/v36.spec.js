@@ -362,6 +362,211 @@ test('background removal survives a session round-trip and undo', async ({ page 
   expect(errors).toEqual([]);
 });
 
+// ── Phase 2: chart element ──
+
+test('CSV parser handles delimiters, quotes, embedded newlines, escapes, BOM, numeric coercion', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => ({
+    comma: _parseDelimited('a,b,c\n1,2,3'),
+    tab: _parseDelimited('a\tb\n1\t2'),
+    semi: _parseDelimited('a;b\n1;2'),
+    quotedComma: _parseDelimited('x,y\n"a,b",2'),
+    embeddedNL: _parseDelimited('x,y\n"line1\nline2",5'),
+    escapedQuote: _parseDelimited('x\n"she said ""hi"""'),
+    bom: _parseDelimited('﻿a,b\n1,2'),
+    sci: _parseDelimited('v\n1e-3'),
+    leadingZero: _parseDelimited('code\n007'),
+    floaty: _parseDelimited('v\n3.14'),
+  }));
+  expect(r.comma.columns).toEqual(['a', 'b', 'c']);
+  expect(r.comma.rows[0]).toEqual([1, 2, 3]);
+  expect(r.tab.delim).toBe('\t');
+  expect(r.tab.rows[0]).toEqual([1, 2]);
+  expect(r.semi.delim).toBe(';');
+  expect(r.quotedComma.rows[0]).toEqual(['a,b', 2]);       // embedded delimiter preserved
+  expect(r.embeddedNL.rows[0][0]).toBe('line1\nline2');    // embedded newline preserved
+  expect(r.escapedQuote.rows[0][0]).toBe('she said "hi"'); // "" → "
+  expect(r.bom.columns).toEqual(['a', 'b']);               // BOM stripped
+  expect(r.sci.rows[0][0]).toBe(0.001);                    // scientific notation coerced
+  expect(r.leadingZero.rows[0][0]).toBe(7);                // 007 is numeric here (strict number match)
+  expect(r.floaty.rows[0][0]).toBeCloseTo(3.14, 5);
+  expect(errors).toEqual([]);
+});
+
+test('a dropped CSV creates a chart, not an image panel', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(async () => {
+    const csv = 'Group,Value\nCtrl,3\nDrug,7\nWash,5';
+    const f = new File([csv], 'data.csv', { type: 'text/csv' });
+    addFiles([f]);
+    await new Promise(res => setTimeout(res, 120));   // FileReader is async
+  });
+  await page.waitForFunction(() => freeformElements.some(e => e.type === 'chart'));
+  const r = await page.evaluate(() => {
+    closeChartModal();
+    const ch = freeformElements.find(e => e.type === 'chart');
+    return { images: images.length, rows: ch.chart.data.rows.length, cols: ch.chart.data.columns.length,
+             source: ch.chart.data.source, logged: reproLog.some(e => e.action === 'chartImport') };
+  });
+  expect(r.images).toBe(0);            // no failed <img> panel
+  expect(r.rows).toBe(3);
+  expect(r.cols).toBe(2);
+  expect(r.source).toBe('file');
+  expect(r.logged).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('SD and SEM match the documented formulae and SEM shrinks the whisker by √n', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const data = [2, 4, 4, 4, 5, 5, 7, 9];              // mean 5, SD (n−1) = 2.13809, n = 8
+    const sd = _sd(data), sem = _sem(data);
+    // Build a one-group chart with those replicates and read the drawn whisker half-height.
+    const mk = (err) => {
+      const el = { type: 'chart', x: 0, y: 0, w: 300, h: 240,
+        chart: { kind: 'bar', data: { columns: ['g', 'v'], rows: data.map(v => ['A', v]), source: 't' },
+          mapping: { xCol: 0, yCols: [1], seriesCol: null, errCol: null }, agg: 'mean', error: err,
+          axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] } };
+      return _chartStatsCached(el).groups[0].bars[0].err;
+    };
+    return { sd, sem, barErrSD: mk('sd'), barErrSEM: mk('sem') };
+  });
+  expect(r.sd).toBeCloseTo(2.138090, 5);
+  expect(r.sem).toBeCloseTo(2.138090 / Math.sqrt(8), 5);
+  expect(r.barErrSD).toBeCloseTo(r.sd, 6);
+  expect(r.barErrSEM).toBeCloseTo(r.sem, 6);
+  expect(r.barErrSD / r.barErrSEM).toBeCloseTo(Math.sqrt(8), 5);   // SEM = SD/√n exactly
+  expect(errors).toEqual([]);
+});
+
+test('bar chart draws bars in data order with the palette colours', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'chart', x: 40, y: 40, w: 500, h: 400,
+    chart: null, label: 'c' }]);
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    el.chart = { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', 2], ['B', 8]], source: 't' },
+      mapping: { xCol: 0, yCols: [1], seriesCol: null, errCol: null }, agg: 'none', error: 'none',
+      axes: { x: {}, y: {} }, style: { palette: 'okabeIto', showLegend: false, frame: 'lb', fontSize: 12 }, annos: [] };
+    el._chartKey = ''; el._chartStat = null;
+    render();
+    // Sample the fig canvas near the base of each bar. Bar B (value 8) is taller than A (value 2).
+    const c = document.getElementById('fig-canvas');
+    const cx = c.getContext('2d');
+    const sx = c.width / (canvasLogicalW || c.width), sy = c.height / (canvasLogicalH || c.height);
+    // Local plot x: padL=48, plotW=w-48-16=436 across 2 categories → centres at ~48+109 and 48+327.
+    const sample = (lx, ly) => { const d = cx.getImageData(Math.round((el.x + lx) * sx), Math.round((el.y + ly) * sy), 1, 1).data; return d[0] < 40 && d[1] < 40 && d[2] < 40; };
+    // A dark pixel (Okabe-Ito[0] = black) exists high up only over the tall bar B.
+    const aHigh = sample(157, 90);   // over bar A column, high up — should be empty (white)
+    const bHigh = sample(375, 90);   // over bar B column, high up — should be inked (tall bar)
+    return { aHigh, bHigh };
+  });
+  expect(r.bHigh).toBe(true);     // tall bar reaches high
+  expect(r.aHigh).toBe(false);    // short bar does not
+  expect(errors).toEqual([]);
+});
+
+test('log axis drops non-positive values with a visible warning, never clamps', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const el = { type: 'chart', x: 0, y: 0, w: 300, h: 240,
+      chart: { kind: 'scatter', data: { columns: ['x', 'y'], rows: [[1, 10], [2, 0], [3, 100], [4, -5]], source: 't' },
+        mapping: { xCol: 0, yCols: [1], seriesCol: null, errCol: null }, agg: 'none', error: 'none',
+        axes: { x: { log: false }, y: { log: true } }, style: { palette: 'okabeIto' }, annos: [] } };
+    const withLog = _chartStatsCached(el);
+    el.chart.axes.y.log = false; el._chartKey = ''; el._chartStat = null;
+    const noLog = _chartStatsCached(el);
+    return { logPts: withLog.series[0].points.length, logDropped: withLog.warn.dropped, noLogPts: noLog.series[0].points.length };
+  });
+  expect(r.noLogPts).toBe(4);       // all four points when linear
+  expect(r.logPts).toBe(2);         // 0 and −5 dropped on a log axis
+  expect(r.logDropped).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test('FigureLab never computes a p-value: no such function, marks are user strings', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    addChartElement('bar'); closeChartModal();
+    const el = freeformElements[0];
+    _chartAddSig();
+    const an = el.chart.annos[0];
+    // No p-value machinery must exist anywhere on the global surface.
+    const globals = Object.keys(window).filter(k => /^(p_?value|compute.*p|t_?test|wilcoxon|mann.?whitney|anova|kruskal)/i.test(k));
+    const anKeys = Object.keys(an);
+    return { annoText: an.text, annoIsString: typeof an.text === 'string', kind: an.kind,
+             hasP: anKeys.includes('p') || anKeys.includes('pvalue'),
+             globals, logged: reproLog.some(e => e.action === 'chartSigAnno') };
+  });
+  expect(r.kind).toBe('sig');
+  expect(r.annoIsString).toBe(true);       // user-entered symbol, not a number
+  expect(r.hasP).toBe(false);              // no p field on the annotation
+  expect(r.globals).toEqual([]);           // no p-value function anywhere
+  expect(r.logged).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('chart survives undo/redo and session round-trip with no cached canvases', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { addChartElement('groupedBar'); closeChartModal(); render(); });
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    el._chartCache && (el._chartCache.__mark = 1);   // ensure a live cache exists
+    const ser = serializeSession(true).freeformElements[0];
+    const snap = cloneElemForUndo(el);
+    // Mutate then undo.
+    pushUndo(); el.chart.kind = 'line'; el._chartKey = '';
+    undo();
+    return {
+      serHasData: !!(ser.chart && ser.chart.data && ser.chart.data.rows.length),
+      serTransients: Object.keys(ser).filter(k => k === '_chartCache' || k === '_chartStat' || k === '_chartKey'),
+      snapTransients: Object.keys(snap).filter(k => k === '_chartCache' || k === '_chartStat' || k === '_chartKey'),
+      snapDeepCopied: snap.chart !== el.chart,        // deep copy, not a shared ref
+      afterUndoKind: freeformElements[0].chart.kind,
+    };
+  });
+  expect(r.serHasData).toBe(true);
+  expect(r.serTransients).toEqual([]);      // no cache/stat/key in the session JSON
+  expect(r.snapTransients).toEqual([]);     // nor in the undo snapshot
+  expect(r.snapDeepCopied).toBe(true);
+  expect(r.afterUndoKind).toBe('groupedBar');
+  expect(errors).toEqual([]);
+});
+
+test('chart rotates and hit-tests like any other element', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'chart', x: 200, y: 150, w: 300, h: 200,
+    chart: null, label: 'c' }]);
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    el.chart = { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', 3]], source: 't' },
+      mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] };
+    el.rotation = 30;
+    const cx = el.x + el.w / 2, cy = el.y + el.h / 2;
+    return { centre: hitFreeformElement(el, cx, cy), farCorner: hitFreeformElement(el, el.x - 40, el.y - 40) };
+  });
+  expect(r.centre).toBe(true);
+  expect(r.farCorner).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('dragging a chart does not recompute its stats', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { addChartElement('bar'); closeChartModal(); render(); });
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    render();                                  // warm the cache
+    const before = _chartStatsCalls;
+    // Simulate a drag: proxy blit path must not call _chartStats.
+    elemDragState = { moving: true, indices: [0] };
+    for (let i = 0; i < 5; i++) { el.x += 4; render(); }
+    elemDragState = null;
+    return { before, after: _chartStatsCalls };
+  });
+  expect(r.after).toBe(r.before);    // stats untouched across five drag frames
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);

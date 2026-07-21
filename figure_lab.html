@@ -200,7 +200,7 @@ body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-eve
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
 /* ── Modal ──────────────────────────────────────────────────── */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:700;
   display:none;align-items:center;justify-content:center;padding:20px}
 .modal-bg.open{display:flex}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;
@@ -457,7 +457,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <strong>Drop or click to add images</strong>
       <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
     </div>
-    <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg" style="display:none">
+    <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg,.csv,.tsv" style="display:none">
     <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
     <div style="display:flex;gap:4px;margin-top:5px">
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="sortImagesByName()" title="Sort panels by filename in natural order (file2 before file10), then relabel A, B, C…">↕ Sort by name</button>
@@ -1022,6 +1022,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="pp-color" value="#ff3b30" style="width:26px;height:22px;padding:0;border:none;cursor:pointer"></label>
       <span style="font-size:10px;color:var(--muted)">on-top only · image untouched</span>
     </div>
+    <div id="ep-chart-props" style="display:none;align-items:center;gap:6px">
+      <div class="abar-sep"></div>
+      <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openChartModal()" title="Edit chart data, type and options">⚙ Edit chart…</button>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Type
+        <select id="ep-chart-kind" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epChartKind(this.value)">
+          <option value="bar">Bar</option><option value="groupedBar">Grouped</option><option value="stackedBar">Stacked</option>
+          <option value="line">Line</option><option value="scatter">Scatter</option><option value="box">Box</option>
+        </select></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Palette
+        <select id="ep-chart-palette" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epChartPalette(this.value)">
+          <option value="okabeIto">Okabe–Ito</option><option value="tolBright">Tol</option><option value="ibm">IBM</option><option value="grayscale">Gray</option>
+        </select></label>
+    </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px">Crop%:</span>
@@ -1109,6 +1122,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="applyStarter('beforeafter')" title="Before / after (2×1)">◧ Before/after</button>
           <button class="btn" onclick="applyStarter('grid3x3')" title="3×3 panel grid">▩ 3×3</button>
           <button class="btn" onclick="applyStarter('pathway')" title="Freeform pathway/flow diagram">➜ Pathway</button>
+          <button class="btn" onclick="addChartElement('bar')" title="Add a data chart from a CSV or pasted data">📊 Chart</button>
         </div>
         <div class="es-flow">
           <span class="es-step es-cur">Import</span>›<span class="es-step">Layout</span>›<span class="es-step">Calibrate</span>›<span class="es-step">Annotate</span>›<span class="es-step">Audit</span>›<span class="es-step">Export</span>
@@ -1157,6 +1171,76 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn btn-primary" id="calib-apply" onclick="applyCalib()" disabled>Apply</button>
     </div>
     <div id="calib-result" style="font-size:11px;color:var(--a2);margin-top:6px"></div>
+  </div>
+</div>
+
+<!-- ── Chart editor modal ───────────────────────────────────── -->
+<div class="modal-bg" id="chart-modal">
+  <div class="modal" style="max-width:640px">
+    <button class="modal-close" onclick="closeChartModal()">×</button>
+    <h3>📊 Chart</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:280px">
+        <div class="sec-lbl">Data <span style="font-weight:normal;color:var(--muted)">— paste from Excel or edit here (tab/comma/semicolon)</span></div>
+        <textarea id="chart-data-ta" spellcheck="false" style="width:100%;height:150px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;white-space:pre;overflow:auto"></textarea>
+        <div id="chart-delim-info" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+      </div>
+      <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:11px">Chart type
+          <select id="chart-kind" onchange="_chartModalKindChange()" style="width:100%">
+            <option value="bar">Bar</option><option value="groupedBar">Grouped bar</option>
+            <option value="stackedBar">Stacked bar</option><option value="line">Line</option>
+            <option value="scatter">Scatter</option><option value="box">Box &amp; whisker</option>
+          </select></label>
+        <label style="font-size:11px">X / category column
+          <select id="chart-xcol" style="width:100%"></select></label>
+        <div style="font-size:11px">Y columns
+          <div id="chart-ycols" style="margin-top:2px"></div></div>
+        <div style="display:flex;gap:6px;align-items:flex-end">
+          <label style="font-size:11px;flex:1">Error bars
+            <select id="chart-err" onchange="_chartModalErrChange()" style="width:100%">
+              <option value="none">none</option><option value="sd">SD (n−1)</option>
+              <option value="sem">SEM (SD/√n)</option><option value="column">from a column</option>
+            </select></label>
+          <label id="chart-errcol-wrap" style="font-size:11px;display:none">col
+            <select id="chart-errcol" style="width:90px"></select></label>
+        </div>
+        <div style="display:flex;gap:8px">
+          <label style="font-size:11px;flex:1">X title<input type="text" id="chart-xtitle" style="width:100%"></label>
+          <label style="font-size:11px;flex:1">Y title<input type="text" id="chart-ytitle" style="width:100%"></label>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
+          <label><input type="checkbox" id="chart-xlog"> log X</label>
+          <label><input type="checkbox" id="chart-ylog"> log Y</label>
+          <label><input type="checkbox" id="chart-legend"> legend</label>
+          <label><input type="checkbox" id="chart-grid"> grid</label>
+          <label><input type="checkbox" id="chart-points"> points</label>
+        </div>
+        <label style="font-size:11px">Palette
+          <select id="chart-palette" style="width:100%">
+            <option value="okabeIto">Okabe–Ito (colourblind-safe)</option>
+            <option value="tolBright">Tol bright</option>
+            <option value="ibm">IBM</option>
+            <option value="grayscale">Grayscale</option>
+          </select></label>
+        <div id="chart-fit-wrap" style="display:none;gap:10px;font-size:11px">
+          <label><input type="checkbox" id="chart-fit"> OLS linear fit</label>
+          <label><input type="checkbox" id="chart-fit-r2"> show eq + R²</label>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <div class="sec-lbl">Significance brackets
+        <span class="help-chip" tabindex="0" role="button" aria-label="About significance marks" data-tip="FigureLab does not compute p-values. Enter the symbol from your own statistical test (e.g. *, **, n.s.) and name the test in your figure legend.">?</span>
+        <button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_chartAddSig()">+ Add</button></div>
+      <div style="font-size:10px;color:var(--muted);margin:2px 0">FigureLab does not compute p-values — enter the symbol from your own test and name the test in your legend.</div>
+      <div id="chart-sig-list"></div>
+    </div>
+    <label style="font-size:11px;display:block;margin-top:8px">Caption note<input type="text" id="chart-caption" style="width:100%" placeholder="e.g. Mean ± SEM, n = 3, two-tailed t-test"></label>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn" onclick="closeChartModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="applyChartModal()">Apply</button>
+    </div>
   </div>
 </div>
 
@@ -2137,7 +2221,9 @@ function addFiles(fileList){
     const nameL=(f.name||'').toLowerCase();
     const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
+    const isData=f.type==='text/csv'||f.type==='text/tab-separated-values'||nameL.endsWith('.csv')||nameL.endsWith('.tsv');
     const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
+    if(isData){ _loadDataFile(f, fail); return; }   // before image path: a dropped CSV becomes a chart, not a failed <img>
     if(isTIFF){ _loadTIFFFile(f, fail); return; }
     if(isSVG){ _loadSVGFile(f, fail); return; }
     const reader=new FileReader();
@@ -2447,6 +2533,11 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Add bar chart',            keys:'chart bar plot data graph',     run:()=>addChartElement('bar')},
+  {label:'Add scatter plot',         keys:'chart scatter plot xy data',    run:()=>addChartElement('scatter')},
+  {label:'Add line chart',           keys:'chart line plot time course',   run:()=>addChartElement('line')},
+  {label:'Add box plot',             keys:'chart box whisker plot data',   run:()=>addChartElement('box')},
+  {label:'Edit chart data…',         keys:'chart edit data csv',           run:()=>openChartModal()},
   {label:'Theme: Grayscale for print', keys:'theme grayscale greyscale print mono black white', run:()=>applyBuiltinTheme('grayscale-print')},
   {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
   {label:'Theme: High contrast',       keys:'theme contrast bold talk slide',                    run:()=>applyBuiltinTheme('high-contrast')},
@@ -4979,6 +5070,10 @@ function cloneElemForUndo(el){
   // Paint layers: drop the live canvas so each snapshot is independent; the
   // bitmap is carried in paintData (kept current on each stroke) and re-hydrated on render.
   if(el&&el.type==='paint'){ const {_paintCanvas,_paintDirty,...rest}=el; return rest; }
+  // Charts: drop the cached stats + raster proxy so snapshots stay light and the
+  // stats recompute from the (deep-copied) dataset after a restore.
+  if(el&&el.type==='chart'){ const {_chartStat,_chartKey,_chartCache,...rest}=el;
+    return {...rest, chart:JSON.parse(JSON.stringify(el.chart||{}))}; }
   // Shallow otherwise (keeps img/_imgEl refs), but drop the adjustment cache so it
   // recomputes after a restore — same rule as cloneImageForUndo.
   return {...el, _adjCache:undefined, _adjKey:undefined};
@@ -5937,6 +6032,10 @@ annCanvas.addEventListener('dblclick', e=>{
       if(el.type==='text'&&hitFreeformElement(el,fx,fy)){
         selectedElems.clear(); selectedElems.add(i); drawFreeformOverlay();
         editFreeformText(i); return;
+      }
+      if(el.type==='chart'&&hitFreeformElement(el,fx,fy)){
+        selectedElems.clear(); selectedElems.add(i); drawFreeformOverlay();
+        openChartModal(); return;
       }
     }
     return;
@@ -7109,7 +7208,7 @@ function serializeSession(bundleImages){
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
-      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,...rest}=el;
+      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,...rest}=el;
       if(el.type==='paint' && _paintCanvas && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
       return rest;
@@ -7604,7 +7703,7 @@ function updateFreeformElemList(){
     row.className='tpl-saved';
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
-    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':'◻';
+    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':'◻';
     row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
@@ -7767,6 +7866,10 @@ function renderFreeform(canvas, ctx, S, opts){
       // Brush strokes live on the layer's own canvas — the source image is never touched
       const cv=_ensurePaintCanvas(el);
       if(cv) ctx.drawImage(cv, el.x, el.y, el.w, el.h);
+    } else if(el.type==='chart'){
+      // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
+      if(typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
+      if(!isExport){ const ci=freeformElements.indexOf(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
   });
@@ -8404,6 +8507,537 @@ function recolorIcon(color){
   _rasterizeSVG(dataURL,(img,png)=>{ el.src=png; el._imgEl=img; scheduleRender(0); }, ()=>{});
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CHARTS — data plots as freeform objects
+// ───────────────────────────────────────────────────────────────
+// A chart is a `chart` freeform element whose geometry is drawn through a
+// swappable emit backend: the canvas backend paints the preview and exports,
+// the SVG backend (Phase 3) emits true vector. One _chartDraw() implementation,
+// two outputs — never a rasterised blit, so it stays crisp at any export DPI.
+//
+// INTEGRITY: the dataset (chart.data.rows) is the single source of truth and is
+// only ever replaced wholesale through the data textarea — never edited pointwise
+// on the canvas. Error bars compute only SD (n−1) and SEM (SD/√n), each named in
+// the UI and generated code. Significance marks are USER-ENTERED strings; FigureLab
+// never computes a p-value. This mirrors the cover-patch/paint-layer posture:
+// transparency over prohibition.
+// ═══════════════════════════════════════════════════════════════
+
+// Parse delimited text (CSV/TSV) → {columns:[...], rows:[[...]], delim}.
+// RFC4180-ish: quoted fields, embedded newlines/delimiters, doubled "" escapes.
+// Numeric coercion only on a strict number match; everything else stays a string.
+function _parseDelimited(text){
+  let s=String(text||'').replace(/^﻿/,'');          // strip BOM
+  if(!s.trim()) return {columns:[],rows:[],delim:','};
+  // Detect the delimiter from the first non-empty line, counting only outside quotes.
+  const firstLine=(()=>{ let inq=false,out=''; for(let i=0;i<s.length;i++){ const c=s[i]; if(c==='"') inq=!inq; if((c==='\n'||c==='\r')&&!inq) break; out+=c; } return out; })();
+  const count=ch=>{ let n=0,inq=false; for(const c of firstLine){ if(c==='"') inq=!inq; else if(c===ch&&!inq) n++; } return n; };
+  const cands=[[',',count(',')],['\t',count('\t')],[';',count(';')]].sort((a,b)=>b[1]-a[1]);
+  const delim=cands[0][1]>0?cands[0][0]:',';
+  // Full RFC4180 field walk.
+  const rows=[]; let field='',row=[],inq=false;
+  const pushF=()=>{ row.push(field); field=''; };
+  const pushR=()=>{ pushF(); rows.push(row); row=[]; };
+  for(let i=0;i<s.length;i++){
+    const c=s[i];
+    if(inq){
+      if(c==='"'){ if(s[i+1]==='"'){ field+='"'; i++; } else inq=false; }
+      else field+=c;
+    } else {
+      if(c==='"') inq=true;
+      else if(c===delim) pushF();
+      else if(c==='\r'){ if(s[i+1]==='\n') i++; pushR(); }
+      else if(c==='\n') pushR();
+      else field+=c;
+    }
+  }
+  if(field.length||row.length) pushR();
+  // Drop fully-empty trailing rows.
+  while(rows.length && rows[rows.length-1].every(v=>v===''||v==null)) rows.pop();
+  if(!rows.length) return {columns:[],rows:[],delim};
+  const columns=rows.shift().map(h=>String(h).trim());
+  const numRe=/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+  const coerce=v=>{ const t=String(v).trim(); return numRe.test(t)?parseFloat(t):t; };
+  const body=rows.map(r=>columns.map((_,ci)=>coerce(r[ci]!=null?r[ci]:'')));
+  return {columns, rows:body, delim};
+}
+
+// Sample standard deviation (n−1 denominator) and standard error of the mean.
+function _sd(arr){ const a=arr.filter(v=>typeof v==='number'&&isFinite(v)); const n=a.length; if(n<2) return 0;
+  const m=a.reduce((s,v)=>s+v,0)/n; return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(n-1)); }
+function _sem(arr){ const a=arr.filter(v=>typeof v==='number'&&isFinite(v)); return a.length<2?0:_sd(a)/Math.sqrt(a.length); }
+function _mean(arr){ const a=arr.filter(v=>typeof v==='number'&&isFinite(v)); return a.length?a.reduce((s,v)=>s+v,0)/a.length:0; }
+
+// Nice axis ticks — 1/2/5 × 10^k covering [min,max].
+function _niceTicks(min,max,target){
+  target=target||5;
+  if(!(isFinite(min)&&isFinite(max))||min===max){ const c=isFinite(min)?min:0; return [c-1,c,c+1]; }
+  const span=max-min, raw=span/Math.max(1,target), mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag, step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const t0=Math.floor(min/step)*step, ticks=[];
+  for(let v=t0; v<=max+step*0.5; v+=step) ticks.push(+v.toFixed(10));
+  return ticks;
+}
+// Log-decade ticks (base 10). Assumes positive domain.
+function _logTicks(min,max){
+  const lo=Math.floor(Math.log10(min)), hi=Math.ceil(Math.log10(max)), ticks=[];
+  for(let e=lo;e<=hi;e++) ticks.push(Math.pow(10,e));
+  return ticks;
+}
+// OLS linear fit → {m,b,r2}. pts:[{x,y}].
+function _chartLinFit(pts){
+  const p=pts.filter(q=>isFinite(q.x)&&isFinite(q.y)); const n=p.length;
+  if(n<2) return {m:0,b:0,r2:0,n};
+  let sx=0,sy=0,sxx=0,sxy=0,syy=0;
+  p.forEach(q=>{ sx+=q.x; sy+=q.y; sxx+=q.x*q.x; sxy+=q.x*q.y; syy+=q.y*q.y; });
+  const d=n*sxx-sx*sx; if(d===0) return {m:0,b:sy/n,r2:0,n};
+  const m=(n*sxy-sx*sy)/d, b=(sy-m*sx)/n;
+  const sst=syy-sy*sy/n, ssr=m*(sxy-sx*sy/n);
+  return {m,b,r2:sst>0?Math.max(0,Math.min(1,ssr/sst)):0,n};
+}
+
+// Default chart config for a freshly-added chart of the given kind.
+function _defaultChart(kind){
+  return {
+    kind:kind||'bar',
+    data:{columns:['Group','Value'], rows:[['A',3],['B',5],['C',4]], source:'demo', sourceName:''},
+    mapping:{xCol:0, yCols:[1], seriesCol:null, errCol:null},
+    agg:'none', error:'none',
+    axes:{x:{title:'',min:null,max:null,log:false}, y:{title:'',min:null,max:null,log:false}},
+    style:{palette:'okabeIto', fontFamily:'system-ui, sans-serif', fontSize:12,
+      showLegend:true, legendPos:'tr', showGrid:false, showPoints:false, pointSize:4,
+      lineWidth:2, barGap:0.2, groupGap:0.35, frame:'lb'},
+    fit:{on:false, kind:'linear', showEq:false, showR2:false},
+    annos:[], caption:''
+  };
+}
+
+// Resolve palette colours (array of hex) for a chart.
+function _chartColors(ch){ return (CB_PALETTES[ch.style.palette]||CB_PALETTES.okabeIto); }
+
+// Compute plotted series + domains from the raw dataset. O(rows); cached on the
+// element via _chartKey so it never re-runs during a drag.
+let _chartStatsCalls=0;   // test hook: proves caching works
+function _chartStats(el){
+  _chartStatsCalls++;
+  const ch=el.chart, D=ch.data, cols=D.columns, rows=D.rows;
+  const xc=ch.mapping.xCol??0, yCols=(ch.mapping.yCols&&ch.mapping.yCols.length?ch.mapping.yCols:[1]);
+  const colours=_chartColors(ch);
+  const kind=ch.kind;
+  const num=v=>typeof v==='number'&&isFinite(v)?v:NaN;
+  const warn={dropped:0};
+
+  // Category label for a row (x column stringified).
+  const catOf=r=>String(r[xc]??'');
+
+  if(kind==='scatter'||kind==='line'){
+    // Each y column is a series of (x,y) points against a numeric x.
+    const xLog=!!ch.axes.x.log, yLog=!!ch.axes.y.log;
+    const series=yCols.map((yc,si)=>{
+      const pts=[]; rows.forEach(r=>{ const x=num(r[xc]), y=num(r[yc]);
+        if(!isFinite(x)||!isFinite(y)) return;
+        // A log axis has no place for ≤0 values — drop them honestly (never clamp) and count it.
+        if((xLog&&x<=0)||(yLog&&y<=0)){ warn.dropped++; return; }
+        pts.push({x,y}); });
+      return {name:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], points:pts};
+    });
+    let xs=[],ys=[]; series.forEach(s=>s.points.forEach(p=>{ xs.push(p.x); ys.push(p.y); }));
+    return {kind, series, categories:null,
+      xDomain:[Math.min(...(xs.length?xs:[0])),Math.max(...(xs.length?xs:[1]))],
+      yDomain:[Math.min(...(ys.length?ys:[0])),Math.max(...(ys.length?ys:[1]))], warn};
+  }
+
+  if(kind==='box'){
+    // Each category = a box over the pooled numeric values across the y columns.
+    const cats=[...new Set(rows.map(catOf))];
+    const boxes=cats.map((c,ci)=>{
+      const vals=[]; rows.filter(r=>catOf(r)===c).forEach(r=>yCols.forEach(yc=>{ const v=num(r[yc]); if(isFinite(v)) vals.push(v); }));
+      vals.sort((a,b)=>a-b);
+      const q=p=>{ if(!vals.length) return 0; const idx=(vals.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx); return vals[lo]+(vals[hi]-vals[lo])*(idx-lo); };
+      return {name:c, color:colours[ci%colours.length], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, n:vals.length, raw:vals};
+    });
+    const all=boxes.flatMap(b=>b.raw);
+    return {kind, boxes, categories:cats, series:null,
+      yDomain:[Math.min(...(all.length?all:[0])),Math.max(...(all.length?all:[1]))], warn};
+  }
+
+  // bar / groupedBar / stackedBar: categories on x, one bar per y column per category.
+  const cats=[...new Set(rows.map(catOf))];
+  const errCol=ch.mapping.errCol;
+  const groups=cats.map((c,ci)=>{
+    const crows=rows.filter(r=>catOf(r)===c);
+    const bars=yCols.map((yc,si)=>{
+      const vals=crows.map(r=>num(r[yc])).filter(isFinite);
+      let value, err=0;
+      if(ch.agg==='mean' || vals.length>1){ value=_mean(vals);
+        if(ch.error==='sd') err=_sd(vals); else if(ch.error==='sem') err=_sem(vals);
+      } else { value=vals.length?vals[0]:0; }
+      if(ch.error==='column' && errCol!=null){ const e=num((crows[0]||[])[errCol]); if(isFinite(e)) err=e; }
+      return {series:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], value, err, n:vals.length};
+    });
+    return {cat:c, bars};
+  });
+  // y domain: include error bars and (for stacked) the stack total.
+  let ymin=0,ymax=0;
+  groups.forEach(g=>{
+    if(kind==='stackedBar'){ let tot=0; g.bars.forEach(b=>{ tot+=b.value; }); ymax=Math.max(ymax,tot); ymin=Math.min(ymin,tot); }
+    else g.bars.forEach(b=>{ ymax=Math.max(ymax,b.value+b.err); ymin=Math.min(ymin,b.value-b.err); });
+  });
+  if(ymin>0) ymin=0;                    // bars read from a zero baseline
+  const seriesNames=yCols.map((yc,si)=>({name:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length]}));
+  return {kind, groups, categories:cats, seriesNames, series:null, yDomain:[ymin,ymax||1], warn};
+}
+
+// Cache wrapper — recompute only when the dataset/mapping/agg/error change.
+function _chartStatsCached(el){
+  const ch=el.chart;
+  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error]);
+  if(el._chartKey===key && el._chartStat) return el._chartStat;
+  el._chartStat=_chartStats(el); el._chartKey=key;
+  return el._chartStat;
+}
+
+// ── Emit backends ──────────────────────────────────────────────
+// Both speak the same tiny vocabulary; _chartDraw() targets whichever is passed.
+function _chartEmitCanvas(ctx){
+  return {
+    rect(x,y,w,h,fill,stroke,sw){ if(fill){ ctx.fillStyle=fill; ctx.fillRect(x,y,w,h); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.strokeRect(x,y,w,h); } },
+    line(x1,y1,x2,y2,stroke,sw,dash){ ctx.save(); ctx.strokeStyle=stroke||'#000'; ctx.lineWidth=sw||1; if(dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore(); },
+    poly(pts,stroke,fill,sw){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
+    circle(cx,cy,r,fill,stroke,sw){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
+    text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); ctx.fillText(str,0,0); } else ctx.fillText(str,x,y); ctx.restore(); },
+  };
+}
+
+// Draw a chart into `emit`, in the element's LOCAL coordinate space (0,0..w,h).
+// Callers translate to el.x,el.y (and rotate) around this.
+function _chartDraw(el, emit){
+  const ch=el.chart, W=el.w, H=el.h, st=ch.style;
+  const stat=_chartStatsCached(el);
+  const font=(sz,wt)=>`${wt?wt+' ':''}${sz}px ${st.fontFamily||'system-ui,sans-serif'}`;
+  const fs=st.fontSize||12, ink='#222222', grid='#e2e2e2';
+  // Plot rectangle: leave room for axis titles + tick labels + legend.
+  const padL=48, padR=(st.showLegend?96:16), padT=14, padB=ch.axes.x.title?40:28;
+  const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
+  const px1=px0+pw, py1=py0+ph;
+
+  // Background + frame.
+  emit.rect(0,0,W,H,'#ffffff',null,0);
+  if(st.frame!=='none'){
+    emit.line(px0,py1,px1,py1,ink,1);                     // x axis
+    emit.line(px0,py0,px0,py1,ink,1);                     // y axis
+  }
+
+  const yD=stat.yDomain||[0,1];
+  const yLog=ch.axes.y.log && yD[0]>0;
+  let ymin=ch.axes.y.min!=null?ch.axes.y.min:yD[0];
+  let ymax=ch.axes.y.max!=null?ch.axes.y.max:yD[1];
+  if(ymin===ymax) ymax=ymin+1;
+  const yScale=v=>{
+    if(yLog){ const lo=Math.log10(Math.max(1e-9,ymin)), hi=Math.log10(ymax); return py1-(Math.log10(Math.max(1e-9,v))-lo)/(hi-lo)*ph; }
+    return py1-(v-ymin)/(ymax-ymin)*ph;
+  };
+  // Y grid + ticks.
+  const yTicks=yLog?_logTicks(Math.max(1e-9,ymin),ymax):_niceTicks(ymin,ymax,5);
+  yTicks.forEach(t=>{
+    if(t<ymin-1e-9||t>ymax+1e-9) return;
+    const y=yScale(t);
+    if(st.showGrid) emit.line(px0,y,px1,y,grid,1);
+    emit.line(px0-3,y,px0,y,ink,1);
+    emit.text(_fmtTick(t),px0-6,y,font(fs-1),ink,'right','middle');
+  });
+  // Axis titles.
+  if(ch.axes.y.title) emit.text(ch.axes.y.title, 12, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
+  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6, font(fs), ink, 'center', 'alphabetic');
+
+  const colours=_chartColors(ch);
+
+  // ── Category charts (bar family + box) share an x band layout ──
+  if(stat.categories){
+    const cats=stat.categories, nC=cats.length||1, band=pw/nC;
+    const xCenter=ci=>px0+band*(ci+0.5);
+    cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14, font(fs-1), ink, 'center', 'alphabetic'));
+
+    if(stat.kind==='box'){
+      const bw=band*0.5;
+      stat.boxes.forEach((b,ci)=>{
+        const cx=xCenter(ci), x0=cx-bw/2;
+        emit.line(cx,yScale(b.min),cx,yScale(b.max),ink,1);          // whisker
+        emit.line(cx-bw*0.25,yScale(b.min),cx+bw*0.25,yScale(b.min),ink,1);
+        emit.line(cx-bw*0.25,yScale(b.max),cx+bw*0.25,yScale(b.max),ink,1);
+        emit.rect(x0,yScale(b.q3),bw,yScale(b.q1)-yScale(b.q3),b.color,ink,1);  // IQR box
+        emit.line(x0,yScale(b.med),x0+bw,yScale(b.med),ink,1.5);     // median
+      });
+    } else {
+      // Bar family.
+      const stacked=stat.kind==='stackedBar';
+      const nS=stat.seriesNames.length;
+      const groupW=band*(1-(st.groupGap??0.35));
+      stat.groups.forEach((g,ci)=>{
+        const gx=xCenter(ci)-groupW/2;
+        if(stacked){
+          let yTop=yScale(0);
+          g.bars.forEach((b)=>{ const h=yScale(0)-yScale(b.value); emit.rect(gx,yTop-h,groupW,h,b.color,ink,0.5); yTop-=h; });
+        } else {
+          const barW=groupW/Math.max(1,nS)*(1-(st.barGap??0.2));
+          const slot=groupW/Math.max(1,nS);
+          g.bars.forEach((b,si)=>{
+            const bx=gx+slot*si+(slot-barW)/2, by=yScale(b.value), base=yScale(0);
+            emit.rect(bx,Math.min(by,base),barW,Math.abs(base-by),b.color,ink,0.5);
+            if(b.err>0){ const ex=bx+barW/2; emit.line(ex,yScale(b.value+b.err),ex,yScale(Math.max(0,b.value-b.err)),ink,1);
+              emit.line(ex-barW*0.2,yScale(b.value+b.err),ex+barW*0.2,yScale(b.value+b.err),ink,1); }
+          });
+        }
+      });
+      // Significance annotations (user-entered strings) between category centres.
+      (ch.annos||[]).forEach(an=>{
+        if(an.kind!=='sig') return;
+        const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
+        if(a<0||b>=cats.length) return;
+        const x1=xCenter(a), x2=xCenter(b);
+        const yTop=py0+8+(an.level||0)*16, drop=6;
+        emit.line(x1,yTop+drop,x1,yTop,ink,1); emit.line(x1,yTop,x2,yTop,ink,1); emit.line(x2,yTop,x2,yTop+drop,ink,1);
+        emit.text(an.text||'*', (x1+x2)/2, yTop-2, font(fs), ink, 'center', 'alphabetic');
+      });
+    }
+  }
+
+  // ── Scatter / line (numeric x) ──
+  if(stat.series){
+    const xD=stat.xDomain||[0,1];
+    const xLog=ch.axes.x.log && xD[0]>0;
+    let xmin=ch.axes.x.min!=null?ch.axes.x.min:xD[0];
+    let xmax=ch.axes.x.max!=null?ch.axes.x.max:xD[1];
+    if(xmin===xmax) xmax=xmin+1;
+    const xScale=v=> xLog ? px0+(Math.log10(Math.max(1e-9,v))-Math.log10(Math.max(1e-9,xmin)))/(Math.log10(xmax)-Math.log10(Math.max(1e-9,xmin)))*pw
+                          : px0+(v-xmin)/(xmax-xmin)*pw;
+    const xTicks=xLog?_logTicks(Math.max(1e-9,xmin),xmax):_niceTicks(xmin,xmax,5);
+    xTicks.forEach(t=>{ if(t<xmin-1e-9||t>xmax+1e-9) return; const x=xScale(t);
+      if(st.showGrid) emit.line(x,py0,x,py1,grid,1);
+      emit.line(x,py1,x,py1+3,ink,1);
+      emit.text(_fmtTick(t),x,py1+14,font(fs-1),ink,'center','alphabetic'); });
+    stat.series.forEach(s=>{
+      if(stat.kind==='line'){
+        const pts=s.points.map(p=>[xScale(p.x),yScale(p.y)]);
+        emit.poly(pts,s.color,null,st.lineWidth||2);
+        if(st.showPoints) s.points.forEach(p=>emit.circle(xScale(p.x),yScale(p.y),st.pointSize||3,s.color,null,0));
+      } else {
+        s.points.forEach(p=>emit.circle(xScale(p.x),yScale(p.y),st.pointSize||4,s.color,'#ffffff',0.5));
+      }
+      if(ch.fit&&ch.fit.on){
+        const f=_chartLinFit(s.points);
+        emit.line(xScale(xmin),yScale(f.m*xmin+f.b),xScale(xmax),yScale(f.m*xmax+f.b),s.color,1.5,[6,4]);
+        if(ch.fit.showEq||ch.fit.showR2){
+          const parts=[]; if(ch.fit.showEq) parts.push(`y=${f.m.toFixed(2)}x+${f.b.toFixed(2)}`); if(ch.fit.showR2) parts.push(`R²=${f.r2.toFixed(2)}`);
+          emit.text(parts.join('  '), px1-4, py0+12, font(fs-1), s.color, 'right', 'alphabetic');
+        }
+      }
+    });
+  }
+
+  // Disclose any values dropped by a log axis, on the figure itself (travels with it).
+  if(stat.warn && stat.warn.dropped>0){
+    emit.text(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`, px0, H-2, font(fs-2), '#b00', 'left', 'alphabetic');
+  }
+  // Legend.
+  if(st.showLegend){
+    const items=stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name,color:s.color})):(stat.boxes?stat.boxes.map(b=>({name:b.name,color:b.color})):[]));
+    if(items && items.length>1){
+      let ly=py0+4;
+      items.forEach(it=>{ emit.rect(px1+10,ly,10,10,it.color,ink,0.5); emit.text(it.name,px1+24,ly+9,font(fs-1),ink,'left','alphabetic'); ly+=16; });
+    }
+  }
+}
+function _fmtTick(v){
+  if(v===0) return '0';
+  const a=Math.abs(v);
+  if(a>=1e5||a<1e-3) return v.toExponential(0);
+  if(Number.isInteger(v)) return String(v);
+  return (+v.toFixed(3)).toString();
+}
+
+// Render a chart element into the freeform canvas ctx (local space already set up).
+// While a gesture is active we blit a cached raster proxy so drags stay smooth —
+// _chartStats never re-runs per frame, and export never touches the proxy.
+function _chartGesturing(){ return !!(elemDragState||elemResizeState||elemRotateState); }
+function _drawChartElement(el, ctx, isExport){
+  if(!el.chart){ return; }   // half-built or legacy element: draw nothing, never throw
+  if(!isExport && _chartGesturing() && el._chartCache && el._chartCache.width>1){
+    ctx.drawImage(el._chartCache, el.x, el.y, el.w, el.h); return;
+  }
+  ctx.save(); ctx.translate(el.x, el.y);
+  _chartDraw(el, _chartEmitCanvas(ctx));
+  ctx.restore();
+  // Refresh the idle proxy (logical size) for the next gesture frame — never used for export.
+  if(!isExport){
+    const cv=el._chartCache||(el._chartCache=document.createElement('canvas'));
+    const w=Math.max(1,Math.round(el.w)), h=Math.max(1,Math.round(el.h));
+    if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
+    const cc=cv.getContext('2d'); cc.clearRect(0,0,cv.width,cv.height); cc.save(); _chartDraw(el,_chartEmitCanvas(cc)); cc.restore();
+  }
+}
+
+// Add a chart to the freeform canvas and open its editor.
+function addChartElement(kind){
+  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+  const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+  const w=360,h=260;
+  addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
+    chart:_defaultChart(kind), label:(kind||'bar')+' chart'});
+  const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+  logAction('chartAdd',{kind:kind||'bar'});
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  openChartModal();
+}
+
+// Load a dropped/selected CSV/TSV file into a new chart element.
+function _loadDataFile(f, fail){
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const parsed=_parseDelimited(ev.target.result);
+    if(!parsed.columns.length || !parsed.rows.length){ (fail||toast)('That file had no readable rows','err'); return; }
+    // Guess a sensible default: first non-numeric column as x, remaining numeric columns as y.
+    const firstRow=parsed.rows[0]||[];
+    let xCol=firstRow.findIndex(v=>typeof v!=='number'); if(xCol<0) xCol=0;
+    const yCols=parsed.columns.map((_,i)=>i).filter(i=>i!==xCol && parsed.rows.some(r=>typeof r[i]==='number'));
+    if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    const w=380,h=280, ch=_defaultChart('bar');
+    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name};
+    ch.mapping={xCol, yCols:yCols.length?yCols:[Math.min(1,parsed.columns.length-1)], seriesCol:null, errCol:null};
+    if(yCols.length>1) ch.kind='groupedBar';
+    addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:(f.name||'chart')});
+    const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+    logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
+    updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+    toast(`Imported ${parsed.rows.length} rows from ${f.name}`,'ok');
+    openChartModal();
+  };
+  reader.onerror=()=>(fail||toast)('Could not read the data file','err');
+  reader.readAsText(f);
+}
+
+// ── Chart editor modal ─────────────────────────────────────────
+function _selectedChartEl(){
+  if(selectedElems.size!==1) return null;
+  const el=freeformElements[[...selectedElems][0]];
+  return (el&&el.type==='chart')?el:null;
+}
+function openChartModal(){
+  const el=_selectedChartEl(); if(!el){ toast('Select a chart first','warn'); return; }
+  _chartModalSync();
+  document.getElementById('chart-modal').classList.add('open');
+}
+function closeChartModal(){ document.getElementById('chart-modal').classList.remove('open'); }
+
+// Populate the modal from the selected chart.
+function _chartModalSync(){
+  const el=_selectedChartEl(); if(!el) return;
+  const ch=el.chart, cols=ch.data.columns;
+  sv('chart-kind', ch.kind);
+  document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
+  document.getElementById('chart-delim-info').textContent=`${ch.data.columns.length} columns · ${ch.data.rows.length} rows${ch.data.sourceName?` · ${ch.data.sourceName}`:''}`;
+  // Column pickers.
+  const opt=(sel,extra)=>cols.map((c,i)=>`<option value="${i}"${sel===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('')+(extra||'');
+  const xs=document.getElementById('chart-xcol'); if(xs) xs.innerHTML=opt(ch.mapping.xCol??0);
+  const ycWrap=document.getElementById('chart-ycols');
+  if(ycWrap){ ycWrap.innerHTML=cols.map((c,i)=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;margin-right:8px"><input type="checkbox" value="${i}" ${(ch.mapping.yCols||[]).includes(i)?'checked':''} onchange="_chartToggleY(${i},this.checked)">${esc(c||('Col '+(i+1)))}</label>`).join(''); }
+  const es=document.getElementById('chart-err'); if(es) es.value=ch.error;
+  const ecWrap=document.getElementById('chart-errcol-wrap'); if(ecWrap) ecWrap.style.display=(ch.error==='column')?'inline-flex':'none';
+  const ec=document.getElementById('chart-errcol'); if(ec) ec.innerHTML='<option value="">—</option>'+cols.map((c,i)=>`<option value="${i}"${ch.mapping.errCol===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
+  sv('chart-xtitle', ch.axes.x.title||''); sv('chart-ytitle', ch.axes.y.title||'');
+  sc('chart-xlog', !!ch.axes.x.log); sc('chart-ylog', !!ch.axes.y.log);
+  sv('chart-palette', ch.style.palette);
+  sc('chart-legend', ch.style.showLegend); sc('chart-grid', ch.style.showGrid); sc('chart-points', ch.style.showPoints);
+  const fitWrap=document.getElementById('chart-fit-wrap'); if(fitWrap) fitWrap.style.display=(ch.kind==='scatter'||ch.kind==='line')?'flex':'none';
+  sc('chart-fit', !!ch.fit.on); sc('chart-fit-r2', !!ch.fit.showR2);
+  sv('chart-caption', ch.caption||'');
+  _chartRenderSigList();
+}
+// Serialise the dataset back to a tab-separated block for the textarea.
+function _chartDataToText(data){
+  const esc=v=>{ const s=String(v??''); return /[\t\n"]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  return [data.columns.map(esc).join('\t'), ...data.rows.map(r=>r.map(esc).join('\t'))].join('\n');
+}
+function _chartToggleY(i,on){
+  const el=_selectedChartEl(); if(!el) return;
+  const set=new Set(el.chart.mapping.yCols||[]);
+  if(on) set.add(i); else set.delete(i);
+  el.chart.mapping.yCols=[...set].sort((a,b)=>a-b);
+}
+// Apply the modal's data + options to the selected chart. Whole-dataset replacement:
+// the textarea is the single source of truth, re-parsed in full on every apply.
+function applyChartModal(){
+  const el=_selectedChartEl(); if(!el) return;
+  pushUndo();
+  const ch=el.chart;
+  const parsed=_parseDelimited(document.getElementById('chart-data-ta').value);
+  if(parsed.columns.length && parsed.rows.length){
+    const changed=JSON.stringify(parsed.rows)!==JSON.stringify(ch.data.rows)||JSON.stringify(parsed.columns)!==JSON.stringify(ch.data.columns);
+    ch.data={columns:parsed.columns, rows:parsed.rows, source:(ch.data.source==='file'?'file':'paste'), sourceName:ch.data.sourceName||''};
+    // Keep mappings valid against the new column count.
+    const nc=parsed.columns.length;
+    if((ch.mapping.xCol??0)>=nc) ch.mapping.xCol=0;
+    ch.mapping.yCols=(ch.mapping.yCols||[]).filter(i=>i<nc); if(!ch.mapping.yCols.length) ch.mapping.yCols=[Math.min(1,nc-1)];
+    if(ch.mapping.errCol!=null && ch.mapping.errCol>=nc) ch.mapping.errCol=null;
+    if(changed) logAction('chartImport',{rows:parsed.rows.length, cols:nc, source:'paste'});
+  }
+  ch.kind=gv('chart-kind');
+  ch.mapping.xCol=+gv('chart-xcol');
+  ch.error=gv('chart-err');
+  if(ch.error==='column'){ const v=gv('chart-errcol'); ch.mapping.errCol=v===''?null:+v; }
+  ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
+  ch.axes.x.log=gc('chart-xlog'); ch.axes.y.log=gc('chart-ylog');
+  ch.style.palette=gv('chart-palette');
+  ch.style.showLegend=gc('chart-legend'); ch.style.showGrid=gc('chart-grid'); ch.style.showPoints=gc('chart-points');
+  ch.fit.on=gc('chart-fit'); ch.fit.showR2=gc('chart-fit-r2'); ch.fit.showEq=gc('chart-fit-r2');
+  ch.caption=gv('chart-caption');
+  el._chartKey=''; el._chartStat=null;       // force stats recompute
+  el.label=el.label||(ch.kind+' chart');
+  closeChartModal(); updateElemPropsBar(); scheduleRender(0);
+  toast('Chart updated','ok');
+}
+// Significance annotations (user-entered marks — never computed).
+function _chartRenderSigList(){
+  const el=_selectedChartEl(); if(!el) return;
+  const wrap=document.getElementById('chart-sig-list'); if(!wrap) return;
+  const annos=el.chart.annos||[];
+  wrap.innerHTML=annos.length?'':'<span style="font-size:10px;color:var(--muted)">No brackets yet</span>';
+  annos.forEach((an,i)=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
+    row.innerHTML=`<span>groups</span>
+      <input type="number" min="1" value="${(an.a??0)+1}" style="width:40px" onchange="_chartSigEdit(${i},'a',this.value-1)">
+      <span>–</span>
+      <input type="number" min="1" value="${(an.b??1)+1}" style="width:40px" onchange="_chartSigEdit(${i},'b',this.value-1)">
+      <input type="text" value="${esc(an.text||'*')}" maxlength="6" style="width:48px" onchange="_chartSigEdit(${i},'text',this.value)" title="The symbol from your own test">
+      <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>`;
+    wrap.appendChild(row);
+  });
+}
+function _chartAddSig(){
+  const el=_selectedChartEl(); if(!el) return;
+  el.chart.annos=el.chart.annos||[];
+  const lvl=el.chart.annos.length;
+  el.chart.annos.push({kind:'sig', a:0, b:Math.min(1,(el.chart.data.rows.length-1)||1), text:'*', level:lvl});
+  logAction('chartSigAnno',{a:0,b:1,text:'*'});
+  _chartRenderSigList();
+}
+function _chartSigEdit(i,prop,val){
+  const el=_selectedChartEl(); if(!el||!el.chart.annos[i]) return;
+  el.chart.annos[i][prop]=(prop==='text')?String(val):Math.max(0,parseInt(val)||0);
+  if(prop==='text') logAction('chartSigAnno',{a:el.chart.annos[i].a,b:el.chart.annos[i].b,text:String(val)});
+}
+function _chartDelSig(i){
+  const el=_selectedChartEl(); if(!el) return;
+  el.chart.annos.splice(i,1); _chartRenderSigList();
+}
+// Live-toggle the error-column picker / fit block when those selects change in the modal.
+function _chartModalErrChange(){ const w=document.getElementById('chart-errcol-wrap'); if(w) w.style.display=(gv('chart-err')==='column')?'inline-flex':'none'; }
+function _chartModalKindChange(){ const el=_selectedChartEl(); const k=gv('chart-kind'); const w=document.getElementById('chart-fit-wrap'); if(w) w.style.display=(k==='scatter'||k==='line')?'flex':'none'; }
+
 // ── Auto panel-lettering — relabel panels A, B, C… in reading order ──
 function _letterLabel(i){
   const fmt=(typeof gv==='function'?gv('label-format'):'A')||'A';
@@ -8568,11 +9202,13 @@ function saveTemplate(){
     mBtm:gi('m-btm'),mRight:gi('m-right'),
     fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
     fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
-    freeformElements:mode==='freeform'?JSON.parse(JSON.stringify(freeformElements)):[],
+    // Strip transient render caches (live canvases, adjust/chart caches) before cloning.
+    freeformElements:mode==='freeform'?freeformElements.map(cloneElemForUndo).map(e=>{ const {_imgEl,img,...r}=e; return r; }):[],
   };
   const saved=getSavedTemplates().filter(t=>t.name!==name);
   saved.push(tpl);
-  localStorage.setItem('figurelab_templates',JSON.stringify(saved));
+  try{ localStorage.setItem('figurelab_templates',JSON.stringify(saved)); }
+  catch(e){ toast('Could not save template (storage full — charts with large datasets take space)','err'); return; }
   document.getElementById('tpl-name-input').value='';
   renderSavedTemplates(); toast(`Template "${name}" saved`,'ok');
 }
@@ -9282,10 +9918,13 @@ function updateElemPropsBar(){
   const isText=el.type==='text';
   const isPatch=el.type==='patch';
   const isPaint=el.type==='paint';
+  const isChart=el.type==='chart';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
   document.getElementById('ep-patch-props').style.display=isPatch?'flex':'none';
   document.getElementById('ep-paint-props').style.display=isPaint?'flex':'none';
+  const chartPane=document.getElementById('ep-chart-props'); if(chartPane) chartPane.style.display=isChart?'flex':'none';
+  if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette; }
   const isIcon=!!el.isIcon;
   document.getElementById('ep-icon-props').style.display=isIcon?'flex':'none';
   if(isIcon){ const c=document.getElementById('ep-icon-color'); if(c) c.value=_hex6(el.iconColor); }
@@ -9333,6 +9972,9 @@ function updateElemProp(prop, val){
   el[prop]=val;
   scheduleRender(0);
 }
+// Chart props-bar quick controls (full editing lives in the chart modal).
+function _epChartKind(k){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.kind=k; el._chartKey=''; el._chartStat=null; scheduleRender(0); }
+function _epChartPalette(p){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.style.palette=p; el._chartKey=''; el._chartStat=null; scheduleRender(0); }
 // Freeform scale-bar helpers (image objects)
 function _epSbEl(){ if(selectedElems.size!==1) return null; const el=freeformElements[[...selectedElems][0]]; return (el&&(el.type==='image'||el.type==='aiicon'))?el:null; }
 function _epSbLen(v){ const el=_epSbEl(); if(!el) return; const u=el.sbUnit||'µm'; el.sbUnit=u; el.sbUm=(parseFloat(v)||0)*_sbUnitFactor(u); scheduleRender(0); }
