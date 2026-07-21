@@ -9357,8 +9357,18 @@ function _chartDraw(el, emit){
   const fs=st.fontSize||12, ink='#222222', grid='#e2e2e2';
   if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink); return; }
   if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink); return; }
-  // Plot rectangle: leave room for axis titles + tick labels + legend.
-  const padL=48, padR=(st.showLegend?96:16), padT=14, padB=ch.axes.x.title?40:28;
+  // Decide up front whether category labels would collide horizontally and must be
+  // rotated — bottom padding depends on it, so this has to happen before padB.
+  const padL=48, padR=(st.showLegend?96:16), padT=14;
+  let rotateXLabels=false, _maxLabelChars=0;
+  if(stat.categories && stat.categories.length){
+    const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
+    for(const c of stat.categories) _maxLabelChars=Math.max(_maxLabelChars, String(c).length);
+    rotateXLabels = _maxLabelChars*(fs-1)*0.55 > bandApprox*0.98;   // est. label width vs band
+  }
+  // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
+  const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*(fs-2)*0.55*0.7+10) : 0;
+  const padB = rotateXLabels ? (ch.axes.x.title?24:14)+_rotExtent : (ch.axes.x.title?40:28);
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
   const px1=px0+pw, py1=py0+ph;
 
@@ -9397,7 +9407,9 @@ function _chartDraw(el, emit){
   if(stat.categories){
     const cats=stat.categories, nC=cats.length||1, band=pw/nC;
     const xCenter=ci=>px0+band*(ci+0.5);
-    cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14, font(fs-1), ink, 'center', 'alphabetic'));
+    // Rotate crowded labels ~40° (right-anchored at the tick) so they never overlap.
+    if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9, font(fs-2), ink, 'right', 'middle', -40));
+    else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14, font(fs-1), ink, 'center', 'alphabetic'));
 
     if(stat.kind==='box'){
       const bw=band*0.5;

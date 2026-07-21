@@ -1370,6 +1370,37 @@ test('capped export reports its effective DPI so physical size stays honest', as
   expect(errors).toEqual([]);
 });
 
+test('crowded category labels auto-rotate so they never overlap; short ones stay flat', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform');
+    const mk = (rows, w) => {
+      freeformElements.length = 0;
+      const ch = { kind: 'bar', data: { columns: ['cat', 'v'], rows, source: 't' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} },
+        style: { palette: 'okabeIto', showLegend: false, frame: 'lb', fontSize: 12 }, annos: [] };
+      addFreeformElement({ type: 'chart', x: 20, y: 20, w, h: 300, chart: ch });
+      render();
+    };
+    // Long labels on a modest-width chart → must rotate.
+    mk([['Untreated control', 4], ['Vehicle DMSO', 5], ['Drug + inhibitor', 3], ['Double knockout', 2]], 380);
+    let cap = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const longSvg = new TextDecoder().decode(cap.data);
+    // Short labels → stay flat (no rotation).
+    mk([['A', 4], ['B', 5], ['C', 3]], 400);
+    cap = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const shortSvg = new TextDecoder().decode(cap.data);
+    return {
+      longRotated: /rotate\(-40[^)]*\)/.test(longSvg) && longSvg.includes('Untreated control'),
+      shortFlat: !/rotate\(-40/.test(shortSvg) && shortSvg.includes('>A<'),
+    };
+  });
+  expect(r.longRotated).toBe(true);    // long labels rotate to avoid collision
+  expect(r.shortFlat).toBe(true);      // short labels stay horizontal
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
