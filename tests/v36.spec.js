@@ -1261,6 +1261,115 @@ test('alt-text builds a factual structural description offline and embeds in exp
   expect(errors).toEqual([]);
 });
 
+// ── Review fixes (adversarial pass) ──
+
+test('chart domain handles a 130k-row dataset without a RangeError', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const rows = []; for (let i = 0; i < 130000; i++) rows.push([i, (i * 7) % 1000]);
+    const el = { type: 'chart', x: 0, y: 0, w: 300, h: 200,
+      chart: { kind: 'scatter', data: { columns: ['x', 'y'], rows, source: 't' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] } };
+    let threw = false, stat = null;
+    try { stat = _chartStats(el); } catch (e) { threw = true; }
+    return { threw, xmax: stat && stat.xDomain[1], ymax: stat && stat.yDomain[1] };
+  });
+  expect(r.threw).toBe(false);           // Math.min(...bigArray) would throw RangeError
+  expect(r.xmax).toBe(129999);
+  expect(r.ymax).toBe(999);
+  expect(errors).toEqual([]);
+});
+
+test('all-negative bars get a truthful y-domain (top = 0, no spurious band above)', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const el = { type: 'chart', x: 0, y: 0, w: 300, h: 200,
+      chart: { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', -2], ['B', -5]], source: 't' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] } };
+    return _chartStats(el).yDomain;
+  });
+  expect(r).toEqual([-5, 0]);            // was [-5, 1] — a spurious empty band above zero
+  expect(errors).toEqual([]);
+});
+
+test('stacked bar y-domain covers the running cumulative extent, not just the net total', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const el = { type: 'chart', x: 0, y: 0, w: 300, h: 200,
+      chart: { kind: 'stackedBar', data: { columns: ['g', 'a', 'b'], rows: [['A', 5, -3]], source: 't' },
+        mapping: { xCol: 0, yCols: [1, 2] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] } };
+    return _chartStats(el).yDomain;
+  });
+  expect(r[1]).toBeGreaterThanOrEqual(5);   // the +5 segment peak must be inside the domain (net total was only 2)
+  expect(errors).toEqual([]);
+});
+
+test('undo snapshot does not share the bgKey object with the live element', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 40, y: 40, w: 120, h: 120, iw: 60, ih: 60 }]);
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    el.bgKey = { on: true, mode: 'white', color: '#ffffff', tol: 20, feather: 0 };
+    const snap = cloneElemForUndo(el);
+    snap.bgKey.tol = 999;                // mutating the snapshot must not touch the live element
+    return { live: el.bgKey.tol, snap: snap.bgKey.tol, distinct: snap.bgKey !== el.bgKey };
+  });
+  expect(r.live).toBe(20);
+  expect(r.snap).toBe(999);
+  expect(r.distinct).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('Python codegen escapes column names with quotes and backslashes', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'chart', x: 40, y: 40, w: 300, h: 200, chart: null }]);
+  const py = await page.evaluate(async () => {
+    freeformElements[0].chart = { kind: 'bar', data: { columns: ['C:\\raw', 'P "mmHg"'], rows: [['A', 1]], source: 't' },
+      mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] };
+    const cap = await _captureDownload(() => exportPython());
+    return new TextDecoder().decode(cap.data);
+  });
+  // The header list must contain properly escaped literals, not raw quotes/backslashes.
+  expect(py).toContain('"C:\\\\raw"');   // backslash escaped
+  expect(py).toContain('"P \\"mmHg\\""'); // inner quotes escaped
+  expect(errors).toEqual([]);
+});
+
+test('heatmap and survival emit matching Python (imshow / KM step), not a bar chart', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const out = {};
+    for (const kind of ['heatmap', 'survival']) {
+      freeformElements.length = 0;
+      addChartElement(kind); closeChartModal();
+      const cap = await _captureDownload(() => exportPython());
+      out[kind] = new TextDecoder().decode(cap.data);
+    }
+    return out;
+  });
+  expect(r.heatmap).toContain('imshow');       // real heatmap, not ax.bar
+  expect(r.heatmap).not.toMatch(/ax\d+\.bar\(/);
+  expect(r.survival).toContain('.step(');      // KM step curve
+  expect(r.survival).toMatch(/log-rank|no.*inference/i);   // honesty note
+  expect(errors).toEqual([]);
+});
+
+test('capped export reports its effective DPI so physical size stays honest', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'rect', x: 10, y: 10, w: 100, h: 100 }]);
+  const r = await page.evaluate(() => {
+    document.getElementById('fm-canvas-w').value = '2000';
+    document.getElementById('fm-canvas-h').value = '1500';
+    render();
+    const off = renderExportCanvas(1200);        // 2000*1500*(12.5^2) ≫ 60MP → capped
+    return { effDpi: off._effDpi, requested: 1200, px: off.width * off.height };
+  });
+  expect(r.px).toBeLessThanOrEqual(60e6);
+  expect(r.effDpi).toBeLessThan(1200);           // reports the reduced DPI, not the nominal
+  expect(r.effDpi).toBeGreaterThan(96);
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);

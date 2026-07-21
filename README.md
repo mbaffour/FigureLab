@@ -1,4 +1,4 @@
-# FigureLab v3.6.1
+# FigureLab v3.7.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -228,6 +228,20 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.7 — 20 July 2026
+**Focus: the data figures, flowcharts and asset-rich schematics that used to need a second tool — all in the same single, offline, private file. Every chart draws as true vector.**
+
+- **Data charts from a CSV** 📊 — drop a `.csv`/`.tsv` or paste from Excel and get a bar, grouped/stacked bar, line, scatter (with an OLS linear fit), or box-and-whisker plot that composes alongside image panels, rotates and hit-tests like any object, and renders crisply at export DPI. Charts draw through a swappable emit backend (canvas *and* SVG from one geometry pass), so SVG export carries true `<rect>`/`<line>`/`<text>` — never a rasterised blit. Colourblind-safe palettes (Okabe–Ito default).
+- **Honest statistics, enforced.** Error bars are **SD** (sample, n−1 denominator) or **SEM** (SD/√n), named in the UI and in the generated code. **FigureLab never computes a p-value** — significance brackets are the symbol *you* enter from your own test, with the disclaimer in the editor. The whole dataset is edited in one textarea and replaced wholesale — no dragging bars or nudging points.
+- **Heatmaps & survival curves** — omics-style value matrices with a *mandatory* colourbar and perceptually-ordered scales (viridis/magma/blues; a diverging scale requires an explicit midpoint). Kaplan–Meier survival curves (product-limit estimator) with censoring ticks — a documented plotting transform, with **no log-rank / Cox inference** computed.
+- **Chart code export** — every chart emits self-contained **matplotlib & ggplot** code with the data inlined and the exact error-metric formula (`SEM = SD/sqrt(n), SD with ddof=1`) written into a comment, plus a note that significance marks are author-supplied.
+- **Flowcharts with real connectors** — a connector line **stays attached** to two objects (by identity, not position) and reroutes as they move, resize, or rotate; it hit-tests along the polyline and exports as vector. One-click **PRISMA 2020**, **CONSORT** and **fishbone (Ishikawa)** templates, built from grouped box+label pairs and connectors, with editable placeholder counts. (Structure follows the named guidelines; no published diagram artwork is reproduced.)
+- **Group & ungroup** (`Ctrl+G` / `Ctrl+Shift+G`) so a box drags its label as one and duplicates rewire correctly. Elements now carry stable string ids for reliable references.
+- **~50 recolourable icons** across cells, molecules, organisms & lab equipment, with a search box; **one-click themes** (grayscale-for-print, high-contrast, fluorescence-dark, poster) applied over the figure's chrome in a single undo step.
+- **Honest background removal** — make a flat background transparent with a tolerance slider + eyedropper; it's a non-destructive adjustment (original pixels kept), disclosed in the provenance log, and undoes cleanly.
+- **Accessibility & disclosure** — generate factual figure **alt-text** (rule-based, with an optional on-device polish) embedded in PNG metadata; AI-generated schematics are tagged in the layer list and export metadata, and generative AI is never applied to imported experimental images.
+- **Fixed:** freeform figures were exporting at on-screen resolution (~1200×900) regardless of the DPI selector — they now supersample to the true target DPI like grid mode. Also fixed a per-frame recompute of freeform image adjustments during drags.
 
 ### v3.6 — 10 July 2026
 **Focus: a friendly, direct-manipulation figure editor + opening the image formats scientists actually have — same single file, still offline & private.**
