@@ -1061,6 +1061,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Brightness<input type="range" id="ep-br" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('brightness',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Contrast<input type="range" id="ep-ct" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('contrast',+this.value)"></label>
+      <button class="btn" style="padding:2px 7px;font-size:10px" onclick="openFFAdjust()" title="Gamma, black/white levels, fluorescence LUT, grayscale, invert — the full non-destructive adjustment set">🎚 More…</button>
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px" title="Show a scale bar on this image">SB<input type="checkbox" id="ep-sb-on" onchange="updateElemProp('sbOn',this.checked)"></label>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px" title="Micrometres per pixel">µm/px<input type="number" id="ep-umppx" min="0" step="0.0001" style="width:56px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('umPerPx',+this.value)"></label>
@@ -1288,6 +1289,34 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
       <button class="btn" onclick="closeChartModal()">Cancel</button>
       <button class="btn btn-primary" onclick="applyChartModal()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Freeform image adjustments (full parity with grid mode) ─── -->
+<div class="modal-bg" id="ff-adjust-modal">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="document.getElementById('ff-adjust-modal').classList.remove('open')">×</button>
+    <h3>🎚 Image adjustments</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:10px">Non-destructive &amp; reversible — the same adjustments as grid mode. The original pixels are never modified.</p>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px">Gamma
+      <input type="range" id="ffa-gm" min="0.2" max="3" step="0.05" value="1" style="flex:1" oninput="_ffAdj('gamma',+this.value); document.getElementById('ffa-gm-v').textContent=(+this.value).toFixed(2)">
+      <span id="ffa-gm-v" style="width:32px;text-align:right">1.00</span></label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px">Black
+      <input type="range" id="ffa-bpt" min="0" max="254" step="1" value="0" style="flex:1" oninput="_ffAdjLevels()">
+      <span id="ffa-bpt-v" style="width:32px;text-align:right">0</span></label>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:10px">White
+      <input type="range" id="ffa-wpt" min="1" max="255" step="1" value="255" style="flex:1" oninput="_ffAdjLevels()">
+      <span id="ffa-wpt-v" style="width:32px;text-align:right">255</span></label>
+    <div style="font-size:11px;margin-bottom:4px">Fluorescence LUT</div>
+    <div id="ffa-luts" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:14px;font-size:12px;margin-bottom:12px">
+      <label><input type="checkbox" id="ffa-gray" onchange="_ffAdj('grayscale',this.checked)"> Grayscale</label>
+      <label><input type="checkbox" id="ffa-inv" onchange="_ffAdj('invert',this.checked)"> Invert</label>
+    </div>
+    <div style="display:flex;justify-content:space-between;gap:8px">
+      <button class="btn" onclick="_ffAdjReset()">Reset adjustments</button>
+      <button class="btn btn-primary" onclick="document.getElementById('ff-adjust-modal').classList.remove('open')">Done</button>
     </div>
   </div>
 </div>
@@ -8813,6 +8842,41 @@ function _selectedImageEl(){
   const el=freeformElements[[...selectedElems][0]];
   return (el&&(el.type==='image'||el.type==='aiicon'))?el:null;
 }
+// ── Full image adjustments for freeform panels (gamma/levels/LUT/gray/invert) ──
+// Same non-destructive adjustments as grid mode; applyAdjust already reads these
+// off the element, so the UI just needs to set them. Closes the grid↔freeform gap.
+function openFFAdjust(){
+  const el=_selectedImageEl(); if(!el){ toast('Select an image first','warn'); return; }
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e){ if(e.type==='checkbox') e.checked=!!v; else e.value=v; } };
+  set('ffa-gm', el.gamma||1); document.getElementById('ffa-gm-v').textContent=(el.gamma||1).toFixed(2);
+  set('ffa-bpt', el.blackPt||0); document.getElementById('ffa-bpt-v').textContent=el.blackPt||0;
+  set('ffa-wpt', el.whitePt??255); document.getElementById('ffa-wpt-v').textContent=el.whitePt??255;
+  set('ffa-gray', !!el.grayscale); set('ffa-inv', !!el.invert);
+  // LUT buttons.
+  const wrap=document.getElementById('ffa-luts'); wrap.innerHTML='';
+  const luts=['none','fire','green','cyan','magenta','yellow','blue'];
+  luts.forEach(l=>{ const btn=document.createElement('button'); btn.className='btn'; btn.style.cssText='padding:2px 9px;font-size:10px';
+    btn.textContent=l; if((el.lut||'none')===l){ btn.style.borderColor='var(--accent)'; btn.style.color='var(--accent)'; }
+    btn.onclick=()=>_ffAdjLut(l); wrap.appendChild(btn); });
+  document.getElementById('ff-adjust-modal').classList.add('open');
+}
+function _ffAdj(prop,val){ const el=_selectedImageEl(); if(!el) return; el[prop]=val; scheduleRender(0); }
+function _ffAdjLevels(){ const el=_selectedImageEl(); if(!el) return;
+  let bp=parseInt(document.getElementById('ffa-bpt').value)||0, wp=parseInt(document.getElementById('ffa-wpt').value)||255;
+  if(bp>=wp) bp=wp-1;
+  el.blackPt=bp; el.whitePt=wp;
+  document.getElementById('ffa-bpt-v').textContent=bp; document.getElementById('ffa-wpt-v').textContent=wp;
+  scheduleRender(0);
+}
+function _ffAdjLut(l){ const el=_selectedImageEl(); if(!el) return; el.lut=l;
+  [...document.querySelectorAll('#ffa-luts button')].forEach(b=>{ const on=b.textContent===l; b.style.borderColor=on?'var(--accent)':'var(--border)'; b.style.color=on?'var(--accent)':'var(--text)'; });
+  scheduleRender(0);
+}
+function _ffAdjReset(){ const el=_selectedImageEl(); if(!el) return;
+  el.gamma=1; el.blackPt=0; el.whitePt=255; el.lut='none'; el.grayscale=false; el.invert=false;
+  openFFAdjust();   // repopulate
+  scheduleRender(0); toast('Adjustments reset','ok');
+}
 function toggleBgRemove(on){
   const el=_selectedImageEl(); if(!el) return;
   pushUndo();
@@ -9406,7 +9470,11 @@ function _chartDraw(el, emit){
   if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink); return; }
   // Decide up front whether category labels would collide horizontally and must be
   // rotated — bottom padding depends on it, so this has to happen before padB.
-  const padL=48, padR=(st.showLegend?96:16), padT=14;
+  // Reserve exactly enough width for the legend labels (was a fixed 96px that both
+  // wasted space with no legend and clipped long series names).
+  const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
+  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,String(it.name).length); _legW=Math.min(W*0.42, 26+mx*(fs-1)*0.56); }
+  const padL=48, padR=(_legW>0?_legW+8:16), padT=14;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;

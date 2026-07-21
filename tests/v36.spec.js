@@ -1572,6 +1572,54 @@ test('violin and beeswarm are distribution kinds that reuse the box summary and 
   expect(errors).toEqual([]);
 });
 
+test('freeform image panels get full adjustment parity (gamma / levels / LUT / gray / invert)', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 160, h: 120, iw: 100, ih: 100, fill: '#808080' }]);
+  const r = await page.evaluate(() => {
+    const el = freeformElements[0];
+    selectedElems.clear(); selectedElems.add(0);
+    // Apply a fluorescence LUT via the freeform adjust handler.
+    openFFAdjust();
+    const modalOpen = document.getElementById('ff-adjust-modal').classList.contains('open');
+    _ffAdjLut('fire'); _ffAdj('gamma', 0.5);
+    render();
+    // The adjust cache must exist and the mid grey must now be colourised (fire LUT: R > B).
+    const c = el._adjCache; if (!c) return { modalOpen, applied: false };
+    const d = c.getContext('2d').getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 1, 1).data;
+    return { modalOpen, lut: el.lut, gamma: el.gamma, colourised: d[0] > d[2] + 20 };
+  });
+  expect(r.modalOpen).toBe(true);
+  expect(r.lut).toBe('fire');
+  expect(r.gamma).toBe(0.5);
+  expect(r.colourised).toBe(true);   // LUT genuinely recolours the freeform panel
+  expect(errors).toEqual([]);
+});
+
+test('chart legend reserves width for long labels instead of a fixed clip', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    // Measure the plot's right edge (px1) for short vs long legend labels — a longer
+    // label must push the plot left (bigger right reserve), not clip off-canvas.
+    const rec = () => { const rects = []; return { obj: {
+      rect(x, y, w, h) { rects.push({ x, w }); }, line() {}, poly() {}, circle() {}, text() {},
+    }, rects }; };
+    const mk = (names) => {
+      const el = { type: 'chart', x: 0, y: 0, w: 320, h: 240,
+        chart: { kind: 'groupedBar', data: { columns: ['g', ...names], rows: [['A', ...names.map((_, i) => i + 1)]] , source: 't' },
+          mapping: { xCol: 0, yCols: names.map((_, i) => i + 1) }, agg: 'none', error: 'none', axes: { x: {}, y: {} },
+          style: { palette: 'okabeIto', showLegend: true, frame: 'lb', fontSize: 12 }, annos: [] } };
+      el._chartKey = ''; const r = rec(); _chartDraw(el, r.obj);
+      // Bars only: wider than a legend swatch (10px), narrower than the full-width
+      // background rect (320px), and to the right of the y axis (padL=48).
+      return Math.max(...r.rects.filter(x => x.w > 15 && x.w < 200 && x.x > 40).map(x => x.x + x.w));
+    };
+    return { shortRight: mk(['A', 'B']), longRight: mk(['A very long series label here', 'Another long one']) };
+  });
+  // Longer labels reserve more legend width, so the bars end further left.
+  expect(r.longRight).toBeLessThan(r.shortRight);
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
