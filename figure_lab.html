@@ -384,7 +384,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 #ctx-toolbar button{background:transparent;border:none;color:var(--text);font-size:14px;cursor:pointer;
   padding:5px 8px;border-radius:6px;line-height:1}
 #ctx-toolbar button:hover{background:var(--surf2)}
-.icon-palette{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.icon-palette{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;max-height:230px;overflow-y:auto}
+.icon-group-lbl{flex:0 0 100%;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);margin:5px 0 1px}
 .icon-btn-sci{width:34px;height:34px;padding:4px;border:1px solid var(--border);border-radius:6px;background:#f5f5f5;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .icon-btn-sci:hover{border-color:var(--accent)}
 .icon-btn-sci svg{width:100%;height:100%;display:block}
@@ -577,6 +579,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
       <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
       <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
+      <input type="text" id="icon-search" placeholder="Search icons — cell, arrow, mouse…" oninput="renderIconPalette(this.value)" style="width:100%;margin-bottom:2px">
       <div id="icon-palette" class="icon-palette"></div>
       <button class="btn" onclick="relabelPanels()" style="width:100%;justify-content:center;margin-top:6px" title="Relabel image panels A, B, C… in reading order">🔤 Relabel A, B, C…</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
@@ -746,6 +749,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="adv">
     <div class="divider"></div>
+    <div class="sec-lbl">Themes <span class="help-chip" tabindex="0" role="button" aria-label="About themes" data-tip="One-click looks for the figure's chrome — background, labels, scale bars, axes and borders. Themes never recolour your own drawn objects, and each is a single undo step.">?</span></div>
+    <div id="theme-presets" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
     <div class="sec-lbl">House styles <span class="help-chip" tabindex="0" role="button" aria-label="About house styles" data-tip="Save your lab's look — background, label font/size/colour/format, scale-bar style, panel border, and typography — and apply it to any figure in one click, so every figure in a paper matches.">?</span></div>
     <div style="display:flex;gap:4px">
       <input type="text" id="house-style-name" placeholder="e.g. Lab style" style="flex:1" maxlength="24">
@@ -1034,6 +1039,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">Len<input type="number" id="ep-sbum" min="0" step="any" style="width:48px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="_epSbLen(this.value)"></label>
       <select id="ep-sbunit" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epSbUnit(this.value)"><option value="nm">nm</option><option value="µm">µm</option><option value="mm">mm</option></select>
       <button class="btn" style="padding:2px 6px;font-size:10px" onclick="_epAutoSB()" title="Snap the bar to a clean length (~20% of the image)">Auto</button>
+      <div class="abar-sep"></div>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px" title="Make a flat background transparent. Non-destructive — the original pixels are kept and this can be turned off at any time.">BG<input type="checkbox" id="ep-bgkey" onchange="toggleBgRemove(this.checked)"></label>
+      <select id="ep-bgkey-mode" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="updateBgKey('mode',this.value)" title="Which background colour to remove"><option value="white">white</option><option value="black">black</option><option value="color">pick…</option></select>
+      <input type="color" id="ep-bgkey-color" value="#ffffff" style="width:26px;height:20px;padding:0;border:1px solid var(--border);border-radius:3px;background:var(--surf2)" oninput="updateBgKey('color',this.value)" title="Key colour (used when mode = pick)">
+      <button class="btn" id="ep-bgkey-pick" style="padding:2px 6px;font-size:10px" onclick="pickBgKeyColor()" title="Eyedropper — click the background in the image to sample its colour">⌖</button>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px" title="How close a pixel must be to the key colour to be removed">Tol<input type="number" id="ep-bgkey-tol" min="0" max="255" value="32" style="width:42px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateBgKey('tol',+this.value)"></label>
     </div>
   </div>
   <div class="canvas-toolbar">
@@ -2436,6 +2447,10 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Theme: Grayscale for print', keys:'theme grayscale greyscale print mono black white', run:()=>applyBuiltinTheme('grayscale-print')},
+  {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
+  {label:'Theme: High contrast',       keys:'theme contrast bold talk slide',                    run:()=>applyBuiltinTheme('high-contrast')},
+  {label:'Theme: Poster (large type)', keys:'theme poster large a0 type',                        run:()=>applyBuiltinTheme('poster')},
   {label:'Preset: Nature',           keys:'preset journal nature',         run:()=>applyPreset('nature')},
   {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
   {label:'Preset: Cell',             keys:'preset journal cell',           run:()=>applyPreset('cell')},
@@ -3519,7 +3534,7 @@ function _collectHouseStyle(){
     sbH:gv('sb-h'), sbColor:gv('sb-color'), sbText:gc('sb-text'),
     panelBorderW:gv('panel-border-w'), panelBorderC:gv('panel-border-c'),
     axisFs:gv('axis-fs'), axisFont:gv('axis-font'), axisColor:gv('axis-color'),
-    axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
+    axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'), axisAutoColor:gc('axis-auto-color'),
   };
 }
 function _applyHouseStyle(s){
@@ -3531,9 +3546,60 @@ function _applyHouseStyle(s){
   set('sb-h',s.sbH); set('sb-color',s.sbColor); chk('sb-text',s.sbText);
   set('panel-border-w',s.panelBorderW); set('panel-border-c',s.panelBorderC);
   set('axis-fs',s.axisFs); set('axis-font',s.axisFont); set('axis-color',s.axisColor);
-  chk('axis-bold',s.axisBold); chk('axis-italic',s.axisItalic);
+  chk('axis-bold',s.axisBold); chk('axis-italic',s.axisItalic); chk('axis-auto-color',s.axisAutoColor);
   if(typeof onLayoutChange==='function') onLayoutChange(); scheduleRender(0);
 }
+
+// ── Built-in themes ────────────────────────────────────────────────
+// Ready-made looks over the same house-style layer, so one click restyles a
+// figure for print or a poster. These touch the aesthetic CHROME only — labels,
+// scale bars, axes, background, borders. They deliberately do NOT recolour
+// freeform objects: bulk-rewriting a user's own artwork feels destructive and
+// would collapse into a single giant undo step. Use the format painter for that.
+const BUILTIN_THEMES={
+  'grayscale-print':{label:'Grayscale for print', hint:'Black on white — safe for greyscale journal printing', style:{
+    bgColor:'#ffffff', labelColor:'#000000', labelBold:true, labelFont:'Arial, Helvetica, sans-serif',
+    sbColor:'#000000', sbText:true, panelBorderC:'#000000', panelBorderW:'1',
+    axisColor:'#000000', axisAutoColor:false, axisFont:'Arial, Helvetica, sans-serif', axisBold:false}},
+  'fluorescence':{label:'Fluorescence (dark)', hint:'Black canvas, white labels — the classic microscopy look', style:{
+    bgColor:'#000000', labelColor:'#ffffff', labelBold:true, labelFont:'system-ui, sans-serif',
+    sbColor:'#ffffff', sbText:true, panelBorderC:'#000000', panelBorderW:'0',
+    axisColor:'#ffffff', axisAutoColor:true, axisBold:false}},
+  'high-contrast':{label:'High contrast', hint:'Heavy borders and bold type for talks and small figures', style:{
+    bgColor:'#ffffff', labelColor:'#000000', labelBold:true, labelSize:'20',
+    labelFont:'Arial, Helvetica, sans-serif', sbColor:'#000000', sbText:true,
+    panelBorderC:'#000000', panelBorderW:'3', axisColor:'#000000', axisAutoColor:false,
+    axisFs:'16', axisBold:true}},
+  'poster':{label:'Poster (large type)', hint:'Oversized labels and axes for A0 printing', style:{
+    bgColor:'#ffffff', labelColor:'#000000', labelBold:true, labelSize:'28',
+    sbColor:'#000000', sbText:true, panelBorderC:'#333333', panelBorderW:'2',
+    axisColor:'#000000', axisAutoColor:false, axisFs:'22', axisBold:true}},
+};
+function applyBuiltinTheme(key){
+  const t=BUILTIN_THEMES[key]; if(!t) return;
+  pushUndo(); _applyHouseStyle(t.style);
+  logAction('theme',{name:key});
+  toast(`Theme applied: ${t.label}`,'ok');
+}
+function renderThemePresets(){
+  const el=document.getElementById('theme-presets'); if(!el) return;
+  el.innerHTML='';
+  Object.entries(BUILTIN_THEMES).forEach(([k,t])=>{
+    const b=document.createElement('button');
+    b.className='btn'; b.style.cssText='padding:2px 8px;font-size:10px';
+    b.textContent=t.label; b.title=t.hint; b.dataset.theme=k;
+    b.addEventListener('click',()=>applyBuiltinTheme(k));
+    el.appendChild(b);
+  });
+}
+
+// Colourblind-safe categorical palettes, shared by themes and (later) charts.
+const CB_PALETTES={
+  okabeIto: ['#000000','#e69f00','#56b4e9','#009e73','#f0e442','#0072b2','#d55e00','#cc79a7'],
+  tolBright:['#4477aa','#ee6677','#228833','#ccbb44','#66ccee','#aa3377','#bbbbbb'],
+  ibm:      ['#648fff','#785ef0','#dc267f','#fe6100','#ffb000'],
+  grayscale:['#000000','#555555','#888888','#bbbbbb','#dddddd'],
+};
 function getHouseStyles(){ try{ return JSON.parse(localStorage.getItem('figurelab_housestyles')||'[]'); }catch(e){ return []; } }
 function saveHouseStyle(){
   const name=(gv('house-style-name')||'').trim();
@@ -3565,7 +3631,10 @@ function renderHouseStyles(){
     el.appendChild(row);
   });
 }
-(function initHouseStyles(){ if(typeof renderHouseStyles==='function') renderHouseStyles(); })();
+(function initHouseStyles(){
+  if(typeof renderHouseStyles==='function') renderHouseStyles();
+  if(typeof renderThemePresets==='function') renderThemePresets();
+})();
 
 // ── PWA: installable app (http/https only; single-file, no external assets) ──
 (function initPWA(){
@@ -4074,15 +4143,17 @@ function applyAdjust(im, sx, sy, sw, sh){
   const needLut=im.lut&&im.lut!=='none';
   const needBW=(im.blackPt||0)>0||(im.whitePt||255)<255;
   const needGamma=(im.gamma||1)!==1;
+  const needKey=!!(im.bgKey&&im.bgKey.on);
   // Freeform elements only gain brightness/contrast once a slider is touched, so treat
   // a missing value as the 1.0 identity rather than as "needs processing" (undefined!==1).
   const br=im.brightness??1, ct=im.contrast??1;
-  const needFilter=br!==1||ct!==1||im.grayscale||im.invert||needLut||needBW||needGamma;
+  const needFilter=br!==1||ct!==1||im.grayscale||im.invert||needLut||needBW||needGamma||needKey;
   if(!needFilter) return {off:false};
   // Cache the processed canvas per-image: the expensive per-pixel pass only re-runs
   // when an adjustment or the source crop rect actually changes. Big win when one
   // slider moves in a multi-panel figure (the other panels reuse their cache).
-  const key=`${br}|${ct}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}`;
+  const bk=im.bgKey||{};
+  const key=`${br}|${ct}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${needKey?`${bk.mode||'white'}:${bk.color||''}:${bk.tol||0}:${bk.feather||0}`:'0'}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}`;
   if(im._adjKey===key && im._adjCache) return {off:true,canvas:im._adjCache};
   const c=document.createElement('canvas');
   c.width=Math.round(sw); c.height=Math.round(sh);
@@ -4094,8 +4165,8 @@ function applyAdjust(im, sx, sy, sw, sh){
   ctx.filter=f;
   ctx.drawImage(im.img,sx,sy,sw,sh,0,0,c.width,c.height);
   ctx.filter='none';
-  // Pixel-level: B/W clipping + LUT + gamma
-  if(needBW||needLut||needGamma){
+  // Pixel-level: B/W clipping + LUT + gamma + background key
+  if(needBW||needLut||needGamma||needKey){
     const d=ctx.getImageData(0,0,c.width,c.height);
     const bp=im.blackPt||0, wp=im.whitePt||255, range=Math.max(1,wp-bp);
     const lutFn=needLut?LUTS[im.lut]:null;
@@ -4120,10 +4191,32 @@ function applyAdjust(im, sx, sy, sw, sh){
         d.data[i+2]=gTab[d.data[i+2]];
       }
     }
+    if(needKey) _applyBgKey(d, im.bgKey);   // clears matching pixels to transparent, last
     ctx.putImageData(d,0,0);
   }
   im._adjKey=key; im._adjCache=c;
   return {off:true,canvas:c};
+}
+
+// Non-destructive background key: make pixels near a chosen colour transparent by
+// zeroing their alpha. Never touches the source image — this runs on the per-adjust
+// working canvas, so the original pixels remain and toggling bgKey.on off restores them.
+// mode 'white'/'black' pick the key colour automatically; 'color' uses bgKey.color.
+function _applyBgKey(imgData, opt){
+  const d=imgData.data;
+  let kr,kg,kb;
+  if(opt.mode==='black'){ kr=kg=kb=0; }
+  else if(opt.mode==='color'){ const c=parseInt((opt.color||'#ffffff').replace('#',''),16); kr=(c>>16)&255; kg=(c>>8)&255; kb=c&255; }
+  else { kr=kg=kb=255; }               // 'white' default
+  const tol=Math.max(0,Math.min(255,opt.tol??32));
+  const feather=Math.max(0,opt.feather||0);
+  const hard=Math.max(0,tol-feather);  // fully transparent within `hard`, ramp out to `tol`
+  for(let i=0;i<d.length;i+=4){
+    // Chebyshev distance in RGB — cheap and predictable for flat backgrounds.
+    const dist=Math.max(Math.abs(d[i]-kr),Math.abs(d[i+1]-kg),Math.abs(d[i+2]-kb));
+    if(dist<=hard){ d[i+3]=0; }
+    else if(dist<tol){ d[i+3]=Math.round(d[i+3]*(dist-hard)/(tol-hard)); }
+  }
 }
 
 // Multi-channel composite: screen-blend base + extra channels
@@ -7699,6 +7792,8 @@ function buildImgEl(el){
 // Freeform mouse handling (called at top of each annCanvas handler)
 function freeformMousedown(e){
   const {x,y}=canvasCoords(annCanvas,e);
+  // Eyedropper for background removal — consume this click, sample, and stop.
+  if(_bgPickArmed){ _bgKeySampleAt(x,y); return true; }
   // Arm a pre-edit snapshot for the upcoming move/resize/draw gesture.
   _pendingUndoSnap=_pendingUndoSnap||snapshotState();
   // Scale-bar resize — grab a calibrated image object's bar by its left end
@@ -8030,6 +8125,53 @@ function matchPatchBackground(){
   scheduleRender(0); toast('Patch colour matched to the background','ok');
 }
 
+// ── Background removal (non-destructive) ────────────────────────────
+// A parameterised key stored on the element and applied inside applyAdjust, so
+// the original image pixels are never modified and turning it off restores them
+// exactly. Works on any freeform image element (imported photo, icon, AI image).
+function _selectedImageEl(){
+  if(selectedElems.size!==1) return null;
+  const el=freeformElements[[...selectedElems][0]];
+  return (el&&(el.type==='image'||el.type==='aiicon'))?el:null;
+}
+function toggleBgRemove(on){
+  const el=_selectedImageEl(); if(!el) return;
+  pushUndo();
+  el.bgKey=Object.assign({on:!!on, mode:'white', color:'#ffffff', tol:32, feather:0}, el.bgKey||{}, {on:!!on});
+  if(on) logAction('bgRemove',{mode:el.bgKey.mode,tol:el.bgKey.tol});   // disclosed in the provenance log
+  updateElemPropsBar(); scheduleRender(0);
+  toast(on?'Background removal on — adjust Tol to taste (original pixels are kept)':'Background removal off','ok');
+}
+function updateBgKey(prop,val){
+  const el=_selectedImageEl(); if(!el||!el.bgKey) return;
+  el.bgKey[prop]=val;
+  if(prop==='tol'||prop==='mode') logAction('bgRemove',{mode:el.bgKey.mode,tol:el.bgKey.tol});
+  scheduleRender(0);
+}
+// Eyedropper: the next click on the figure samples the key colour and switches to 'color' mode.
+let _bgPickArmed=false;
+function pickBgKeyColor(){
+  const el=_selectedImageEl(); if(!el){ toast('Select an image first','warn'); return; }
+  if(!el.bgKey||!el.bgKey.on){ toggleBgRemove(true); }
+  _bgPickArmed=true;
+  toast('Click the background colour in the image…','info');
+}
+// Called from the freeform canvas mousedown handler when the eyedropper is armed.
+function _bgKeySampleAt(lx,ly){
+  const el=_selectedImageEl(); if(!el||!el.bgKey){ _bgPickArmed=false; return false; }
+  const c=document.getElementById('fig-canvas'), cx=c.getContext('2d');
+  const W=canvasLogicalW||c.width, H=canvasLogicalH||c.height;
+  let px=Math.round(lx*c.width/W), py=Math.round(ly*c.height/H);
+  px=Math.max(0,Math.min(c.width-1,px)); py=Math.max(0,Math.min(c.height-1,py));
+  const d=cx.getImageData(px,py,1,1).data;
+  const hex='#'+[d[0],d[1],d[2]].map(v=>v.toString(16).padStart(2,'0')).join('');
+  el.bgKey.mode='color'; el.bgKey.color=hex;
+  _bgPickArmed=false; logAction('bgRemove',{mode:'color',tol:el.bgKey.tol});
+  updateElemPropsBar(); scheduleRender(0);
+  toast('Sampled '+hex+' — tune Tol to include more or less','ok');
+  return true;
+}
+
 // ── Honest paint layer ─────────────────────────────────────────
 // A brush/eraser that paints on a SEPARATE overlay canvas — the underlying
 // image pixels are never modified. Disclosed (layer list + provenance) and
@@ -8109,17 +8251,83 @@ function pasteElemStyle(){
 // ── Built-in vector science icons ──────────────────────────────
 // Inserted as vector freeform objects (via the SVG pipeline) so they stay crisp.
 const _icoWrap=(inner)=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${inner}</svg>`;
+// Every icon paints in exactly one colour — the sentinel below. recolorIcon()
+// swaps it wholesale from a pristine copy of the source, so a two-tone icon or a
+// second use of the same hex would break recolouring. Keep icons single-colour.
+const _ICO_KEY='#222222';
+// Stroked icons (the common case): one <g> carries the sentinel + stroke style.
+const _icoG=(inner,sw)=>_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="${sw||7}" stroke-linecap="round" stroke-linejoin="round">${inner}</g>`);
+const _icoF=(inner)=>_icoWrap(`<g fill="${_ICO_KEY}">${inner}</g>`);
+const ICON_GROUPS={marks:'Arrows & marks',cell:'Cells',molecule:'Molecules',organism:'Organisms',labware:'Lab equipment'};
 const SCIENCE_ICONS={
-  arrow:{label:'Arrow',w:150,h:64,svg:_icoWrap('<line x1="8" y1="50" x2="82" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round"/><polyline points="64,28 92,50 64,72" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
-  arrowDouble:{label:'Double arrow',w:150,h:64,svg:_icoWrap('<line x1="18" y1="50" x2="82" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round"/><polyline points="36,32 12,50 36,68" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><polyline points="64,32 88,50 64,68" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
-  arrowDashed:{label:'Dashed arrow',w:150,h:64,svg:_icoWrap('<line x1="8" y1="50" x2="80" y2="50" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-dasharray="12 10"/><polyline points="64,28 92,50 64,72" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')},
-  bracket:{label:'Bracket',w:52,h:120,svg:_icoWrap('<path d="M64 10 q-16 0 -16 16 v14 q0 8 -12 10 q12 2 12 10 v14 q0 16 16 16" fill="none" stroke="#222" stroke-width="7" stroke-linecap="round"/>')},
-  scalebar:{label:'Scale bar',w:150,h:44,svg:_icoWrap('<rect x="10" y="42" width="80" height="14" rx="2" fill="#222"/>')},
-  cell:{label:'Cell',w:96,h:96,svg:_icoWrap('<circle cx="50" cy="50" r="38" fill="none" stroke="#222" stroke-width="7"/>')},
-  nucleus:{label:'Cell + nucleus',w:96,h:96,svg:_icoWrap('<circle cx="50" cy="50" r="40" fill="none" stroke="#222" stroke-width="6"/><circle cx="50" cy="50" r="16" fill="#222"/>')},
-  plus:{label:'Plus',w:80,h:80,svg:_icoWrap('<line x1="50" y1="16" x2="50" y2="84" stroke="#222" stroke-width="9" stroke-linecap="round"/><line x1="16" y1="50" x2="84" y2="50" stroke="#222" stroke-width="9" stroke-linecap="round"/>')},
-  asterisk:{label:'Asterisk (significance)',w:70,h:70,svg:_icoWrap('<g stroke="#222" stroke-width="9" stroke-linecap="round"><line x1="50" y1="16" x2="50" y2="84"/><line x1="21" y1="33" x2="79" y2="67"/><line x1="79" y1="33" x2="21" y2="67"/></g>')},
-  ibeam:{label:'Error-bar cap',w:60,h:110,svg:_icoWrap('<g stroke="#222" stroke-width="7" stroke-linecap="round"><line x1="50" y1="18" x2="50" y2="82"/><line x1="28" y1="18" x2="72" y2="18"/><line x1="28" y1="82" x2="72" y2="82"/></g>')},
+  // ── Arrows & annotation marks ──
+  arrow:{label:'Arrow',group:'marks',keys:'arrow point direction',w:150,h:64,svg:_icoG('<line x1="8" y1="50" x2="82" y2="50"/><polyline points="64,28 92,50 64,72"/>')},
+  arrowDouble:{label:'Double arrow',group:'marks',keys:'arrow both bidirectional reversible',w:150,h:64,svg:_icoG('<line x1="18" y1="50" x2="82" y2="50"/><polyline points="36,32 12,50 36,68"/><polyline points="64,32 88,50 64,68"/>')},
+  arrowDashed:{label:'Dashed arrow',group:'marks',keys:'arrow dashed indirect putative',w:150,h:64,svg:_icoG('<line x1="8" y1="50" x2="80" y2="50" stroke-dasharray="12 10"/><polyline points="64,28 92,50 64,72"/>')},
+  arrowCurved:{label:'Curved arrow',group:'marks',keys:'arrow curved bend cycle',w:130,h:100,svg:_icoG('<path d="M12 78 q10 -56 62 -56"/><polyline points="58,10 78,22 60,36"/>')},
+  arrowBlock:{label:'Block arrow',group:'marks',keys:'arrow block solid thick flow',w:150,h:80,svg:_icoF('<polygon points="6,36 58,36 58,16 94,50 58,84 58,64 6,64"/>')},
+  arrowInhibit:{label:'Inhibition (T-bar)',group:'marks',keys:'inhibit block repress tbar negative',w:150,h:64,svg:_icoG('<line x1="8" y1="50" x2="80" y2="50"/><line x1="82" y1="26" x2="82" y2="74" stroke-width="9"/>')},
+  bracket:{label:'Bracket',group:'marks',keys:'bracket group span brace',w:52,h:120,svg:_icoG('<path d="M64 10 q-16 0 -16 16 v14 q0 8 -12 10 q12 2 12 10 v14 q0 16 16 16"/>')},
+  braceH:{label:'Horizontal brace',group:'marks',keys:'brace bracket span group under',w:130,h:44,svg:_icoG('<path d="M10 36 q0 16 16 16 h14 q8 0 10 12 q2 -12 10 -12 h14 q16 0 16 -16"/>')},
+  scalebar:{label:'Scale bar',group:'marks',keys:'scale bar micron size calibration',w:150,h:44,svg:_icoF('<rect x="10" y="42" width="80" height="14" rx="2"/>')},
+  plus:{label:'Plus',group:'marks',keys:'plus add positive treated',w:80,h:80,svg:_icoG('<line x1="50" y1="16" x2="50" y2="84"/><line x1="16" y1="50" x2="84" y2="50"/>',9)},
+  minus:{label:'Minus',group:'marks',keys:'minus negative untreated control',w:80,h:44,svg:_icoG('<line x1="16" y1="50" x2="84" y2="50"/>',9)},
+  asterisk:{label:'Asterisk (significance)',group:'marks',keys:'asterisk star significance p value',w:70,h:70,svg:_icoG('<line x1="50" y1="16" x2="50" y2="84"/><line x1="21" y1="33" x2="79" y2="67"/><line x1="79" y1="33" x2="21" y2="67"/>',9)},
+  ibeam:{label:'Error-bar cap',group:'marks',keys:'error bar whisker cap sd sem',w:60,h:110,svg:_icoG('<line x1="50" y1="18" x2="50" y2="82"/><line x1="28" y1="18" x2="72" y2="18"/><line x1="28" y1="82" x2="72" y2="82"/>')},
+  cross:{label:'Cross (X)',group:'marks',keys:'cross x no absent knockout',w:70,h:70,svg:_icoG('<line x1="22" y1="22" x2="78" y2="78"/><line x1="78" y1="22" x2="22" y2="78"/>',9)},
+  check:{label:'Check mark',group:'marks',keys:'check tick yes present pass',w:74,h:70,svg:_icoG('<polyline points="18,52 40,74 82,24"/>',9)},
+  // ── Cells & organelles ──
+  cell:{label:'Cell',group:'cell',keys:'cell round membrane outline',w:96,h:96,svg:_icoG('<circle cx="50" cy="50" r="38"/>')},
+  nucleus:{label:'Cell + nucleus',group:'cell',keys:'cell nucleus nucleated',w:96,h:96,svg:_icoWrap(`<circle cx="50" cy="50" r="40" fill="none" stroke="${_ICO_KEY}" stroke-width="6"/><circle cx="50" cy="50" r="16" fill="${_ICO_KEY}"/>`)},
+  cellDividing:{label:'Dividing cell',group:'cell',keys:'cell divide mitosis proliferation',w:130,h:90,svg:_icoG('<circle cx="36" cy="50" r="28"/><circle cx="74" cy="50" r="28"/>')},
+  cellIrregular:{label:'Irregular cell',group:'cell',keys:'cell fibroblast irregular spread',w:110,h:96,svg:_icoG('<path d="M22 46 q-8 -26 18 -28 q16 -2 22 10 q18 -8 26 8 q10 20 -8 30 q4 20 -16 22 q-22 2 -26 -14 q-20 2 -16 -28 z"/>')},
+  membrane:{label:'Lipid bilayer',group:'cell',keys:'membrane bilayer lipid plasma',w:150,h:60,svg:_icoG('<line x1="8" y1="34" x2="92" y2="34"/><line x1="8" y1="66" x2="92" y2="66"/><line x1="24" y1="34" x2="24" y2="66"/><line x1="50" y1="34" x2="50" y2="66"/><line x1="76" y1="34" x2="76" y2="66"/>',5)},
+  receptor:{label:'Membrane receptor',group:'cell',keys:'receptor membrane signalling ligand',w:110,h:110,svg:_icoG('<line x1="8" y1="70" x2="92" y2="70"/><line x1="50" y1="70" x2="50" y2="38"/><line x1="50" y1="38" x2="34" y2="18"/><line x1="50" y1="38" x2="66" y2="18"/>')},
+  mitochondrion:{label:'Mitochondrion',group:'cell',keys:'mitochondria organelle respiration atp',w:130,h:80,svg:_icoG('<ellipse cx="50" cy="50" rx="42" ry="24"/><path d="M20 50 q8 -14 16 0 q8 14 16 0 q8 -14 16 0 q8 14 12 0"/>',5)},
+  nucleusAlone:{label:'Nucleus',group:'cell',keys:'nucleus nuclear dapi organelle',w:90,h:90,svg:_icoG('<circle cx="50" cy="50" r="34"/><circle cx="50" cy="50" r="12"/>')},
+  // Rough ER carries ribosome dots; the Golgi buds a vesicle. Without those cues
+  // the two are stacked curves and read as the same icon.
+  er:{label:'Endoplasmic reticulum',group:'cell',keys:'er endoplasmic reticulum rough ribosome organelle',w:120,h:90,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><path d="M14 30 q36 -12 72 0"/><path d="M14 54 q36 -12 72 0"/><path d="M14 78 q36 -12 72 0"/></g><g fill="${_ICO_KEY}"><circle cx="26" cy="24" r="3.5"/><circle cx="50" cy="19" r="3.5"/><circle cx="74" cy="24" r="3.5"/><circle cx="26" cy="48" r="3.5"/><circle cx="50" cy="43" r="3.5"/><circle cx="74" cy="48" r="3.5"/></g>`)},
+  golgi:{label:'Golgi apparatus',group:'cell',keys:'golgi organelle secretion stack cisternae',w:120,h:90,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><path d="M22 30 q28 -16 56 0"/><path d="M18 50 q32 -18 64 0"/><path d="M26 70 q24 -14 48 0"/></g><g fill="${_ICO_KEY}"><circle cx="82" cy="84" r="6"/></g>`)},
+  lysosome:{label:'Lysosome',group:'cell',keys:'lysosome vesicle degradation organelle',w:90,h:90,svg:_icoWrap(`<circle cx="50" cy="50" r="34" fill="none" stroke="${_ICO_KEY}" stroke-width="6"/><g fill="${_ICO_KEY}"><circle cx="42" cy="42" r="5"/><circle cx="60" cy="48" r="5"/><circle cx="46" cy="60" r="5"/></g>`)},
+  vesicle:{label:'Vesicle',group:'cell',keys:'vesicle exosome bubble transport',w:70,h:70,svg:_icoG('<circle cx="50" cy="50" r="26"/>')},
+  neuron:{label:'Neuron',group:'cell',keys:'neuron nerve axon dendrite brain',w:140,h:100,svg:_icoG('<circle cx="34" cy="50" r="18"/><line x1="52" y1="50" x2="92" y2="50"/><line x1="22" y1="34" x2="8" y2="20"/><line x1="22" y1="66" x2="8" y2="80"/><line x1="34" y1="32" x2="30" y2="12"/><line x1="92" y1="50" x2="84" y2="40"/><line x1="92" y1="50" x2="84" y2="60"/>',5)},
+  rbc:{label:'Red blood cell',group:'cell',keys:'red blood cell erythrocyte rbc',w:90,h:90,svg:_icoG('<circle cx="50" cy="50" r="34"/><circle cx="50" cy="50" r="16"/>',6)},
+  // ── Molecules ──
+  // Two mirrored cubics that genuinely cross (30->60->30 against 70->40->70).
+  // Quadratics with an equal bulge only touch at x=50 and read as a bowtie.
+  dna:{label:'DNA double helix',group:'molecule',keys:'dna helix genome nucleic acid',w:90,h:130,svg:_icoG('<path d="M30 10 C 70 30, 70 70, 30 90"/><path d="M70 10 C 30 30, 30 70, 70 90"/><line x1="30" y1="10" x2="70" y2="10"/><line x1="30" y1="90" x2="70" y2="90"/>',5)},
+  rna:{label:'RNA strand',group:'molecule',keys:'rna mrna transcript strand nucleic',w:130,h:70,svg:_icoG('<path d="M8 50 q14 -30 28 0 q14 30 28 0 q14 -30 28 0"/><line x1="22" y1="36" x2="22" y2="24"/><line x1="50" y1="64" x2="50" y2="76"/><line x1="78" y1="36" x2="78" y2="24"/>',5)},
+  protein:{label:'Protein',group:'molecule',keys:'protein blob globular enzyme',w:100,h:90,svg:_icoG('<path d="M26 40 q-6 -22 16 -24 q18 -2 22 10 q20 -6 22 14 q2 20 -16 24 q2 18 -18 18 q-20 0 -22 -16 q-18 -4 -4 -26 z"/>')},
+  antibody:{label:'Antibody',group:'molecule',keys:'antibody igg immunoglobulin y stain',w:100,h:100,svg:_icoG('<line x1="50" y1="86" x2="50" y2="50"/><line x1="50" y1="50" x2="24" y2="16"/><line x1="50" y1="50" x2="76" y2="16"/>',8)},
+  enzyme:{label:'Enzyme + substrate',group:'molecule',keys:'enzyme substrate catalysis binding pocket',w:120,h:90,svg:_icoG('<path d="M62 22 a30 30 0 1 0 0 56 l0 -14 a16 16 0 1 1 0 -28 z"/><circle cx="80" cy="50" r="10"/>')},
+  lipid:{label:'Lipid',group:'molecule',keys:'lipid fatty acid phospholipid tail',w:60,h:120,svg:_icoG('<circle cx="50" cy="20" r="14"/><path d="M42 36 q-8 14 0 26 q8 12 0 26"/><path d="M58 36 q8 14 0 26 q-8 12 0 26"/>',6)},
+  peptide:{label:'Peptide chain',group:'molecule',keys:'peptide chain amino acid residue',w:140,h:60,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="6"><line x1="16" y1="50" x2="84" y2="50"/></g><g fill="${_ICO_KEY}"><circle cx="16" cy="50" r="11"/><circle cx="39" cy="50" r="11"/><circle cx="62" cy="50" r="11"/><circle cx="84" cy="50" r="11"/></g>`)},
+  hexRing:{label:'Small molecule (ring)',group:'molecule',keys:'molecule ring benzene compound drug',w:90,h:96,svg:_icoG('<polygon points="50,12 84,32 84,68 50,88 16,68 16,32"/>')},
+  atp:{label:'ATP',group:'molecule',keys:'atp energy phosphate nucleotide',w:130,h:70,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="6"><line x1="20" y1="50" x2="80" y2="50"/></g><g fill="${_ICO_KEY}"><rect x="6" y="38" width="24" height="24" rx="5"/><circle cx="56" cy="50" r="11"/><circle cx="84" cy="50" r="11"/></g>`)},
+  // ── Organisms ──
+  mouse:{label:'Mouse',group:'organism',keys:'mouse mice murine rodent animal in vivo',w:140,h:90,svg:_icoG('<path d="M26 62 q0 -22 24 -22 q22 0 30 12 q10 -2 12 8"/><path d="M26 62 q-12 4 -12 -8 q0 -12 12 -10"/><circle cx="22" cy="46" r="8"/><path d="M92 60 q10 8 4 18"/><line x1="34" y1="62" x2="34" y2="76"/><line x1="70" y1="66" x2="70" y2="78"/>',5)},
+  zebrafish:{label:'Zebrafish',group:'organism',keys:'zebrafish fish danio larva animal',w:150,h:70,svg:_icoG('<path d="M14 50 q26 -24 54 0 q-28 24 -54 0 z"/><polyline points="68,50 90,34 90,66 68,50"/><circle cx="28" cy="46" r="3"/>',5)},
+  fly:{label:'Fruit fly',group:'organism',keys:'fly drosophila insect animal',w:110,h:90,svg:_icoG('<ellipse cx="50" cy="60" rx="16" ry="26"/><circle cx="50" cy="26" r="11"/><path d="M62 46 q26 -16 30 6"/><path d="M38 46 q-26 -16 -30 6"/>',5)},
+  worm:{label:'C. elegans',group:'organism',keys:'worm celegans nematode animal',w:140,h:70,svg:_icoG('<path d="M10 40 q24 -24 44 6 q20 30 44 4"/>',9)},
+  bacterium:{label:'Bacterium',group:'organism',keys:'bacteria bacterium rod bacillus microbe',w:140,h:70,svg:_icoG('<rect x="16" y="34" width="54" height="32" rx="16"/><path d="M70 50 q12 -12 20 0 q8 12 18 0"/>',5)},
+  virus:{label:'Virus',group:'organism',keys:'virus viral particle infection capsid',w:100,h:100,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="6"><circle cx="50" cy="50" r="24"/><line x1="50" y1="26" x2="50" y2="10"/><line x1="50" y1="74" x2="50" y2="90"/><line x1="26" y1="50" x2="10" y2="50"/><line x1="74" y1="50" x2="90" y2="50"/><line x1="33" y1="33" x2="22" y2="22"/><line x1="67" y1="67" x2="78" y2="78"/><line x1="67" y1="33" x2="78" y2="22"/><line x1="33" y1="67" x2="22" y2="78"/></g><g fill="${_ICO_KEY}"><circle cx="50" cy="8" r="5"/><circle cx="50" cy="92" r="5"/><circle cx="8" cy="50" r="5"/><circle cx="92" cy="50" r="5"/></g>`)},
+  phage:{label:'Bacteriophage',group:'organism',keys:'phage bacteriophage virus t4',w:90,h:130,svg:_icoG('<polygon points="50,10 74,24 74,50 50,64 26,50 26,24"/><line x1="50" y1="64" x2="50" y2="80"/><line x1="34" y1="80" x2="66" y2="80"/><line x1="36" y1="80" x2="26" y2="94"/><line x1="50" y1="80" x2="50" y2="96"/><line x1="64" y1="80" x2="74" y2="94"/>',5)},
+  yeast:{label:'Yeast',group:'organism',keys:'yeast budding fungus saccharomyces',w:100,h:90,svg:_icoG('<circle cx="42" cy="56" r="26"/><circle cx="76" cy="30" r="13"/>')},
+  plant:{label:'Plant',group:'organism',keys:'plant arabidopsis leaf seedling',w:100,h:110,svg:_icoG('<line x1="50" y1="90" x2="50" y2="40"/><path d="M50 56 q-26 -8 -30 -28 q24 -2 30 22"/><path d="M50 46 q26 -8 30 -28 q-24 -2 -30 22"/>',5)},
+  // ── Lab equipment ──
+  flask:{label:'Flask',group:'labware',keys:'flask erlenmeyer glassware culture',w:90,h:110,svg:_icoG('<path d="M40 12 v26 l-22 44 q-4 10 8 10 h48 q12 0 8 -10 l-22 -44 v-26"/><line x1="34" y1="12" x2="66" y2="12"/>')},
+  tube:{label:'Microcentrifuge tube',group:'labware',keys:'tube eppendorf microfuge sample',w:60,h:120,svg:_icoG('<path d="M32 16 v44 l18 28 l18 -28 v-44 z"/><line x1="28" y1="16" x2="72" y2="16"/>',6)},
+  plate96:{label:'96-well plate',group:'labware',keys:'plate 96 well microplate assay elisa',w:140,h:100,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="6"><rect x="8" y="20" width="84" height="60" rx="6"/></g><g fill="${_ICO_KEY}"><circle cx="22" cy="34" r="4"/><circle cx="36" cy="34" r="4"/><circle cx="50" cy="34" r="4"/><circle cx="64" cy="34" r="4"/><circle cx="78" cy="34" r="4"/><circle cx="22" cy="50" r="4"/><circle cx="36" cy="50" r="4"/><circle cx="50" cy="50" r="4"/><circle cx="64" cy="50" r="4"/><circle cx="78" cy="50" r="4"/><circle cx="22" cy="66" r="4"/><circle cx="36" cy="66" r="4"/><circle cx="50" cy="66" r="4"/><circle cx="64" cy="66" r="4"/><circle cx="78" cy="66" r="4"/></g>`)},
+  plate6:{label:'6-well plate',group:'labware',keys:'plate 6 well culture dish tissue',w:130,h:100,svg:_icoG('<rect x="8" y="20" width="84" height="60" rx="6"/><circle cx="27" cy="38" r="9"/><circle cx="50" cy="38" r="9"/><circle cx="73" cy="38" r="9"/><circle cx="27" cy="62" r="9"/><circle cx="50" cy="62" r="9"/><circle cx="73" cy="62" r="9"/>',5)},
+  dish:{label:'Petri dish',group:'labware',keys:'petri dish culture plate colony',w:100,h:100,svg:_icoG('<circle cx="50" cy="50" r="36"/><circle cx="50" cy="50" r="27"/>',6)},
+  syringe:{label:'Syringe',group:'labware',keys:'syringe injection needle dose',w:140,h:70,svg:_icoG('<rect x="24" y="38" width="46" height="24" rx="3"/><line x1="70" y1="50" x2="94" y2="50"/><line x1="24" y1="50" x2="8" y2="50"/><line x1="14" y1="38" x2="14" y2="62"/><line x1="40" y1="38" x2="40" y2="62"/><line x1="55" y1="38" x2="55" y2="62"/>',5)},
+  pipette:{label:'Pipette',group:'labware',keys:'pipette tip micropipette liquid transfer',w:60,h:130,svg:_icoG('<path d="M40 10 h20 v40 l-6 20 h-8 l-6 -20 z"/><line x1="50" y1="70" x2="50" y2="92"/>',6)},
+  cuvette:{label:'Cuvette',group:'labware',keys:'cuvette spectrophotometer od absorbance',w:60,h:110,svg:_icoG('<rect x="34" y="14" width="32" height="72" rx="3"/><line x1="34" y1="54" x2="66" y2="54"/>',6)},
+  beaker:{label:'Beaker',group:'labware',keys:'beaker glassware buffer volume',w:90,h:100,svg:_icoG('<path d="M28 18 v56 q0 10 10 10 h24 q10 0 10 -10 v-56"/><line x1="24" y1="18" x2="76" y2="18"/><line x1="58" y1="46" x2="70" y2="46"/><line x1="58" y1="60" x2="70" y2="60"/>',5)},
+  slide:{label:'Microscope slide',group:'labware',keys:'slide coverslip histology section mount',w:130,h:80,svg:_icoG('<rect x="10" y="26" width="80" height="48" rx="3"/><rect x="46" y="38" width="34" height="24" rx="2"/>',5)},
+  microscope:{label:'Microscope',group:'labware',keys:'microscope imaging objective scope',w:100,h:120,svg:_icoG('<line x1="24" y1="88" x2="76" y2="88"/><path d="M40 88 q-14 -18 2 -34"/><rect x="46" y="14" width="20" height="30" rx="4"/><line x1="56" y1="44" x2="56" y2="58"/><line x1="40" y1="66" x2="72" y2="66"/>',5)},
+  centrifuge:{label:'Centrifuge',group:'labware',keys:'centrifuge spin rotor rpm pellet',w:100,h:100,svg:_icoG('<circle cx="50" cy="50" r="36"/><line x1="50" y1="50" x2="50" y2="18"/><line x1="50" y1="50" x2="78" y2="66"/><line x1="50" y1="50" x2="22" y2="66"/>',6)},
 };
 function insertIcon(name){
   const ic=SCIENCE_ICONS[name]; if(!ic) return;
@@ -8129,7 +8337,7 @@ function insertIcon(name){
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=ic.w||90, h=ic.h||90;
-    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, isVector:true, isIcon:true, iconColor:'#222',
+    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, iconSrc0:ic.svg, isVector:true, isIcon:true, iconColor:_ICO_KEY,
       x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
       blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:ic.label});
@@ -8137,24 +8345,61 @@ function insertIcon(name){
     drawFreeformOverlay(); scheduleRender(0);
   }, ()=>toast('Could not add icon','err'));
 }
-function renderIconPalette(){
+// Score an icon against a search query — label and keyword hits, substring-tolerant.
+function _iconMatch(ic, q){
+  if(!q) return 1;
+  const hay=(ic.label+' '+(ic.keys||'')+' '+(ICON_GROUPS[ic.group]||'')).toLowerCase();
+  let score=0;
+  for(const term of q.toLowerCase().split(/\s+/).filter(Boolean)){
+    const at=hay.indexOf(term);
+    if(at<0) return 0;                       // every term must appear
+    score+=(at===0?3:1)+term.length/10;      // prefix hits rank higher
+  }
+  return score;
+}
+function renderIconPalette(query){
   const el=document.getElementById('icon-palette'); if(!el) return;
+  const q=(query==null?((document.getElementById('icon-search')||{}).value||''):query).trim();
   el.innerHTML='';
-  Object.entries(SCIENCE_ICONS).forEach(([k,ic])=>{
+  const mk=(k,ic)=>{
     const b=document.createElement('button');
-    b.className='icon-btn-sci'; b.title='Insert '+ic.label; b.innerHTML=ic.svg;
+    b.className='icon-btn-sci'; b.title='Insert '+ic.label; b.dataset.icon=k; b.innerHTML=ic.svg;
     b.addEventListener('click',()=>insertIcon(k));
-    el.appendChild(b);
+    return b;
+  };
+  const entries=Object.entries(SCIENCE_ICONS)
+    .map(([k,ic])=>[k,ic,_iconMatch(ic,q)]).filter(e=>e[2]>0);
+  if(!entries.length){
+    el.innerHTML='<div class="muted" style="font-size:11px;padding:4px">No icons match — try "cell", "arrow", "mouse", "plate"…</div>';
+    return;
+  }
+  if(q){   // searching: one flat list, best matches first
+    entries.sort((a,b)=>b[2]-a[2]||a[1].label.localeCompare(b[1].label));
+    entries.forEach(([k,ic])=>el.appendChild(mk(k,ic)));
+    return;
+  }
+  Object.keys(ICON_GROUPS).forEach(g=>{                 // browsing: grouped
+    const inGroup=entries.filter(([,ic])=>ic.group===g);
+    if(!inGroup.length) return;
+    const h=document.createElement('div');
+    h.className='icon-group-lbl'; h.textContent=ICON_GROUPS[g];
+    el.appendChild(h);
+    inGroup.forEach(([k,ic])=>el.appendChild(mk(k,ic)));
   });
 }
-renderIconPalette();
-// Recolour a selected icon by rewriting its vector source and re-rasterising
-const _hex6=h=>{ h=(h||'#222222').replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); return '#'+h; };
+renderIconPalette('');
+// Recolour a selected icon by rewriting its vector source and re-rasterising.
+const _hex6=h=>{ h=(h||'#222222').replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); return '#'+h.toLowerCase(); };
 function recolorIcon(color){
   if(selectedElems.size!==1) return;
   const el=freeformElements[[...selectedElems][0]]; if(!el||!el.isIcon||!el.svgSource) return;
-  const old=el.iconColor||'#222';
-  el.svgSource=el.svgSource.split(old).join(color); el.iconColor=color;
+  const next=_hex6(color);
+  // Always recolour from the pristine source when we have it, so repeated changes
+  // can't compound. Icons from pre-3.7 sessions have no iconSrc0 — fall back to
+  // swapping the last colour out of the current source.
+  if(el.iconSrc0) el.svgSource=el.iconSrc0.split(_ICO_KEY).join(next);
+  else            el.svgSource=el.svgSource.split(el.iconColor||'#222').join(next);
+  el.iconColor=next;
   const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(el.svgSource);
   _rasterizeSVG(dataURL,(img,png)=>{ el.src=png; el._imgEl=img; scheduleRender(0); }, ()=>{});
 }
@@ -9069,6 +9314,15 @@ function updateElemPropsBar(){
     const umppxEl=document.getElementById('ep-umppx'); if(umppxEl) umppxEl.value=el.umPerPx||'';
     const sbumEl=document.getElementById('ep-sbum'); if(sbumEl) sbumEl.value=+(Math.round((el.sbUm||0)/_sbUnitFactor(u)*1000)/1000);
     const sbunitEl=document.getElementById('ep-sbunit'); if(sbunitEl) sbunitEl.value=u;
+    // Background-removal controls
+    const bk=el.bgKey||{};
+    const bkOn=document.getElementById('ep-bgkey'); if(bkOn) bkOn.checked=!!bk.on;
+    const bkMode=document.getElementById('ep-bgkey-mode'); if(bkMode) bkMode.value=bk.mode||'white';
+    const bkCol=document.getElementById('ep-bgkey-color'); if(bkCol) bkCol.value=bk.color||'#ffffff';
+    const bkTol=document.getElementById('ep-bgkey-tol'); if(bkTol) bkTol.value=bk.tol??32;
+    ['ep-bgkey-mode','ep-bgkey-color','ep-bgkey-pick','ep-bgkey-tol'].forEach(id=>{
+      const e=document.getElementById(id); if(e) e.disabled=!bk.on;   // dim controls until BG is on
+    });
   }
 }
 

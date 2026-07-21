@@ -36,7 +36,7 @@ test('command palette opens and runs a command', async ({ page }) => {
   expect(await page.evaluate(() => document.getElementById('cmd-palette').classList.contains('open'))).toBe(true);
   const n = await page.evaluate(() => {
     const i = document.getElementById('cmdp-input');
-    i.value = 'theme'; i.dispatchEvent(new Event('input'));
+    i.value = 'toggle theme'; i.dispatchEvent(new Event('input'));   // specific: not the built-in theme presets
     return document.querySelectorAll('#cmdp-list .cmdp-item').length;
   });
   expect(n).toBeGreaterThan(0);
