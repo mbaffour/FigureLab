@@ -1022,6 +1022,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="pp-color" value="#ff3b30" style="width:26px;height:22px;padding:0;border:none;cursor:pointer"></label>
       <span style="font-size:10px;color:var(--muted)">on-top only · image untouched</span>
     </div>
+    <div id="ep-conn-props" style="display:none;align-items:center;gap:6px">
+      <div class="abar-sep"></div>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Route
+        <select id="ep-conn-route" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epConn('route',this.value)">
+          <option value="straight">straight</option><option value="elbowH">elbow ⌐</option><option value="elbowV">elbow ∟</option></select></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Arrow
+        <select id="ep-conn-arrow" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epConn('arrow',this.value)">
+          <option value="end">→ end</option><option value="both">↔ both</option><option value="none">— none</option></select></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Width<input type="number" id="ep-conn-w" min="1" max="12" value="2" style="width:38px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="_epConn('strokeWidth',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px" title="Dashed line"><input type="checkbox" id="ep-conn-dash" onchange="_epConn('dash',this.checked?[6,4]:null)">dash</label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="ep-conn-color" value="#333333" style="width:26px;height:20px;padding:0;border:1px solid var(--border);border-radius:3px" oninput="_epConn('color',this.value)"></label>
+      <input type="text" id="ep-conn-label" placeholder="label" style="width:80px;padding:1px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="_epConn('labelText',this.value)">
+    </div>
     <div id="ep-chart-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openChartModal()" title="Edit chart data, type and options">⚙ Edit chart…</button>
@@ -1691,6 +1704,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <button title="Duplicate (Ctrl+D)" onclick="duplicateSelectedElems()">⧉</button>
   <button title="Group (Ctrl+G)" id="ctx-group" style="display:none" onclick="groupSelectedElems()">⧉̲</button>
   <button title="Ungroup (Ctrl+Shift+G)" id="ctx-ungroup" style="display:none" onclick="ungroupSelectedElems()">⿴</button>
+  <button title="Connect the two selected objects" id="ctx-connect" style="display:none" onclick="connectSelected()">⇢</button>
   <button title="Copy style" onclick="copyElemStyle()">🎨</button>
   <button title="Paste style onto selection" id="ctx-paste" style="display:none" onclick="pasteElemStyle()">⇥</button>
   <button title="Lock / unlock" id="ctx-lock" onclick="toggleLockSelected()">🔒</button>
@@ -2537,6 +2551,8 @@ const CMD_REGISTRY=[
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
   {label:'Group selection',          keys:'group combine objects together', run:()=>groupSelectedElems()},
   {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
+  {label:'Connect two objects',      keys:'connect connector arrow link line flow', run:()=>connectSelected()},
+  {label:'Prune dangling connectors',keys:'connector dangling prune clean',  run:()=>_pruneDanglingConnectors()},
   {label:'Add bar chart',            keys:'chart bar plot data graph',     run:()=>addChartElement('bar')},
   {label:'Add scatter plot',         keys:'chart scatter plot xy data',    run:()=>addChartElement('scatter')},
   {label:'Add line chart',           keys:'chart line plot time course',   run:()=>addChartElement('line')},
@@ -5078,6 +5094,11 @@ function cloneElemForUndo(el){
   // stats recompute from the (deep-copied) dataset after a restore.
   if(el&&el.type==='chart'){ const {_chartStat,_chartKey,_chartCache,...rest}=el;
     return {...rest, chart:JSON.parse(JSON.stringify(el.chart||{}))}; }
+  // Connectors: deep-copy the nested endpoint refs so snapshots don't share them.
+  if(el&&el.type==='connector'){ return {...el,
+    from:el.from?{...el.from}:el.from, to:el.to?{...el.to}:el.to,
+    fromPt:el.fromPt?{...el.fromPt}:el.fromPt, toPt:el.toPt?{...el.toPt}:el.toPt,
+    dash:el.dash?el.dash.slice():el.dash}; }
   // Shallow otherwise (keeps img/_imgEl refs), but drop the adjustment cache so it
   // recomputes after a restore — same rule as cloneImageForUndo.
   return {...el, _adjCache:undefined, _adjKey:undefined};
@@ -6878,6 +6899,11 @@ function exportSVG(name, dpi, canvas){
         const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(el.svgSource);
         const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
         vecSVG+=`<image x="${(+el.x).toFixed(2)}" y="${(+el.y).toFixed(2)}" width="${(+el.w).toFixed(2)}" height="${(+el.h).toFixed(2)}" preserveAspectRatio="none"${op} xlink:href="${uri}"/>`;
+      } else if(el.type==='connector'){
+        // Vector connector — absolute geometry, no translate wrapper needed.
+        const buf=[]; _drawConnector(el, _chartEmitSVG(buf));
+        const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
+        vecSVG+=`<g${op}>${buf.join('')}</g>`;
       } else if(el.type==='chart' && el.chart){
         // True vector chart geometry — one _chartDraw pass through the SVG backend.
         const buf=[]; _chartDraw(el, _chartEmitSVG(buf));
@@ -7580,10 +7606,15 @@ document.addEventListener('keydown', e=>{
     // Nudge selected freeform elements with arrow keys
     if(layoutMode==='freeform'&&selectedElems.size){
       const d=e.shiftKey?10:1;
-      if(e.key==='ArrowLeft')  { e.preventDefault(); selectedElems.forEach(i=>{ freeformElements[i].x-=d; }); drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowRight') { e.preventDefault(); selectedElems.forEach(i=>{ freeformElements[i].x+=d; }); drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowUp')    { e.preventDefault(); selectedElems.forEach(i=>{ freeformElements[i].y-=d; }); drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowDown')  { e.preventDefault(); selectedElems.forEach(i=>{ freeformElements[i].y+=d; }); drawFreeformOverlay(); scheduleRender(0); return; }
+      // Move an element by (dx,dy); for a connector, translate only its FREE endpoints
+      // (anchored endpoints follow their elements, so nudging the bbox would fight them).
+      const nudge=(dx,dy)=>selectedElems.forEach(i=>{ const el=freeformElements[i]; if(!el) return;
+        if(el.type==='connector'){ if(!(el.from&&el.from.el)&&el.fromPt){ el.fromPt.x+=dx; el.fromPt.y+=dy; } if(!(el.to&&el.to.el)&&el.toPt){ el.toPt.x+=dx; el.toPt.y+=dy; } }
+        else { el.x+=dx; el.y+=dy; } });
+      if(e.key==='ArrowLeft')  { e.preventDefault(); nudge(-d,0); drawFreeformOverlay(); scheduleRender(0); return; }
+      if(e.key==='ArrowRight') { e.preventDefault(); nudge(d,0);  drawFreeformOverlay(); scheduleRender(0); return; }
+      if(e.key==='ArrowUp')    { e.preventDefault(); nudge(0,-d); drawFreeformOverlay(); scheduleRender(0); return; }
+      if(e.key==='ArrowDown')  { e.preventDefault(); nudge(0,d);  drawFreeformOverlay(); scheduleRender(0); return; }
     }
   }
   if(e.key==='Escape'){
@@ -7775,11 +7806,17 @@ function _toLocal(el,x,y){
 function getFreeformRotateHandle(el){ return {id:'rot', x:el.x+el.w/2, y:el.y-26, cx:'grab'}; }
 
 function hitFreeformElement(el,x,y){
+  if(el.type==='connector') return _hitConnector(el,x,y);   // follow the polyline, not the bbox
   const p=_toLocal(el,x,y);
   return p.x>=el.x&&p.x<=el.x+el.w&&p.y>=el.y&&p.y<=el.y+el.h;
 }
 
 function getFreeformHandles(el){
+  if(el.type==='connector'){
+    // Two endpoint handles only — so endpoints can be re-attached / repositioned.
+    const g=_connGeom(el);
+    return [ {id:'from',x:g.from.x,y:g.from.y,cx:'move'}, {id:'to',x:g.to.x,y:g.to.y,cx:'move'} ];
+  }
   const {x,y,w,h}=el;
   return [
     {id:'tl',x:x,    y:y,    cx:'nwse-resize'},
@@ -7796,6 +7833,10 @@ function getFreeformHandles(el){
 function hitFreeformHandle(el,x,y){
   if(el.locked) return null;                     // locked objects expose no resize/rotate handles
   if(!selectedElems.has(freeformElements.indexOf(el))) return null;
+  if(el.type==='connector'){                     // endpoint handles live in canvas space, no rotate handle
+    for(const h of getFreeformHandles(el)){ if(Math.hypot(x-h.x,y-h.y)<10) return h; }
+    return null;
+  }
   const p=_toLocal(el,x,y);                      // test in the element's local frame
   const rh=getFreeformRotateHandle(el);
   if(Math.hypot(p.x-rh.x,p.y-rh.y)<11) return rh;
@@ -7804,6 +7845,123 @@ function hitFreeformHandle(el,x,y){
   }
   return null;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CONNECTORS — lines that stay attached to two elements
+// ───────────────────────────────────────────────────────────────
+// A connector references its endpoints by element id (from/to). Its x/y/w/h are
+// DERIVED (recomputed each render) so the rest of the freeform machinery still
+// sees a bbox, but it is excluded from snap/align/distribute/nudge which would
+// corrupt that derived box. Endpoints anchor correctly under rotation by reusing
+// the tested _rotPt pair. Elbow routing uses AABBs, not true rotated rects — a
+// deliberate simplification (rotated boxes are rare in figure assembly).
+// ═══════════════════════════════════════════════════════════════
+function _connResolve(ref){ if(!ref||!ref.el) return null; return freeformElements.find(e=>e.id===ref.el)||null; }
+// Axis-aligned bounding box of a (possibly rotated) element.
+function _elemAABB(el){
+  if(!el.rotation) return {x:el.x,y:el.y,w:el.w,h:el.h};
+  const cx=el.x+el.w/2, cy=el.y+el.h/2;
+  const cs=[[el.x,el.y],[el.x+el.w,el.y],[el.x+el.w,el.y+el.h],[el.x,el.y+el.h]].map(([px,py])=>_rotPt(px,py,cx,cy,el.rotation));
+  const xs=cs.map(p=>p.x), ys=cs.map(p=>p.y);
+  return {x:Math.min(...xs), y:Math.min(...ys), w:Math.max(...xs)-Math.min(...xs), h:Math.max(...ys)-Math.min(...ys)};
+}
+// Anchor point on an element for a given side, in CANVAS space (rotation-aware).
+function _connAnchor(el, side, dx, dy){
+  dx=dx||0; dy=dy||0;
+  let px,py;
+  if(side==='t'){ px=el.x+el.w*(0.5+dx); py=el.y; }
+  else if(side==='b'){ px=el.x+el.w*(0.5+dx); py=el.y+el.h; }
+  else if(side==='l'){ px=el.x; py=el.y+el.h*(0.5+dy); }
+  else if(side==='r'){ px=el.x+el.w; py=el.y+el.h*(0.5+dy); }
+  else { px=el.x+el.w/2; py=el.y+el.h/2; }        // centre
+  if(el.rotation){ const r=_rotPt(px,py,el.x+el.w/2,el.y+el.h/2,el.rotation); return {x:r.x,y:r.y}; }
+  return {x:px,y:py};
+}
+// Best of the four sides for an anchored endpoint, chosen AFTER rotation so the
+// nearest face to the other endpoint wins even on a rotated box.
+function _connAutoAnchor(el, target){
+  let best=null, bd=Infinity;
+  for(const s of ['t','r','b','l']){ const a=_connAnchor(el,s,0,0); const d=Math.hypot(a.x-target.x,a.y-target.y); if(d<bd){ bd=d; best=a; } }
+  return best||_connAnchor(el,'c',0,0);
+}
+// Resolve both endpoints to canvas points; returns {from,to,dangling,polyline}.
+function _connGeom(el){
+  const fromEl=_connResolve(el.from), toEl=_connResolve(el.to);
+  const dangling=(el.from&&el.from.el&&!fromEl)||(el.to&&el.to.el&&!toEl);
+  // Rough centres to drive auto-side selection.
+  const fromCentre = fromEl?{x:fromEl.x+fromEl.w/2,y:fromEl.y+fromEl.h/2}:(el.fromPt||{x:el.x||0,y:el.y||0});
+  const toCentre   = toEl?{x:toEl.x+toEl.w/2,y:toEl.y+toEl.h/2}:(el.toPt||{x:(el.x||0)+(el.w||60),y:el.y||0});
+  const resolve=(ref,anchorEl,otherCentre,fallbackPt)=>{
+    if(anchorEl){
+      const side=(ref&&ref.side&&ref.side!=='auto')?ref.side:null;
+      return side?_connAnchor(anchorEl,side,ref.dx,ref.dy):_connAutoAnchor(anchorEl,otherCentre);
+    }
+    return fallbackPt||{x:0,y:0};
+  };
+  const from=resolve(el.from, fromEl, toCentre, el.fromPt);
+  const to  =resolve(el.to,   toEl,   fromCentre, el.toPt);
+  // Route → polyline points.
+  let pts;
+  if(el.route==='elbowH'){ const mx=(from.x+to.x)/2; pts=[[from.x,from.y],[mx,from.y],[mx,to.y],[to.x,to.y]]; }
+  else if(el.route==='elbowV'){ const my=(from.y+to.y)/2; pts=[[from.x,from.y],[from.x,my],[to.x,my],[to.x,to.y]]; }
+  else pts=[[from.x,from.y],[to.x,to.y]];
+  return {from,to,pts,dangling};
+}
+// Refresh derived bboxes so overlay/list/hit-testing see current geometry.
+function _syncConnectorBBoxes(){
+  freeformElements.forEach(el=>{ if(el.type!=='connector') return;
+    const g=_connGeom(el);
+    const xs=g.pts.map(p=>p[0]), ys=g.pts.map(p=>p[1]);
+    el.x=Math.min(...xs); el.y=Math.min(...ys); el.w=Math.max(1,Math.max(...xs)-Math.min(...xs)); el.h=Math.max(1,Math.max(...ys)-Math.min(...ys));
+    // Cache last-known free endpoints so a deleted anchor leaves a sensible stub.
+    if(_connResolve(el.from)) el.fromPt={x:g.from.x,y:g.from.y};
+    if(_connResolve(el.to))   el.toPt={x:g.to.x,y:g.to.y};
+  });
+}
+function _hitConnector(el,x,y){
+  const g=_connGeom(el);
+  for(let i=0;i<g.pts.length-1;i++){ if(distToSeg(x,y,g.pts[i][0],g.pts[i][1],g.pts[i+1][0],g.pts[i+1][1])<6) return true; }
+  return false;
+}
+// Draw a connector through the shared emit backend (canvas or SVG).
+function _drawConnector(el, emit){
+  const g=_connGeom(el);
+  const col=g.dangling?'#9aa0aa':(el.color||'#333333'), sw=el.strokeWidth||2;
+  const dash=g.dangling?[5,4]:(el.dash||null);
+  for(let i=0;i<g.pts.length-1;i++) emit.line(g.pts[i][0],g.pts[i][1],g.pts[i+1][0],g.pts[i+1][1],col,sw,dash);
+  const head=(from,to)=>{
+    const ang=Math.atan2(to[1]-from[1],to[0]-from[0]); const s=el.arrowSize||10;
+    emit.line(to[0],to[1],to[0]-s*Math.cos(ang-Math.PI/7),to[1]-s*Math.sin(ang-Math.PI/7),col,sw);
+    emit.line(to[0],to[1],to[0]-s*Math.cos(ang+Math.PI/7),to[1]-s*Math.sin(ang+Math.PI/7),col,sw);
+  };
+  const P=g.pts, n=P.length;
+  if(el.arrow==='end'||el.arrow==='both'||el.arrow==null) head(P[n-2],P[n-1]);
+  if(el.arrow==='both') head(P[1],P[0]);
+  if(el.labelText){ const mid=P[Math.floor((n-1)/2)]; emit.text(el.labelText, (g.from.x+g.to.x)/2, (g.from.y+g.to.y)/2-4, `${(el.fontSize||12)}px system-ui,sans-serif`, col, 'center', 'alphabetic'); }
+}
+// Create a connector between the two selected elements.
+function connectSelected(){
+  const ids=[...selectedElems].filter(i=>freeformElements[i]&&freeformElements[i].type!=='connector');
+  if(ids.length!==2){ toast('Select exactly two objects to connect','warn'); return; }
+  const a=freeformElements[ids[0]], b=freeformElements[ids[1]];
+  if(a.id===b.id){ toast('Cannot connect an object to itself','warn'); return; }
+  addFreeformElement({ type:'connector', from:{el:a.id,side:'auto',dx:0,dy:0}, to:{el:b.id,side:'auto',dx:0,dy:0},
+    route:'straight', arrow:'end', arrowSize:10, color:'#333333', strokeWidth:2, dash:null, labelText:'',
+    fillOpacity:0, label:'connector' });
+  const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+  logAction('connector',{from:a.id,to:b.id});
+  _syncConnectorBBoxes(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast('Connected — the line follows both objects as they move','ok');
+}
+// Remove connectors whose anchored endpoint no longer exists.
+function _pruneDanglingConnectors(){
+  const before=freeformElements.length;
+  freeformElements=freeformElements.filter(el=>{ if(el.type!=='connector') return true; return !_connGeom(el).dangling; });
+  const removed=before-freeformElements.length;
+  selectedElems.clear(); updateFreeformElemList(); scheduleRender(0);
+  toast(removed?`Removed ${removed} dangling connector${removed>1?'s':''}`:'No dangling connectors','ok');
+}
+function _hasDangling(){ return freeformElements.some(el=>el.type==='connector'&&_connGeom(el).dangling); }
 
 function drawFreeformOverlay(){
   const ctx=annCanvas.getContext('2d');
@@ -7834,6 +7992,11 @@ function drawFreeformOverlay(){
   // Selection boxes + handles (rotation-aware: drawn in each element's local frame)
   freeformElements.forEach((el,i)=>{
     if(!selectedElems.has(i)) return;
+    // Connectors: show just the two endpoint handles, no bbox/rotate stem.
+    if(el.type==='connector'){
+      if(!el.locked) getFreeformHandles(el).forEach(h=>{ ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(h.x,h.y,5,0,Math.PI*2); ctx.fill(); ctx.stroke(); });
+      return;
+    }
     const cx=el.x+el.w/2, cy=el.y+el.h/2;
     ctx.save();
     if(el.rotation){ ctx.translate(cx,cy); ctx.rotate(el.rotation*Math.PI/180); ctx.translate(-cx,-cy); }
@@ -7935,12 +8098,21 @@ function renderFreeform(canvas, ctx, S, opts){
   ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
   ctx.fillStyle=bgColor; ctx.fillRect(0,0,W,H);
 
+  if(typeof _syncConnectorBBoxes==='function') _syncConnectorBBoxes();   // derive connector geometry first
   // Sort by zIndex
   const sorted=[...freeformElements].sort((a,b)=>a.zIndex-b.zIndex);
 
   sorted.forEach(el=>{
     ctx.save();
     ctx.globalAlpha=el.opacity??1;
+    // Connectors carry absolute geometry — draw before the rotation transform and skip it.
+    // skipCharts (set only by the SVG export) also skips connectors, which that path
+    // re-emits as true vector; otherwise they'd double-draw over the raster.
+    if(el.type==='connector'){
+      if(!skipCharts) _drawConnector(el, _chartEmitCanvas(ctx));   // reuse the chart emit backend
+      if(!isExport){ const ci=freeformElements.indexOf(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
+      ctx.restore(); return;
+    }
     // Rotate around element center
     if(el.rotation){
       ctx.translate(el.x+el.w/2, el.y+el.h/2);
@@ -8173,6 +8345,12 @@ function freeformMousemove(e){
   if(elemResizeState){
     const {idx,handle,origX,origY,origW,origH,mx,my}=elemResizeState;
     const el=freeformElements[idx];
+    // Connector endpoint drag: detach that end to a free point that follows the cursor.
+    // (Drop-to-reattach is handled on mouseup.)
+    if(el.type==='connector'&&(handle==='from'||handle==='to')){
+      if(handle==='from'){ el.from={el:null}; el.fromPt={x,y}; } else { el.to={el:null}; el.toPt={x,y}; }
+      drawFreeformOverlay(); scheduleRender(0); return true;
+    }
     let rdx=x-mx, rdy=y-my;
     if(el.rotation){ const r=-el.rotation*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r), t=rdx*cs-rdy*sn; rdy=rdx*sn+rdy*cs; rdx=t; }
     const dx=snapValue(rdx), dy=snapValue(rdy);
@@ -8249,7 +8427,16 @@ function freeformMouseup(e){
     scheduleRender(0); return true;
   }
   if(elemRotateState){ elemRotateState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
-  if(elemResizeState){ elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true; }
+  if(elemResizeState){
+    // Connector endpoint dropped over an element → re-attach to it (auto side).
+    const rs=elemResizeState, rel=freeformElements[rs.idx];
+    if(rel&&rel.type==='connector'&&(rs.handle==='from'||rs.handle==='to')){
+      const {x,y}=canvasCoords(annCanvas,e);
+      const hit=[...freeformElements].reverse().find(o=>o!==rel&&o.type!=='connector'&&hitFreeformElement(o,x,y));
+      if(hit){ if(rs.handle==='from') rel.from={el:hit.id,side:'auto',dx:0,dy:0}; else rel.to={el:hit.id,side:'auto',dx:0,dy:0}; }
+    }
+    elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true;
+  }
   if(elemDragState?.moving){
     elemDragState=null; _snapGuides=null; annCanvas.style.cursor='default';
     _commitFF(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0); return true;
@@ -8293,11 +8480,12 @@ function freeformMouseup(e){
 // canvas edges/centre. Nudges el.x/el.y and returns the guide lines to draw.
 function _applyObjectSnap(el, bypass){
   if(bypass) return null;
+  if(el.type==='connector') return null;                  // derived bbox — snapping would corrupt it
   const TH=6;                                              // snap threshold (logical px)
   const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
   const meIdx=freeformElements.indexOf(el);
   const xs=[0,W/2,W], ys=[0,H/2,H];                        // canvas edges + centre
-  freeformElements.forEach((e,i)=>{ if(i===meIdx) return;
+  freeformElements.forEach((e,i)=>{ if(i===meIdx||e.type==='connector') return;   // connectors aren't snap targets
     xs.push(e.x, e.x+e.w/2, e.x+e.w); ys.push(e.y, e.y+e.h/2, e.y+e.h); });
   let gx=null, gy=null;
   const ex=[el.x, el.x+el.w/2, el.x+el.w];                 // my left / centre / right
@@ -8312,7 +8500,8 @@ function _applyObjectSnap(el, bypass){
 // ═══════════════════════════════════════════════════════════════
 function alignElems(dir){
   if(selectedElems.size<1) return;
-  const sel=[...selectedElems].map(i=>freeformElements[i]);
+  const sel=[...selectedElems].map(i=>freeformElements[i]).filter(e=>e&&e.type!=='connector');  // connectors follow their anchors
+  if(!sel.length) return;
   const minX=Math.min(...sel.map(e=>e.x)), maxX=Math.max(...sel.map(e=>e.x+e.w));
   const minY=Math.min(...sel.map(e=>e.y)), maxY=Math.max(...sel.map(e=>e.y+e.h));
   sel.forEach(el=>{
@@ -8328,7 +8517,8 @@ function alignElems(dir){
 
 function distributeElems(dir){
   if(selectedElems.size<3) return;
-  const sel=[...selectedElems].map(i=>({idx:i,el:freeformElements[i]}));
+  const sel=[...selectedElems].map(i=>({idx:i,el:freeformElements[i]})).filter(o=>o.el&&o.el.type!=='connector');
+  if(sel.length<3) return;
   if(dir==='h'){
     sel.sort((a,b)=>a.el.x-b.el.x);
     const minX=sel[0].el.x, maxX=sel[sel.length-1].el.x+sel[sel.length-1].el.w;
@@ -9363,6 +9553,9 @@ function positionCtxToolbar(){
   const anyGrouped=[...selectedElems].some(i=>freeformElements[i]&&freeformElements[i].groupId);
   const gb=document.getElementById('ctx-group'); if(gb) gb.style.display=(selectedElems.size>=2&&!anyGrouped)?'':'none';
   const ub=document.getElementById('ctx-ungroup'); if(ub) ub.style.display=anyGrouped?'':'none';
+  // Connect shows when exactly two non-connector objects are selected.
+  const nonConn=[...selectedElems].filter(i=>freeformElements[i]&&freeformElements[i].type!=='connector');
+  const cb=document.getElementById('ctx-connect'); if(cb) cb.style.display=(nonConn.length===2)?'':'none';
   tb.style.display='flex';
   const tbW=tb.offsetWidth||160, tbH=tb.offsetHeight||34;
   let left=rect.left+((minX+maxX)/2)*sx-tbW/2;
@@ -10140,12 +10333,19 @@ function updateElemPropsBar(){
   const isPatch=el.type==='patch';
   const isPaint=el.type==='paint';
   const isChart=el.type==='chart';
+  const isConn=el.type==='connector';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
   document.getElementById('ep-patch-props').style.display=isPatch?'flex':'none';
   document.getElementById('ep-paint-props').style.display=isPaint?'flex':'none';
   const chartPane=document.getElementById('ep-chart-props'); if(chartPane) chartPane.style.display=isChart?'flex':'none';
+  const connPane=document.getElementById('ep-conn-props'); if(connPane) connPane.style.display=isConn?'flex':'none';
   if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette; }
+  if(isConn){
+    const set=(id,v)=>{ const e=document.getElementById(id); if(e){ if(e.type==='checkbox') e.checked=!!v; else e.value=v; } };
+    set('ep-conn-route',el.route||'straight'); set('ep-conn-arrow',el.arrow||'end'); set('ep-conn-w',el.strokeWidth||2);
+    set('ep-conn-dash',!!el.dash); set('ep-conn-color',el.color||'#333333'); set('ep-conn-label',el.labelText||'');
+  }
   const isIcon=!!el.isIcon;
   document.getElementById('ep-icon-props').style.display=isIcon?'flex':'none';
   if(isIcon){ const c=document.getElementById('ep-icon-color'); if(c) c.value=_hex6(el.iconColor); }
@@ -10193,6 +10393,8 @@ function updateElemProp(prop, val){
   el[prop]=val;
   scheduleRender(0);
 }
+// Connector props-bar controls.
+function _epConn(prop,val){ if(selectedElems.size!==1) return; const el=freeformElements[[...selectedElems][0]]; if(!el||el.type!=='connector') return; el[prop]=val; scheduleRender(0); }
 // Chart props-bar quick controls (full editing lives in the chart modal).
 function _epChartKind(k){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.kind=k; el._chartKey=''; el._chartStat=null; scheduleRender(0); }
 function _epChartPalette(p){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.style.palette=p; el._chartKey=''; el._chartStat=null; scheduleRender(0); }

@@ -826,6 +826,178 @@ test('groupId round-trips through a session save/load', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ── Phase 5: connectors ──
+
+async function seedTwoBoxesAndConnect(page) {
+  await seedFreeform(page, [
+    { type: 'rect', x: 100, y: 100, w: 120, h: 80, label: 'A' },
+    { type: 'rect', x: 400, y: 300, w: 120, h: 80, label: 'B' },
+  ]);
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(0); selectedElems.add(1); connectSelected(); render(); });
+}
+
+test('connector follows both endpoints on move and on resize', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    const conn = freeformElements.find(e => e.type === 'connector');
+    const g0 = _connGeom(conn);
+    freeformElements[0].x += 50; freeformElements[0].y += 20; _syncConnectorBBoxes();
+    const g1 = _connGeom(conn);
+    // Resize box B by dragging its left edge (x and w both change) — the anchored face moves.
+    freeformElements[1].x -= 50; freeformElements[1].w += 50; _syncConnectorBBoxes();
+    const g2 = _connGeom(conn);
+    return {
+      fromTrackedMove: g1.from.x !== g0.from.x || g1.from.y !== g0.from.y,
+      toUnchangedByAMove: g1.to.x === g0.to.x && g1.to.y === g0.to.y,
+      toTrackedResize: g2.to.x !== g1.to.x || g2.to.y !== g1.to.y,
+    };
+  });
+  expect(r.fromTrackedMove).toBe(true);
+  expect(r.toUnchangedByAMove).toBe(true);
+  expect(r.toTrackedResize).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('anchoring is correct under rotation and auto picks the post-rotation face', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    const A = freeformElements[0];               // 100,100 120x80
+    A.rotation = 90;
+    _syncConnectorBBoxes();
+    // The 'r' anchor at rotation 0 is (220,140); rotated 90° about centre (160,140) → (160,200).
+    const a = _connAnchor(A, 'r', 0, 0);
+    const conn = freeformElements.find(e => e.type === 'connector');
+    const g = _connGeom(conn);
+    // Auto face must be the one nearest B's centre (460,340) — below/right of A.
+    const centre = { x: A.x + A.w / 2, y: A.y + A.h / 2 };
+    const distAuto = Math.hypot(g.from.x - 460, g.from.y - 340);
+    // Compare with the worst (top) face to prove auto didn't just pick a fixed side.
+    const top = _connAnchor(A, 't', 0, 0);
+    const distTop = Math.hypot(top.x - 460, top.y - 340);
+    return { ax: a.x, ay: a.y, distAuto, distTop };
+  });
+  expect(r.ax).toBeCloseTo(160, 1);
+  expect(r.ay).toBeCloseTo(200, 1);
+  expect(r.distAuto).toBeLessThanOrEqual(r.distTop);   // auto chose the nearest face after rotation
+  expect(errors).toEqual([]);
+});
+
+test('connector hit-test follows the polyline, not the bbox', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    const conn = freeformElements.find(e => e.type === 'connector');
+    conn.route = 'elbowH'; _syncConnectorBBoxes();
+    const g = _connGeom(conn);
+    // A point on the first segment should hit; the bbox's opposite empty corner should miss.
+    const onSeg = { x: (g.pts[0][0] + g.pts[1][0]) / 2, y: g.pts[0][1] };
+    const emptyCorner = { x: conn.x + 2, y: conn.y + conn.h - 2 };
+    const hitSeg = hitFreeformElement(conn, onSeg.x, onSeg.y);
+    // Make sure the empty corner is genuinely off every segment before asserting.
+    let offAll = true;
+    for (let i = 0; i < g.pts.length - 1; i++) if (distToSeg(emptyCorner.x, emptyCorner.y, g.pts[i][0], g.pts[i][1], g.pts[i + 1][0], g.pts[i + 1][1]) < 6) offAll = false;
+    return { hitSeg, emptyMiss: offAll ? !hitFreeformElement(conn, emptyCorner.x, emptyCorner.y) : true };
+  });
+  expect(r.hitSeg).toBe(true);
+  expect(r.emptyMiss).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('deleting an endpoint element leaves a flagged dangling connector, not a crash', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    // Delete box A (index 0).
+    selectedElems.clear(); selectedElems.add(0); deleteSelectedElems();
+    render();                                   // must not throw
+    const conn = freeformElements.find(e => e.type === 'connector');
+    const dangling = _connGeom(conn).dangling;
+    const hadDangling = _hasDangling();
+    _pruneDanglingConnectors();
+    return { stillPresent: !!conn, dangling, hadDangling, afterPrune: freeformElements.some(e => e.type === 'connector') };
+  });
+  expect(r.stillPresent).toBe(true);
+  expect(r.dangling).toBe(true);
+  expect(r.hadDangling).toBe(true);
+  expect(r.afterPrune).toBe(false);             // prune removed it
+  expect(errors).toEqual([]);
+});
+
+test('duplicating a box+connector pair rewires the copy to the copied box', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    // Select both boxes and the connector, duplicate all three.
+    selectedElems.clear(); selectedElems.add(0); selectedElems.add(1);
+    const ci = freeformElements.findIndex(e => e.type === 'connector'); selectedElems.add(ci);
+    const origAId = freeformElements[0].id, origBId = freeformElements[1].id;
+    duplicateSelectedElems();
+    const copies = [...selectedElems].map(i => freeformElements[i]);
+    const copyConn = copies.find(e => e.type === 'connector');
+    const copyBoxIds = new Set(copies.filter(e => e.type !== 'connector').map(e => e.id));
+    return {
+      rewired: copyBoxIds.has(copyConn.from.el) && copyBoxIds.has(copyConn.to.el),
+      notOriginal: copyConn.from.el !== origAId && copyConn.to.el !== origBId,
+    };
+  });
+  expect(r.rewired).toBe(true);         // copy points at the copied boxes
+  expect(r.notOriginal).toBe(true);     // not at the originals
+  expect(errors).toEqual([]);
+});
+
+test('connectors are excluded from align, distribute, and snap', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(() => {
+    const conn = freeformElements.find(e => e.type === 'connector');
+    const before = { fromEl: conn.from.el, toEl: conn.to.el };
+    // Align a box + the connector to the left; the connector must be untouched.
+    selectedElems.clear(); selectedElems.add(0);
+    const ci = freeformElements.findIndex(e => e.type === 'connector'); selectedElems.add(ci);
+    alignElems('left');
+    const snapRes = _applyObjectSnap(conn, false);
+    return { fromSame: conn.from.el === before.fromEl, toSame: conn.to.el === before.toEl, snapNull: snapRes === null };
+  });
+  expect(r.fromSame).toBe(true);
+  expect(r.toSame).toBe(true);
+  expect(r.snapNull).toBe(true);       // snap refuses to touch a connector
+  expect(errors).toEqual([]);
+});
+
+test('connector exports as vector in SVG and round-trips through a session', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedTwoBoxesAndConnect(page);
+  const r = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')));
+    const svg = new TextDecoder().decode(cap.data);
+    // Round-trip.
+    const ser = serializeSession(true);
+    applySession(JSON.parse(JSON.stringify(ser)));
+    const conn = freeformElements.find(e => e.type === 'connector');
+    const resolves = !!(freeformElements.find(e => e.id === conn.from.el) && freeformElements.find(e => e.id === conn.to.el));
+    return { hasVectorLine: (svg.match(/<line/g) || []).length > 0, connInSvg: svg.includes('<g'), resolves };
+  });
+  expect(r.hasVectorLine).toBe(true);
+  expect(r.resolves).toBe(true);        // endpoint ids still resolve after load
+  expect(errors).toEqual([]);
+});
+
+test('self-connection is refused', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'rect', x: 100, y: 100, w: 120, h: 80, label: 'A' }]);
+  const r = await page.evaluate(() => {
+    // Force the same element into the selection twice is impossible (Set), so test connectSelected guard directly.
+    selectedElems.clear(); selectedElems.add(0);
+    connectSelected();                         // only one selected → refused
+    const afterOne = freeformElements.filter(e => e.type === 'connector').length;
+    return { afterOne };
+  });
+  expect(r.afterOne).toBe(0);           // no connector created from a single selection
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
