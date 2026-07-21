@@ -6805,7 +6805,9 @@ function exportSVG(name, dpi, canvas){
   const MAXPX=60e6; if(Lw*Lh*S*S>MAXPX) S=Math.max(1, Math.sqrt(MAXPX/(Lw*Lh)));
   const off=document.createElement('canvas');
   const savedAnns=annotations; annotations=[];
-  render(off, S, {skipLabels:true});   // fills figTextItems (logical coords), no text on raster
+  // skipCharts: charts are re-emitted as true vector below, so keep them off the raster
+  // (otherwise the antialiased raster edges double up under the vector <g>).
+  render(off, S, {skipLabels:true, skipCharts:true});   // fills figTextItems (logical coords), no text on raster
   annotations=savedAnns;
   const items=figTextItems.slice();
   const pngBg=off.toDataURL('image/png');
@@ -6871,6 +6873,14 @@ function exportSVG(name, dpi, canvas){
         const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(el.svgSource);
         const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
         vecSVG+=`<image x="${(+el.x).toFixed(2)}" y="${(+el.y).toFixed(2)}" width="${(+el.w).toFixed(2)}" height="${(+el.h).toFixed(2)}" preserveAspectRatio="none"${op} xlink:href="${uri}"/>`;
+      } else if(el.type==='chart' && el.chart){
+        // True vector chart geometry — one _chartDraw pass through the SVG backend.
+        const buf=[]; _chartDraw(el, _chartEmitSVG(buf));
+        // _chartDraw works in local space (0,0..w,h); the rotate centre is therefore
+        // (w/2,h/2) INSIDE the translated frame, matching the canvas render's pivot.
+        const rot=el.rotation?` rotate(${el.rotation} ${(el.w/2).toFixed(2)} ${(el.h/2).toFixed(2)})`:'';
+        const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
+        vecSVG+=`<g transform="translate(${(+el.x).toFixed(2)} ${(+el.y).toFixed(2)})${rot}"${op}>${buf.join('')}</g>`;
       }
     });
   }
@@ -7317,6 +7327,108 @@ function applySession(s,_opts){
       if(!(_opts&&_opts.silent)) toast('Session loaded','ok');
 }
 
+// ── Chart code generation ──────────────────────────────────────
+// Self-contained reproductions of the figure's charts. The dataset is inlined
+// so the script runs alone; the error metric and its exact formula are named in
+// a comment, and significance marks are flagged as author-supplied (never a
+// computed p-value) — this is what makes the generated code honest.
+function _charts(){ return (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart); }
+function _errNote(err){
+  if(err==='sd')  return 'Error bars: SD, sample standard deviation (ddof=1, i.e. n-1 denominator).';
+  if(err==='sem') return 'Error bars: SEM = SD/sqrt(n), SD with ddof=1 (n-1 denominator).';
+  if(err==='column') return 'Error bars: taken directly from a data column (as provided).';
+  return 'No error bars.';
+}
+function _chartPythonSnippet(el, idx){
+  const ch=el.chart, D=ch.data;
+  const pyv=v=>typeof v==='number'?String(v):`"${String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}"`;
+  const rows=D.rows.map(r=>'    ['+r.map(pyv).join(', ')+'],').join('\n');
+  const cols='['+D.columns.map(c=>`"${c}"`).join(', ')+']';
+  const pal='['+_chartColors(ch).map(c=>`"${c}"`).join(', ')+']';
+  const xc=ch.mapping.xCol??0, yc=JSON.stringify(ch.mapping.yCols||[1]);
+  return `# ── Chart ${idx+1}: ${ch.kind} ${ch.data.sourceName?`(${ch.data.sourceName})`:''} ──
+# ${_errNote(ch.error)}
+# Significance brackets, if any, are annotations entered by the figure author.
+# FigureLab does not compute p-values; report the statistical test in your legend.
+import numpy as np, matplotlib.pyplot as plt
+cols_${idx} = ${cols}
+data_${idx} = [
+${rows}
+]
+xcol_${idx}, ycols_${idx} = ${xc}, ${yc}
+palette_${idx} = ${pal}
+cats_${idx} = [str(r[xcol_${idx}]) for r in data_${idx}]
+fig${idx}, ax${idx} = plt.subplots(figsize=(${(el.w/96).toFixed(2)}, ${(el.h/96).toFixed(2)}))
+${_chartPyBody(ch, idx)}
+ax${idx}.set_xlabel(${JSON.stringify(ch.axes.x.title||'')}); ax${idx}.set_ylabel(${JSON.stringify(ch.axes.y.title||'')})
+${ch.axes.y.log?`ax${idx}.set_yscale("log")\n`:''}${ch.axes.x.log?`ax${idx}.set_xscale("log")\n`:''}${ch.style.showLegend?`ax${idx}.legend()\n`:''}fig${idx}.tight_layout(); fig${idx}.savefig("chart_${idx+1}.svg")
+`;
+}
+function _chartPyBody(ch, i){
+  const k=ch.kind;
+  if(k==='scatter'||k==='line'){
+    const plot=k==='line'?'ax'+i+'.plot(xs, ys, marker="o" if '+(ch.style.showPoints?'True':'False')+' else None, color=palette_'+i+'[j%len(palette_'+i+')], label=cols_'+i+'[yc])':'ax'+i+'.scatter(xs, ys, s=20, color=palette_'+i+'[j%len(palette_'+i+')], label=cols_'+i+'[yc])';
+    const fit=ch.fit&&ch.fit.on?`\n    if len(xs) >= 2:\n        m, b = np.polyfit(xs, ys, 1)  # OLS linear fit\n        xr = np.array([min(xs), max(xs)]); ax${i}.plot(xr, m*xr+b, "--", color=palette_${i}[j%len(palette_${i})])`:'';
+    return `for j, yc in enumerate(ycols_${i}):
+    pts = [(float(r[xcol_${i}]), float(r[yc])) for r in data_${i}
+           if isinstance(r[xcol_${i}], (int, float)) and isinstance(r[yc], (int, float))]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    ${plot}${fit}`;
+  }
+  if(k==='box'){
+    return `groups_${i} = {}
+for r in data_${i}:
+    for yc in ycols_${i}:
+        v = r[yc]
+        if isinstance(v,(int,float)): groups_${i}.setdefault(str(r[xcol_${i}]), []).append(v)
+ax${i}.boxplot(list(groups_${i}.values()), labels=list(groups_${i}.keys()))`;
+  }
+  // bar family
+  const err=ch.error;
+  const errCalc=err==='sd'?'np.std(vals, ddof=1) if len(vals)>1 else 0':err==='sem'?'(np.std(vals, ddof=1)/np.sqrt(len(vals))) if len(vals)>1 else 0':'0';
+  return `import collections
+series_${i} = ycols_${i}
+labels_${i} = list(dict.fromkeys(cats_${i}))
+x = np.arange(len(labels_${i})); width = 0.8/max(1,len(series_${i}))
+for j, yc in enumerate(series_${i}):
+    means, errs = [], []
+    for cat in labels_${i}:
+        vals = [r[yc] for r in data_${i} if str(r[xcol_${i}])==cat and isinstance(r[yc],(int,float))]
+        means.append(np.mean(vals) if vals else 0)
+        errs.append(${errCalc})   # ${_errNote(err)}
+    ax${i}.bar(x + (j-(len(series_${i})-1)/2)*width, means, width${err!=='none'?', yerr=errs, capsize=3':''}, color=palette_${i}[j%len(palette_${i})], label=cols_${i}[yc])
+ax${i}.set_xticks(x); ax${i}.set_xticklabels(labels_${i})`;
+}
+function _chartRSnippet(el, idx){
+  const ch=el.chart, D=ch.data;
+  const rv=v=>typeof v==='number'?String(v):`"${String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}"`;
+  // Emit a long-form data.frame column by column.
+  const colVecs=D.columns.map((c,ci)=>`  \`${c.replace(/`/g,'')}\` = c(${D.rows.map(r=>rv(r[ci])).join(', ')})`).join(',\n');
+  const xname=D.columns[ch.mapping.xCol??0]||'x';
+  const yname=D.columns[(ch.mapping.yCols||[1])[0]]||'y';
+  const pal='c('+_chartColors(ch).map(c=>`"${c}"`).join(', ')+')';
+  let geom;
+  if(ch.kind==='scatter') geom=`geom_point()${ch.fit&&ch.fit.on?' + geom_smooth(method="lm", se=FALSE, linetype="dashed")  # OLS linear fit':''}`;
+  else if(ch.kind==='line') geom='geom_line()'+(ch.style.showPoints?' + geom_point()':'');
+  else if(ch.kind==='box') geom='geom_boxplot()';
+  else geom='stat_summary(fun=mean, geom="bar")'+(ch.error!=='none'?' + stat_summary(fun.data=mean_se, geom="errorbar", width=0.2)':'');
+  return `# ── Chart ${idx+1}: ${ch.kind} ${ch.data.sourceName?`(${ch.data.sourceName})`:''} ──
+# ${_errNote(ch.error)}
+# Significance brackets, if any, were entered by the figure author.
+# FigureLab does not compute p-values; report the statistical test in your legend.
+library(ggplot2)
+df_${idx} <- data.frame(
+${colVecs},
+  check.names = FALSE
+)
+p_${idx} <- ggplot(df_${idx}, aes(x = \`${xname}\`, y = \`${yname}\`)) +
+  ${geom} +
+  labs(x = ${JSON.stringify(ch.axes.x.title||xname)}, y = ${JSON.stringify(ch.axes.y.title||yname)}) +
+  scale_fill_manual(values = ${pal}) + theme_classic()${ch.axes.y.log?' +\n  scale_y_log10()':''}
+ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height = ${(el.h/96).toFixed(2)})
+`;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // R SCRIPT
 // ═══════════════════════════════════════════════════════════════
@@ -7365,7 +7477,9 @@ montage<-image_montage(do.call(c,panels),
   geometry=paste0(PANEL_W,"x",PANEL_H,"+",GAP_H,"+",GAP_V),tile=paste0(COLS,"x",ROWS),bg=BG)
 image_write(montage,output_file,format="tiff",density=as.character(DPI))
 cat("Saved:",output_file,"\\n")`;
-  dl(blobUrl(script), (gv('export-name')||'figure')+'_assemble.R');
+  const chartR=_charts().map((el,i)=>_chartRSnippet(el,i)).join('\n');
+  const full=chartR ? script+'\n\n# ══════════════════════════════════════════════════════════\n# CHARTS — reproduce the data plots in this figure\n# ══════════════════════════════════════════════════════════\n'+chartR : script;
+  dl(blobUrl(full), (gv('export-name')||'figure')+'_assemble.R');
   toast('R script saved','ok');
 }
 
@@ -7431,7 +7545,9 @@ for idx,fpath in enumerate(files[:COLS*ROWS]):
     if c==0 and r<len(ROW_LABELS): ax.set_ylabel(ROW_LABELS[r],fontsize=${gi('axis-fs')},rotation=90,labelpad=6)
 plt.savefig(output_file,dpi=DPI,bbox_inches="tight",facecolor=BG,format="tiff")
 print(f"Saved: {output_file}")`;
-  dl(blobUrl(script), (gv('export-name')||'figure')+'_assemble.py');
+  const chartPy=_charts().map((el,i)=>_chartPythonSnippet(el,i)).join('\n');
+  const full=chartPy ? script+'\n\n# ══════════════════════════════════════════════════════════\n# CHARTS — reproduce the data plots in this figure\n# ══════════════════════════════════════════════════════════\n'+chartPy : script;
+  dl(blobUrl(full), (gv('export-name')||'figure')+'_assemble.py');
   toast('Python script saved','ok');
 }
 
@@ -7733,6 +7849,7 @@ function renderFreeform(canvas, ctx, S, opts){
   // outer transform scales to backing pixels.
   S = S || 1;
   const isExport = !!(opts && opts.export);
+  const skipCharts = !!(opts && opts.skipCharts);   // SVG export paints charts as vector, not raster
   if(!isExport){
     if(typeof hideHD==='function') hideHD(); // freeform preview stays logical
     _sbBars=[];   // rebuilt below for scale-bar drag-resize hit-testing
@@ -7868,7 +7985,8 @@ function renderFreeform(canvas, ctx, S, opts){
       if(cv) ctx.drawImage(cv, el.x, el.y, el.w, el.h);
     } else if(el.type==='chart'){
       // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
-      if(typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
+      // SVG export skips the raster here and re-emits the chart as true vector.
+      if(!skipCharts && typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
       if(!isExport){ const ci=freeformElements.indexOf(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
@@ -8706,6 +8824,21 @@ function _chartEmitCanvas(ctx){
     poly(pts,stroke,fill,sw){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     circle(cx,cy,r,fill,stroke,sw){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); ctx.fillText(str,0,0); } else ctx.fillText(str,x,y); ctx.restore(); },
+  };
+}
+// SVG backend — appends element strings to `out`. Same vocabulary as the canvas
+// backend, so _chartDraw produces true vector output with one geometry pass.
+function _chartEmitSVG(out){
+  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const n=v=>(+v).toFixed(2);
+  // Parse "12px system-ui" back into size + family for SVG font attributes.
+  const fparts=f=>{ const m=/(\d+(?:\.\d+)?)px\s+(.*)$/.exec(f||''); const wt=/^(bold)\s/.test(f)?'bold':'normal'; return {size:m?m[1]:'12', fam:(m?m[2]:'sans-serif').replace(/^bold\s+/,''), wt}; };
+  return {
+    rect(x,y,w,h,fill,stroke,sw){ let a=`<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}"`; a+=fill?` fill="${fill}"`:' fill="none"'; if(stroke){ a+=` stroke="${stroke}" stroke-width="${sw||1}"`; } out.push(a+'/>'); },
+    line(x1,y1,x2,y2,stroke,sw,dash){ out.push(`<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${stroke||'#000'}" stroke-width="${sw||1}"${dash?` stroke-dasharray="${dash.join(' ')}"`:''}/>`); },
+    poly(pts,stroke,fill,sw){ const p=pts.map(q=>`${n(q[0])},${n(q[1])}`).join(' '); out.push(`<polyline points="${p}" fill="${fill||'none'}"${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''} stroke-linejoin="round"/>`); },
+    circle(cx,cy,r,fill,stroke,sw){ out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}"${fill?` fill="${fill}"`:' fill="none"'}${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''}/>`); },
+    text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
   };
 }
 

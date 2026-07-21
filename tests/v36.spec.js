@@ -567,6 +567,129 @@ test('dragging a chart does not recompute its stats', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ── Phase 3: chart vector SVG + code generation ──
+
+async function seedBarChart(page) {
+  await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0; selectedElems.clear();
+    addFreeformElement({ type: 'chart', x: 80, y: 60, w: 400, h: 300,
+      chart: { kind: 'bar', data: { columns: ['Group', 'Value'], rows: [['Ctrl', 3], ['Drug', 7], ['Wash', 5]], source: 'test' },
+        mapping: { xCol: 0, yCols: [1], seriesCol: null, errCol: null }, agg: 'mean', error: 'sem',
+        axes: { x: { title: 'Condition' }, y: { title: 'Signal' } },
+        style: { palette: 'okabeIto', showLegend: false, showGrid: false, frame: 'lb', fontSize: 12 }, annos: [] } });
+    selectedElems.clear(); render();
+  });
+}
+
+test('SVG export emits true vector chart geometry with literal text', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedBarChart(page);
+  const svg = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')));
+    return new TextDecoder().decode(cap.data);
+  });
+  expect(svg).toMatch(/<g transform="translate/);        // chart group present
+  expect((svg.match(/<rect/g) || []).length).toBeGreaterThan(3);   // bars + frame as vector rects
+  expect((svg.match(/<line/g) || []).length).toBeGreaterThan(3);   // axes + ticks as vector lines
+  expect(svg).toContain('>Signal<');                     // axis title as literal <text>
+  expect(svg).toContain('>Condition<');
+  expect(svg).toContain('>Ctrl<');                       // category labels as literal text
+  expect(errors).toEqual([]);
+});
+
+test('SVG chart is not double-drawn: one background image, chart absent from the raster', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedBarChart(page);
+  const r = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')));
+    const svg = new TextDecoder().decode(cap.data);
+    const images = (svg.match(/<image /g) || []).length;
+    // Extract the background PNG and sample the chart's centre — it must be blank
+    // background (skipCharts worked), not painted bars.
+    const m = svg.match(/<image x="0" y="0"[^>]*xlink:href="([^"]+)"/);
+    const bgAlpha = await new Promise(res => {
+      const im = new Image();
+      im.onload = () => {
+        const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const cx = c.getContext('2d'); cx.drawImage(im, 0, 0);
+        // chart centre ≈ logical (280,210); background PNG is at export scale.
+        const sx = c.width / (canvasLogicalW || 1200), sy = c.height / (canvasLogicalH || 900);
+        const d = cx.getImageData(Math.round(280 * sx), Math.round(210 * sy), 1, 1).data;
+        res({ r: d[0], g: d[1], b: d[2] });
+      };
+      im.onerror = () => res(null);
+      im.src = m[1];
+    });
+    return { images, bgAlpha };
+  });
+  expect(r.images).toBe(1);                        // exactly one <image> = the background
+  // Chart centre on the background is white canvas, not an inked bar.
+  expect(r.bgAlpha.r).toBeGreaterThan(240);
+  expect(r.bgAlpha.g).toBeGreaterThan(240);
+  expect(r.bgAlpha.b).toBeGreaterThan(240);
+  expect(errors).toEqual([]);
+});
+
+test('rotated chart emits a rotate transform about its local centre', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedBarChart(page);
+  const svg = await page.evaluate(async () => {
+    freeformElements[0].rotation = 30;
+    const cap = await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')));
+    return new TextDecoder().decode(cap.data);
+  });
+  // w=400,h=300 → centre (200,150).
+  expect(svg).toMatch(/rotate\(30 200\.00 150\.00\)/);
+  expect(errors).toEqual([]);
+});
+
+test('Python export contains the data, the SD/SEM formula, and the no-p-value comment', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedBarChart(page);
+  const py = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportPython());
+    return new TextDecoder().decode(cap.data);
+  });
+  expect(py).toMatch(/SEM = SD\/sqrt\(n\)/);
+  expect(py).toMatch(/ddof=1/);
+  expect(py).toMatch(/does not compute p-values/i);
+  expect(py).toContain('"Ctrl"');                  // dataset inlined
+  expect(py).toContain('ax0.bar(');                // matplotlib bar call
+  expect(errors).toEqual([]);
+});
+
+test('R export is syntactically plausible with balanced parentheses', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedBarChart(page);
+  const r = await page.evaluate(async () => {
+    const cap = await _captureDownload(() => exportR());
+    const txt = new TextDecoder().decode(cap.data);
+    const open = (txt.match(/\(/g) || []).length, close = (txt.match(/\)/g) || []).length;
+    return { txt, open, close };
+  });
+  expect(r.txt).toContain('data.frame(');
+  expect(r.txt).toContain('ggplot(');
+  expect(r.txt).toMatch(/does not compute p-values/i);
+  expect(r.open).toBe(r.close);                    // parens balance
+  expect(errors).toEqual([]);
+});
+
+test('a chart with no data exports to SVG without throwing', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(async () => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0;
+    addFreeformElement({ type: 'chart', x: 60, y: 60, w: 300, h: 200,
+      chart: { kind: 'bar', data: { columns: [], rows: [], source: 'test' },
+        mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} },
+        style: { palette: 'okabeIto' }, annos: [] } });
+    render();
+    await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+  });
+  expect(errors).toEqual([]);       // loadApp's collector stays empty
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
