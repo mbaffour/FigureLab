@@ -1541,6 +1541,37 @@ test('measurements disclose that they read the 8-bit display, not raw data', asy
   expect(errors).toEqual([]);
 });
 
+test('violin and beeswarm are distribution kinds that reuse the box summary and export vector', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const rows = []; ['WT', 'KO'].forEach((g, gi) => { for (let i = 0; i < 10; i++) rows.push([g, gi * 4 + 5 + i * 0.3]); });
+    const mk = (kind) => ({ type: 'chart', x: 20, y: 20, w: 340, h: 260,
+      chart: { kind, data: { columns: ['g', 'v'], rows, source: 't' }, mapping: { xCol: 0, yCols: [1] },
+        agg: 'none', error: 'none', axes: { x: {}, y: {} },
+        style: { palette: 'okabeIto', showLegend: false, showPoints: (kind === 'violin'), frame: 'lb', fontSize: 12 }, annos: [] } });
+    // Stats: both reuse the box branch (two boxes with raw + mean + sd).
+    const vStat = _chartStatsCached(mk('violin'));
+    const bStat = _chartStatsCached(mk('beeswarm'));
+    // KDE is a deterministic smoothing (no inference).
+    const kdePts = _kde(rows.filter(r => r[0] === 'WT').map(r => r[1]), 20).length;
+    // Vector export.
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform'; setLayoutMode('freeform');
+    freeformElements.length = 0; freeformElements.push(mk('violin')); render();
+    const cap = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas')));
+    const svg = new TextDecoder().decode(cap.data);
+    const filledPoly = (svg.match(/<polyline[^>]*fill="(?!none)/g) || []).length;
+    return {
+      vBoxes: vStat.boxes.length, bHasMeanSd: typeof bStat.boxes[0].mean === 'number' && typeof bStat.boxes[0].sd === 'number',
+      kdePts, filledViolin: filledPoly,
+    };
+  });
+  expect(r.vBoxes).toBe(2);              // one distribution per category
+  expect(r.bHasMeanSd).toBe(true);       // beeswarm summary available
+  expect(r.kdePts).toBe(21);             // KDE evaluated at n+1 points
+  expect(r.filledViolin).toBeGreaterThanOrEqual(2);   // one filled density shape per category, in vector
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);
