@@ -1184,6 +1184,83 @@ test('heatmap and survival export to SVG as vector without throwing', async ({ p
   expect(errors).toEqual([]);
 });
 
+// ── Phase 8: opt-in AI extension (tagging, alt-text, integrity block) ──
+
+// A 1x1 PNG data URL to stand in for a generated image.
+const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+test('AI-generated object is tagged in the element, layer list, and provenance log', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async (src) => {
+    const sel = document.getElementById('layout-mode'); if (sel) sel.value = 'freeform';
+    setLayoutMode('freeform'); freeformElements.length = 0;
+    window._lastAIEngine = 'gemini-2.0-flash';
+    aiGeneratedSrc = src;
+    insertAIImage();
+    await new Promise(res => setTimeout(res, 80));   // img.onload is async
+    const el = freeformElements[0];
+    updateFreeformElemList();
+    const listHtml = document.getElementById('fm-elem-list').innerHTML;
+    return {
+      tagged: !!el.aiGenerated, engine: el.aiEngine, count: _aiGeneratedCount(),
+      listHasAI: />AI<\/span>/.test(listHtml),
+      logged: reproLog.some(e => e.action === 'aiGenerate'),
+    };
+  }, TINY_PNG);
+  expect(r.tagged).toBe(true);
+  expect(r.engine).toBe('gemini-2.0-flash');
+  expect(r.count).toBe(1);
+  expect(r.listHasAI).toBe(true);        // "AI" badge in the layer list
+  expect(r.logged).toBe(true);           // disclosed in provenance
+  expect(errors).toEqual([]);
+});
+
+test('AI disclosure travels into exported PNG metadata; generation never touches imported images', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);             // two imported experimental panels (grid)
+  const r = await page.evaluate(async (src) => {
+    // Insert an AI schematic into the (now freeform) figure.
+    const before = images.map(im => im.src);      // snapshot imported pixel data
+    window._lastAIEngine = 'stable-diffusion';
+    aiGeneratedSrc = src; insertAIImage();
+    await new Promise(res => setTimeout(res, 80));
+    // Imported images must be byte-identical — generation only ADDS an object.
+    const untouched = images.every((im, i) => im.src === before[i]);
+    // Export PNG and search the bytes for the disclosure tEXt.
+    render();
+    const cap = await _captureDownload(() => exportPNGWithMeta('t', 96, renderExportCanvas(96)));
+    const txt = new TextDecoder('latin1').decode(cap.data);
+    return { untouched, hasDisclosure: txt.includes('AI-Generated-Content'), mentionsNoAIonData: txt.includes('No AI was applied to imported experimental images') };
+  }, TINY_PNG);
+  expect(r.untouched).toBe(true);        // the integrity block: imported pixels never altered
+  expect(r.hasDisclosure).toBe(true);    // export metadata discloses the AI content
+  expect(r.mentionsNoAIonData).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('alt-text builds a factual structural description offline and embeds in export metadata', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [
+    { type: 'chart', x: 40, y: 40, w: 300, h: 200, chart: null },
+    { type: 'text', x: 400, y: 40, w: 150, h: 40, text: 'note' },
+  ]);
+  const r = await page.evaluate(async () => {
+    freeformElements[0].chart = { kind: 'bar', data: { columns: ['g', 'v'], rows: [['A', 1]], source: 't' },
+      mapping: { xCol: 0, yCols: [1] }, agg: 'none', error: 'none', axes: { x: {}, y: {} }, style: { palette: 'okabeIto' }, annos: [] };
+    sv('fig-title', 'Test figure');
+    const alt = await generateAltText();       // no LanguageModel in headless → rule-based path
+    render();
+    const cap = await _captureDownload(() => exportPNGWithMeta('t', 96, renderExportCanvas(96)));
+    const txt = new TextDecoder('latin1').decode(cap.data);
+    return { alt, mentionsChart: /chart/i.test(alt), mentionsTitle: alt.includes('Test figure'), inMeta: txt.includes('Alt-Text'), logged: reproLog.some(e => e.action === 'altText') };
+  });
+  expect(r.mentionsTitle).toBe(true);
+  expect(r.mentionsChart).toBe(true);    // describes structure factually
+  expect(r.inMeta).toBe(true);           // embedded for screen readers / accessibility
+  expect(r.logged).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('freeform adjustment cache does not leak into sessions or undo snapshots', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 200, iw: 100, ih: 100, brightness: 1.4, contrast: 1 }]);

@@ -2576,6 +2576,7 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Generate alt-text (accessibility)', keys:'alt text accessibility screen reader a11y', run:()=>generateAltText()},
   {label:'Group selection',          keys:'group combine objects together', run:()=>groupSelectedElems()},
   {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
   {label:'Connect two objects',      keys:'connect connector arrow link line flow', run:()=>connectSelected()},
@@ -7238,6 +7239,58 @@ async function aiPolishCaption(){
   }
 }
 
+// ── Accessibility: figure alt-text ──────────────────────────────
+// Builds a factual, structural description of the figure for screen readers and
+// journal accessibility requirements. The rule-based version needs no network; an
+// optional on-device (Chrome Prompt API) polish keeps everything on the machine.
+let _figAltText='';
+function _buildStructuralAltText(){
+  const parts=[];
+  const title=(gv('fig-title')||'').trim();
+  if(title) parts.push(`Figure titled "${title}".`);
+  if(layoutMode==='grid'){
+    const n=images.filter(Boolean).length;
+    if(n){ parts.push(`A ${gi('cols')}×${gi('rows')} panel grid of ${n} image panel${n!==1?'s':''}`+
+      (images.some(im=>im&&im.umPerPx>0)?', some with scale bars':'')+'.'); }
+  } else {
+    const byType={}; freeformElements.forEach(e=>{ byType[e.type]=(byType[e.type]||0)+1; });
+    const bits=[];
+    if(byType.image) bits.push(`${byType.image} image${byType.image!==1?'s':''}`);
+    if(byType.chart){ const kinds=[...new Set(freeformElements.filter(e=>e.type==='chart').map(e=>e.chart&&e.chart.kind))].filter(Boolean); bits.push(`${byType.chart} chart${byType.chart!==1?'s':''}${kinds.length?` (${kinds.join(', ')})`:''}`); }
+    if(byType.connector) bits.push(`${byType.connector} connector${byType.connector!==1?'s':''}`);
+    if(byType.text) bits.push(`${byType.text} text label${byType.text!==1?'s':''}`);
+    if(byType.rect||byType.ellipse) bits.push(`${(byType.rect||0)+(byType.ellipse||0)} shape(s)`);
+    if(bits.length) parts.push('A freeform figure containing '+bits.join(', ')+'.');
+  }
+  const ai=_aiGeneratedCount();
+  if(ai) parts.push(`${ai} element${ai!==1?'s are':' is'} an AI-generated schematic.`);
+  const cap=(gv('caption-out')||'').trim();
+  if(cap) parts.push('Caption: '+cap);
+  return parts.join(' ') || 'A scientific figure.';
+}
+async function generateAltText(){
+  const draft=_buildStructuralAltText();
+  _figAltText=draft;
+  // Optional on-device polish — never leaves the machine, no key.
+  if(typeof LanguageModel!=='undefined'){
+    try{
+      const avail=await LanguageModel.availability().catch(()=>'unavailable');
+      if(avail!=='unavailable'){
+        const session=await LanguageModel.create({initialPrompts:[{role:'system',content:
+          'You write concise, factual alt-text for scientific figures for screen readers. Describe only the structure given — never invent results, numbers, or statistics. One short paragraph, no preamble.'}]});
+        const out=(await session.prompt('Write alt-text for a figure with this structure:\n\n'+draft)||'').trim();
+        if(session.destroy) session.destroy();
+        const echoed=/alt-text|screen reader|never invent/i.test(out);
+        if(out && !echoed && out.length<1200) _figAltText=out;
+      }
+    }catch(e){ /* keep the rule-based draft */ }
+  }
+  try{ await navigator.clipboard.writeText(_figAltText); toast('Alt-text generated & copied — embedded in PNG export metadata','ok'); }
+  catch(e){ toast('Alt-text generated — embedded in PNG export metadata','ok'); }
+  logAction('altText',{chars:_figAltText.length, onDevice:typeof LanguageModel!=='undefined'});
+  return _figAltText;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // SAVE / LOAD JSON
 // ═══════════════════════════════════════════════════════════════
@@ -8083,7 +8136,8 @@ function updateFreeformElemList(){
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
     const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='connector'?'↳':'◻';
     const grp=el.groupId?' <span title="Grouped" style="opacity:.6">⧉</span>':'';
-    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}${grp}</span>
+    const ai=el.aiGenerated?' <span title="AI-generated schematic — disclosed in export metadata" style="font-size:9px;color:var(--a2);border:1px solid var(--a2);border-radius:3px;padding:0 3px">AI</span>':'';
+    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}${grp}${ai}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
       if(ev.target.tagName==='BUTTON') return;
@@ -10021,8 +10075,8 @@ async function generateAIImage(){
   aiGeneratedSrc=null;
   try{
     let src;
-    if(aiBackend==='gemini') src=await generateWithGemini(prompt,style);
-    else src=await generateWithSD(prompt,style);
+    if(aiBackend==='gemini'){ window._lastAIEngine='gemini-2.0-flash'; src=await generateWithGemini(prompt,style); }
+    else { window._lastAIEngine='stable-diffusion'; src=await generateWithSD(prompt,style); }
     if(src){
       aiGeneratedSrc=src;
       const img=document.createElement('img'); img.src=src;
@@ -10077,10 +10131,15 @@ function insertAIImage(){
   const img=new Image();
   img.onload=()=>{
     const el={
+      id:_uidElem(),
       type:'aiicon', src:aiGeneratedSrc, _imgEl:img,
+      // Disclosed as AI-generated: tagged in the layer list, provenance log, and export metadata.
+      // Generation only ever inserts a NEW object — it is never applied to an imported
+      // experimental image (no inpainting / region-redraw exists in FigureLab).
+      aiGenerated:true, aiEngine:(window._lastAIEngine||'ai'), aiPrompt:(document.getElementById('ai-prompt')?.value||'').slice(0,200),
       x:50, y:50, w:Math.min(400,img.width), h:Math.min(400,img.height),
       zIndex:++_fmZCounter, rotation:0, locked:false, opacity:1,
-      color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI icon',
+      color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI schematic',
       brightness:1,contrast:1,gamma:1,blackPt:0,whitePt:255,
       grayscale:false,invert:false,lut:'none',
     };
@@ -10089,11 +10148,14 @@ function insertAIImage(){
       setLayoutMode('freeform');
     }
     freeformElements.push(el); updateFreeformElemList(); scheduleRender(0);
-    toast('AI image inserted','ok');
+    logAction('aiGenerate',{engine:el.aiEngine, kind:'schematic'});   // disclosed in provenance
+    toast('AI schematic inserted — tagged as AI-generated in the layer list & export metadata','ok');
   };
   img.onerror=()=>toast('Generated image could not be inserted','err');
   img.src=aiGeneratedSrc;
 }
+// Count AI-generated objects currently on the canvas (for export disclosure).
+function _aiGeneratedCount(){ return (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e&&e.aiGenerated).length; }
 
 // ═══════════════════════════════════════════════════════════════
 // ANALYTICS: HISTOGRAM NORMALIZATION
@@ -11053,6 +11115,13 @@ async function exportPNGWithMeta(name, dpi, canvas){
     }),
     'FigureLab-ReproLog':JSON.stringify(reproLog.slice(-20)),
   };
+  // Disclose AI-generated content in the exported file's metadata, honestly and machine-readably.
+  const aiN=(typeof _aiGeneratedCount==='function')?_aiGeneratedCount():0;
+  if(aiN>0){
+    const engines=[...new Set(freeformElements.filter(e=>e&&e.aiGenerated).map(e=>e.aiEngine||'ai'))];
+    meta['AI-Generated-Content']=`${aiN} object(s) are AI-generated schematics (engine: ${engines.join(', ')}). No AI was applied to imported experimental images.`;
+  }
+  if(typeof _figAltText==='string' && _figAltText.trim()) meta['Alt-Text']=_figAltText.trim();
   // Add per-panel metadata
   images.forEach((im,i)=>{
     if(!im) return;
