@@ -1,4 +1,4 @@
-# FigureLab v3.8.0
+# FigureLab v3.9.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -119,6 +119,31 @@ Draw directly on the rendered figure:
 
 **Undo / Redo** — full history for all annotation actions
 
+### Measurement
+- **ROI** — area, mean/min/max intensity, SD (n−1), and integrated density over a dragged rectangle
+- **Line profile** — an intensity trace along a dragged line
+- **Cell count** — connected-component count above an intensity threshold
+- **Exposure analysis** — per-panel over/under-exposure, dynamic range, and saturation
+
+**Raw vs display.** Import a **16-bit or 32-bit float TIFF** and FigureLab keeps the decoder's native samples in memory next to the 8-bit display image; measurements then read *those*, giving absolute intensity at the acquisition bit depth, areas counted in source pixels, and true sensor saturation — all before any brightness/contrast/gamma/LUT. For 8-bit sources, PNG/JPEG imports, JPEG-compressed TIFFs, or a reloaded session, measurements read the rendered 8-bit canvas and say so.
+
+Reading raw values means inverting the panel's placement (crop → contain-fit or stretch) back to a source pixel. Where that can't be exact — a **rotated or flipped** panel, a **circle/ellipse crop**, or a **multi-channel composite** — FigureLab deliberately falls back to the disclosed display measurement rather than risk a wrong correspondence. Every result and every CSV row states which pixels produced it.
+
+> Not a substitute for FIJI/CellProfiler. These are simple, documented operations for sanity checks and for reporting values in a figure — real segmentation and quantitative pipelines belong in a dedicated analysis tool, and the result panel says so.
+
+### Gene Maps & Genetic Circuits 🧬
+A freeform element that draws DNA constructs scaled by base pairs.
+
+- **Linear constructs** and **circular plasmid maps**
+- **SBOL Visual glyphs** — promoter (bent arrow), RBS (half-dome), CDS (arrow-block), terminator (T-bar), operator, origin of replication, primer, restriction site, ribozyme, insulator, scar, ncRNA, protein tag; an unrecognised type falls back to a labelled box rather than failing
+- **Strand direction** shown by the glyph itself — arrow-blocks on linear maps, tapered arcs on plasmid maps — with forward features above the backbone and reverse below
+- **bp ruler** and a size stamp; labels stagger across rows instead of overprinting on dense constructs
+- **Three ways in** — paste a feature table (`name, type, start, end, strand`; tab, comma, or two-space separated), add features one at a time from a glyph dropdown, or drop a **GenBank/FASTA** file onto the canvas
+- **Scale the whole design** — set the backbone length in bp and the drawing rescales, or use `⤢ Rescale…` to multiply every coordinate so a construct keeps its proportions at a new size
+- **True vector export** — real `<polyline>`/`<rect>` glyphs and live `<text>` in SVG, redrawn at target DPI for raster
+
+GenBank import reads the LOCUS length, the circular/linear flag, and the FEATURES table (`/label`, `/gene`, `/product` for names; `complement()` for the reverse strand). The sequence is ignored, the record-wide `source` feature is skipped, and a `join()` is drawn as its overall span — spliced exon structure is not represented. Nothing is inferred: the map shows what the file declares.
+
 ### Canvas Navigation
 | Action | How |
 |---|---|
@@ -228,6 +253,18 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.9 — 24 July 2026
+**Focus: measure the real data, and draw the constructs behind it. Same single, offline, private file.**
+
+- **Raw-pixel measurement pipeline** — importing a 16-bit or 32-bit float TIFF now retains the decoder's **native samples** alongside the 8-bit display image (single-channel, capped at 24 MP to bound memory). ROI, line profile, cell count, and exposure analysis measure *those*, reporting absolute intensity, SD (n−1), and integrated density at the acquisition bit depth — before any brightness/contrast/gamma/LUT. Previous releases could only measure the rendered display.
+- **True sensor saturation** — exposure analysis reports the fraction of pixels at the sensor maximum, measured pre-adjustment, alongside the existing display-clipping figure. Display clipping and acquisition saturation are no longer conflated.
+- **Correct areas** — with an exact source mapping, an ROI's area is counted in **source pixels**, so µm² finally uses the coordinate space the µm/px calibration is defined in rather than on-screen pixels.
+- **Honest fallback, never a guess** — reading raw values requires inverting the panel's placement (crop → contain-fit or stretch) back to a source pixel. Where that can't be exact — a rotated or flipped panel, a circle/ellipse crop, a multi-channel composite, or any image with no raw data — FigureLab measures the 8-bit display and says so. Every on-screen result and every CSV row states which pixels produced it.
+- **🧬 Gene maps & genetic circuits** — a new freeform element draws DNA constructs scaled by base pairs, **linear or circular**, with **SBOL Visual** glyphs (promoter, RBS, CDS, terminator, operator, origin of replication, primer, restriction site, ribozyme, insulator, scar, ncRNA, tag). Features carry strand direction — arrow-blocks on linear maps, tapered arcs on plasmid maps — labels stagger across rows instead of overprinting on dense constructs, and a bp ruler shows the scale.
+- **Build a map any way you like** — paste a feature table straight from a spreadsheet (tab, comma, or two-space separated), add features one at a time from a glyph dropdown, or drop a **GenBank / FASTA** file onto the canvas. `⤢ Rescale…` multiplies every coordinate so a design keeps its proportions at a new total length. Import reads only what the file declares (LOCUS length, topology, FEATURES table, `complement()` strands) — nothing is inferred and no feature is invented.
+- **Gene maps export as true vector** — geometry runs through the same emit backend as charts, so SVG export carries real `<polyline>`/`<rect>` glyphs and live `<text>` labels, and raster exports redraw at the target DPI.
+- **157 Playwright tests** (up from 133), including raw-value assertions against purpose-built 16-bit TIFF fixtures with hand-computed means.
 
 ### v3.8 — 21 July 2026
 **Focus: transparency, honesty, and polish — driven by a deep review of what scientists actually need. Same single, offline, private file.**
@@ -391,7 +428,7 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** — it always resolves to the latest version.
-To cite this exact release, use the v3.8.0 DOI [`10.5281/zenodo.21478410`](https://doi.org/10.5281/zenodo.21478410).
+To cite an exact release, use its version DOI — the most recently archived is v3.8.0, [`10.5281/zenodo.21478410`](https://doi.org/10.5281/zenodo.21478410). Every archived version's DOI is listed in [`CITATION.cff`](CITATION.cff).
 
 ---
 

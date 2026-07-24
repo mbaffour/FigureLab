@@ -433,7 +433,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
   <div class="logo">Figure<span>Lab</span></div>
-  <span class="badge" id="version-badge">v3.8.0</span>
+  <span class="badge" id="version-badge">v3.9.0</span>
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
@@ -578,6 +578,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
       <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
       <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
+      <div class="sec-lbl" style="margin-top:6px">Gene maps &amp; circuits</div>
+      <div class="inline-row">
+        <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('linear')" title="A linear construct scaled by base pairs, with SBOL Visual glyphs">🧬 Linear</button>
+        <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('circular')" title="A circular plasmid map scaled by base pairs">⭕ Plasmid</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.35">Drop a <code>.gb</code> / <code>.fasta</code> file on the canvas to build a map from it.</div>
       <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
       <input type="text" id="icon-search" placeholder="Search icons — cell, arrow, mouse…" oninput="renderIconPalette(this.value)" style="width:100%;margin-bottom:2px">
       <div id="icon-palette" class="icon-palette"></div>
@@ -1050,6 +1056,21 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <option value="okabeIto">Okabe–Ito</option><option value="tolBright">Tol</option><option value="ibm">IBM</option><option value="grayscale">Gray</option>
         </select></label>
     </div>
+    <div id="ep-genemap-props" style="display:none;align-items:center;gap:6px">
+      <div class="abar-sep"></div>
+      <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openGenemapModal()" title="Edit the construct, its features and its size">⚙ Edit map…</button>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Shape
+        <select id="ep-gm-topology" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epGenemapTopology(this.value)">
+          <option value="linear">Linear</option><option value="circular">Circular</option>
+        </select></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Length bp
+        <input type="number" id="ep-gm-length" min="1" step="1" style="width:66px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" onchange="_epGenemapLength(+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px">Palette
+        <select id="ep-gm-palette" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epGenemapPalette(this.value)">
+          <option value="sbol">SBOL</option><option value="cb">Okabe–Ito</option><option value="mono">Mono</option>
+        </select></label>
+      <span id="ep-gm-scale" style="color:var(--muted);font-size:10px"></span>
+    </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px">Crop%:</span>
@@ -1139,6 +1160,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="applyStarter('grid3x3')" title="3×3 panel grid">▩ 3×3</button>
           <button class="btn" onclick="applyStarter('pathway')" title="Freeform pathway/flow diagram">➜ Pathway</button>
           <button class="btn" onclick="addChartElement('bar')" title="Add a data chart from a CSV or pasted data">📊 Chart</button>
+          <button class="btn" onclick="addGenemapElement('linear')" title="Add a bp-scaled gene map / genetic circuit (SBOL glyphs)">🧬 Gene map</button>
         </div>
         <div class="es-actions" style="margin-top:6px">
           <span style="font-size:10.5px;color:var(--muted);align-self:center">Flow:</span>
@@ -1289,6 +1311,63 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
       <button class="btn" onclick="closeChartModal()">Cancel</button>
       <button class="btn btn-primary" onclick="applyChartModal()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Gene map / genetic circuit editor modal ──────────────── -->
+<div class="modal-bg" id="genemap-modal">
+  <div class="modal" style="max-width:660px">
+    <button class="modal-close" onclick="closeGenemapModal()">×</button>
+    <h3>🧬 Gene map</h3>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1.2;min-width:300px">
+        <div class="sec-lbl">Features
+          <span class="help-chip" tabindex="0" role="button" aria-label="About the feature table" data-tip="One feature per line: name, type, start, end, strand — separated by tabs, commas, or two spaces. Paste straight from a spreadsheet. Coordinates are base pairs on the backbone.">?</span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin:2px 0">name · type · start · end · strand (+/−) — tab, comma or 2-space separated</div>
+        <textarea id="gm-table" spellcheck="false" style="width:100%;height:190px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;white-space:pre;overflow:auto"></textarea>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:5px;flex-wrap:wrap">
+          <select id="gm-newtype" style="font-size:11px;flex:1;min-width:130px"></select>
+          <button class="btn" style="padding:2px 9px;font-size:10px" onclick="_gmAddRow()">+ Add feature</button>
+          <button class="btn" style="padding:2px 9px;font-size:10px" onclick="_gmRescale()" title="Multiply every coordinate so the design keeps its proportions at a new total length">⤢ Rescale…</button>
+        </div>
+      </div>
+      <div style="flex:1;min-width:250px;display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:11px">Backbone length (bp)
+          <input type="number" id="gm-length" min="1" step="1" style="width:100%"></label>
+        <label style="font-size:11px">Topology
+          <select id="gm-topology" style="width:100%">
+            <option value="linear">Linear construct</option>
+            <option value="circular">Circular (plasmid)</option>
+          </select></label>
+        <label style="font-size:11px">Title
+          <input type="text" id="gm-title" style="width:100%" placeholder="e.g. pFL-GFP"></label>
+        <label style="font-size:11px">Glyph colours
+          <select id="gm-palette" style="width:100%">
+            <option value="sbol">SBOL Visual (by feature type)</option>
+            <option value="cb">Okabe–Ito (colourblind-safe)</option>
+            <option value="mono">Monochrome</option>
+          </select></label>
+        <label style="font-size:11px">Font size
+          <input type="number" id="gm-fontsize" min="6" max="28" step="1" style="width:100%"></label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
+          <label><input type="checkbox" id="gm-ruler"> bp ruler</label>
+          <label><input type="checkbox" id="gm-labels"> labels</label>
+          <label><input type="checkbox" id="gm-strandrows"> split by strand</label>
+        </div>
+        <div class="sec-lbl" style="margin-top:4px">Import</div>
+        <label class="btn" style="padding:3px 9px;font-size:10px;justify-content:center;cursor:pointer">
+          📄 GenBank / FASTA…
+          <input type="file" accept=".gb,.gbk,.genbank,.fasta,.fa,.fna,.seq,text/plain" style="display:none" onchange="_gmImportFile(this)">
+        </label>
+        <div style="font-size:10px;color:var(--muted);line-height:1.35">Reads the LOCUS length and the FEATURES table only. Nothing is inferred — the map shows what the file declares.</div>
+        <div id="gm-stat" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn" onclick="closeGenemapModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="applyGenemapModal()">Apply</button>
     </div>
   </div>
 </div>
@@ -1450,6 +1529,18 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
+<h3 class="help-h">What's new in v3.9 <span style="font-size:11px;color:var(--muted);font-weight:400">· updated 24 July 2026</span></h3>
+<p class="help-p">Two big additions: measurements that read your <b>real</b> pixel data, and a bp-scaled gene-map / genetic-circuit tool. Still one offline file, still nothing uploaded.</p>
+<ul class="help-ul">
+  <li><b>Measure the raw data, not the picture.</b> When you import a 16-bit or float TIFF, FigureLab now keeps the native samples alongside the 8-bit display image. ROI, line profile, cell count and exposure read <b>those</b> — so you get absolute intensities at the acquisition bit depth, before any brightness/contrast/gamma/LUT. Every result says which pixels produced it, and the CSV records it per row.</li>
+  <li><b>True saturation, at last.</b> Exposure analysis now reports the fraction of pixels sitting at the <b>sensor</b> maximum — the number that actually matters — instead of inferring clipping from the display.</li>
+  <li><b>Correct areas.</b> A raw ROI is measured in source pixels, so µm² finally uses the calibration's own coordinate space rather than on-screen pixels.</li>
+  <li><b>Honest fallback.</b> Where the mapping back to source pixels can't be exact — a rotated or flipped panel, a shaped crop, a multi-channel composite, or any image with no raw data (PNG/JPEG) — FigureLab measures the display and says so, rather than guessing.</li>
+  <li><b>🧬 Gene maps &amp; genetic circuits.</b> A new element draws DNA constructs scaled by base pairs, <b>linear or circular</b>, with <b>SBOL Visual</b> glyphs — promoter, RBS, CDS, terminator, operator, origin, primer, ribozyme, insulator, scar and more. Features carry strand direction, labels stagger instead of overprinting, and a bp ruler shows the scale.</li>
+  <li><b>Build it however you like.</b> Paste a feature table from a spreadsheet, add features one at a time, or drop a <b>GenBank / FASTA</b> file on the canvas. Set the backbone length in bp and everything scales; <b>Rescale…</b> multiplies every coordinate so a design keeps its proportions at a new size.</li>
+  <li><b>Vector out.</b> Gene maps export as true SVG geometry with real text — crisp at any DPI and editable in Illustrator or Inkscape, exactly like charts.</li>
+</ul>
+<div style="height:12px;border-bottom:1px solid var(--border);margin-bottom:12px"></div>
 <h3 class="help-h">What's new in v3.8 <span style="font-size:11px;color:var(--muted);font-weight:400">· updated 21 July 2026</span></h3>
 <p class="help-p">A transparency, honesty &amp; polish release driven by a deep look at what scientists actually need — same single, offline, private file.</p>
 <ul class="help-ul">
@@ -1604,6 +1695,31 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li>Press <kbd>Ctrl</kbd>+<kbd>S</kbd> to save the session JSON (images included) so you can reopen and revise the whole figure later.</li>
 </ol>
 <div class="help-callout help-tip"><b>Tip</b> The reproducibility script plus the CSV metadata together document exactly how each panel was processed — pasting the key values into your methods section pre-empts the "how were images adjusted?" reviewer question.</div>
+
+<h3 class="help-h">7 · Quantifying intensity from a 16-bit image</h3>
+<p class="help-p">Most figure tools measure the picture on your screen. If you import a 16-bit or 32-bit float TIFF, FigureLab keeps the camera's own numbers and measures those instead.</p>
+<ol class="help-ol">
+  <li>Import the <span class="help-ui">.tif</span> directly — not a PNG or JPEG export of it. The import toast confirms <i>"native samples kept for measurement"</i>.</li>
+  <li>Pick <span class="help-ui">📐 Measure ROI</span> or <span class="help-ui">📈 Line profile</span> and drag over the panel.</li>
+  <li>Read the result. A green <span class="help-ui">✓</span> line means the numbers came from the raw samples: you get the mean, min, max and SD in <b>absolute</b> intensity units, the bit depth, and the count of source pixels measured.</li>
+  <li>Run <span class="help-ui">⚡ Exposure Analysis</span> for the number that matters most — the percentage of pixels sitting at the <b>sensor</b> maximum, measured before any adjustment.</li>
+  <li><span class="help-ui">⬇ Export measurements</span> writes a CSV whose <i>Measured on</i> column states, row by row, whether each figure came from raw samples or the 8-bit display.</li>
+</ol>
+<div class="help-callout"><b>When it falls back</b> An exact mapping back to source pixels isn't always possible. If the panel is rotated or flipped, uses a circle/ellipse crop, is a multi-channel composite, or has no raw data (PNG/JPEG, JPEG-compressed TIFF, or a reloaded session), FigureLab measures the 8-bit display and says so with the usual amber warning. It never guesses a mapping.</div>
+<div class="help-callout help-tip"><b>Tip</b> Raw samples live in memory only — they are deliberately not written into saved sessions (a 16-bit array is far too large). Reopen a session and measurements fall back to the display path, so re-import the TIFF when you need raw numbers.</div>
+
+<h3 class="help-h">8 · Drawing a gene map or genetic circuit</h3>
+<p class="help-p">Construct maps, plasmid diagrams and SBOL-style circuits, scaled by base pairs and exported as true vector.</p>
+<ol class="help-ol">
+  <li>In freeform mode, click <span class="help-ui">🧬 Linear</span> or <span class="help-ui">⭕ Plasmid</span> — or drop a <span class="help-ui">.gb</span> / <span class="help-ui">.gbk</span> / <span class="help-ui">.fasta</span> file straight onto the canvas to build the map from it.</li>
+  <li>Set <span class="help-ui">Backbone length (bp)</span>. Everything is positioned by base pair, so this one number sets the scale of the whole drawing.</li>
+  <li>Edit the feature table — one line per feature: <i>name, type, start, end, strand</i>, separated by tabs, commas, or two spaces. Paste it straight out of a spreadsheet, or use <span class="help-ui">+ Add feature</span> to build a design from scratch.</li>
+  <li>Choose the glyph type per feature: promoter, RBS, CDS, terminator, operator, origin, primer, restriction site, ribozyme, insulator, scar, ncRNA or tag. Strand <span class="help-ui">−</span> points the glyph the other way.</li>
+  <li>Toggle the bp ruler, labels, and strand splitting (forward above the backbone, reverse below). Pick <b>SBOL Visual</b> colours by feature type, or Okabe–Ito for a colourblind-safe palette.</li>
+  <li>Use <span class="help-ui">⤢ Rescale…</span> to multiply every coordinate at once — the design keeps its proportions at a new total length.</li>
+  <li>Export as <span class="help-ui">SVG</span> for real vector geometry and editable text, or at 300–600 DPI for a raster figure.</li>
+</ol>
+<div class="help-callout"><b>What import reads</b> GenBank import takes the LOCUS length, the circular/linear flag, and the FEATURES table (using <span class="help-ui">/label</span>, <span class="help-ui">/gene</span> or <span class="help-ui">/product</span> for names, and honouring <span class="help-ui">complement()</span> for the reverse strand). Nothing is inferred and no feature is invented — a <span class="help-ui">join()</span> is drawn as its overall span, so exon structure isn't represented. FASTA gives you a correctly sized empty backbone to annotate.</div>
 <!-- /HELP:USECASES -->
       </div>
       <div class="help-pane" id="help-pane-faq">
@@ -1624,6 +1740,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details class="faq-item"><summary class="faq-q">Why does my scale bar say "uncalibrated" (⚠)?</summary><div class="faq-a"><p class="help-p">The warning badge appears whenever a panel's µm/px ratio has not been set, so FigureLab cannot know the real-world length of the bar. Calibrate the panel and the badge disappears.</p></div></details>
 <details class="faq-item"><summary class="faq-q">How do I calibrate a panel?</summary><div class="faq-a"><p class="help-p">Two ways:</p><ul class="help-ul"><li><b>Two-point calibration</b> — click <span class="help-ui">🔬 Calibrate from image</span> in the panel settings, click two points a known distance apart (e.g. a stage micrometer), and enter the real distance. FigureLab computes µm/px automatically.</li><li><b>Objective preset</b> — pick your objective (4×–100×) to apply an approximate µm/px value.</li></ul><div class="help-callout help-tip"><b>Tip</b> Once calibrated, press <span class="help-ui">Auto SB</span> to snap the bar to a clean length (about 20% of the panel width).</div></div></details>
 <details class="faq-item"><summary class="faq-q">Can I match the physical scale across several panels?</summary><div class="faq-a"><p class="help-p">Yes. After calibrating, use the scale-matching option so panels imaged at the same magnification share one consistent µm/px, keeping bar lengths comparable across the figure.</p></div></details>
+
+<h3 class="help-h">Measurement &amp; quantification</h3>
+<details class="faq-item"><summary class="faq-q">Do measurements read my real pixel values, or what's on screen?</summary><div class="faq-a"><p class="help-p">Both are possible, and every result tells you which one you got. Import a <b>16-bit or 32-bit float TIFF</b> and FigureLab keeps the camera's native samples in memory alongside the 8-bit display image; ROI, line profile, cell count and exposure then read those, reporting absolute intensity at the acquisition bit depth with a green <span class="help-ui">✓</span> note. For everything else — PNG and JPEG imports, JPEG-compressed TIFFs, 8-bit TIFFs, or a reloaded session — measurements read the rendered 8-bit canvas <i>after</i> any brightness/contrast/gamma/LUT, and carry the amber warning saying so.</p><div class="help-callout"><b>The mapping has to be exact</b> Reading raw values means mapping a point on the figure back to a source pixel. Where that can't be done exactly — a rotated or flipped panel, a circle/ellipse crop, or a multi-channel composite — FigureLab deliberately falls back to the disclosed display measurement instead of risking a wrong correspondence.</div></div></details>
+<details class="faq-item"><summary class="faq-q">Why does exposure analysis report two different saturation numbers?</summary><div class="faq-a"><p class="help-p">Because they mean different things. <b>Display clipping</b> counts pixels that ended up at 255 on the rendered canvas — which can happen purely because you raised the brightness. <b>Raw saturation</b> counts pixels sitting at the sensor's own maximum, measured before any adjustment; that is the number that tells you whether the acquisition itself was blown out. The raw line only appears for panels that kept their native samples.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Should I use FigureLab instead of ImageJ/FIJI for analysis?</summary><div class="faq-a"><p class="help-p">No. FigureLab is a figure-assembly tool that measures honestly, not an image-analysis package. Its ROI statistics and threshold-based counting are simple, documented operations useful for sanity checks and for reporting values in a figure. Segmentation, tracking, deconvolution, colocalisation and any real quantitative pipeline belong in FIJI, CellProfiler or napari — and FigureLab says so in the result panel rather than implying otherwise.</p></div></details>
+
+<h3 class="help-h">Gene maps &amp; genetic circuits</h3>
+<details class="faq-item"><summary class="faq-q">How does the bp scale work?</summary><div class="faq-a"><p class="help-p">Every feature is positioned by its base-pair coordinates against the <b>backbone length</b>, so that single number sets the scale of the whole drawing. Change the length and features stay at their bp positions while the drawing rescales; resize the element and the bp-per-pixel readout in the properties bar updates. To scale a <i>design</i> rather than the drawing, use <span class="help-ui">⤢ Rescale…</span>, which multiplies every coordinate so the construct keeps its proportions at a new total size.</p></div></details>
+<details class="faq-item"><summary class="faq-q">What does GenBank import actually read?</summary><div class="faq-a"><p class="help-p">The LOCUS length, the circular/linear flag, and the FEATURES table — feature keys mapped onto SBOL glyphs, <span class="help-ui">/label</span>, <span class="help-ui">/gene</span> or <span class="help-ui">/product</span> used for names, and <span class="help-ui">complement()</span> honoured as the reverse strand. The sequence itself is ignored, the record-wide <span class="help-ui">source</span> feature is skipped, and a <span class="help-ui">join()</span> is drawn as its overall span, so spliced exon structure is not represented. Nothing is inferred: the map shows what the file declares and no more. FASTA gives a correctly sized empty backbone for you to annotate.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Are gene maps vector in the export?</summary><div class="faq-a"><p class="help-p">Yes. Like charts, a gene map's geometry is written once and replayed into either the canvas or an SVG backend, so <span class="help-ui">Export SVG</span> gives you real <code>&lt;polyline&gt;</code>/<code>&lt;rect&gt;</code> glyphs and live <code>&lt;text&gt;</code> labels you can restyle in Illustrator or Inkscape. Raster exports redraw the map at the target DPI rather than upscaling a preview, so it stays crisp at 600 dpi.</p></div></details>
 
 <h3 class="help-h">Export &amp; print quality</h3>
 <details class="faq-item"><summary class="faq-q">What DPI should I use for journal submission?</summary><div class="faq-a"><p class="help-p">Use <b>300 DPI</b> for photographic / greyscale images and <b>600–1200 DPI</b> for line art and combination figures (charts, blots with sharp text). The DPI selector offers 72 / 150 / 300 / 600 / 1200. FigureLab re-renders the figure at the true target-DPI pixel count (supersampled), so text, lines, and scale bars stay crisp — it is not merely tagging the DPI.</p><div class="help-callout help-tip"><b>Tip</b> The export health check warns you if you try to export below 300 DPI.</div></div></details>
@@ -1831,13 +1957,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->
-<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab <span id="version-footer">v3.8.0</span> · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="openCite();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px" title="How to cite FigureLab (Zenodo DOI)">Cite</a> · <a href="#" onclick="openHelp();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Help &amp; FAQ</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
+<footer><em>Built with passion for science and discovery. You can just build things.</em> · FigureLab <span id="version-footer">v3.9.0</span> · Michael Baffour Awuah · <a href="https://github.com/mbaffour/FigureLab" style="color:inherit;text-decoration:underline;text-underline-offset:2px" target="_blank">GitHub</a> · <a href="#" onclick="openCite();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px" title="How to cite FigureLab (Zenodo DOI)">Cite</a> · <a href="#" onclick="openHelp();return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Help &amp; FAQ</a> · <a href="#" onclick="document.getElementById('kb-modal').classList.add('open');return false;" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Shortcuts (?)</a></footer>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.8.0';  // single source of truth for the app version
+const APP_VERSION = '3.9.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -2008,6 +2134,12 @@ function _rasterizeSVG(dataURL, callback, onfail){
 // 1/8/16-bit + 32-bit float, gray/RGB/RGBA/palette, strips OR tiles, predictor.
 // Verified pixel-exact against a broad tifffile-generated fixture matrix.
 // ═══════════════════════════════════════════════════════════════
+
+// Above 8 bits the decoder keeps the native samples alongside the 8-bit display
+// image so measurements can report real intensities. 24 MP of 16-bit ≈ 48 MB —
+// past that we decline and say so rather than blowing up memory.
+const RAW_PIXEL_CAP = 24e6;
+
 async function decodeTIFF(input, page){
   page = page|0;
   const bytes = input instanceof Uint8Array ? input
@@ -2111,11 +2243,12 @@ async function decodeTIFF(input, page){
   const rgba=new Uint8ClampedArray(width*height*4);
   const maxOf=(1<<Math.min(bitsPerSample,30))-1;
   const readSample=makeSampleReader(raster, bytesPerSampleRow, bitsPerSample, sampleFormat, le);
-  let scaleMax=maxOf, mn=0;
+  let scaleMax=maxOf, mn=0, rawMin=0, rawMax=0;
   if(bitsPerSample>8 || sampleFormat===3){
     let mx=0, lo=Infinity;
     for(let y=0;y<height;y++) for(let i=0;i<width*spp;i++){ const v=readSample(y,i); if(v>mx)mx=v; if(v<lo)lo=v; }
     if(sampleFormat===3) mn=lo;
+    rawMin=lo===Infinity?0:lo; rawMax=mx;
     scaleMax=mx>mn?mx:(mx||1);
     if(bitsPerSample>8) note.push(bitsPerSample+'-bit scaled to 8-bit for display');
   }
@@ -2123,9 +2256,27 @@ async function decodeTIFF(input, page){
     if(sampleFormat===3) return Math.round((v-mn)*255/((scaleMax-mn)||1));
     return Math.round(v*255/(scaleMax||1)); };
 
+  // Retain the native (pre-display) samples so measurements can read real intensities
+  // instead of the 8-bit display canvas. Only worth it above 8 bits; capped so a huge
+  // scan can't allocate hundreds of MB.
+  let rawArr=null;
+  if((bitsPerSample>8 || sampleFormat===3) && photometric!==3 && photometric!==5 && width*height<=RAW_PIXEL_CAP){
+    try{ rawArr = sampleFormat===3 ? new Float32Array(width*height) : new Uint16Array(width*height);
+         note.push('native samples kept for measurement'); }
+    catch(e){ rawArr=null; }
+  } else if((bitsPerSample>8 || sampleFormat===3) && width*height>RAW_PIXEL_CAP){
+    note.push('too large to retain raw samples ('+bitsPerSample+'-bit); measurements read the display');
+  }
+
   for(let y=0;y<height;y++){
     for(let x=0;x<width;x++){
       const base=(y*width+x)*4, si=x*spp; let r,g,b,a=255;
+      if(rawArr){
+        // native grayscale value: the single sample, or the mean of the colour channels
+        let rv=readSample(y,si);
+        if(spp>=3) rv=(rv+readSample(y,si+1)+readSample(y,si+2))/3;
+        rawArr[y*width+x]=rv;
+      }
       if(photometric===3 && colorMap){
         const idx=readSample(y,si), nn=colorMap.length/3;
         r=colorMap[idx]>>8; g=colorMap[idx+nn]>>8; b=colorMap[idx+2*nn]>>8;
@@ -2141,7 +2292,10 @@ async function decodeTIFF(input, page){
       rgba[base]=r; rgba[base+1]=g; rgba[base+2]=b; rgba[base+3]=a;
     }
   }
-  return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource };
+  return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource,
+           raw: rawArr ? { data:rawArr, w:width, h:height, bps:bitsPerSample, spp,
+                           min:rawMin, max:rawMax, format:sampleFormat,
+                           full: sampleFormat===3 ? rawMax : (Math.pow(2,bitsPerSample)-1) } : null };
 
   function parseIFD(o){
     const n=view.getUint16(o, le); const tags={};
@@ -2292,13 +2446,13 @@ async function _loadTIFFFile(f, fail){
       for(let p=0;p<pages;p++){
         const res = p===0 ? first : await decodeTIFF(buf,p);
         const it = await toImg(res, `${base}_p${p+1}.png`);
-        if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res));   // add each page directly
+        if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res), res.raw);   // add each page directly
       }
       toast(`Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})${calNote(first)}`,'ok');
     } else {
       const it = await toImg(first, base+'.png');
       if(!it){ fail(); return; }
-      _preCropQueue.push({img:it.img, src:it.src, name:it.name, calib:calibOf(first)}); _drainPreCrop();
+      _preCropQueue.push({img:it.img, src:it.src, name:it.name, calib:calibOf(first), raw:first.raw}); _drainPreCrop();
       toast(`Opened "${f.name}" (${first.width}×${first.height}${first.note?' · '+first.note:''}${calNote(first)})`,'ok');
     }
   }catch(e){
@@ -2328,7 +2482,9 @@ function addFiles(fileList){
     const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
     const isData=f.type==='text/csv'||f.type==='text/tab-separated-values'||nameL.endsWith('.csv')||nameL.endsWith('.tsv');
+    const isSeq=/\.(gb|gbk|genbank|fasta|fa|fna)$/.test(nameL);
     const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
+    if(isSeq){ _loadGeneFile(f, fail); return; }    // a dropped GenBank/FASTA becomes a gene map
     if(isData){ _loadDataFile(f, fail); return; }   // before image path: a dropped CSV becomes a chart, not a failed <img>
     if(isTIFF){ _loadTIFFFile(f, fail); return; }
     if(isSVG){ _loadSVGFile(f, fail); return; }
@@ -2354,9 +2510,9 @@ function _drainPreCrop(){
   _openPreCrop(item);
 }
 
-function _openPreCrop({img,src,name,svgSource,calib}){
+function _openPreCrop({img,src,name,svgSource,calib,raw}){
   const total=_preCropQueue.length+1; // remaining including this one
-  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name,svgSource,calib},
+  cropEdState={imgIdx:-1,_fmIdx:-1,_preCrop:{img,src,name,svgSource,calib,raw},
     img,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0};
   // Update modal UI for pre-crop mode
   document.getElementById('crop-modal-title').textContent='✂ Pre-crop Image';
@@ -2379,12 +2535,26 @@ function _openPreCrop({img,src,name,svgSource,calib}){
   });
 }
 
-function _finishPreCrop(croppedSrc,croppedImg,keepVector){
+// Crop the retained native samples in step with a destructive pre-crop, so the raw
+// array stays pixel-aligned with the committed image.
+function _cropRaw(raw,sx,sy,sw,sh){
+  if(!raw||!raw.data) return null;
+  const out = raw.data instanceof Float32Array ? new Float32Array(sw*sh) : new Uint16Array(sw*sh);
+  for(let y=0;y<sh;y++){
+    const srow=(sy+y)*raw.w+sx;
+    out.set(raw.data.subarray(srow, srow+sw), y*sw);
+  }
+  let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<out.length;i++){ const v=out[i]; if(v<mn)mn=v; if(v>mx)mx=v; }
+  return {...raw, data:out, w:sw, h:sh, min:mn===Infinity?0:mn, max:mx===-Infinity?0:mx};
+}
+
+function _finishPreCrop(croppedSrc,croppedImg,keepVector,raw){
   const pc=cropEdState._preCrop||{};
   const name=pc.name||'image';
   // keep the vector source only when the image wasn't cropped (a crop makes it raster).
   // Calibration (µm/px) is per-pixel, so it survives cropping either way.
-  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib);
+  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib, raw===undefined?pc.raw:raw);
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
   cropEdState._preCrop=null;
@@ -2407,9 +2577,11 @@ function _resetCropModalUI(){
   document.getElementById('crop-apply-btn').textContent='✓ Apply Crop';
 }
 
-function _commitImage(img,src,name,svgSource,calib){
+function _commitImage(img,src,name,svgSource,calib,raw){
   const cu=(calib&&calib.umPerPx>0)?calib.umPerPx:0;      // µm/px auto-read from metadata
   const cs=(calib&&calib.source)||'';
+  // only keep native samples that actually match the committed pixels
+  if(raw && (raw.w!==img.naturalWidth || raw.h!==img.naturalHeight)) raw=null;
   if(layoutMode==='freeform'){
     const W=parseInt(document.getElementById('fm-canvas-w').value)||1200;
     const H=parseInt(document.getElementById('fm-canvas-h').value)||900;
@@ -2421,10 +2593,10 @@ function _commitImage(img,src,name,svgSource,calib){
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
       umPerPx:cu, sbUm:10, sbUnit:'µm', sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
-      svgSource:svgSource||null, isVector:!!svgSource});
+      svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
-      svgSource:svgSource||null, isVector:!!svgSource,
+      svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null,
       _metaUmPerPx:cu, _metaCalibSource:cs,
       label:nextLabel(),sbOn:true,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
@@ -2655,6 +2827,8 @@ const CMD_REGISTRY=[
   {label:'Add beeswarm / dot plot',  keys:'chart beeswarm dot strip superplot points', run:()=>addChartElement('beeswarm')},
   {label:'Add heatmap',              keys:'chart heatmap matrix omics expression', run:()=>addChartElement('heatmap')},
   {label:'Add survival curve',       keys:'chart survival kaplan meier km curve clinical', run:()=>addChartElement('survival')},
+  {label:'Add gene map (linear)',    keys:'gene map dna construct sbol plasmid cassette genetic circuit feature', run:()=>addGenemapElement('linear')},
+  {label:'Add plasmid map (circular)', keys:'plasmid circular gene map dna vector sbol ori', run:()=>addGenemapElement('circular')},
   {label:'Edit chart data…',         keys:'chart edit data csv',           run:()=>openChartModal()},
   {label:'Theme: Grayscale for print', keys:'theme grayscale greyscale print mono black white', run:()=>applyBuiltinTheme('grayscale-print')},
   {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
@@ -2670,7 +2844,7 @@ const CMD_REGISTRY=[
   {label:'Preset: PNAS',             keys:'preset journal pnas',           run:()=>applyPreset('pnas')},
   {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
-  {label:"What's new (v3.8)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
+  {label:"What's new (v3.9)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
   {label:'Replay guided tour',       keys:'tour guide onboarding walkthrough help', run:()=>startTour(true)},
   {label:'Customize (name, theme, background)', keys:'customize name theme background animation welcome', run:()=>openCustomize()},
   {label:'Toggle animated background', keys:'background animation motion science toggle', run:()=>{ if(typeof setBgAnimation==='function') setBgAnimation(!(typeof bgAnimationEnabled==='function'&&bgAnimationEnabled())); }},
@@ -4657,7 +4831,7 @@ function applyCropModal(){
   }
   // Pre-use crop: destructively crop and commit image
   if(cropEdState._preCrop){
-    const {img,name}=cropEdState._preCrop;
+    const {img,name,raw}=cropEdState._preCrop;
     const sx=Math.round(cropEdState.cx*img.naturalWidth);
     const sy=Math.round(cropEdState.cy*img.naturalHeight);
     const sw=Math.max(1,Math.round(cropEdState.cw*img.naturalWidth));
@@ -4665,8 +4839,11 @@ function applyCropModal(){
     const c=document.createElement('canvas'); c.width=sw; c.height=sh;
     c.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
     const newSrc=c.toDataURL('image/png');
+    // crop the native samples to match, or drop them if the geometry doesn't line up
+    const rawCrop=(raw&&raw.w===img.naturalWidth&&raw.h===img.naturalHeight&&sx+sw<=raw.w&&sy+sh<=raw.h)
+      ? _cropRaw(raw,sx,sy,sw,sh) : null;
     const newImg=new Image();
-    newImg.onload=()=>_finishPreCrop(newSrc,newImg,false);   // cropped → vector source no longer matches
+    newImg.onload=()=>_finishPreCrop(newSrc,newImg,false,rawCrop);   // cropped → vector source no longer matches
     newImg.src=newSrc;
     return;
   }
@@ -5192,6 +5369,10 @@ function cloneElemForUndo(el){
   // stats recompute from the (deep-copied) dataset after a restore.
   if(el&&el.type==='chart'){ const {_chartStat,_chartKey,_chartCache,...rest}=el;
     return {...rest, chart:JSON.parse(JSON.stringify(el.chart||{}))}; }
+  // Gene maps: same rule — drop the raster proxy and deep-copy the construct so a
+  // snapshot can't share feature objects with the live element.
+  if(el&&el.type==='genemap'){ const {_genemapStat,_genemapKey,_genemapCache,...rest}=el;
+    return {...rest, map:JSON.parse(JSON.stringify(el.map||{}))}; }
   // Connectors: deep-copy the nested endpoint refs so snapshots don't share them.
   if(el&&el.type==='connector'){ return {...el,
     from:el.from?{...el.from}:el.from, to:el.to?{...el.to}:el.to,
@@ -6162,6 +6343,10 @@ annCanvas.addEventListener('dblclick', e=>{
         selectedElems.clear(); selectedElems.add(i); drawFreeformOverlay();
         openChartModal(); return;
       }
+      if(el.type==='genemap'&&hitFreeformElement(el,fx,fy)){
+        selectedElems.clear(); selectedElems.add(i); drawFreeformOverlay();
+        openGenemapModal(); return;
+      }
     }
     return;
   }
@@ -7029,6 +7214,12 @@ function exportSVG(name, dpi, canvas){
         const rot=el.rotation?` rotate(${el.rotation} ${(el.w/2).toFixed(2)} ${(el.h/2).toFixed(2)})`:'';
         const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
         vecSVG+=`<g transform="translate(${(+el.x).toFixed(2)} ${(+el.y).toFixed(2)})${rot}"${op}>${buf.join('')}</g>`;
+      } else if(el.type==='genemap' && el.map){
+        // Gene maps are pure geometry — one _genemapDraw pass through the SVG backend.
+        const buf=[]; _genemapDraw(el, _chartEmitSVG(buf));
+        const rot=el.rotation?` rotate(${el.rotation} ${(el.w/2).toFixed(2)} ${(el.h/2).toFixed(2)})`:'';
+        const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
+        vecSVG+=`<g transform="translate(${(+el.x).toFixed(2)} ${(+el.y).toFixed(2)})${rot}"${op}>${buf.join('')}</g>`;
       }
     });
   }
@@ -7341,6 +7532,9 @@ function _buildStructuralAltText(){
     const bits=[];
     if(byType.image) bits.push(`${byType.image} image${byType.image!==1?'s':''}`);
     if(byType.chart){ const kinds=[...new Set(freeformElements.filter(e=>e.type==='chart').map(e=>e.chart&&e.chart.kind))].filter(Boolean); bits.push(`${byType.chart} chart${byType.chart!==1?'s':''}${kinds.length?` (${kinds.join(', ')})`:''}`); }
+    if(byType.genemap){ const maps=freeformElements.filter(e=>e.type==='genemap'&&e.map);
+      const bp=maps.map(e=>_bpLabel(Math.max(1,e.map.length|0)));
+      bits.push(`${byType.genemap} gene map${byType.genemap!==1?'s':''}${bp.length?` (${bp.join(', ')})`:''}`); }
     if(byType.connector) bits.push(`${byType.connector} connector${byType.connector!==1?'s':''}`);
     if(byType.text) bits.push(`${byType.text} text label${byType.text!==1?'s':''}`);
     if(byType.rect||byType.ellipse) bits.push(`${(byType.rect||0)+(byType.ellipse||0)} shape(s)`);
@@ -7418,7 +7612,10 @@ function serializeSession(bundleImages){
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
-      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,...rest}=el;
+      // `raw` (native TIFF samples) is a live typed array — too large to serialize and
+      // re-derivable only by re-importing the file, so it never enters a saved session.
+      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,raw,
+             _genemapStat,_genemapKey,_genemapCache,...rest}=el;
       if(el.type==='paint' && _paintCanvas && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
       return rest;
@@ -8269,7 +8466,7 @@ function updateFreeformElemList(){
     row.className='tpl-saved';
     row.style.cursor='pointer';
     if(selectedElems.has(i)) row.style.borderColor='var(--accent)';
-    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='connector'?'↳':'◻';
+    const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='genemap'?'🧬':el.type==='connector'?'↳':'◻';
     const grp=el.groupId?' <span title="Grouped" style="opacity:.6">⧉</span>':'';
     const ai=el.aiGenerated?' <span title="AI-generated schematic — disclosed in export metadata" style="font-size:9px;color:var(--a2);border:1px solid var(--a2);border-radius:3px;padding:0 3px">AI</span>':'';
     row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}${grp}${ai}</span>
@@ -8450,6 +8647,11 @@ function renderFreeform(canvas, ctx, S, opts){
       // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
       // SVG export skips the raster here and re-emits the chart as true vector.
       if(!skipCharts && typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
+      if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
+    } else if(el.type==='genemap'){
+      // Gene map / genetic circuit — same emit backend as charts, so it is vector
+      // in SVG and crisp at export scale. SVG export skips the raster and re-emits.
+      if(!skipCharts && typeof _drawGenemapElement==='function') _drawGenemapElement(el, ctx, isExport);
       if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
@@ -10019,6 +10221,580 @@ function _chartModalKindChange(){
   const midWrap=document.getElementById('chart-heat-mid-wrap'); if(midWrap) midWrap.style.display=(gv('chart-colorscale')==='diverging')?'inline-flex':'none';
 }
 
+// ═══════════════════════════════════════════════════════════════
+// GENE MAPS & GENETIC CIRCUITS
+// A `genemap` freeform element draws a DNA construct scaled by base pairs:
+// a backbone (linear or circular) with annotated features rendered as SBOL
+// Visual glyphs. Geometry is written once against the chart emit backend, so
+// the preview raster and the true-vector SVG export come from one pass.
+// Everything here is drawing — no sequence is invented and no feature is
+// inferred; a map only ever shows what the author entered or imported.
+// ═══════════════════════════════════════════════════════════════
+
+// SBOL Visual glyph types we draw, with their default colours and display names.
+// `label` is what the editor's dropdown shows; unknown types still render (as a
+// plain box) rather than throwing.
+const SBOL_TYPES={
+  promoter:    {label:'Promoter',        color:'#2c9c3f'},
+  rbs:         {label:'RBS',             color:'#e8a33d'},
+  cds:         {label:'CDS / gene',      color:'#3d7be8'},
+  terminator:  {label:'Terminator',      color:'#c0392b'},
+  operator:    {label:'Operator',        color:'#8e44ad'},
+  ori:         {label:'Origin of replication', color:'#16a085'},
+  primer:      {label:'Primer site',     color:'#d35400'},
+  restriction: {label:'Restriction site',color:'#555555'},
+  ribozyme:    {label:'Ribozyme',        color:'#e84393'},
+  insulator:   {label:'Insulator',       color:'#7f8c8d'},
+  scar:        {label:'Scar',            color:'#95a5a6'},
+  ncrna:       {label:'ncRNA',           color:'#00b894'},
+  tag:         {label:'Protein tag',     color:'#6c5ce7'},
+  misc:        {label:'Other feature',   color:'#607d8b'},
+};
+const _sbolColor=(t)=>(SBOL_TYPES[t]||SBOL_TYPES.misc).color;
+
+// Colour-blind-safe alternative to the type palette (shared with charts).
+const _GENEMAP_CB=['#E69F00','#56B4E9','#009E73','#F0E442','#0072B2','#D55E00','#CC79A7','#000000'];
+
+function _defaultGenemap(){
+  return {
+    length:5000, topology:'linear',
+    features:[
+      {name:'pTet',      type:'promoter',   start:200,  end:400,  strand:1},
+      {name:'RBS',       type:'rbs',        start:430,  end:490,  strand:1},
+      {name:'gfp',       type:'cds',        start:520,  end:1900, strand:1},
+      {name:'T1',        type:'terminator', start:1950, end:2100, strand:1},
+      {name:'ColE1 ori', type:'ori',        start:2600, end:3400, strand:1},
+      {name:'ampR',      type:'cds',        start:3600, end:4700, strand:-1},
+    ],
+    style:{showRuler:true, showLabels:true, strandRows:true, palette:'sbol',
+           fontFamily:'system-ui, sans-serif', fontSize:12, title:''},
+  };
+}
+
+// Format a base-pair count the way a molecular biologist writes it.
+function _bpLabel(bp){
+  if(bp>=1e6) return (bp/1e6).toFixed(bp%1e6?2:0)+' Mb';
+  if(bp>=1000) return (bp/1000).toFixed(bp%1000?1:0)+' kb';
+  return bp+' bp';
+}
+
+// Sample an arc into a point list — the emit vocabulary has no arc primitive,
+// and a polyline works identically in both backends.
+function _arcPts(cx,cy,r,a0,a1,steps){
+  const n=Math.max(2,steps||Math.ceil(Math.abs(a1-a0)/0.08)+2), out=[];
+  for(let i=0;i<=n;i++) out.push([cx+r*Math.cos(a0+(a1-a0)*i/n), cy+r*Math.sin(a0+(a1-a0)*i/n)]);
+  return out;
+}
+// A filled arc band between two radii (a feature on a circular map).
+function _arcBand(emit,cx,cy,rIn,rOut,a0,a1,fill,stroke){
+  const outer=_arcPts(cx,cy,rOut,a0,a1), inner=_arcPts(cx,cy,rIn,a1,a0);
+  emit.poly(outer.concat(inner,[outer[0]]), stroke||null, fill, 1);
+}
+// Feature types that carry a reading direction — these get an arrowhead on a
+// circular map, the way plasmid maps show which way a gene is transcribed.
+const _GM_DIRECTIONAL=new Set(['cds','ncrna','primer','promoter']);
+// An arc band tapering to a point at the strand's leading end.
+function _arcArrow(emit,cx,cy,rIn,rOut,a0,a1,dir,fill,stroke){
+  const rMid=(rIn+rOut)/2, span=a1-a0;
+  const head=Math.min(span*0.4, 0.14);
+  if(head<=0.005){ _arcBand(emit,cx,cy,rIn,rOut,a0,a1,fill,stroke); return; }
+  if(dir>0){
+    const ah=a1-head;
+    const tip=[cx+rMid*Math.cos(a1), cy+rMid*Math.sin(a1)];
+    const outer=_arcPts(cx,cy,rOut,a0,ah), inner=_arcPts(cx,cy,rIn,ah,a0);
+    emit.poly(outer.concat([tip],inner,[outer[0]]), stroke||null, fill, 1);
+  } else {
+    const ah=a0+head;
+    const tip=[cx+rMid*Math.cos(a0), cy+rMid*Math.sin(a0)];
+    const outer=_arcPts(cx,cy,rOut,ah,a1), inner=_arcPts(cx,cy,rIn,a1,ah);
+    emit.poly([tip].concat(outer,inner,[tip]), stroke||null, fill, 1);
+  }
+}
+
+// ── SBOL Visual glyphs, drawn in a horizontal band ──────────────
+// x0..x1 spans the feature, midY is the backbone line, `dir` is +1/-1.
+// Every glyph is built from rect/line/poly/circle so both backends agree.
+function _sbolGlyph(emit, type, x0, x1, midY, dir, color, h){
+  const w=Math.max(1.5,x1-x0), top=midY-h/2, bot=midY+h/2;
+  const ink='#333333';
+  switch(type){
+    case 'promoter': {                       // bent arrow: up the stem, then along
+      const stemX=dir>0?x0:x1, tipX=dir>0?x1:x0, ay=midY-h*0.95;
+      emit.line(stemX,midY,stemX,ay,color,2);
+      emit.line(stemX,ay,tipX,ay,color,2);
+      const ah=Math.min(h*0.42,Math.max(4,w*0.3));
+      emit.poly([[tipX,ay],[tipX-dir*ah,ay-ah*0.55],[tipX-dir*ah,ay+ah*0.55],[tipX,ay]],null,color,0);
+      break;
+    }
+    case 'rbs': {                            // half-dome sitting on the backbone
+      const pts=[]; const r=w/2, cx=(x0+x1)/2;
+      for(let i=0;i<=14;i++){ const a=Math.PI+Math.PI*i/14; pts.push([cx+r*Math.cos(a), midY+ (h*0.62)*Math.sin(a)]); }
+      pts.push([x0,midY]);
+      emit.poly(pts,ink,color,1);
+      break;
+    }
+    case 'cds': {                            // arrow block pointing along the strand
+      const head=Math.min(w*0.45, h*0.75);
+      // Walk the outline in order: blunt end → shoulder → tip → shoulder → blunt end.
+      // (Emitting the two x's in the wrong order turns a reverse arrow into a bowtie.)
+      const blunt=dir>0?x0:x1, shoulder=dir>0?x1-head:x0+head, tip=dir>0?x1:x0;
+      emit.poly([[blunt,top],[shoulder,top],[tip,midY],[shoulder,bot],[blunt,bot],[blunt,top]],ink,color,1);
+      break;
+    }
+    case 'terminator': {                     // T-bar
+      const cx=(x0+x1)/2, ty=midY-h*0.8;
+      emit.line(cx,midY,cx,ty,color,2);
+      emit.line(cx-Math.max(4,w/2),ty,cx+Math.max(4,w/2),ty,color,2);
+      break;
+    }
+    case 'operator':                          // plain box on the backbone
+      emit.rect(x0,top+h*0.15,w,h*0.7,color,ink,1); break;
+    case 'ori': {
+      const cx=(x0+x1)/2;
+      emit.circle(cx,midY,Math.max(4,Math.min(h*0.5,w/2)),color,ink,1); break;
+    }
+    case 'primer': {                          // small half-arrow above the line
+      const ay=midY-h*0.55, tip=dir>0?x1:x0, tail=dir>0?x0:x1;
+      emit.line(tail,ay,tip,ay,color,1.5);
+      const ah=Math.min(6,Math.max(3,w*0.4));
+      emit.poly([[tip,ay],[tip-dir*ah,ay-ah*0.7],[tip-dir*ah,ay],[tip,ay]],null,color,0);
+      break;
+    }
+    case 'restriction':                       // a tick across the backbone
+      emit.line((x0+x1)/2,midY-h*0.6,(x0+x1)/2,midY+h*0.6,color,1.5); break;
+    case 'ribozyme': {                        // stem with a small loop on top
+      const cx=(x0+x1)/2, sy=midY-h*0.55;
+      emit.line(cx,midY,cx,sy,color,1.5);
+      emit.circle(cx,sy-Math.max(3,h*0.18),Math.max(3,h*0.18),null,color,1.5); break;
+    }
+    case 'insulator': {                       // nested squares
+      const s=Math.min(w,h*0.8), cx=(x0+x1)/2;
+      emit.rect(cx-s/2,midY-s/2,s,s,null,color,1.5);
+      emit.rect(cx-s/4,midY-s/4,s/2,s/2,color,null,0); break;
+    }
+    case 'scar': {                            // an X on the backbone
+      const s=Math.min(w,h*0.55)/2, cx=(x0+x1)/2;
+      emit.line(cx-s,midY-s,cx+s,midY+s,color,1.5);
+      emit.line(cx-s,midY+s,cx+s,midY-s,color,1.5); break;
+    }
+    case 'ncrna': {                           // low rounded bar
+      emit.rect(x0,midY-h*0.22,w,h*0.44,color,ink,1); break;
+    }
+    default:                                  // tag / misc / anything unknown
+      emit.rect(x0,top+h*0.2,w,h*0.6,color,ink,1);
+  }
+}
+
+// Feature colour, honouring an explicit override then the chosen palette.
+function _gmFeatColor(f,style,i){
+  if(f.color) return f.color;
+  if(style.palette==='cb') return _GENEMAP_CB[i%_GENEMAP_CB.length];
+  if(style.palette==='mono') return '#4a5568';
+  return _sbolColor(f.type);
+}
+// Features sorted and clamped to the backbone — the single place coordinates
+// are normalised, so drawing and the editor always agree.
+function _gmFeatures(map){
+  const L=Math.max(1,map.length|0);
+  return (map.features||[]).map(f=>{
+    let s=Math.max(0,Math.min(L,Math.round(+f.start||0)));
+    let e=Math.max(0,Math.min(L,Math.round(+f.end||0)));
+    if(e<s){ const t=s; s=e; e=t; }
+    return {...f, start:s, end:e, strand:(+f.strand<0?-1:1)};
+  }).sort((a,b)=>a.start-b.start);
+}
+
+// Draw a gene map into `emit`, in the element's LOCAL space (0,0..w,h).
+function _genemapDraw(el, emit){
+  const map=el.map, W=el.w, H=el.h, st=map.style||{};
+  const fs=st.fontSize||12;
+  const font=(sz,wt)=>`${wt?wt+' ':''}${sz}px ${st.fontFamily||'system-ui, sans-serif'}`;
+  const ink='#222222', L=Math.max(1,map.length|0);
+  const feats=_gmFeatures(map);
+  emit.rect(0,0,W,H,'#ffffff',null,0);
+  if(st.title) emit.text(st.title, W/2, 4, font(fs+1,'bold'), ink, 'center', 'top');
+  const titleH=st.title?fs+10:0;
+  if(map.topology==='circular') _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH);
+  else                          _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH);
+}
+
+function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
+  const W=el.w, H=el.h, L=Math.max(1,el.map.length|0);
+  const pad=Math.max(18, fs*1.6);
+  const x0=pad, x1=Math.max(x0+10, W-pad);
+  const bp2x=bp=>x0+(bp/L)*(x1-x0);
+  const rulerH=st.showRuler?fs+14:0;
+  const bodyTop=titleH, bodyBot=H-rulerH-4;
+  const midY=(bodyTop+bodyBot)/2;
+  const gh=Math.max(8, Math.min(26, (bodyBot-bodyTop)*0.30));
+
+  // Backbone
+  emit.line(x0,midY,x1,midY,'#555555',2);
+  emit.line(x0,midY-4,x0,midY+4,'#555555',2);      // end caps mark 1 and L
+  emit.line(x1,midY-4,x1,midY+4,'#555555',2);
+
+  // Features + labels. With strandRows on, forward labels sit above the backbone
+  // and reverse labels below, which keeps dense maps readable. Labels that would
+  // collide with an already-placed one step out to the next row rather than
+  // overprinting — a packed construct stays legible without manual nudging.
+  const rowEnds={up:[], down:[]};                // rightmost x used, per stacked row
+  const placeRow=(side,left,right)=>{
+    const rows=rowEnds[side];
+    for(let r=0;r<rows.length;r++) if(left>rows[r]+3){ rows[r]=right; return r; }
+    if(rows.length<3){ rows.push(right); return rows.length-1; }
+    rows[0]=Math.max(rows[0],right); return 0;   // give up gracefully past 3 rows
+  };
+  feats.forEach((f,i)=>{
+    const a=bp2x(f.start), b=Math.max(a+2,bp2x(f.end));
+    const col=_gmFeatColor(f,st,i);
+    _sbolGlyph(emit, f.type, a, b, midY, f.strand, col, gh);
+    if(st.showLabels && f.name){
+      const above = !st.strandRows || f.strand>0;
+      const cxL=(a+b)/2, halfW=String(f.name).length*(fs-1)*0.29;
+      const row=placeRow(above?'up':'down', cxL-halfW, cxL+halfW);
+      const step=row*(fs+2);
+      const ly = above ? midY-gh*1.15-2-step : midY+gh*1.15+2+step;
+      emit.text(f.name, cxL, ly, font(fs-1), ink, 'center', above?'alphabetic':'top');
+    }
+  });
+
+  // bp ruler
+  if(st.showRuler){
+    const ry=H-rulerH+6;
+    emit.line(x0,ry,x1,ry,'#999999',1);
+    const ticks=_niceTicks(0,L,Math.max(2,Math.floor((x1-x0)/70)));
+    ticks.forEach(t=>{
+      if(t<0||t>L) return;
+      const tx=bp2x(t);
+      emit.line(tx,ry,tx,ry+4,'#999999',1);
+      emit.text(String(Math.round(t)), tx, ry+5, font(fs-3), '#666666', 'center', 'top');
+    });
+    emit.text(_bpLabel(L), x1, ry-4, font(fs-2,'bold'), '#444444', 'right', 'alphabetic');
+  } else {
+    emit.text(_bpLabel(L), x1, midY+gh+fs, font(fs-2,'bold'), '#444444', 'right', 'alphabetic');
+  }
+}
+
+function _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH){
+  const W=el.w, H=el.h, L=Math.max(1,el.map.length|0);
+  const cx=W/2, cy=titleH+(H-titleH)/2;
+  const labelRoom=st.showLabels?fs*3.4:fs;
+  const R=Math.max(12, Math.min(W/2, (H-titleH)/2) - labelRoom);
+  const band=Math.max(6, Math.min(18, R*0.16));
+  // 0 bp at 12 o'clock, increasing clockwise — the plasmid-map convention.
+  const bp2a=bp=>-Math.PI/2 + (bp/L)*Math.PI*2;
+
+  emit.poly(_arcPts(cx,cy,R,0,Math.PI*2,120),'#555555',null,2);   // backbone ring
+
+  feats.forEach((f,i)=>{
+    const col=_gmFeatColor(f,st,i);
+    let a0=bp2a(f.start), a1=bp2a(f.end);
+    if(a1-a0 < 0.012) a1=a0+0.012;                                 // keep tiny features visible
+    // forward features ride outside the ring, reverse inside
+    const out=(!st.strandRows||f.strand>0);
+    const rIn = out ? R+1 : R-band-1, rOut = out ? R+band+1 : R-1;
+    if(_GM_DIRECTIONAL.has(f.type)) _arcArrow(emit,cx,cy,rIn,rOut,a0,a1,f.strand,col,'#333333');
+    else                            _arcBand(emit,cx,cy,rIn,rOut,a0,a1,col,'#333333');
+    if(st.showLabels && f.name){
+      const am=(a0+a1)/2, lr=out?R+band+6:R-band-6;
+      const lx=cx+lr*Math.cos(am), ly=cy+lr*Math.sin(am);
+      const right=Math.cos(am)>=0;
+      emit.text(f.name, lx, ly, font(fs-1), ink, out?(right?'left':'right'):(right?'right':'left'), 'middle');
+    }
+  });
+
+  // bp ticks around the ring
+  if(st.showRuler){
+    const ticks=_niceTicks(0,L,8);
+    ticks.forEach(t=>{
+      if(t<0||t>=L) return;
+      const a=bp2a(t), c=Math.cos(a), s=Math.sin(a);
+      emit.line(cx+(R-4)*c, cy+(R-4)*s, cx+(R+4)*c, cy+(R+4)*s, '#999999', 1);
+    });
+  }
+  // Centre stamp: the construct's size, which is the whole point of the scale.
+  emit.text(_bpLabel(L), cx, cy, font(fs,'bold'), '#444444', 'center', 'middle');
+  emit.text('circular', cx, cy+fs+2, font(fs-3), '#888888', 'center', 'middle');
+}
+
+// Canvas draw + idle raster proxy, mirroring _drawChartElement.
+function _drawGenemapElement(el, ctx, isExport){
+  if(!el.map){ return; }                    // half-built or legacy element: draw nothing
+  if(!isExport && typeof _chartGesturing==='function' && _chartGesturing()
+     && el._genemapCache && el._genemapCache.width>1){
+    ctx.drawImage(el._genemapCache, el.x, el.y, el.w, el.h); return;
+  }
+  ctx.save(); ctx.translate(el.x, el.y);
+  _genemapDraw(el, _chartEmitCanvas(ctx));
+  ctx.restore();
+  if(!isExport){
+    const cv=el._genemapCache||(el._genemapCache=document.createElement('canvas'));
+    const w=Math.max(1,Math.round(el.w)), h=Math.max(1,Math.round(el.h));
+    if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
+    const cc=cv.getContext('2d'); cc.clearRect(0,0,cv.width,cv.height);
+    cc.save(); _genemapDraw(el,_chartEmitCanvas(cc)); cc.restore();
+  }
+}
+
+function addGenemapElement(topology){
+  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+  const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+  const circ=topology==='circular';
+  const w=circ?380:520, h=circ?380:190;
+  const map=_defaultGenemap();
+  if(circ) map.topology='circular';
+  addFreeformElement({type:'genemap', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
+    map, label:(circ?'circular':'linear')+' gene map'});
+  const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+  logAction('genemapAdd',{topology:circ?'circular':'linear'});
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  openGenemapModal();
+}
+
+// ── Feature-table parsing ───────────────────────────────────────
+// One row per feature: name, type, start, end, strand. Tab / comma / multi-space
+// separated so a paste from a spreadsheet, a CSV, or a text file all work.
+// Unparseable rows are reported, never silently dropped.
+function _parseFeatureTable(text){
+  const feats=[], bad=[];
+  String(text||'').split(/\r?\n/).forEach((line,i)=>{
+    const s=line.trim();
+    if(!s || /^#/.test(s)) return;
+    const cells=s.split(/\t|,|\s{2,}/).map(c=>c.trim()).filter(c=>c!=='');
+    if(cells.length<4){ bad.push(i+1); return; }
+    // header row (start/end aren't numbers) — skip it
+    if(!/^-?\d/.test(cells[2])||!/^-?\d/.test(cells[3])){
+      if(i===0 || /start/i.test(cells[2])) return;
+      bad.push(i+1); return;
+    }
+    const type=String(cells[1]||'misc').toLowerCase().replace(/[^a-z]/g,'');
+    const strandCell=(cells[4]||'+').trim();
+    feats.push({ name:cells[0], type:SBOL_TYPES[type]?type:_gmTypeAlias(type),
+      start:parseInt(cells[2],10)||0, end:parseInt(cells[3],10)||0,
+      strand:(/^(-|-1|r|rev|reverse|complement)$/i.test(strandCell)?-1:1) });
+  });
+  return {features:feats, bad};
+}
+// Map common feature-key spellings (GenBank keys, everyday names) onto glyphs.
+function _gmTypeAlias(t){
+  const k=String(t||'').toLowerCase().replace(/[^a-z]/g,'');
+  const A={gene:'cds',cds:'cds',orf:'cds',protein:'cds',
+    promoter:'promoter',prom:'promoter',minusthirtyfive:'promoter',
+    rbs:'rbs',ribosomebindingsite:'rbs',shinedalgarno:'rbs',
+    terminator:'terminator',term:'terminator',
+    operator:'operator',proteinbind:'operator',misccbind:'operator',
+    reporigin:'ori',ori:'ori',origin:'ori',oriT:'ori',
+    primerbind:'primer',primer:'primer',
+    miscstructure:'misc',miscfeature:'misc',
+    ribozyme:'ribozyme',insulator:'insulator',
+    ncrna:'ncrna',rrna:'ncrna',trna:'ncrna',mrna:'ncrna',regulatory:'promoter',
+    sigpeptide:'tag',mattag:'tag',tag:'tag'};
+  return A[k]||'misc';
+}
+function _featureTableToText(map){
+  return _gmFeatures(map).map(f=>[f.name,f.type,f.start,f.end,f.strand<0?'-':'+'].join('\t')).join('\n');
+}
+
+// ── GenBank / FASTA import ──────────────────────────────────────
+// Reads only what the file declares: the LOCUS length and the FEATURES table.
+// No sequence is stored and no feature is inferred.
+function _parseGenBank(text){
+  const src=String(text||'');
+  const locus=/^LOCUS\s+(\S+)\s+(\d+)\s*bp/im.exec(src);
+  let length=locus?parseInt(locus[2],10):0;
+  const name=locus?locus[1]:'';
+  const topology=/^LOCUS\s.*\b(circular)\b/im.test(src)?'circular':'linear';
+  const features=[];
+  const fm=/^FEATURES\s+Location\/Qualifiers\s*$/im.exec(src);
+  if(fm){
+    const rest=src.slice(fm.index+fm[0].length);
+    const stop=/^(ORIGIN|CONTIG|\/\/)\s*$/im.exec(rest);
+    const body=stop?rest.slice(0,stop.index):rest;
+    const lines=body.split(/\r?\n/);
+    let cur=null;
+    const push=()=>{ if(!cur) return;
+      const loc=_gbLocation(cur.loc);
+      // `source` spans the whole record in every GenBank file — it's metadata,
+      // not a drawable feature, so it never becomes a glyph.
+      if(loc && !/^source$/i.test(cur.key))
+        features.push({name:cur.name||cur.key, type:_gmTypeAlias(cur.key),
+          start:loc.start, end:loc.end, strand:loc.strand});
+      cur=null; };
+    for(const raw of lines){
+      const mKey=/^ {1,10}(\S+)\s+(\S.*)$/.exec(raw);          // a new feature key
+      if(mKey && !/^\s*\//.test(raw)){ push(); cur={key:mKey[1], loc:mKey[2].trim(), name:''}; continue; }
+      if(!cur) continue;
+      const mQual=/^\s+\/(\w+)=?"?([^"]*)"?/.exec(raw);
+      if(mQual){
+        const q=mQual[1].toLowerCase();
+        if(!cur.name && (q==='label'||q==='gene'||q==='product'||q==='note'||q==='standardname'))
+          cur.name=mQual[2].trim();
+      } else if(/^\s+[\d<>(]/.test(raw)) cur.loc+=raw.trim();   // location continued
+    }
+    push();
+  }
+  if(!length && features.length) length=features.reduce((m,f)=>Math.max(m,f.end),0);
+  return {length, topology, features, name};
+}
+// GenBank location → {start,end,strand}. join()/order() collapse to their envelope,
+// which is what a map can honestly draw; exact exon structure isn't represented.
+function _gbLocation(loc){
+  const s=String(loc||'');
+  const strand=/complement/i.test(s)?-1:1;
+  const nums=s.match(/\d+/g);
+  if(!nums||!nums.length) return null;
+  const vals=nums.map(Number);
+  return {start:Math.min(...vals), end:Math.max(...vals), strand};
+}
+function _parseFASTA(text){
+  const lines=String(text||'').split(/\r?\n/);
+  let name='', seq=0;
+  for(const l of lines){
+    if(/^>/.test(l)){ if(seq) break; name=l.slice(1).trim().split(/\s+/)[0]; continue; }
+    seq+=l.replace(/[^A-Za-z]/g,'').length;
+  }
+  return {length:seq, topology:'linear', features:[], name};
+}
+
+// Load a dropped/selected .gb/.gbk/.fasta into a new gene map.
+function _loadGeneFile(f, fail){
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const txt=ev.target.result;
+    const isFasta=/^\s*>/.test(txt) && !/^LOCUS/im.test(txt);
+    const parsed=isFasta?_parseFASTA(txt):_parseGenBank(txt);
+    if(!parsed.length){ (fail||toast)(`"${f.name}" had no readable LOCUS length or sequence`,'err'); return; }
+    if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    const circ=parsed.topology==='circular';
+    const w=circ?380:560, h=circ?380:200;
+    const map=_defaultGenemap();
+    map.length=parsed.length; map.topology=parsed.topology; map.features=parsed.features;
+    map.style.title=parsed.name||f.name;
+    addFreeformElement({type:'genemap', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
+      map, label:(parsed.name||f.name)});
+    const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+    logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
+    updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+    toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
+    openGenemapModal();
+  };
+  reader.onerror=()=>(fail||toast)('Could not read the sequence file','err');
+  reader.readAsText(f);
+}
+
+// ── Gene-map editor modal ───────────────────────────────────────
+function _selectedGenemapEl(){
+  if(selectedElems.size!==1) return null;
+  const el=freeformElements[[...selectedElems][0]];
+  return (el&&el.type==='genemap')?el:null;
+}
+function openGenemapModal(){
+  const el=_selectedGenemapEl(); if(!el){ toast('Select a gene map first','warn'); return; }
+  _genemapModalSync();
+  document.getElementById('genemap-modal').classList.add('open');
+}
+function closeGenemapModal(){ document.getElementById('genemap-modal').classList.remove('open'); }
+
+function _genemapModalSync(){
+  const el=_selectedGenemapEl(); if(!el) return;
+  const m=el.map, st=m.style||{};
+  const nt=document.getElementById('gm-newtype');
+  if(nt && !nt.options.length)
+    nt.innerHTML=Object.entries(SBOL_TYPES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+  sv('gm-length', m.length);
+  sv('gm-topology', m.topology||'linear');
+  sv('gm-title', st.title||'');
+  sv('gm-palette', st.palette||'sbol');
+  sv('gm-fontsize', st.fontSize||12);
+  const chk=(id,on)=>{ const e=document.getElementById(id); if(e) e.checked=!!on; };
+  chk('gm-ruler', st.showRuler!==false);
+  chk('gm-labels', st.showLabels!==false);
+  chk('gm-strandrows', st.strandRows!==false);
+  document.getElementById('gm-table').value=_featureTableToText(m);
+  _genemapModalStat();
+}
+// Live read-out: how many features, and the bp-per-pixel scale the map is drawn at.
+function _genemapModalStat(){
+  const el=_selectedGenemapEl(); const box=document.getElementById('gm-stat'); if(!el||!box) return;
+  const n=(el.map.features||[]).length, L=Math.max(1,el.map.length|0);
+  const scale=(el.map.topology==='circular')
+    ? (L/(Math.PI*Math.max(1,Math.min(el.w,el.h)-40))).toFixed(1)+' bp per pixel of circumference'
+    : (L/Math.max(1,el.w-36)).toFixed(1)+' bp per pixel';
+  box.textContent=`${_bpLabel(L)} · ${n} feature${n===1?'':'s'} · ${scale}`;
+}
+function applyGenemapModal(){
+  const el=_selectedGenemapEl(); if(!el) return;
+  const parsed=_parseFeatureTable(document.getElementById('gm-table').value);
+  const len=Math.max(1, parseInt(gv('gm-length'),10)||1);
+  const over=parsed.features.filter(f=>f.end>len);
+  pushUndo();
+  el.map.length=len;
+  el.map.topology=gv('gm-topology')||'linear';
+  el.map.features=parsed.features;                     // replaced wholesale, never edited pointwise
+  el.map.style={...el.map.style,
+    title:gv('gm-title')||'',
+    palette:gv('gm-palette')||'sbol',
+    fontSize:Math.max(6,parseInt(gv('gm-fontsize'),10)||12),
+    showRuler:gc('gm-ruler'), showLabels:gc('gm-labels'), strandRows:gc('gm-strandrows')};
+  el._genemapCache=null;
+  el.label=(el.map.style.title||el.label||'gene map');
+  logAction('genemapEdit',{features:parsed.features.length, bp:len, topology:el.map.topology});
+  updateFreeformElemList(); scheduleRender(0); _genemapModalStat();
+  if(parsed.bad.length) toast(`Skipped ${parsed.bad.length} unreadable row(s): ${parsed.bad.slice(0,5).join(', ')}`,'warn');
+  if(over.length) toast(`${over.length} feature(s) extend past ${_bpLabel(len)} and were clipped to the backbone`,'warn');
+  else if(!parsed.bad.length) toast(`Gene map updated — ${parsed.features.length} features over ${_bpLabel(len)}`,'ok');
+}
+// Append a blank row to the feature table so a map can be built from scratch.
+function _gmAddRow(){
+  const ta=document.getElementById('gm-table'); if(!ta) return;
+  const el=_selectedGenemapEl();
+  const L=el?Math.max(1,el.map.length|0):5000;
+  const feats=_parseFeatureTable(ta.value).features;
+  const last=feats.length?feats[feats.length-1].end:0;
+  const s=Math.min(L, last+100), e=Math.min(L, s+Math.max(100,Math.round(L*0.1)));
+  const type=gv('gm-newtype')||'cds';
+  ta.value=(ta.value.replace(/\s*$/,'')+`\n${(SBOL_TYPES[type]||SBOL_TYPES.misc).label.split(' ')[0]}\t${type}\t${s}\t${e}\t+`).replace(/^\n/,'');
+  ta.focus();
+}
+// Scale the whole construct: multiply every coordinate so the design keeps its
+// proportions at a new total length.
+function _gmRescale(){
+  const el=_selectedGenemapEl(); if(!el) return;
+  const target=parseInt(prompt('New total length in bp (features scale proportionally):', String(el.map.length)),10);
+  if(!target||target<1) return;
+  const k=target/Math.max(1,el.map.length);
+  pushUndo();
+  el.map.features=(el.map.features||[]).map(f=>({...f, start:Math.round(f.start*k), end:Math.round(f.end*k)}));
+  el.map.length=target;
+  el._genemapCache=null;
+  _genemapModalSync(); scheduleRender(0);
+  toast(`Rescaled to ${_bpLabel(target)} (×${k.toFixed(3)})`,'ok');
+}
+function _gmImportFile(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const el=_selectedGenemapEl();
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const txt=ev.target.result;
+    const isFasta=/^\s*>/.test(txt) && !/^LOCUS/im.test(txt);
+    const parsed=isFasta?_parseFASTA(txt):_parseGenBank(txt);
+    if(!parsed.length){ toast(`"${f.name}" had no readable LOCUS length or sequence`,'err'); return; }
+    if(el){
+      pushUndo();
+      el.map.length=parsed.length; el.map.topology=parsed.topology;
+      el.map.features=parsed.features; el.map.style.title=parsed.name||f.name;
+      el._genemapCache=null;
+      _genemapModalSync(); updateFreeformElemList(); scheduleRender(0);
+      toast(`Loaded ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
+    }
+  };
+  reader.readAsText(f);
+  input.value='';
+}
+
 // ── Auto panel-lettering — relabel panels A, B, C… in reading order ──
 function _letterLabel(i){
   const fmt=(typeof gv==='function'?gv('label-format'):'A')||'A';
@@ -10651,6 +11427,94 @@ function _adjustedPanelNote(im){
   const adj=(im.brightness!=null&&im.brightness!==1)||(im.contrast!=null&&im.contrast!==1)||(im.gamma!=null&&im.gamma!==1)||(im.lut&&im.lut!=='none')||im.invert||(im.blackPt||0)>0||(im.whitePt||255)<255;
   return adj?' This panel HAS display adjustments applied — values reflect the adjusted display.':'';
 }
+
+// ═══════════════════════════════════════════════════════════════
+// RAW-SAMPLE MEASUREMENT
+// Above 8 bits, decodeTIFF keeps the native samples on im.raw. These helpers
+// invert the panel placement so a point on the figure canvas maps back to a
+// source pixel, letting ROI / line profile / count / exposure report ABSOLUTE
+// intensities at the acquisition bit depth instead of the 8-bit display.
+// The inverse is only attempted where it is exact: a rotated or flipped panel,
+// a shaped crop, or a multi-channel composite returns null and the caller falls
+// back to the disclosed display measurement rather than risk a wrong mapping.
+// ═══════════════════════════════════════════════════════════════
+const _RAW_MEASURE_NOTE='Measured on the native samples retained at import — absolute values at the acquisition bit depth, before any brightness/contrast/gamma/LUT.';
+
+// Resolve the panel under a figure-canvas point in either layout mode.
+// (In freeform mode panelBounds.idx indexes freeformElements, not images.)
+function _measurePanelAt(fx,fy){
+  const pb=panelBounds.find(p=>fx>=p.x&&fx<=p.x+p.w&&fy>=p.y&&fy<=p.y+p.h);
+  if(!pb) return null;
+  const im = layoutMode==='freeform' ? freeformElements[pb.idx] : images[pb.idx];
+  return im ? {pb, im} : null;
+}
+
+// figure-canvas point → source-image pixel. null when not exactly invertible.
+function _panelSourceMap(pb, im){
+  if(!pb||!im) return null;
+  if(im.channels && im.channels.length) return null;        // display is a composite of several files
+  if((im.cropShape||'rect')!=='rect') return null;           // display is masked; a raw rect wouldn't match
+  const src = im.img || im._imgEl;
+  if(!src) return null;
+  const iw=src.naturalWidth||src.width, ih=src.naturalHeight||src.height;
+  if(!iw||!ih) return null;
+  const sx=(im.cropL||0)/100*iw, sy=(im.cropT||0)/100*ih;
+  const sw=iw*(1-((im.cropL||0)+(im.cropR||0))/100), sh=ih*(1-((im.cropT||0)+(im.cropB||0))/100);
+  if(sw<1||sh<1) return null;
+  let dx,dy,dw,dh;
+  if(layoutMode==='freeform'){
+    if(im.rotation) return null;
+    dx=im.x; dy=im.y; dw=im.w; dh=im.h;                      // freeform stretches the crop to the box
+  } else {
+    if(im.rotate||im.flipH||im.flipV) return null;
+    const scale=Math.min(pb.w/sw, pb.h/sh);                  // grid contain-fits, centred
+    dw=Math.round(sw*scale); dh=Math.round(sh*scale);
+    dx=pb.x+Math.round((pb.w-dw)/2); dy=pb.y+Math.round((pb.h-dh)/2);
+  }
+  if(dw<1||dh<1) return null;
+  const kx=sw/dw, ky=sh/dh;                                  // source px per figure px
+  return { sx,sy,sw,sh, dx,dy,dw,dh, kx,ky,
+    toSrc:(fx,fy)=>[ sx+(fx-dx)*kx, sy+(fy-dy)*ky ],
+    inside:(fx,fy)=> fx>=dx&&fx<=dx+dw&&fy>=dy&&fy<=dy+dh };
+}
+
+// Statistics over the native samples inside a source-pixel rect.
+function _rawStatsRect(raw,u0,v0,u1,v1){
+  const x0=Math.max(0,Math.floor(Math.min(u0,u1))), x1=Math.min(raw.w-1,Math.ceil(Math.max(u0,u1))-1);
+  const y0=Math.max(0,Math.floor(Math.min(v0,v1))), y1=Math.min(raw.h-1,Math.ceil(Math.max(v0,v1))-1);
+  if(x1<x0||y1<y0) return null;
+  let sum=0,sum2=0,mn=Infinity,mx=-Infinity,n=0,atFull=0;
+  const full=raw.full;
+  for(let y=y0;y<=y1;y++){
+    const row=y*raw.w;
+    for(let x=x0;x<=x1;x++){
+      const v=raw.data[row+x];
+      sum+=v; sum2+=v*v; n++;
+      if(v<mn)mn=v; if(v>mx)mx=v;
+      if(v>=full) atFull++;
+    }
+  }
+  if(!n) return null;
+  const mean=sum/n;
+  const sd=n>1?Math.sqrt(Math.max(0,(sum2-n*mean*mean)/(n-1))):0;   // SD, n−1 denominator
+  return {n,mean,min:mn,max:mx,sd,sum,atFull};
+}
+function _rawAt(raw,u,v){
+  const x=Math.min(raw.w-1,Math.max(0,Math.round(u))), y=Math.min(raw.h-1,Math.max(0,Math.round(v)));
+  return raw.data[y*raw.w+x];
+}
+function _rawDepth(raw){ return raw.format===3?'32-bit float':raw.bps+'-bit'; }
+function _fmtRaw(v,raw){ return raw.format===3 ? (+v).toPrecision(6) : (+v).toFixed(1); }
+
+// The measurement context for a figure-canvas point: panel, exact source mapping
+// (when available), and whether raw samples can be read through it.
+function _measureCtx(fx,fy){
+  const hit=_measurePanelAt(fx,fy);
+  if(!hit) return {pb:null,im:null,map:null,raw:null};
+  const map=_panelSourceMap(hit.pb,hit.im);
+  const raw=(map && hit.im.raw && hit.im.raw.data && hit.im.raw.w===(hit.im.img||hit.im._imgEl||{}).naturalWidth) ? hit.im.raw : null;
+  return {pb:hit.pb, im:hit.im, map, raw};
+}
 function measureAndShowROI(ctx,rx,ry,rw,rh){
   const data=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh))).data;
   let sumR=0,sumG=0,sumB=0,minV=255,maxV=0;
@@ -10664,24 +11528,47 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
   const meanGray=(meanR+meanG+meanB)/3;
   const area=rw*rh;
   const intDens=meanGray*area;
-  // Find calibration
-  const pb=panelBounds.find(p=>rx>=p.x&&rx<=p.x+p.w&&ry>=p.y&&ry<=p.y+p.h);
-  const im=pb?images[pb.idx]:null;
+  // Panel, exact source mapping, and raw samples (when all three are available)
+  const {pb,im,map,raw}=_measureCtx(rx,ry);
   const umPerPx=im?.umPerPx||0;
-  const areaUm=umPerPx>0?(area*umPerPx*umPerPx).toFixed(2):null;
+  // With an exact mapping the ROI's area is known in SOURCE pixels, which is the
+  // space µm/px is calibrated in; without one, fall back to figure pixels.
+  let srcArea=map?(rw*map.kx)*(rh*map.ky):null;
+
+  let rawStat=null;
+  if(raw){
+    const [u0,v0]=map.toSrc(rx,ry), [u1,v1]=map.toSrc(rx+rw,ry+rh);
+    rawStat=_rawStatsRect(raw,u0,v0,u1,v1);
+    // report the pixels actually summed, so the area and the sample count agree
+    if(rawStat) srcArea=rawStat.n;
+  }
+  const areaUm=umPerPx>0?((srcArea!=null?srcArea:area)*umPerPx*umPerPx).toFixed(2):null;
 
   const res=document.getElementById('roi-results');
   res.className='show';
-  res.innerHTML=`<b>ROI Measurement</b><br>
-    Area: ${Math.round(area)} px²${areaUm?` (${areaUm} µm²)`:''}<br>
+  const rawHtml = rawStat ? `
+    Raw mean: <b>${_fmtRaw(rawStat.mean,raw)}</b> <span style="color:var(--muted)">(${_rawDepth(raw)})</span><br>
+    Raw min: ${_fmtRaw(rawStat.min,raw)} · max: ${_fmtRaw(rawStat.max,raw)} · SD: ${_fmtRaw(rawStat.sd,raw)}<br>
+    Raw integrated density: ${rawStat.sum.toPrecision(8)}<br>
+    ${rawStat.atFull?`<span style="color:var(--warn,#c98a00)">${(rawStat.atFull/rawStat.n*100).toFixed(1)}% of pixels are saturated at the sensor maximum</span><br>`:''}
+    <span style="color:var(--muted);font-size:10px">Display mean ${meanGray.toFixed(1)} · min ${minV.toFixed(0)} · max ${maxV.toFixed(0)} (8-bit)</span>
+    <div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_RAW_MEASURE_NOTE}</div>` : `
     Mean intensity: ${meanGray.toFixed(1)} <span style="color:var(--muted)">(R:${meanR.toFixed(0)} G:${meanG.toFixed(0)} B:${meanB.toFixed(0)})</span><br>
     Min: ${minV.toFixed(0)} · Max: ${maxV.toFixed(0)}<br>
     Integrated density: ${intDens.toFixed(0)}
     <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`;
+  res.innerHTML=`<b>ROI Measurement</b><br>
+    Area: ${Math.round(srcArea!=null?srcArea:area)} ${srcArea!=null?'source':''} px²${areaUm?` (${areaUm} µm²)`:''}<br>
+    ${rawHtml}`;
 
   measurements.push({type:'roi',label:`ROI ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
-    meanGray:meanGray.toFixed(2),minV,maxV,area:Math.round(area),intDens:intDens.toFixed(0),areaUm});
+    meanGray:meanGray.toFixed(2),minV,maxV,
+    area:Math.round(srcArea!=null?srcArea:area),intDens:intDens.toFixed(0),areaUm,
+    source:rawStat?`raw ${_rawDepth(raw)}`:'8-bit display',
+    rawMean:rawStat?_fmtRaw(rawStat.mean,raw):'', rawMin:rawStat?_fmtRaw(rawStat.min,raw):'',
+    rawMax:rawStat?_fmtRaw(rawStat.max,raw):'', rawSD:rawStat?_fmtRaw(rawStat.sd,raw):'',
+    rawIntDens:rawStat?String(rawStat.sum):''});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
 }
@@ -10689,11 +11576,21 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
 function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
   const len=Math.round(Math.hypot(x1-x0,y1-y0));
   if(len<2) return;
+  // Read the native samples when the panel exposes them and maps exactly;
+  // otherwise sample the 8-bit display as before.
+  const {im,map,raw}=_measureCtx(x0,y0);
   const vals=[];
-  for(let i=0;i<=len;i++){
-    const px=Math.round(x0+(x1-x0)*i/len), py=Math.round(y0+(y1-y0)*i/len);
-    const d=ctx.getImageData(px,py,1,1).data;
-    vals.push((d[0]+d[1]+d[2])/3);
+  if(raw){
+    for(let i=0;i<=len;i++){
+      const [u,v]=map.toSrc(x0+(x1-x0)*i/len, y0+(y1-y0)*i/len);
+      vals.push(_rawAt(raw,u,v));
+    }
+  } else {
+    for(let i=0;i<=len;i++){
+      const px=Math.round(x0+(x1-x0)*i/len), py=Math.round(y0+(y1-y0)*i/len);
+      const d=ctx.getImageData(px,py,1,1).data;
+      vals.push((d[0]+d[1]+d[2])/3);
+    }
   }
   // Draw profile
   const pc=document.getElementById('line-profile-canvas');
@@ -10709,22 +11606,31 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
     i===0?pctx.moveTo(px2,py2):pctx.lineTo(px2,py2);
   });
   pctx.stroke();
+  const pMax=Math.max(...vals), pMean=vals.reduce((a,b)=>a+b,0)/vals.length;
   document.getElementById('roi-results').className='show';
-  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${Math.max(...vals).toFixed(0)} · mean: ${(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1)}
-    <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}</div>`;
-  measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(',')});
+  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${raw?_fmtRaw(pMax,raw):pMax.toFixed(0)} · mean: ${raw?_fmtRaw(pMean,raw):pMean.toFixed(1)}
+    ${raw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_rawDepth(raw)} raw samples. ${_RAW_MEASURE_NOTE}</div>`
+        :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`}`;
+  measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(','),
+    source:raw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
 }
 
 function exportMeasurements(){
   if(!measurements.length){ toast('No measurements yet','warn'); return; }
-  const rows=[['Type','Label','X','Y','W','H','Mean Gray','Min','Max','Integrated Density','Area px²','Area µm²','Line Values']];
+  const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Line Values']];
   measurements.forEach(m=>{
-    rows.push([m.type,m.label,m.x||'',m.y||'',m.w||'',m.h||'',
-      m.meanGray||'',m.minV||'',m.maxV||'',m.intDens||'',m.area||'',m.areaUm||'',m.values||'']);
+    rows.push([m.type,m.label,m.source||'8-bit display',m.x||'',m.y||'',m.w||'',m.h||'',
+      m.meanGray||'',m.minV||'',m.maxV||'',m.intDens||'',
+      m.rawMean||'',m.rawMin||'',m.rawMax||'',m.rawSD||'',m.rawIntDens||'',
+      m.area||'',m.areaUm||'',m.values||'']);
   });
-  const csv='# '+_MEASURE_DISCLAIMER+'\n'+rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+  const anyRaw=measurements.some(m=>/^raw /.test(m.source||''));
+  const csv='# The "Measured on" column states, per row, which pixels produced the numbers.\n'
+    +'# Rows measured on the 8-bit display: '+_MEASURE_DISCLAIMER+'\n'
+    +(anyRaw?'# Rows measured on raw: '+_RAW_MEASURE_NOTE+' SD uses an n-1 denominator.\n':'')
+    +rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
   dl(blobUrl(csv),'figurelab-measurements.csv');
 }
 
@@ -10976,13 +11882,28 @@ function exportReproLog(){
 // ═══════════════════════════════════════════════════════════════
 function countCellsROI(ctx,rx,ry,rw,rh){
   const thresh=parseInt(document.getElementById('count-threshold').value)||128;
-  const idata=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
-  const d=idata.data, W=idata.width, H=idata.height;
-  // Build binary mask (above threshold = foreground)
-  const mask=new Uint8Array(W*H);
-  for(let i=0;i<d.length;i+=4){
-    const gray=(d[i]+d[i+1]+d[i+2])/3;
-    mask[i/4]=gray>=thresh?1:0;
+  const {im,map,raw}=_measureCtx(rx,ry);
+  let W,H,mask,rawThresh=0;
+  if(raw){
+    // Segment the native samples at the panel's own resolution. The slider is 0–255,
+    // so scale it onto the raw range — the equivalent level is reported to the user.
+    const [u0,v0]=map.toSrc(rx,ry), [u1,v1]=map.toSrc(rx+rw,ry+rh);
+    const x0=Math.max(0,Math.floor(Math.min(u0,u1))), x1=Math.min(raw.w-1,Math.ceil(Math.max(u0,u1))-1);
+    const y0=Math.max(0,Math.floor(Math.min(v0,v1))), y1=Math.min(raw.h-1,Math.ceil(Math.max(v0,v1))-1);
+    W=Math.max(1,x1-x0+1); H=Math.max(1,y1-y0+1);
+    rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1);
+    mask=new Uint8Array(W*H);
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++)
+      mask[y*W+x]=raw.data[(y0+y)*raw.w+(x0+x)]>=rawThresh?1:0;
+  } else {
+    const idata=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
+    const d=idata.data; W=idata.width; H=idata.height;
+    // Build binary mask (above threshold = foreground)
+    mask=new Uint8Array(W*H);
+    for(let i=0;i<d.length;i+=4){
+      const gray=(d[i]+d[i+1]+d[i+2])/3;
+      mask[i/4]=gray>=thresh?1:0;
+    }
   }
   // Connected-component labeling (4-connectivity flood fill)
   const labels=new Int32Array(W*H);
@@ -11007,23 +11928,23 @@ function countCellsROI(ctx,rx,ry,rw,rh){
       }
     }
   }
-  const area=rw*rh;
+  const area=W*H;                          // pixels actually segmented (source px on the raw path)
   const fgPx=mask.reduce((s,v)=>s+v,0);
-  const pb=panelBounds.find(p=>rx>=p.x&&rx<=p.x+p.w&&ry>=p.y&&ry<=p.y+p.h);
-  const im=pb?images[pb.idx]:null;
   const umPerPx=im?.umPerPx||0;
   const areaUm=umPerPx>0?(fgPx*umPerPx*umPerPx).toFixed(1):null;
   const res=document.getElementById('roi-results');
   res.className='show';
-  res.innerHTML=`<b>Cell Count</b> (threshold ≥${thresh})<br>
+  res.innerHTML=`<b>Cell Count</b> (threshold ≥${thresh}${raw?` → raw ${_fmtRaw(rawThresh,raw)}`:''})<br>
     Objects detected: <b>${count}</b><br>
-    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)<br>
+    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${raw?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
     <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
-    <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`;
+    ${raw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
+         :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
-    count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||''});
+    count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',
+    source:raw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
   logAction('cellCount',{count,threshold:thresh});
@@ -11044,6 +11965,7 @@ function updateElemPropsBar(){
   const isPatch=el.type==='patch';
   const isPaint=el.type==='paint';
   const isChart=el.type==='chart';
+  const isGenemap=el.type==='genemap';
   const isConn=el.type==='connector';
   document.getElementById('ep-image-props').style.display=isImg?'flex':'none';
   document.getElementById('ep-text-props').style.display=isText?'flex':'none';
@@ -11052,6 +11974,17 @@ function updateElemPropsBar(){
   const chartPane=document.getElementById('ep-chart-props'); if(chartPane) chartPane.style.display=isChart?'flex':'none';
   const connPane=document.getElementById('ep-conn-props'); if(connPane) connPane.style.display=isConn?'flex':'none';
   if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette; }
+  const gmPane=document.getElementById('ep-genemap-props'); if(gmPane) gmPane.style.display=isGenemap?'flex':'none';
+  if(isGenemap && el.map){
+    const t=document.getElementById('ep-gm-topology'); if(t) t.value=el.map.topology||'linear';
+    const L=document.getElementById('ep-gm-length'); if(L) L.value=el.map.length||0;
+    const p=document.getElementById('ep-gm-palette'); if(p) p.value=(el.map.style&&el.map.style.palette)||'sbol';
+    const s=document.getElementById('ep-gm-scale');
+    if(s){ const bp=Math.max(1,el.map.length|0);
+      s.textContent = el.map.topology==='circular'
+        ? (bp/(Math.PI*Math.max(1,Math.min(el.w,el.h)-40))).toFixed(1)+' bp/px'
+        : (bp/Math.max(1,el.w-36)).toFixed(1)+' bp/px'; }
+  }
   if(isConn){
     const set=(id,v)=>{ const e=document.getElementById(id); if(e){ if(e.type==='checkbox') e.checked=!!v; else e.value=v; } };
     set('ep-conn-route',el.route||'straight'); set('ep-conn-arrow',el.arrow||'end'); set('ep-conn-w',el.strokeWidth||2);
@@ -11109,6 +12042,16 @@ function _epConn(prop,val){ if(selectedElems.size!==1) return; const el=freeform
 // Chart props-bar quick controls (full editing lives in the chart modal).
 function _epChartKind(k){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.kind=k; el._chartKey=''; el._chartStat=null; scheduleRender(0); }
 function _epChartPalette(p){ const el=_selectedChartEl(); if(!el) return; pushUndo(); el.chart.style.palette=p; el._chartKey=''; el._chartStat=null; scheduleRender(0); }
+function _epGenemapTopology(t){ const el=_selectedGenemapEl(); if(!el) return; pushUndo(); el.map.topology=t; el._genemapCache=null; updateElemPropsBar(); scheduleRender(0); }
+function _epGenemapPalette(p){ const el=_selectedGenemapEl(); if(!el) return; pushUndo(); el.map.style.palette=p; el._genemapCache=null; scheduleRender(0); }
+// Changing the backbone length rescales the drawing, not the coordinates — features
+// keep their bp positions, which is what "scale by size" has to mean.
+function _epGenemapLength(v){
+  const el=_selectedGenemapEl(); if(!el) return;
+  const L=Math.max(1, Math.round(v)||1);
+  pushUndo(); el.map.length=L; el._genemapCache=null;
+  updateElemPropsBar(); scheduleRender(0);
+}
 // Freeform scale-bar helpers (image objects)
 function _epSbEl(){ if(selectedElems.size!==1) return null; const el=freeformElements[[...selectedElems][0]]; return (el&&(el.type==='image'||el.type==='aiicon'))?el:null; }
 function _epSbLen(v){ const el=_epSbEl(); if(!el) return; const u=el.sbUnit||'µm'; el.sbUnit=u; el.sbUm=(parseFloat(v)||0)*_sbUnitFactor(u); scheduleRender(0); }
@@ -11916,7 +12859,19 @@ function runExposureAnalysis(){
     if(parseFloat(loPct)>15) warnings.push({s:'warn',m:`${loPct}% pixels at black on the display`});
     if(range<40) warnings.push({s:'warn',m:`Low contrast — dynamic range only ${range} levels (p5–p95)`});
     if(!warnings.length) warnings.push({s:'pass',m:`Well-exposed — mean ${mean.toFixed(0)}, range ${range} levels`});
-    results.push({label:im.label, warnings});
+    // If the native samples were retained, report TRUE sensor saturation — the number
+    // that actually matters — instead of inferring it from the 8-bit display.
+    const map=_panelSourceMap(pb,im);
+    const raw=(map&&im.raw&&im.raw.data)?im.raw:null;
+    if(raw){
+      const st=_rawStatsRect(raw,0,0,raw.w,raw.h);
+      if(st){
+        const satPct=st.atFull/st.n*100;
+        warnings.unshift({s: satPct>1?'fail':satPct>0?'warn':'pass',
+          m:`Raw (${_rawDepth(raw)}): ${satPct.toFixed(2)}% of pixels saturated at the sensor maximum · mean ${_fmtRaw(st.mean,raw)} · range ${_fmtRaw(st.min,raw)}–${_fmtRaw(st.max,raw)}`});
+      }
+    }
+    results.push({label:im.label, warnings, raw:!!raw});
   });
   if(!results.length){ toast('Render figure first','warn'); return; }
   const rows=results.map(r=>{
@@ -11925,14 +12880,14 @@ function runExposureAnalysis(){
         <span class="cc-icon">${w.s==='pass'?'✓':w.s==='warn'?'⚠':'✗'}</span>
         <span>${w.m}</span>
       </div>`).join('');
-    return `<div style="margin-bottom:8px"><b style="font-size:12px">Panel ${r.label}</b>${wHtml}</div>`;
+    return `<div style="margin-bottom:8px"><b style="font-size:12px">Panel ${r.label}</b>${r.raw?' <span style="font-size:9px;color:var(--ok,#3dd68c)">raw samples available</span>':''}${wHtml}</div>`;
   }).join('');
   const modal=document.createElement('div');
   modal.className='modal-bg open';
   modal.innerHTML=`<div class="modal" style="max-width:500px;padding:22px;max-height:80vh;overflow-y:auto">
     <div style="font-weight:600;font-size:14px;margin-bottom:12px">⚡ Exposure Analysis</div>
     ${rows}
-    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:6px;border-top:1px solid var(--border);padding-top:8px">Computed on the rendered 8-bit display, after any brightness/contrast/gamma/LUT. Display clipping is not the same as acquisition saturation — check saturation on the raw image before adjustment.</div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:6px;border-top:1px solid var(--border);padding-top:8px">Display figures are computed on the rendered 8-bit canvas, after any brightness/contrast/gamma/LUT — display clipping is not the same as acquisition saturation. Where a panel kept its native samples (16-bit/float TIFF imports), the "Raw" line reports true sensor saturation measured before any adjustment.</div>
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:10px">Close</button>
   </div>`;
   document.body.appendChild(modal);

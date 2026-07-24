@@ -1533,7 +1533,8 @@ test('measurements disclose that they read the 8-bit display, not raw data', asy
     const csv = new TextDecoder().decode(cap.data);
     return {
       resultDisclaims: /8-bit display/i.test(roiHtml),
-      csvDisclaims: /^# .*8-bit display/i.test(csv),
+      // v3.9 added more header comments (per-row provenance), so match any of them
+      csvDisclaims: /^# .*8-bit display/im.test(csv),
     };
   });
   expect(r.resultDisclaims).toBe(true);   // shown with the on-screen result
