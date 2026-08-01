@@ -1,4 +1,4 @@
-# FigureLab v3.9.2
+# FigureLab v3.9.3
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -39,14 +39,17 @@ A figure assembled and exported entirely in the browser (via **✨ Load example 
 
 ---
 
-## Simple vs Advanced mode
+## Finding things
 
-FigureLab opens in **Simple mode** — the header pill (top-right) toggles between Simple and Advanced, and your choice is remembered between sessions.
+The sidebar is organised by **what you're doing**, in the order you do it:
 
-- **Simple** shows the core workflow only: import images, choose a layout or template, panel labels, scale bars, basic crop and brightness/contrast, annotate, and export.
-- **Advanced** additionally reveals: AI image generation, freeform canvas mode, scale-matching, batch crop, histogram normalization, the deep figure audit / exposure analysis / panel comparison, measurement tools (ROI / line profile / count), reproducibility scripts (R / Python) and the reproducibility log, and multi-page PDF export.
+**Images → Arrange → Templates → Crop & Scale → Annotate & Draw → Look → Measure → Check → Export**
 
-Advanced tools are only *hidden*, never removed — switching back to Advanced restores everything exactly, and nothing about your figure or its export changes with the mode. You can also toggle it from the command palette (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> → "Toggle Simple / Advanced").
+Every tool is visible — there is no mode that hides features. Sections collapse to keep the list short, and deeper tools sit grouped under a "More" rule within their section rather than disappearing. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> to search every tool by name.
+
+Tools that cannot work in your current layout mode are hidden or disabled **with the reason shown**, rather than accepting a click and doing nothing.
+
+> Earlier versions had a Simple/Advanced switch. It hid about thirty-five controls, including whole tools like Batch Crop, which made them impossible to discover — you cannot look for something you have no way of knowing exists. It was removed in v3.9.3.
 
 ## On-device AI
 
@@ -261,6 +264,22 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### v3.9.3 — 1 August 2026
+**Focus: findability. Prompted by failing to find the crop tool while using the app for real work.**
+
+A UI audit found cropping had **12 entry points across 5 surfaces**. The two flagship ones — `✂ Batch Crop Images` and `⊞ Multi-Crop → Panels` — sat under a sub-heading called *Scale Tools* inside an accordion called *Style*, wrapped in the Advanced-mode class. Since the app booted in Simple mode, a default user could not see them at all, and the command palette returned **1 result out of 12** for "crop".
+
+- **The sidebar is task-based**: Images → Arrange → Templates → **Crop & Scale** → Annotate & Draw → Look → **Measure** → **Check** → Export. Measure (ROI/profile/count — `setTool()` tools, and the only ones that worked in freeform) and Check (compliance, deep audit, duplicate check, exposure, compare) were both buried inside Export behind the Advanced gate. Histogram normalisation moved to Images, next to the panels it acts on.
+- **One home for cropping**, with a new `✂ Crop a panel…` entry point, and `Match Physical Scale`/`Match Pixel Size` renamed to say that they crop — previously only their tooltips admitted it. All ten crop actions are in the command palette.
+- **Name regions as you cut them** — a per-region name plus a per-image source name, with a running list of what's banked. Region names become panel labels (`Plate 3 T7`), so an 18-panel figure from 6 plates needs no decoding afterwards. Naming is optional and a named panel is never overwritten by the auto-lettering.
+- **Multi-crop works in freeform**, where it used to refuse with "needs Grid layout"; each region becomes a placed object. Grid behaviour is unchanged.
+- **Crop-on-import is opt-in and off by default.** It fired on every single-image import and physically cut the bitmap *and* the retained 16-bit samples that raw measurement depends on. Images now import straight into the figure and are cropped non-destructively afterwards.
+- **Annotations work in freeform.** They were never unimplemented — `renderFreeform` already drew them and they were already in exports — but all three canvas handlers delegated the event to the object code before the annotation logic could see it, so arrows, boxes and text were unreachable. They now draw, select and drag in both modes. Panel-pin mode stays grid-only, since there is no grid cell to pin to.
+- **Simple/Advanced is retired.** One CSS rule hid ~35 controls while the app booted in Simple. Progressive disclosure now happens per section; deeper tools stay visible under a "More" rule. This also removed a trap where choosing Freeform in Simple mode silently reverted to Grid on the next load.
+- **Mode-aware sidebar** — nothing renders that would silently ignore your click. Panel letters hide in freeform, Templates says it builds a grid, and PowerPoint export is disabled *with the reason* rather than failing after the click.
+- **One name per concept** — "Presets" named four different things across three sections, "Save" five, "Themes" two. Also, the header version badge was hard-coded and had drifted; it is now stamped from `APP_VERSION`.
+- **220 Playwright tests** (up from 213). The new `tests/ui-ia.spec.js` includes an orphaned-id scan that extracts every `getElementById` from the source and checks it against the live DOM — the failure a large re-parenting causes that behavioural tests miss.
+
 ### v3.9.2 — 1 August 2026
 **Focus: PDF exports carry real text, not a picture of text.**
 
@@ -359,7 +378,7 @@ _Published & citable — latest version DOI [`10.5281/zenodo.21732089`](https://
 - **On-device AI caption polish** (optional) — a `🤖 Polish with on-device AI` button refines your figure legend using **Chrome's built-in Gemini Nano (Prompt API)**, running *entirely on your machine* so nothing is uploaded. Feature-detected; falls back to the rule-based caption when unavailable. See *[On-device AI](#on-device-ai)*.
 - **"What's New" tab** in Help with the dated changelog, plus a "new" dot on the header ❔ after an update.
 
-- **Simple / Advanced mode** — a header toggle (default **Simple**) hides advanced tools (AI generation, freeform, measurement, histogram normalization, deep audit, reproducibility scripts, multi-page PDF, scale-matching) behind one switch, so beginners see only the core workflow. Nothing is removed from the DOM; preference persists. See *[Simple vs Advanced mode](#simple-vs-advanced-mode)*.
+- **Task-based sidebar** — sections named for what you are doing (Images, Arrange, Crop & Scale, Annotate & Draw, Look, Measure, Check, Export), in workflow order. Every tool stays visible; sections collapse and deeper tools group under a "More" rule. See *[Finding things](#finding-things)*. (Replaced the Simple/Advanced toggle in v3.9.3.)
 - **Empty-state start screen** — a blank canvas now shows a launchpad: drop images, start from a template, load a session, or try the example figure, plus an `Import → Layout → Calibrate → Annotate → Audit → Export` workflow strip.
 - **Load example figure** — one click generates four procedural micrographs (DAPI / GFP / mCherry / merge) in a labelled, scale-barred 2×2 so you can explore instantly with no files. Clear with one undo.
 - **Command palette** — <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> opens a fuzzy launcher for every action (render, all exports, audit, save/load, presets, match scale, batch crop, toggle mode, help…).
