@@ -127,7 +127,7 @@ test('the duplicate check reports through the UI and the deep audit', async ({ p
     return { dup: shown(runDuplicateScan), audit: shown(runAdvancedConsistency) };
   });
   expect(r.dup).toContain('similar');
-  expect(r.dup).toContain('not a substitute');       // the limit is disclosed
+  expect(r.dup).toMatch(/not a substitute/i);        // the limit is disclosed
   expect(r.audit).toContain('identical');            // and it reaches the Deep Figure Audit
   expect(errors).toEqual([]);
 });

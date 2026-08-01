@@ -12053,7 +12053,13 @@ function normalizeHistograms(){
 // says so rather than implying a clean bill of health.
 // ═══════════════════════════════════════════════════════════════
 const _DUP_N=32;                 // thumbnail edge
-const _DUP_FLAT=3.0;             // below this SD (0–255) a panel is too flat to compare
+// Minimum high-pass (structure) SD for a panel to be worth comparing. Measured on
+// 32x32 thumbnails: flat grey 0, a linear intensity ramp 4.6, a smooth radial
+// gradient 6.8, a textured micrograph 98. 10 excludes the smooth cases — whose
+// correlation would be meaningless — while leaving an order of magnitude of headroom
+// for real, even low-contrast, image content. Excluded panels are reported as
+// not-compared, never silently passed.
+const _DUP_FLAT=10.0;
 
 // Every panel currently in the figure, in either layout mode, with its crop.
 function _dupPanels(){
@@ -12091,11 +12097,35 @@ function _panelThumb(p){
     const L=0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2];
     v[i]=L; sum+=L;
   }
+
+  // Gate on STRUCTURE, but compare on INTENSITY.
+  //
+  // Normalised cross-correlation is invariant to offset and gain, so any two slices of
+  // a smooth intensity ramp — an unevenly illuminated blank field — correlate ~1.0
+  // while showing different things. A Laplacian high-pass identifies exactly that
+  // family: it collapses to near-zero on smooth content and is large on real texture.
+  //
+  // It is used ONLY to decide whether a panel is worth comparing. Correlating the
+  // high-passed images instead would make the check acutely shift-sensitive, so a
+  // reuse that had been re-cropped by a couple of pixels would slip through — and for
+  // an integrity check a missed duplicate is far worse than an extra one to confirm.
+  let lap=0, lsum=0;
+  const hp=new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const i=y*N+x;
+    const l=v[y*N+(x>0?x-1:x+1)], r=v[y*N+(x<N-1?x+1:x-1)];
+    const u=v[(y>0?y-1:y+1)*N+x], b=v[(y<N-1?y+1:y-1)*N+x];
+    hp[i]=4*v[i]-l-r-u-b; lsum+=hp[i];
+  }
+  const lmean=lsum/(N*N);
+  for(let i=0;i<N*N;i++) lap+=(hp[i]-lmean)*(hp[i]-lmean);
+  // too little structure to judge: blank, near-uniform, or a smooth gradient
+  if(Math.sqrt(lap/(N*N))<_DUP_FLAT) return null;
+
   const mean=sum/(N*N);
   let ss=0;
   for(let i=0;i<N*N;i++){ v[i]-=mean; ss+=v[i]*v[i]; }
-  const sd=Math.sqrt(ss/(N*N));
-  if(sd<_DUP_FLAT) return null;              // blank or near-uniform: nothing to compare
+  if(ss<=0) return null;
   return {v, norm:Math.sqrt(ss)};
 }
 
@@ -12151,11 +12181,14 @@ function _panelSimilarityScan(threshold=0.92){
 // Standalone report, also surfaced as a row inside the Deep Figure Audit.
 function runDuplicateScan(){
   const r=_panelSimilarityScan();
-  if(r.compared<2){
-    toast(r.compared?'Need at least two comparable panels':'No panels with enough detail to compare','warn');
-    return;
-  }
-  const rows = r.hits.length
+  // "We could not check this" has to be as visible as "all clear" — a toast that
+  // fades away would let a user believe the figure had been screened when it hadn't.
+  const rows = r.compared<2
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>
+        <b>Nothing was checked.</b> ${r.compared?'Only one panel has':'No panel has'} enough image detail
+        to compare${r.skipped.length?` — ${r.compared?'the others are':'they are'} too uniform (blank, saturated, or a smooth gradient) for a pixel comparison to carry any information`:''}.
+        This is <b>not</b> a clean result: no duplicate check has been performed on this figure.</span></div>`
+    : r.hits.length
     ? r.hits.map(h=>`<div class="cc-row cc-fail"><span class="cc-icon">✗</span><span>
         <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}
         — confirm these are different acquisitions</span></div>`).join('')
@@ -12169,7 +12202,7 @@ function runDuplicateScan(){
     <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Compares the pixels of every pair of panels, including rotated and mirrored reuse.</div>
     ${rows}${skip}
     <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-      Whole panels only — this does not detect a duplicated region inside an otherwise different panel, and it is not a substitute for a journal's screening. It is a chance to catch an accidental reuse before a reviewer does.</div>
+      Whole panels only. It compares each panel as displayed, so it will not find a duplicated <i>region</i> inside an otherwise different panel, and a reuse that was re-cropped or shifted may score below the threshold. Not a substitute for a journal's screening — a chance to catch an accidental reuse before a reviewer does.</div>
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
   </div>`;
   document.body.appendChild(modal);
