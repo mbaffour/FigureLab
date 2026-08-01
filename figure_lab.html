@@ -784,6 +784,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px">↺ Reset all crops</button>
     <div class="divider" style="margin:6px 0"></div>
     <button class="btn btn-primary" onclick="startBatchCrop()" style="width:100%;justify-content:center" title="Draw one crop size on the first image, then move that same box across all images">✂ Batch Crop Images</button>
+    <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of each image — every region becomes its own panel">⊞ Multi-Crop → Panels</button>
     </div>
   </div>
 </details>
@@ -1911,6 +1912,34 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px">→ Skip</button>
       <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop position to all remaining images (centered)">✓ All</button>
     </div>
+    <div id="mc-crop-bar" style="display:none;background:rgba(245,166,35,.10);border:1px solid rgba(245,166,35,.35);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span id="mc-progress" style="flex:1;font-weight:600;color:var(--warn)">Image 1 / 1 · 0 regions</span>
+        <span id="mc-hint" style="color:var(--muted)">Draw a region to set the size</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Also add the full uncropped image as its own panel">
+          <input type="checkbox" id="mc-keep-original"> Keep full image
+        </label>
+        <label style="display:flex;align-items:center;gap:4px">Arrange
+          <select id="mc-arrange" style="font-size:10px;padding:1px 3px">
+            <option value="col" selected>each image = a column</option>
+            <option value="row">each image = a row</option>
+          </select>
+        </label>
+        <span style="flex:1"></span>
+        <button class="btn" id="mc-undo-btn" onclick="mcUndoRegion()" style="padding:2px 8px;font-size:10px">↶ Undo region</button>
+        <button class="btn" onclick="mcSkipSource()" style="padding:2px 8px;font-size:10px" title="Discard this image's regions and move on">→ Skip image</button>
+        <button class="btn" id="mc-finish-btn" onclick="mcFinishNow()" style="padding:2px 8px;font-size:10px" title="Stop here and build the figure">⏹ Finish now</button>
+        <button class="btn btn-primary" id="mc-next-btn" onclick="mcDoneSource()" style="padding:2px 8px;font-size:10px">✓ Next image</button>
+      </div>
+    </div>
+    <div id="paste-dest-bar" style="display:none;background:rgba(91,141,238,.10);border:1px solid rgba(91,141,238,.30);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;align-items:center;gap:8px">
+      <span style="font-weight:600;color:var(--accent)">Pasted image</span>
+      <label style="display:flex;align-items:center;gap:4px">goes to
+        <select id="paste-dest" style="font-size:10px;padding:1px 3px;max-width:220px"></select>
+      </label>
+    </div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
       <button class="btn" id="crop-copy-group" onclick="copyCropTo('group')" title="Apply this exact crop to every panel in the same match group">⤳ To group</button>
@@ -2613,6 +2642,9 @@ function _resetCropModalUI(){
   document.getElementById('crop-precrop-info').style.display='none';
   document.getElementById('crop-skip-btn').style.display='none';
   document.getElementById('crop-apply-btn').textContent='✓ Apply Crop';
+  const mbar=document.getElementById('mc-crop-bar'); if(mbar) mbar.style.display='none';
+  const bbar=document.getElementById('batch-crop-bar'); if(bbar) bbar.style.display='none';
+  const pdest=document.getElementById('paste-dest-bar'); if(pdest) pdest.style.display='none';
 }
 
 function _commitImage(img,src,name,svgSource,calib,raw){
@@ -3205,12 +3237,13 @@ function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // p
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
 function renderImgList(){
-  document.getElementById('img-count').textContent = images.length;
+  document.getElementById('img-count').textContent = images.filter(Boolean).length;
   if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
   list.innerHTML = '';
   const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
   images.forEach((im, idx) => {
+    if(!im) return; // empty grid slot (ragged multi-crop / panel-drag padding)
     const item = document.createElement('div');
     item.className = 'img-item';
     item.draggable = true;
@@ -3260,6 +3293,7 @@ function renderImgList(){
         <div class="divider"></div>
         <div class="sec-lbl">Crop</div>
         <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-opencrop="${idx}">✂ Open Crop Editor</button>
+        <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-openmulticrop="${idx}" title="Cut several same-size regions out of this image — each becomes its own panel">⊞ Multi-crop into panels…</button>
         <div class="sec-lbl" style="margin-top:2px">Clip shape</div>
         <div style="display:flex;gap:4px;margin-bottom:4px">
           <button class="btn cs-btn" data-cropshape="rect"    style="flex:1;justify-content:center;font-size:14px${(im.cropShape||'rect')==='rect'   ?';border-color:var(--accent);color:var(--accent)':''}" title="Rectangle (default)">□</button>
@@ -3503,6 +3537,7 @@ function renderImgList(){
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
+    item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
     item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
     item.querySelector('.f-meta').addEventListener('input', e=>{ images[idx].metaNote=e.target.value; });
@@ -4812,7 +4847,18 @@ let cropEdState={imgIdx:-1,img:null,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0
   batch:false,batchQueue:[],batchTotal:0,batchCropW:0,batchCropH:0,
   batchMoving:false,batchMoveStartX:0,batchMoveStartY:0,batchMoveStartCx:0,batchMoveStartCy:0};
 
+// ── Multi-crop session ────────────────────────────────────────
+// Every modal opener REPLACES cropEdState wholesale, so durable session data
+// lives here instead; cropEdState.mc is only a marker flag.
+function _mcBlank(){
+  return {active:false,mode:'grid',cropW:0,cropH:0,regions:[],results:[],queue:[],
+    total:0,cur:null,keepOriginal:false,arrange:'col'};
+}
+let mcSession=_mcBlank();
+let _mcInternalOpen=false; // lets startMultiCrop's own openCropModal call past the guard
+
 function openCropModal(idx){
+  if(mcSession.active && !_mcInternalOpen){ toast('Finish multi-crop first','warn'); return; }
   const im=images[idx]; if(!im) return;
   // Convert existing crop % to normalised rect
   const l=im.cropL/100, t=im.cropT/100, r=im.cropR/100, b=im.cropB/100;
@@ -4829,6 +4875,12 @@ function openCropModal(idx){
   });
 }
 function closeCropModal(){
+  if(cropEdState.mc){
+    const pending=mcSession.regions.length+mcSession.results.reduce((a,r)=>a+r.regions.length,0);
+    if(pending && !confirm(`Discard ${pending} pending region${pending===1?'':'s'}?`)) return;
+    _mcCancel('Multi-crop cancelled');
+    return;
+  }
   if(cropEdState._preCrop){ skipPreCrop(); return; } // don't lose the image
   if(cropEdState.batch){ cropEdState.batch=false; cropEdState.batchQueue=[]; _updateBatchUI(); renderImgList(); scheduleRender(0); }
   _resetCropModalUI();
@@ -4849,6 +4901,7 @@ function drawCropEd(){
     ctx.font=`bold ${Math.max(11,Math.round(W*0.055))}px system-ui,sans-serif`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.fillText('Click and drag to draw crop',W/2,H/2);
+    _mcDrawGhosts(ctx,W,H);
     document.getElementById('crop-ed-vals').textContent='Draw a region to continue';
     return;
   }
@@ -4867,18 +4920,26 @@ function drawCropEd(){
     ctx.beginPath(); ctx.moveTo(rx+t*rw/3,ry); ctx.lineTo(rx+t*rw/3,ry+rh); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(rx,ry+t*rh/3); ctx.lineTo(rx+rw,ry+t*rh/3); ctx.stroke();
   }
-  // Corner + edge handles (draggable to resize)
-  [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh],
-   [rx+rw/2,ry],[rx+rw/2,ry+rh],[rx,ry+rh/2],[rx+rw,ry+rh/2]].forEach(([hx,hy])=>{
-    ctx.fillStyle='#fff'; ctx.fillRect(hx-5,hy-5,10,10);
-    ctx.fillStyle='#5b8dee'; ctx.fillRect(hx-4,hy-4,8,8);
-  });
+  // Corner + edge handles — hidden when the size is pinned, since resize is off
+  const pinned=(cropEdState.batch&&cropEdState.batchCropW>0)||(cropEdState.mc&&mcSession.cropW>0);
+  if(!pinned){
+    [[rx,ry],[rx+rw,ry],[rx,ry+rh],[rx+rw,ry+rh],
+     [rx+rw/2,ry],[rx+rw/2,ry+rh],[rx,ry+rh/2],[rx+rw,ry+rh/2]].forEach(([hx,hy])=>{
+      ctx.fillStyle='#fff'; ctx.fillRect(hx-5,hy-5,10,10);
+      ctx.fillStyle='#5b8dee'; ctx.fillRect(hx-4,hy-4,8,8);
+    });
+  }
+  _mcDrawGhosts(ctx,W,H);
   // % readout
   const T=Math.round(cy*100),L=Math.round(cx*100);
   const B=Math.round((1-cy-ch)*100),R=Math.round((1-cx-cw)*100);
-  document.getElementById('crop-ed-vals').textContent=`T:${T}% L:${L}% B:${B}% R:${R}%`;
+  const extra=cropEdState.mc?` · ${mcSession.regions.length} added`:'';
+  document.getElementById('crop-ed-vals').textContent=`T:${T}% L:${L}% B:${B}% R:${R}%${extra}`;
 }
 function applyCropModal(){
+  // Multi-crop: the primary button banks a region. Must precede pushUndo() so
+  // banking a region doesn't spend an undo slot.
+  if(cropEdState.mc){ mcAddRegion(); return; }
   pushUndo();
   // Batch crop mode
   if(cropEdState.batch){
@@ -4930,7 +4991,16 @@ function applyCropModal(){
   closeCropModal(); renderImgList(); scheduleRender(0);
   toast('Crop applied','ok');
 }
-function resetCropEd(){ cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false; drawCropEd(); }
+function resetCropEd(){
+  // Mid multi-crop the size is pinned — recentre the box instead of clearing it,
+  // so Reset can't silently break the lock.
+  if(cropEdState.mc&&mcSession.cropW){
+    cropEdState.cw=mcSession.cropW; cropEdState.ch=mcSession.cropH;
+    cropEdState.cx=(1-mcSession.cropW)/2; cropEdState.cy=(1-mcSession.cropH)/2;
+    cropEdState.hasBox=true; drawCropEd(); return;
+  }
+  cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false; drawCropEd();
+}
 // Copy the current crop rect to every panel (or every panel in the same group).
 function copyCropTo(scope){
   const cs=cropEdState; if(cs.imgIdx<0){ toast('Open a single panel crop first','warn'); return; }
@@ -4960,6 +5030,7 @@ document.addEventListener('keydown', e=>{
 
 // ── Batch crop ────────────────────────────────────────────────
 function startBatchCrop(){
+  if(mcSession.active){ toast('Finish multi-crop first','warn'); return; }
   const eligible=images.map((im,i)=>({im,i})).filter(({im})=>im&&im.img);
   if(eligible.length<1){ toast('Add images first','warn'); return; }
   const allIdx=eligible.map(({i})=>i);
@@ -5056,6 +5127,237 @@ function applyBatchCropAll(){
   _advanceBatchCrop(); // will close modal
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MULTI-CROP — several same-size regions from one image, each a panel
+// Crops stay non-destructive: every region is a cloned panel that shares the
+// source bitmap and carries its own cropT/L/B/R, so it stays re-editable.
+// ═══════════════════════════════════════════════════════════════
+function _mcBindBarInputs(){
+  const k=document.getElementById('mc-keep-original');
+  const a=document.getElementById('mc-arrange');
+  k.checked=mcSession.keepOriginal;
+  a.value=mcSession.arrange;
+  k.onchange=()=>{ mcSession.keepOriginal=k.checked; _mcUpdateUI(); };
+  a.onchange=()=>{ mcSession.arrange=a.value; _mcUpdateUI(); };
+}
+
+function startMultiCrop(idxList){
+  if(layoutMode==='freeform'){ toast('Multi-crop needs Grid layout','warn'); return; }
+  if(cropEdState.batch){ toast('Finish the batch crop first','warn'); return; }
+  if(mcSession.active){ toast('Multi-crop already running','warn'); return; }
+  if(window._sharedPanelSettings){ toast('Add your images first, then multi-crop','warn'); return; }
+  const eligible=(idxList||images.map((im,i)=>i))
+    .filter(i=>images[i]&&images[i].img&&!images[i].locked);
+  if(!eligible.length){ toast('Add images first','warn'); return; }
+  _mcInternalOpen=true; openCropModal(eligible[0]); _mcInternalOpen=false;
+  // openCropModal replaces cropEdState wholesale — set mode fields AFTER it returns
+  cropEdState.mc=true;
+  mcSession=_mcBlank();
+  mcSession.active=true; mcSession.mode='grid';
+  mcSession.queue=eligible.slice(1); mcSession.total=eligible.length;
+  const im0=images[eligible[0]];
+  mcSession.cur={img:im0.img,src:im0.src,name:im0.name,srcIdx:eligible[0]};
+  // Start from a clean frame so an existing crop doesn't preset the locked size
+  cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false;
+  _mcBindBarInputs(); _mcUpdateUI(); drawCropEd();
+}
+
+function mcAddRegion(){
+  if(cropEdState.cw<=0.02||cropEdState.ch<=0.02){ toast('Draw a region first','warn'); return; }
+  if(!mcSession.cropW){ mcSession.cropW=cropEdState.cw; mcSession.cropH=cropEdState.ch; }
+  // Pin to the locked size so a stray resize can't change it mid-session
+  cropEdState.cw=mcSession.cropW; cropEdState.ch=mcSession.cropH;
+  cropEdState.cx=Math.max(0,Math.min(1-cropEdState.cw,cropEdState.cx));
+  cropEdState.cy=Math.max(0,Math.min(1-cropEdState.ch,cropEdState.cy));
+  mcSession.regions.push({cx:cropEdState.cx,cy:cropEdState.cy,cw:cropEdState.cw,ch:cropEdState.ch});
+  cropEdState.hasBox=true;
+  drawCropEd(); _mcUpdateUI();
+}
+
+function mcUndoRegion(){
+  if(!mcSession.regions.length) return;
+  mcSession.regions.pop();
+  // Nothing banked anywhere → let the user pick a different size again
+  if(!mcSession.regions.length && !mcSession.results.length){
+    mcSession.cropW=0; mcSession.cropH=0;
+    cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false;
+  }
+  drawCropEd(); _mcUpdateUI();
+}
+
+function mcDoneSource(){
+  if(!mcSession.regions.length && !mcSession.keepOriginal){
+    toast('Add at least one region, or tick "Keep full image"','warn'); return;
+  }
+  mcSession.results.push({...mcSession.cur, regions:mcSession.regions.slice()});
+  mcSession.regions=[];
+  _mcAdvance();
+}
+
+function mcSkipSource(){
+  if(!mcSession.active) return;
+  mcSession.regions=[];
+  _mcAdvance();
+}
+
+function mcFinishNow(){
+  if(!mcSession.active) return;
+  if(mcSession.regions.length||mcSession.keepOriginal){
+    mcSession.results.push({...mcSession.cur, regions:mcSession.regions.slice()});
+    mcSession.regions=[];
+  }
+  mcSession.queue=[];
+  _mcFinalize();
+}
+
+function _mcAdvance(){
+  if(!mcSession.queue.length) return _mcFinalize();
+  const nextIdx=mcSession.queue.shift();
+  const im=images[nextIdx];
+  if(!im||!im.img) return _mcAdvance(); // skip holes / unloaded
+  // Mutate cropEdState in place — openCropModal would wipe .mc
+  cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
+  const cw=mcSession.cropW||1, ch=mcSession.cropH||1;
+  cropEdState.cw=cw; cropEdState.ch=ch;
+  cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
+  cropEdState.hasBox=!!mcSession.cropW;
+  mcSession.cur={img:im.img,src:im.src,name:im.name,srcIdx:nextIdx};
+  document.getElementById('crop-modal').classList.add('open');
+  requestAnimationFrame(()=>{
+    const cc=document.getElementById('crop-ed-canvas');
+    const maxW=520,maxH=360;
+    const sc=Math.min(maxW/im.img.width,maxH/im.img.height,1);
+    cc.width=Math.round(im.img.width*sc); cc.height=Math.round(im.img.height*sc);
+    drawCropEd();
+  });
+  _mcUpdateUI();
+}
+
+// Clone a source panel, sharing its bitmap, with this region's crop percentages.
+// Follows the duplicate-panel recipe: new id, fresh label, deep-copied channels
+// and panelAnns, adjustment cache cleared. Spans and dragged label offsets reset
+// so one wide source panel doesn't make every region wide.
+function _mcMakePanel(srcPanel, rect){
+  const p={...srcPanel, id:Date.now()+Math.random(), label:'',
+    channels:(srcPanel.channels||[]).map(ch=>({...ch})),
+    panelAnns:(srcPanel.panelAnns||[]).map(a=>({...a})),
+    colSpan:1, rowSpan:1, lblDX:0, lblDY:0, sbDX:0, sbDY:0,
+    _adjCache:undefined,_adjKey:undefined};
+  if(rect){
+    p.cropT=Math.max(0,Math.round(rect.cy*100));
+    p.cropL=Math.max(0,Math.round(rect.cx*100));
+    p.cropB=Math.max(0,Math.round((1-rect.cy-rect.ch)*100));
+    p.cropR=Math.max(0,Math.round((1-rect.cx-rect.cw)*100));
+  } else {
+    p.cropT=0;p.cropL=0;p.cropB=0;p.cropR=0;
+  }
+  return p;
+}
+
+function _mcFinalize(){
+  if(!mcSession.results.length){ _mcCancel('No regions added'); return; }
+  const keep=mcSession.keepOriginal, arrange=mcSession.arrange;
+
+  // Each source's panels: [full image?] + its regions, in draw order
+  const panels=mcSession.results.map(r=>{
+    const srcPanel=images[r.srcIdx];
+    if(!srcPanel) return [];
+    const group=[];
+    if(keep) group.push(_mcMakePanel(srcPanel,null));
+    r.regions.forEach(rect=>group.push(_mcMakePanel(srcPanel,rect)));
+    return group;
+  }).filter(g=>g.length);
+  if(!panels.length){ _mcCancel('No regions added'); return; }
+
+  const M=panels.length;
+  const R=Math.max(...panels.map(p=>p.length));
+  const C = arrange==='col' ? M : R;   // cols of the multi-crop block
+  const RW= arrange==='col' ? R : M;   // rows of the block
+
+  // images[] fills the grid row-major; interleave so each source reads as a
+  // column (default) or a row. Ragged groups leave holes at the short end.
+  const block=new Array(C*RW).fill(null);
+  for(let m=0;m<M;m++){
+    for(let r=0;r<panels[m].length;r++){
+      block[arrange==='col' ? r*C+m : m*C+r]=panels[m][r];
+    }
+  }
+
+  pushUndo(); // one undo entry for the whole session
+
+  const used=new Set(mcSession.results.map(r=>r.srcIdx));
+  const leftovers=images.filter((im,i)=>im&&!used.has(i));
+  images=block.concat(leftovers);
+  const rows=RW+Math.ceil(leftovers.length/C);
+
+  // New panels carry label:'' — fill them in final grid order so they read
+  // A, B, C…; panels that didn't take part keep the label they had.
+  images.forEach(im=>{ if(im&&!im.label) im.label=nextLabel(); });
+
+  const capped=C>12||rows>12;
+  sv('cols',Math.min(12,C)); sv('rows',Math.min(12,Math.max(1,rows)));
+  onLayoutChange();
+
+  const total=panels.reduce((a,g)=>a+g.length,0);
+  logAction('multiCrop',{sources:M,panels:total,arrange,keepOriginal:keep});
+  _mcCancel(null);
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  toast(`Multi-crop: ${total} panels from ${M} image${M>1?'s':''}`,'ok');
+  if(capped) toast('Grid caps at 12 — some panels are off-grid','warn');
+}
+
+function _mcCancel(msg){
+  mcSession=_mcBlank();
+  cropEdState.mc=false;
+  const bar=document.getElementById('mc-crop-bar'); if(bar) bar.style.display='none';
+  _resetCropModalUI();
+  document.getElementById('crop-modal').classList.remove('open');
+  if(msg) toast(msg,'warn');
+}
+
+function _mcUpdateUI(){
+  const bar=document.getElementById('mc-crop-bar');
+  const applyBtn=document.getElementById('crop-apply-btn');
+  if(!mcSession.active){ if(bar) bar.style.display='none'; applyBtn.textContent='✓ Apply Crop'; return; }
+  bar.style.display='block';
+  const done=mcSession.results.length;
+  const totalSrc=mcSession.total;
+  const locked=mcSession.cropW>0;
+  const banked=mcSession.results.reduce((a,r)=>a+r.regions.length+(mcSession.keepOriginal?1:0),0)
+    + mcSession.regions.length + (mcSession.keepOriginal?1:0);
+  document.getElementById('mc-progress').textContent=
+    `Image ${done+1} / ${totalSrc} · ${mcSession.regions.length} region${mcSession.regions.length===1?'':'s'} here · ${banked} panel${banked===1?'':'s'} total`;
+  document.getElementById('mc-hint').textContent=locked
+    ? 'Size locked — drag the box, then + Add region'
+    : 'Draw a region — its size locks for all the rest';
+  document.getElementById('crop-modal-title').textContent=`⊞ Multi-crop (image ${done+1} / ${totalSrc})`;
+  document.getElementById('crop-modal-desc').textContent=locked
+    ? `Drag the box to the next spot and click "+ Add region". Regions from this image form a ${mcSession.arrange==='col'?'column':'row'}.`
+    : 'Draw the first region — every later region reuses its size.';
+  applyBtn.textContent='+ Add region';
+  document.getElementById('mc-next-btn').textContent=
+    mcSession.queue.length? '✓ Next image' : `✓ Finish (${banked} panels)`;
+  document.getElementById('mc-undo-btn').disabled=!mcSession.regions.length;
+  document.getElementById('crop-ed-canvas').style.cursor=locked?'grab':'crosshair';
+}
+
+// Dimmed numbered ghosts for regions already banked on this image
+function _mcDrawGhosts(ctx,W,H){
+  if(!cropEdState.mc||!mcSession.regions.length) return;
+  ctx.save();
+  mcSession.regions.forEach((r,i)=>{
+    const x=r.cx*W,y=r.cy*H,w=r.cw*W,h=r.ch*H;
+    ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([5,3]);
+    ctx.strokeRect(x,y,w,h);
+    ctx.setLineDash([]);
+    ctx.fillStyle='#f5a623'; ctx.fillRect(x,y,18,14);
+    ctx.fillStyle='#000'; ctx.font='bold 10px system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(i+1),x+9,y+7);
+  });
+  ctx.restore();
+}
+
 (function bindCropEd(){
   const cc=document.getElementById('crop-ed-canvas');
 
@@ -5063,11 +5365,16 @@ function applyBatchCropAll(){
     const {cx,cy,cw,ch,hasBox}=cropEdState;
     return hasBox&&cw>0.02&&ch>0.02&&x>=cx&&x<=cx+cw&&y>=cy&&y<=cy+ch;
   }
+  // Crop size is pinned (batch or multi-crop) → box may move but not resize
+  function _sizeLocked(){
+    return (cropEdState.batch&&cropEdState.batchCropW>0)
+        || (cropEdState.mc&&mcSession.cropW>0);
+  }
   // Which resize handle (if any) is under the cursor. Returns nw/ne/sw/se/n/s/e/w.
   function _handleAt(x,y){
     const {cx,cy,cw,ch,hasBox}=cropEdState;
     if(!hasBox||cw<0.02||ch<0.02) return null;
-    if(cropEdState.batch&&cropEdState.batchCropW>0) return null; // size is locked in batch
+    if(_sizeLocked()) return null; // size is locked (batch / multi-crop)
     const hx=12/(cc.width||1), hy=12/(cc.height||1);
     const L=cx,R=cx+cw,T=cy,B=cy+ch;
     const onL=Math.abs(x-L)<=hx, onR=Math.abs(x-R)<=hx, onT=Math.abs(y-T)<=hy, onB=Math.abs(y-B)<=hy;
@@ -5089,7 +5396,7 @@ function applyBatchCropAll(){
     const h=_handleAt(x,y);
     if(h){ cc.style.cursor=_handleCursor(h); return; }
     // In batch mode with size locked, always grabbable
-    if(cropEdState.batch&&cropEdState.batchCropW>0){ cc.style.cursor='grab'; return; }
+    if(_sizeLocked()){ cc.style.cursor='grab'; return; }
     cc.style.cursor=_insideBox(x,y)?'grab':'crosshair';
   }
 
@@ -5106,7 +5413,7 @@ function applyBatchCropAll(){
       e.preventDefault(); return;
     }
     // Batch with locked size OR clicking inside an existing box → move it
-    const shouldMove=(cropEdState.batch&&cropEdState.batchCropW>0)||_insideBox(x,y);
+    const shouldMove=_sizeLocked()||_insideBox(x,y);
     if(shouldMove){
       cropEdState.batchMoving=true;
       cropEdState.batchMoveStartX=x; cropEdState.batchMoveStartY=y;
@@ -5159,6 +5466,11 @@ function applyBatchCropAll(){
       cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
       _updateBatchUI();
     }
+    // Multi-crop: the first drawn region pins the size for every later one
+    if(cropEdState.mc&&cropEdState.dragging&&!mcSession.cropW&&cropEdState.cw>0.02){
+      mcSession.cropW=cropEdState.cw; mcSession.cropH=cropEdState.ch;
+      _mcUpdateUI();
+    }
     if(cropEdState.resizing){ cropEdState.resizing=null; cropEdState.hasBox=true; drawCropEd(); _updateCursor(0.5,0.5); return; }
     cropEdState.dragging=false; cropEdState.batchMoving=false;
     if(cropEdState.cw>0.02&&cropEdState.ch>0.02){
@@ -5166,10 +5478,10 @@ function applyBatchCropAll(){
     } else {
       // Tiny or no drag — reset box so guide overlay reappears
       cropEdState.cx=0; cropEdState.cy=0; cropEdState.cw=1; cropEdState.ch=1; cropEdState.hasBox=false;
-      if(!cropEdState.batch) resetCropEd(); else drawCropEd();
+      if(!cropEdState.batch&&!cropEdState.mc) resetCropEd(); else drawCropEd();
       _updateCursor(0.5,0.5); return;
     }
-    if(!cropEdState.batch&&(cropEdState.cw<0.02||cropEdState.ch<0.02)) resetCropEd();
+    if(!cropEdState.batch&&!cropEdState.mc&&(cropEdState.cw<0.02||cropEdState.ch<0.02)) resetCropEd();
     drawCropEd();
     _updateCursor(0.5,0.5);
   });
@@ -12643,6 +12955,7 @@ function commitFreeformText(cancel){
 }
 
 function openFreeformCropEditor(){
+  if(mcSession.active){ toast('Finish multi-crop first','warn'); return; }
   if(selectedElems.size!==1) return;
   const idx=[...selectedElems][0];
   const el=freeformElements[idx];
