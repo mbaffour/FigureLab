@@ -1,4 +1,4 @@
-# FigureLab v3.9.1
+# FigureLab v3.9.2
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -168,12 +168,12 @@ GenBank import reads the LOCUS length, the circular/linear flag, and the FEATURE
 | JPEG | Smallest file size |
 | WebP | Good balance of quality and size |
 | TIFF | Uncompressed RGB, scaled to target DPI — journals prefer this |
-| PDF | Embedded raster at correct physical size |
+| PDF | Image at correct physical size, with figure labels as **real embedded text** (selectable, searchable, sharp at any zoom; base-14 fonts, nothing bundled) |
 | SVG | Background raster + vector annotations as native SVG elements |
 
-Set a **file name** and **DPI** (72 / 150 / 300 / 600) before exporting. TIFF is scaled from screen resolution to the target DPI so the pixel dimensions are correct for print.
+Set a **file name**, a **printed width** (journal column widths in mm), and a **DPI** (72 / 150 / 300 / 600) before exporting. With a target width set, the export lands at exactly that physical size at the chosen DPI; without one it uses DPI/96. TIFF and PNG are supersampled to the true pixel count, not merely DPI-tagged.
 
-The info bar below the canvas shows both pixel dimensions and physical size in mm at the current export DPI.
+The info bar below the canvas shows pixel dimensions and physical size in mm, and the export panel reports the **true point size** your panel labels will print at.
 
 ### CSV Metadata Export
 Click **⬇ CSV Metadata** to export a spreadsheet of all panel settings — name, label, µm/px, scale bar, brightness, gamma, crop, caption, and metadata notes. Useful for methods sections and lab records.
@@ -260,6 +260,15 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.9.2 — 1 August 2026
+**Focus: PDF exports carry real text, not a picture of text.**
+
+- **Live vector text in PDF** — the figure title, panel letters, row/column headers, and scale-bar labels are now written as genuine PDF text operators layered over the image, so they are selectable, searchable, and sharp at any zoom. A production editor asking for "text as vector / fonts embedded" is satisfied without a round trip through Illustrator. Previously the entire page was a single raster and labels softened visibly in the proof.
+- **No bundled font** — the text uses the PDF base-14 faces (Helvetica / Times / Courier) that every reader has built in, so no font file is embedded in the PDF and none is added to FigureLab. Bold, italic, serif, and monospace label fonts map to the matching face.
+- **Never a mangled label** — base-14 text encodes WinAnsi (CP1252) only. Any string containing a character outside it — Greek (`α-tubulin`), `≥`, `✓`, CJK — is left in the raster rather than silently substituted, since a wrong glyph in a scientific label is worse than a slightly softer one. `µm` encodes correctly and stays live text. The raster render is told, per string, exactly what the text layer will draw, so nothing is ever drawn twice or lost.
+- Annotations drawn on the figure (arrows, boxes, free text) remain rasterised; SVG export still carries those as vector.
+- **192 Playwright tests** (up from 178), plus `tests/validate_pdf.py` — an independent check with `pypdf` confirming the exported files really parse, that the text extracts, and that each string lands where the figure put it.
 
 ### v3.9.1 — 24 July 2026
 **Focus: hardening. A whole-app audit hunted for places a number could be wrong while looking authoritative.**

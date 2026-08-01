@@ -818,7 +818,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select></div>
     <div id="phys-readout" style="font-size:10px;color:var(--muted);line-height:1.5;margin:-2px 0 6px"></div>
 
-    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: uncompressed, most journals prefer it. PDF (lossless): no artefacts for line art. SVG: vector labels & annotations, infinitely sharp. JPEG/WebP: small but lossy.">?</span></div>
+    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: uncompressed, most journals prefer it. PDF: figure labels are real embedded text (selectable, searchable, sharp at any zoom) over the image — lossless avoids artefacts for line art. SVG: everything vector, editable in Illustrator/Inkscape. JPEG/WebP: small but lossy.">?</span></div>
     <div class="export-grid">
       <button class="btn btn-success" onclick="doExportPreflight('png')">PNG</button>
       <button class="btn" onclick="doExportPreflight('jpeg')">JPEG</button>
@@ -1545,6 +1545,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
+<h3 class="help-h">What's new in v3.9.2 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 1 August 2026</span></h3>
+<p class="help-p">PDF exports now contain <b>real text</b>, not a picture of text.</p>
+<ul class="help-ul">
+  <li><b>Live text in PDF.</b> Your figure title, panel letters, row/column headers and scale-bar labels are written into the PDF as genuine text operators laid over the image &mdash; so they are <b>selectable, searchable, and razor-sharp at any zoom</b>, and a production editor asking for &ldquo;text as vector / fonts embedded&rdquo; is satisfied. Previously the whole page was one raster, and labels visibly softened in the proof.</li>
+  <li><b>Nothing is bundled.</b> It uses the PDF base-14 fonts (Helvetica, Times, Courier) that every reader already has, so the single-file promise is untouched &mdash; there is no font file inside the PDF and none inside FigureLab. Bold, italic and serif/monospace label fonts map to the matching face.</li>
+  <li><b>It never mangles a label.</b> Base-14 text can only encode the WinAnsi character set, so any string containing something outside it &mdash; Greek (&alpha;-tubulin), &ge;, &check;, CJK &mdash; is left in the image instead of being silently substituted. &micro;m encodes correctly and stays live text.</li>
+  <li>Annotations you draw on the figure (arrows, boxes, free text) remain part of the image for now; use <span class="help-ui">SVG</span> if you need those as vector too.</li>
+</ul>
+<div style="height:12px;border-bottom:1px solid var(--border);margin-bottom:12px"></div>
 <h3 class="help-h">What's new in v3.9.1 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 24 July 2026</span></h3>
 <p class="help-p">A hardening release. An audit read the whole app looking for places a number could be wrong while looking authoritative &mdash; here is what it found, plus two features that came out of it.</p>
 <ul class="help-ul">
@@ -1992,7 +2001,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.9.1';  // single source of truth for the app version
+const APP_VERSION = '3.9.2';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -4249,7 +4258,13 @@ function render(targetCanvas, exportScale, opts){
   // re-emits that text as real <text>); figTextItems still records each label.
   const isExport = !!targetCanvas;
   const S = exportScale || 1;
-  const skipLabels = !!(opts && opts.skipLabels);
+  // opts.skipLabels: true skips ALL figure text (SVG export re-emits every label as
+  // vector). A FUNCTION skips per item — the PDF export uses this, because it can only
+  // typeset text its embedded font can represent, and anything else must stay in the
+  // raster rather than be silently dropped or mangled.
+  const _skipOpt = opts && opts.skipLabels;
+  const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
+  const skipLabels = !!_skipOpt;
   figTextItems = [];
   if(!isExport){ panelBounds = []; _sbBars = []; }
   const canvas = targetCanvas || document.getElementById('fig-canvas');
@@ -4311,8 +4326,9 @@ function render(targetCanvas, exportScale, opts){
     let bbx,bby,bbw,bbh;
     if(rot){ bbw=fs; bbh=w; bbx=x-fs/2; bby=y-w/2; }
     else { bbw=w; bbh=fs; bbx=align==='center'?x-w/2:x; bby=baseline==='top'?y:baseline==='middle'?y-fs/2:y-fs; }
-    figTextItems.push({kind,idx,str,x,y,fs,font:fontStr,fill:fillStyle,align,baseline,rot:rot||0,bbox:{x:bbx,y:bby,w:bbw,h:bbh}});
-    if(skipLabels) return;
+    const _item={kind,idx,str,x,y,fs,font:fontStr,fill:fillStyle,align,baseline,rot:rot||0,bbox:{x:bbx,y:bby,w:bbw,h:bbh}};
+    figTextItems.push(_item);
+    if(_skipText(_item)) return;
     ctx.fillStyle=fillStyle; ctx.textAlign=align; ctx.textBaseline=baseline;
     if(rot){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/2); ctx.fillText(str,0,0); ctx.restore(); }
     else ctx.fillText(str,x,y);
@@ -4443,11 +4459,12 @@ function render(targetCanvas, exportScale, opts){
             lx+=(im.lblDX||0); ly+=(im.lblDY||0); // drag offset
             const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
             const hasBg=gc('label-bg');
-            figTextItems.push({kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
+            const _lblItem={kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
               fill:lblClr,align:'left',baseline:'alphabetic',rot:0,
               bbox:{x:bx,y:by,w:bw,h:bh},
-              bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null});
-            if(!skipLabels){
+              bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null};
+            figTextItems.push(_lblItem);
+            if(!_skipText(_lblItem)){
               if(hasBg){
                 ctx.fillStyle='rgba(0,0,0,.45)';
                 ctx.beginPath();
@@ -6873,7 +6890,7 @@ function _syncPhysReadout(){
     +(warn?' — below the ~5 pt most journals accept':'');
 }
 
-function renderExportCanvas(dpi){
+function renderExportCanvas(dpi, opts){
   let scale=_exportScaleFor(dpi);
   const lw=canvasLogicalW||1, lh=canvasLogicalH||1;
   const MAXPX=60e6; // ~60 megapixels — guard against runaway memory
@@ -6882,7 +6899,7 @@ function renderExportCanvas(dpi){
     toast(`Export capped to ~60MP (effective ${Math.round(scale*96)} DPI)`, 'warn');
   }
   const off=document.createElement('canvas');
-  render(off, scale);
+  render(off, scale, opts);
   // Expose the ACTUAL scale so metadata writers embed the true physical size when
   // the cap shrank the canvas below the requested DPI (else PDF/TIFF/PNG report a
   // silently smaller physical size). effDpi = scale*96.
@@ -6921,7 +6938,7 @@ async function doExport(fmt){
       const tc=renderExportCanvas(dpi); exportTIFF(name, tc._effDpi||dpi, tc, true);
     }
     if(fmt==='pdf' || fmt==='pdf-lossless'){
-      const pc=renderExportCanvas(dpi); await exportPDF(name, pc._effDpi||dpi, pc, {lossless: fmt==='pdf-lossless'});
+      await _exportPDFWithText(name, dpi, {lossless: fmt==='pdf-lossless'});
     }
     logAction('export',{format:fmt,dpi,name});
     const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
@@ -6996,7 +7013,7 @@ async function exportSubmissionPackage(){
     const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
     add(await _captureDownload(()=>exportPNGWithMeta(name,dpi,rc())));
     add(await _captureDownload(()=>exportTIFF(name,dpi,rc(),true)));
-    add(await _captureDownload(()=>exportPDF(name,dpi,rc(),{lossless:true})));
+    add(await _captureDownload(()=>_exportPDFWithText(name,dpi,{lossless:true})));
     add(await _captureDownload(()=>exportSVG(name,dpi,figc)));
     add(await _captureDownload(()=>saveJSON()));
     add(await _captureDownload(()=>exportCSV()));
@@ -7363,6 +7380,149 @@ function exportTIFF(name, dpi, canvas, preScaled){
   dl(URL.createObjectURL(new Blob([new Uint8Array(buf)],{type:'image/tiff'})), name+'.tiff');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PDF VECTOR TEXT
+//
+// A PDF whose text is part of the raster can't be searched, copied, or
+// re-typeset, and production editors ask for "fonts embedded". These helpers let
+// exportPDF lay the figure's text down as real PDF text operators over the image.
+//
+// The fonts used are the PDF base-14 (Helvetica/Times/Courier), which every
+// reader has built in — so nothing is bundled and the single-file constraint is
+// untouched. Base-14 text is encoded in WinAnsi (CP1252); any string containing a
+// character outside it (Greek, ≥, ✓, CJK) is left in the raster instead, because
+// silently substituting a glyph in a scientific label would be worse than a
+// slightly softer one. _pdfCanTypeset is the gate.
+// ═══════════════════════════════════════════════════════════════
+
+// CP1252's 0x80–0x9F block; 0x20–0x7E and 0xA0–0xFF match Unicode directly.
+const _WINANSI_HI={0x20AC:0x80,0x201A:0x82,0x0192:0x83,0x201E:0x84,0x2026:0x85,0x2020:0x86,
+  0x2021:0x87,0x02C6:0x88,0x2030:0x89,0x0160:0x8A,0x2039:0x8B,0x0152:0x8C,0x017D:0x8E,
+  0x2018:0x91,0x2019:0x92,0x201C:0x93,0x201D:0x94,0x2022:0x95,0x2013:0x96,0x2014:0x97,
+  0x02DC:0x98,0x2122:0x99,0x0161:0x9A,0x203A:0x9B,0x0153:0x9C,0x017E:0x9E,0x0178:0x9F,
+  0x03BC:0xB5};   // GREEK SMALL MU -> MICRO SIGN: the same mark, and what "µm" means
+
+// → array of CP1252 byte values, or null if any character has no representation.
+function _winAnsiBytes(str){
+  const out=[];
+  for(const ch of String(str)){
+    const c=ch.codePointAt(0);
+    if(c>=0x20&&c<=0x7E){ out.push(c); continue; }
+    if(c>=0xA0&&c<=0xFF){ out.push(c); continue; }
+    if(_WINANSI_HI[c]!=null){ out.push(_WINANSI_HI[c]); continue; }
+    return null;                                   // unrepresentable → keep as raster
+  }
+  return out;
+}
+function _pdfCanTypeset(it){ return !!(it && it.str && _winAnsiBytes(it.str)); }
+
+// PDF literal string: escape \ ( ) and emit bytes as octal above ASCII.
+function _pdfStr(bytes){
+  let s='';
+  for(const b of bytes){
+    if(b===0x5C) s+='\\\\';
+    else if(b===0x28) s+='\\(';
+    else if(b===0x29) s+='\\)';
+    else if(b>=0x20&&b<=0x7E) s+=String.fromCharCode(b);
+    else s+='\\'+b.toString(8).padStart(3,'0');
+  }
+  return s;
+}
+
+// A CSS font shorthand → one of the base-14 faces.
+function _pdfFontFor(fontStr){
+  const f=String(fontStr||'').toLowerCase();
+  const bold=/\bbold\b|\b[6-9]00\b/.test(f);
+  const ital=/\bitalic\b|\boblique\b/.test(f);
+  const fam=/(times|georgia|garamond|book antiqua|\bserif\b)/.test(f) && !/sans-serif/.test(f) ? 'times'
+          : /(courier|consolas|monaco|\bmono)/.test(f) ? 'courier' : 'helvetica';
+  if(fam==='times') return bold&&ital?'Times-BoldItalic':bold?'Times-Bold':ital?'Times-Italic':'Times-Roman';
+  const base=fam==='courier'?'Courier':'Helvetica';
+  return bold&&ital?base+'-BoldOblique':bold?base+'-Bold':ital?base+'-Oblique':base;
+}
+
+// Any CSS colour → [r,g,b] in 0..1 plus alpha, normalised through a canvas.
+let _pdfColCv=null;
+function _pdfColor(css){
+  if(!_pdfColCv) _pdfColCv=document.createElement('canvas').getContext('2d');
+  _pdfColCv.fillStyle='#000'; _pdfColCv.fillStyle=css||'#000';
+  const v=_pdfColCv.fillStyle;            // '#rrggbb' or 'rgba(r, g, b, a)'
+  let r=0,g=0,b=0,a=1;
+  const m=/^#([0-9a-f]{6})$/i.exec(v);
+  if(m){ const n=parseInt(m[1],16); r=(n>>16)&255; g=(n>>8)&255; b=n&255; }
+  else {
+    const p=/rgba?\(([^)]+)\)/.exec(v);
+    if(p){ const q=p[1].split(',').map(parseFloat); r=q[0]||0; g=q[1]||0; b=q[2]||0; a=q[3]==null?1:q[3]; }
+  }
+  return {r:r/255, g:g/255, b:b/255, a};
+}
+
+// Build the PDF content-stream operators for a set of figTextItems.
+// `k` converts logical figure units → points; `hPt` is the page height (for the
+// y flip, since PDF's origin is bottom-left and the canvas's is top-left).
+function _pdfTextOps(items, k, hPt){
+  const mc=document.createElement('canvas').getContext('2d');
+  const fonts=new Map();                  // base font name → resource key
+  const fkey=base=>{
+    if(!fonts.has(base)) fonts.set(base,'F'+(fonts.size+1));
+    return fonts.get(base);
+  };
+  const X=x=>(x*k).toFixed(3), Y=y=>(hPt-y*k).toFixed(3);
+  let ops='';
+  for(const it of items){
+    const bytes=_winAnsiBytes(it.str);
+    if(!bytes) continue;                  // left in the raster by _pdfCanTypeset
+    // label chip behind the text
+    if(it.bg){
+      const c=_pdfColor(it.bg.fill);
+      if(c.a>0.02) ops+=`q ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `
+        +`${X(it.bg.x)} ${(hPt-(it.bg.y+it.bg.h)*k).toFixed(3)} ${(it.bg.w*k).toFixed(3)} ${(it.bg.h*k).toFixed(3)} re f Q\n`;
+    }
+    mc.font=it.font;
+    const m=mc.measureText(it.str);
+    const w=m.width;
+    // Canvas positions by align/baseline; PDF positions the glyph origin, so shift
+    // to the left edge and to the alphabetic baseline explicitly.
+    const ascent=(m.actualBoundingBoxAscent||it.fs*0.72);
+    let ax=it.x, ay=it.y;
+    if(it.align==='center') ax-=w/2; else if(it.align==='right'||it.align==='end') ax-=w;
+    if(it.baseline==='top') ay+=ascent;
+    else if(it.baseline==='middle') ay+=ascent/2;
+    const c=_pdfColor(it.fill);
+    const key=fkey(_pdfFontFor(it.font));
+    const size=(it.fs*k).toFixed(3);
+    ops+=`BT /${key} ${size} Tf ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
+    if(it.rot){
+      // canvas rotate(-90°) runs the text upward on screen; in PDF's y-up space
+      // that is a +90° rotation of the text matrix.
+      ops+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm `;
+      // re-apply align/baseline along the rotated axes
+      const dx=(it.align==='center'?-w/2:0), dy=(it.baseline==='top'?ascent:it.baseline==='middle'?ascent/2:0);
+      if(dx||dy) ops+=`${(dx*k).toFixed(3)} ${(-dy*k).toFixed(3)} Td `;
+    } else {
+      ops+=`1 0 0 1 ${X(ax)} ${Y(ay)} Tm `;
+    }
+    ops+=`(${_pdfStr(bytes)}) Tj ET\n`;
+  }
+  return {ops, fonts};
+}
+
+// Render the figure with every typesettable label held OUT of the raster, then
+// hand those labels to exportPDF to lay down as real text. Anything the embedded
+// font can't represent is painted normally, so nothing is ever lost.
+async function _exportPDFWithText(name, dpi, opts){
+  const pc=renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
+  const items=figTextItems.slice();
+  const eff=pc._effDpi||dpi;
+  // points per logical unit: page width in points / figure width in logical units
+  const ptPerUnit=(pc.width*72/eff)/(canvasLogicalW||pc.width);
+  try{
+    await exportPDF(name, eff, pc, {...opts, textItems:items, ptPerUnit});
+  } finally {
+    scheduleRender(0);   // restore the on-screen canvas + figTextItems
+  }
+}
+
 async function exportPDF(name, dpi, canvas, opts){
   opts = opts || {};
   const W=canvas.width, H=canvas.height;
@@ -7396,19 +7556,38 @@ async function exportPDF(name, dpi, canvas, opts){
     filter='/DCTDecode';
   }
 
+  // Vector text layer: the figure's labels laid over the image as real PDF text.
+  // opts.textItems comes from the same render that produced `canvas`, which was told
+  // to leave these strings OUT of the raster — so they appear exactly once.
+  const tl = (opts.textItems && opts.textItems.length)
+    ? _pdfTextOps(opts.textItems, +opts.ptPerUnit || (W*72/dpi)/(canvasLogicalW||W), +hPt)
+    : {ops:'', fonts:new Map()};
+  const fontIds=new Map();                    // resource key → object number
+  let nextObj=6;
+  tl.fonts.forEach((key)=>{ fontIds.set(key, nextObj++); });
+  const fontRes = tl.fonts.size
+    ? ' /Font << '+[...tl.fonts].map(([,key])=>`/${key} ${fontIds.get(key)} 0 R`).join(' ')+' >>' : '';
+  const lastObj = nextObj-1;
+
   push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
   offs[1]=sz(); push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
   offs[2]=sz(); push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-  offs[3]=sz(); push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents 5 0 R /Resources << /XObject << /Im0 4 0 R >> >> >>\nendobj\n`);
+  offs[3]=sz(); push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents 5 0 R /Resources << /XObject << /Im0 4 0 R >>${fontRes} >> >>\nendobj\n`);
   offs[4]=sz();
   push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${imgBytes.length} >>\nstream\n`);
   push(imgBytes); push('\nendstream\nendobj\n');
-  const cs2=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`);
+  const cs2=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`+tl.ops);
   offs[5]=sz(); push(`5 0 obj\n<< /Length ${cs2.length} >>\nstream\n`); push(cs2); push('\nendstream\nendobj\n');
+  // Base-14 font objects — no font file is embedded, so nothing is bundled.
+  tl.fonts.forEach((key, base)=>{
+    const n=fontIds.get(key);
+    offs[n]=sz();
+    push(`${n} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
+  });
   const xp=sz();
-  push(`xref\n0 6\n0000000000 65535 f\r\n`);
-  for(let i=1;i<=5;i++) push(`${String(offs[i]).padStart(10,'0')} 00000 n\r\n`);
-  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xp}\n%%EOF\n`);
+  push(`xref\n0 ${lastObj+1}\n0000000000 65535 f\r\n`);
+  for(let i=1;i<=lastObj;i++) push(`${String(offs[i]).padStart(10,'0')} 00000 n\r\n`);
+  push(`trailer\n<< /Size ${lastObj+1} /Root 1 0 R >>\nstartxref\n${xp}\n%%EOF\n`);
 
   const total=sz(); const out=new Uint8Array(total); let pos=0;
   for(const c of chunks){ out.set(c,pos); pos+=c.length; }
