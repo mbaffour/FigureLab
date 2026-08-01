@@ -456,6 +456,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="drop-icon">⬆</div>
       <strong>Drop or click to add images</strong>
       <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
+      <div style="margin-top:2px;font-size:10px">…or paste one with Ctrl/⌘+V</div>
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg,.csv,.tsv" style="display:none">
     <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
@@ -1161,7 +1162,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div class="es-drop" onclick="document.getElementById('file-input').click()">
           <div style="font-size:26px">⬆</div>
           <strong>Drop images here</strong>
-          <div class="es-mini">or click to browse — PNG · TIFF · JPG</div>
+          <div class="es-mini">or click to browse, or paste with Ctrl/⌘+V — PNG · TIFF · JPG</div>
         </div>
         <div class="es-actions">
           <button class="btn" onclick="esOpenTemplates()">⊞ Start from a template</button>
@@ -1443,6 +1444,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div><code>Ctrl+Z</code> Undo</div>
       <div><code>Ctrl+Y</code> Redo</div>
       <div><code>Ctrl+S</code> Save session</div>
+      <div><code>Ctrl+V</code> Paste image from clipboard</div>
       <div><code>Ctrl+E</code> Export PNG</div>
       <div><code>Delete</code> Delete selected</div>
       <div><code>Escape</code> Cancel / deselect</div>
@@ -2168,6 +2170,62 @@ dz.addEventListener('dragleave', ()  => dz.classList.remove('over'));
 dz.addEventListener('drop',      e  => { e.preventDefault(); dz.classList.remove('over'); addFiles(e.dataTransfer.files); });
 document.getElementById('file-input').addEventListener('change', e => { addFiles(e.target.files); e.target.value=''; });
 
+// ── Paste an image from the clipboard ────────────────────────
+// Routes through addFiles(), so a pasted image gets the same pre-crop step,
+// data-URL conversion and TIFF/SVG handling as a dropped file.
+let _pasteCount=0;
+const _pastedNames=new Set(); // lets the pre-crop dialog tell a paste from a dropped file
+function _pasteName(type){
+  const ext=(type&&type.split('/')[1]||'png').replace('jpeg','jpg').split('+')[0];
+  const n=`pasted-${++_pasteCount}.${ext}`;
+  _pastedNames.add(n);
+  return n;
+}
+// A clipboard image arrives as a File with a useless generic name; rename it so
+// panels stay tellable apart and the duplicate-name warning doesn't misfire.
+function _renamedFile(blob,type){
+  try{ return new File([blob], _pasteName(type), {type:type||blob.type||'image/png'}); }
+  catch(_){ blob.name=_pasteName(type); return blob; } // older browsers: File ctor unavailable
+}
+// Images copied from a web page usually arrive as markup/URL, not pixels.
+function _imgUrlFromClipboard(dt){
+  const uri=(dt.getData('text/uri-list')||'').trim();
+  if(/^https?:\/\//i.test(uri)) return uri.split(/\s+/)[0];
+  const html=dt.getData('text/html')||'';
+  const m=/<img[^>]+src\s*=\s*["']([^"']+)["']/i.exec(html);
+  if(m) return m[1];
+  const txt=(dt.getData('text/plain')||'').trim();
+  if(/^https?:\/\/\S+\.(png|jpe?g|gif|webp|bmp|svg|tiff?)(\?\S*)?$/i.test(txt)) return txt;
+  return null;
+}
+async function _pasteFromUrl(url){
+  try{
+    const res=await fetch(url,{mode:'cors'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const blob=await res.blob();
+    if(!/^image\//.test(blob.type)) throw new Error('not an image');
+    addFiles([_renamedFile(blob,blob.type)]);
+  }catch(err){
+    toast('That image is hosted elsewhere and the site blocked the copy — save it and drop the file instead','warn');
+  }
+}
+document.addEventListener('paste', e=>{
+  // Never intercept a paste aimed at a text field (chart CSV, labels, notes…)
+  const t=e.target;
+  if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  // …or while a dialog owns the screen (the crop editor included)
+  if(document.querySelector('.modal-bg.open')) return;
+  const dt=e.clipboardData; if(!dt) return;
+  const items=Array.from(dt.items||[]);
+  const imgItem=items.find(i=>i.kind==='file'&&/^image\//.test(i.type));
+  if(imgItem){
+    const blob=imgItem.getAsFile();
+    if(blob){ e.preventDefault(); addFiles([_renamedFile(blob,imgItem.type)]); return; }
+  }
+  const url=_imgUrlFromClipboard(dt);
+  if(url){ e.preventDefault(); toast('Fetching pasted image…','ok'); _pasteFromUrl(url); }
+});
+
 // ── Pre-crop queue ───────────────────────────────────────────
 let _preCropQueue=[];
 let _preCropBusy=false;
@@ -2591,6 +2649,7 @@ function _openPreCrop({img,src,name,svgSource,calib,raw}){
     _preCropQueue.length?`${_preCropQueue.length} more after this`:'';
   document.getElementById('crop-skip-btn').style.display='';
   document.getElementById('crop-apply-btn').textContent='✂ Crop & Add';
+  _buildPasteDest(name);
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -2600,6 +2659,23 @@ function _openPreCrop({img,src,name,svgSource,calib,raw}){
     cc.height=Math.round(img.naturalHeight*sc);
     drawCropEd();
   });
+}
+
+// For a pasted image into a figure that already has panels, offer where it lands:
+// a brand-new panel, or replacing an existing one. An empty figure just adds.
+function _buildPasteDest(name){
+  const bar=document.getElementById('paste-dest-bar');
+  const sel=document.getElementById('paste-dest');
+  if(!bar||!sel) return;
+  const filled=images.map((im,i)=>({im,i})).filter(o=>o.im);
+  if(!_pastedNames.has(name) || layoutMode==='freeform' || !filled.length){
+    bar.style.display='none'; sel.innerHTML=''; return;
+  }
+  sel.innerHTML='<option value="new">a new panel</option>'+
+    filled.map(({im,i})=>`<option value="${i}">replace ${esc(im.label||'panel')} — ${esc(im.name||'')}</option>`).join('');
+  // Preselect the panel the user has selected, so "paste over this one" is one click
+  sel.value=(selectedPanel>=0&&images[selectedPanel])?String(selectedPanel):'new';
+  bar.style.display='flex';
 }
 
 // Crop the retained native samples in step with a destructive pre-crop, so the raw
@@ -2619,9 +2695,26 @@ function _cropRaw(raw,sx,sy,sw,sh){
 function _finishPreCrop(croppedSrc,croppedImg,keepVector,raw){
   const pc=cropEdState._preCrop||{};
   const name=pc.name||'image';
-  // keep the vector source only when the image wasn't cropped (a crop makes it raster).
-  // Calibration (µm/px) is per-pixel, so it survives cropping either way.
-  _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib, raw===undefined?pc.raw:raw);
+  // A pasted image may be destined for an existing panel rather than a new one.
+  const destSel=document.getElementById('paste-dest');
+  const destBar=document.getElementById('paste-dest-bar');
+  const dest=(destBar&&destBar.style.display!=='none'&&destSel)?destSel.value:'new';
+  if(dest!=='new' && images[+dest]){
+    // Swap the picture in, keep the panel's crop, label, calibration and styling
+    const im=images[+dest];
+    pushUndo();
+    im.img=croppedImg; im.src=croppedSrc; im.name=name;
+    im.svgSource=keepVector?(pc.svgSource||null):null; im.isVector=!!(keepVector&&pc.svgSource);
+    im.raw=(raw===undefined?pc.raw:raw)||null;
+    im._adjCache=undefined; im._adjKey=undefined;
+    logAction('addImage',{name,mode:layoutMode,source:'clipboard',replaced:im.label});
+    renderImgList(); renderMiniGrid(); scheduleRender(0);
+    toast(`Replaced panel ${im.label} with the pasted image`,'ok');
+  } else {
+    // keep the vector source only when the image wasn't cropped (a crop makes it raster).
+    // Calibration (µm/px) is per-pixel, so it survives cropping either way.
+    _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib, raw===undefined?pc.raw:raw);
+  }
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
   cropEdState._preCrop=null;
