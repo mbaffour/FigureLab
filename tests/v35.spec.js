@@ -20,14 +20,39 @@ test('empty state shows initially, hides once images load', async ({ page }) => 
 
 test('Simple/Advanced mode toggles advanced-control visibility, keeps core visible', async ({ page }) => {
   await loadApp(page);
+  // NB: this used to probe #scale-match-target. The crop tools were deliberately
+  // un-gated in v3.9.3 — they were invisible to every default user, which is how
+  // Batch Crop became unfindable — so the mechanism is now probed with a control
+  // that is still advanced (the filename-pattern parser).
   await page.evaluate(() => applyUiMode('simple'));
-  let advVisible = await page.evaluate(() => document.getElementById('scale-match-target').offsetParent !== null);
+  let advVisible = await page.evaluate(() => document.getElementById('fname-pattern').offsetParent !== null);
   expect(advVisible).toBe(false);                    // advanced hidden in Simple
   const dpiVisible = await page.evaluate(() => document.getElementById('export-dpi').offsetParent !== null);
   expect(dpiVisible).toBe(true);                     // core stays visible
   await page.evaluate(() => applyUiMode('advanced'));
-  advVisible = await page.evaluate(() => document.getElementById('scale-match-target').offsetParent !== null);
+  advVisible = await page.evaluate(() => document.getElementById('fname-pattern').offsetParent !== null);
   expect(advVisible).toBe(true);                     // revealed in Advanced
+});
+
+test('crop tools are visible to a default (Simple-mode) user', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => {
+    applyUiMode('simple');
+    document.getElementById('crop-acc').open = true;
+    const vis = id => { const e = document.getElementById(id); return !!e && e.offsetParent !== null; };
+    return {
+      section: !!document.getElementById('crop-acc'),
+      reference: vis('scale-match-target'),
+      pixelTarget: vis('pixel-match-target'),
+      importPref: vis('precrop-on-import'),
+    };
+  });
+  // Batch Crop and Multi-Crop lived behind class="adv" under Style → "Scale Tools",
+  // so a default user could not see them at all. They now have their own section.
+  expect(r.section).toBe(true);
+  expect(r.reference).toBe(true);
+  expect(r.pixelTarget).toBe(true);
+  expect(r.importPref).toBe(true);
 });
 
 test('command palette opens and runs a command', async ({ page }) => {

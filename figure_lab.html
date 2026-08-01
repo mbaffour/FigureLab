@@ -627,6 +627,46 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </details>
 
 <!-- ANNOTATE -->
+<!-- ══ CROP & SCALE ══════════════════════════════════════════════
+     Every crop tool has one home. These were previously scattered across
+     Style → "Scale Tools" (advanced-gated, so invisible by default), the
+     per-panel ⚙ drawer, and the freeform properties bar — a user looking
+     for "crop" had no reason to open any of them. -->
+<details id="crop-acc">
+  <summary>Crop &amp; Scale</summary>
+  <div class="acc-body">
+    <div class="sec-lbl">Crop</div>
+    <button class="btn btn-primary" onclick="cropSelectedPanel()" style="width:100%;justify-content:center" title="Drag a box on one panel to trim it — non-destructive and reversible">✂ Crop a panel…</button>
+    <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of an image — each becomes its own panel">⊞ Multi-crop into panels…</button>
+    <button class="btn" onclick="startBatchCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Draw one crop size on the first image, then move that same box across all images">▦ Batch crop all images…</button>
+    <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px" title="Clear the crop on every panel">↺ Reset all crops</button>
+
+    <div class="divider"></div>
+    <div class="sec-lbl">Crop to match <span class="help-chip" tabindex="0" role="button" aria-label="About matching" data-tip="These crop your panels so they agree with each other — either showing the same physical area in µm, or the same pixel dimensions.">?</span></div>
+    <div class="field"><label>Reference</label>
+      <select id="scale-match-target" style="width:140px">
+        <option value="highest" selected>Narrowest (highest mag)</option>
+        <option value="median">Median</option>
+        <option value="lowest">Widest view (lowest mag)</option>
+      </select></div>
+    <button class="btn" onclick="matchScalePhysical()" style="width:100%;justify-content:center" title="Crop calibrated panels so they all show the same physical µm area">⚖ Crop to same physical area (µm)</button>
+    <div class="field" style="margin-top:4px"><label>Pixel target</label>
+      <select id="pixel-match-target" style="width:140px">
+        <option value="smallest">Smallest panel</option>
+        <option value="largest">Largest panel</option>
+      </select></div>
+    <button class="btn" onclick="matchScalePixels()" style="width:100%;justify-content:center" title="Crop all images to the same pixel dimensions and aspect ratio">⬜ Crop to same pixel size</button>
+
+    <div class="divider"></div>
+    <div class="sec-lbl">On import</div>
+    <div class="field" style="margin-top:2px">
+      <label for="precrop-on-import" style="cursor:pointer" title="When on, each image you add opens the crop editor before it joins the figure">Crop images as I import them</label>
+      <input type="checkbox" id="precrop-on-import" onchange="setPreCropOnImport(this.checked)"></div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin:-2px 0 4px">
+      Off by default — images go straight into the figure and you can crop any time from here. Cropping is non-destructive: the full image is kept, so undo and ↺ Reset always work.</div>
+  </div>
+</details>
+
 <details>
   <summary>Annotate</summary>
   <div class="acc-body">
@@ -766,29 +806,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="house-style-list" style="margin-top:3px"></div>
     </div>
 
-    <div class="adv">
-    <div class="divider"></div>
-    <div class="sec-lbl">Scale Tools</div>
-    <div class="field"><label>Reference</label>
-      <select id="scale-match-target" style="width:140px">
-        <option value="highest" selected>Narrowest (highest mag)</option>
-        <option value="median">Median</option>
-        <option value="lowest">Widest view (lowest mag)</option>
-      </select></div>
-    <button class="btn" onclick="matchScalePhysical()" style="width:100%;justify-content:center" title="Adjust crops so all calibrated panels show the same physical µm area">⚖ Match Physical Scale (µm)</button>
-    <div class="field" style="margin-top:4px"><label>Pixel target</label>
-      <select id="pixel-match-target" style="width:140px">
-        <option value="smallest">Smallest panel</option>
-        <option value="largest">Largest panel</option>
-      </select></div>
-    <button class="btn" onclick="matchScalePixels()" style="width:100%;justify-content:center" title="Crop all images to the same pixel aspect ratio and size">⬜ Match Pixel Size</button>
-    <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px">↺ Reset all crops</button>
-    <div class="divider" style="margin:6px 0"></div>
-    <button class="btn btn-primary" onclick="startBatchCrop()" style="width:100%;justify-content:center" title="Draw one crop size on the first image, then move that same box across all images">✂ Batch Crop Images</button>
-    <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of each image — every region becomes its own panel">⊞ Multi-Crop → Panels</button>
-    </div>
   </div>
 </details>
+
 
 <!-- EXPORT -->
 <details id="export-acc">
@@ -2628,8 +2648,30 @@ function addFiles(fileList){
   });
 }
 
+// Crop-on-import is OPT-IN. It used to fire on every single-image import and
+// physically cut the bitmap (and the 16-bit raw samples), which forced a step
+// nobody asked for and destroyed data measurement later depends on. By default
+// images now go straight into the figure; cropping happens afterwards through the
+// ordinary non-destructive cropT/L/B/R path, from Crop & Scale.
+function preCropOnImport(){
+  try{ return localStorage.getItem('fl-precrop-import')==='1'; }catch(e){ return false; }
+}
+function setPreCropOnImport(on){
+  try{ localStorage.setItem('fl-precrop-import', on?'1':'0'); }catch(e){}
+  toast(on?'Images will open the crop editor as you import them'
+          :'Images import straight into the figure — crop any time from Crop & Scale','ok');
+}
+
 function _drainPreCrop(){
   if(_preCropBusy||!_preCropQueue.length) return;
+  if(!preCropOnImport()){
+    // commit everything queued, untouched — same call the "Skip & Add" button makes
+    while(_preCropQueue.length){
+      const it=_preCropQueue.shift();
+      _commitImage(it.img, it.src, it.name, it.svgSource||null, it.calib, it.raw);
+    }
+    return;
+  }
   _preCropBusy=true;
   const item=_preCropQueue.shift();
   _openPreCrop(item);
@@ -3017,8 +3059,18 @@ const CMD_REGISTRY=[
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
   {label:'Toggle Simple / Advanced', keys:'simple advanced mode ui toggle',     run:()=>toggleUiMode()},
-  {label:'Match physical scale',     keys:'match physical scale um bars',       run:()=>matchScalePhysical()},
-  {label:'Batch crop images',        keys:'batch crop images',                  run:()=>startBatchCrop()},
+  // Crop: every entry point is searchable. Previously only 2 of 12 were, so typing
+  // "crop" in the palette returned a single result and taught the user nothing.
+  {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
+  {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
+  {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
+  {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
+  {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
+  {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
+  {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
+  {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
+  {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
+  {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
@@ -3124,6 +3176,9 @@ function toggleUiMode(){
   toast(toSimple?'Simple mode — advanced tools hidden':'Advanced mode — all tools shown','ok');
 }
 (function initUiMode(){ let m='simple'; try{ m=localStorage.getItem('fl-ui-mode')||'simple'; }catch(e){} applyUiMode(m); })();
+(function initCropPrefs(){
+  const cb=document.getElementById('precrop-on-import'); if(cb) cb.checked=preCropOnImport();
+})();
 
 // ── Contextual "?" help chips: one floating bubble, appended to <body> so it
 //    escapes the sidebar's scroll clipping; shows on hover/focus, clamped to viewport.
@@ -4950,6 +5005,39 @@ function _mcBlank(){
 let mcSession=_mcBlank();
 let _mcInternalOpen=false; // lets startMultiCrop's own openCropModal call past the guard
 
+// Palette helpers — set the clip shape on the panel the user is working on, and
+// flip the import preference, without making them hunt for the control.
+function _cmdCropShape(shape){
+  if(layoutMode==='freeform'){ toast('Clip shape applies to grid panels','warn'); return; }
+  const live=images.map((im,i)=>im?i:-1).filter(i=>i>=0);
+  if(!live.length){ toast('Add an image first','warn'); return; }
+  const idx=(selectedPanel>=0 && images[selectedPanel])?selectedPanel:live[0];
+  pushUndo();
+  images[idx].cropShape=shape;
+  renderImgList(); scheduleRender(0);
+  toast(`${images[idx].label||('Panel '+(idx+1))}: ${shape} clip`,'ok');
+}
+function _cmdTogglePreCrop(){
+  const on=!preCropOnImport();
+  setPreCropOnImport(on);
+  const cb=document.getElementById('precrop-on-import'); if(cb) cb.checked=on;
+}
+
+// Section-level entry point: crop whatever the user is most likely to mean —
+// the selected panel, or the only one, or the first. In freeform it hands off to
+// the element crop instead of dead-ending.
+function cropSelectedPanel(){
+  if(layoutMode==='freeform'){
+    if(typeof selectedElems!=='undefined' && selectedElems.size===1){ openFreeformCropEditor(); return; }
+    toast('Select one image on the canvas to crop it','warn'); return;
+  }
+  const live=images.map((im,i)=>im?i:-1).filter(i=>i>=0);
+  if(!live.length){ toast('Add an image first','warn'); return; }
+  const idx = (selectedPanel>=0 && images[selectedPanel]) ? selectedPanel : live[0];
+  if(live.length>1 && selectedPanel<0) toast(`Cropping panel ${images[idx].label||idx+1} — click a panel first to choose another`,'ok');
+  openCropModal(idx);
+}
+
 function openCropModal(idx){
   if(mcSession.active && !_mcInternalOpen){ toast('Finish multi-crop first','warn'); return; }
   const im=images[idx]; if(!im) return;
@@ -5235,10 +5323,10 @@ function _mcBindBarInputs(){
 }
 
 function startMultiCrop(idxList){
-  if(layoutMode==='freeform'){ toast('Multi-crop needs Grid layout','warn'); return; }
   if(cropEdState.batch){ toast('Finish the batch crop first','warn'); return; }
   if(mcSession.active){ toast('Multi-crop already running','warn'); return; }
   if(window._sharedPanelSettings){ toast('Add your images first, then multi-crop','warn'); return; }
+  if(layoutMode==='freeform') return _startMultiCropFF(idxList);
   const eligible=(idxList||images.map((im,i)=>i))
     .filter(i=>images[i]&&images[i].img&&!images[i].locked);
   if(!eligible.length){ toast('Add images first','warn'); return; }
@@ -5253,6 +5341,89 @@ function startMultiCrop(idxList){
   // Start from a clean frame so an existing crop doesn't preset the locked size
   cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false;
   _mcBindBarInputs(); _mcUpdateUI(); drawCropEd();
+}
+
+// Adapt a freeform element to the {img,src,name} shape the multi-crop session uses,
+// so _mcAdvance can walk grid panels and freeform objects with one code path.
+function _mcFFSource(i){
+  const el=freeformElements[i];
+  if(!el || (el.type!=='image'&&el.type!=='aiicon')) return null;
+  const im=el._imgEl||(el._imgEl=buildImgEl(el));
+  if(!im||!im.naturalWidth) return null;
+  return {img:im, src:el.src, name:el.label||('object '+(i+1))};
+}
+
+// Freeform multi-crop. Same session machinery and same modal; the only difference
+// is where the regions land — placed image elements instead of grid panels. Cutting
+// several regions out of one micrograph is useful whatever the layout mode, so this
+// no longer dead-ends with "Multi-crop needs Grid layout".
+function _startMultiCropFF(idxList){
+  const pick = (idxList && idxList.length) ? idxList
+    : (selectedElems.size ? [...selectedElems]
+      : freeformElements.map((e,i)=>i));
+  const eligible=pick.filter(i=>{
+    const el=freeformElements[i];
+    if(!el || (el.type!=='image'&&el.type!=='aiicon') || el.locked) return false;
+    const im=el._imgEl||(el._imgEl=buildImgEl(el));
+    return !!(im && im.naturalWidth);
+  });
+  if(!eligible.length){ toast('Select an image on the canvas to multi-crop','warn'); return; }
+  const el0=freeformElements[eligible[0]];
+  const img0=el0._imgEl;
+  cropEdState={imgIdx:-1,_fmIdx:eligible[0],img:img0,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,hasBox:false};
+  document.getElementById('crop-modal').classList.add('open');
+  cropEdState.mc=true;
+  mcSession=_mcBlank();
+  mcSession.active=true; mcSession.mode='freeform';
+  mcSession.queue=eligible.slice(1); mcSession.total=eligible.length;
+  mcSession.cur={img:img0, src:el0.src, name:el0.label||'object', srcIdx:eligible[0]};
+  requestAnimationFrame(()=>{
+    const cc=document.getElementById('crop-ed-canvas');
+    const sc=Math.min(520/img0.naturalWidth, 360/img0.naturalHeight, 1);
+    cc.width=Math.round(img0.naturalWidth*sc);
+    cc.height=Math.round(img0.naturalHeight*sc);
+    _mcBindBarInputs(); _mcUpdateUI(); drawCropEd();
+  });
+}
+
+// One region → one placed freeform image element, cropped non-destructively.
+function _mcMakeElement(srcEl, rect, n){
+  const copy=JSON.parse(JSON.stringify(srcEl));
+  delete copy._imgEl; delete copy._adjCache; delete copy._adjKey;
+  delete copy._chartCache; delete copy._genemapCache; delete copy._paintCanvas;
+  copy.id=_uidElem();
+  copy.zIndex=++_fmZCounter;
+  if(rect){
+    copy.cropT=Math.max(0,Math.round(rect.cy*100));
+    copy.cropL=Math.max(0,Math.round(rect.cx*100));
+    copy.cropB=Math.max(0,Math.round((1-rect.cy-rect.ch)*100));
+    copy.cropR=Math.max(0,Math.round((1-rect.cx-rect.cw)*100));
+    // keep the on-canvas aspect honest: the box shrinks with the region
+    const sw=(1-(copy.cropL+copy.cropR)/100), sh=(1-(copy.cropT+copy.cropB)/100);
+    if(sw>0&&sh>0){ copy.w=Math.max(24,Math.round(srcEl.w*sw)); copy.h=Math.max(24,Math.round(srcEl.h*sh)); }
+  } else { copy.cropT=copy.cropL=copy.cropB=copy.cropR=0; }
+  // lay the regions out to the right of the source so nothing lands on top
+  copy.x=Math.round((srcEl.x||0)+(n+1)*((copy.w||120)+14));
+  copy.y=Math.round(srcEl.y||0);
+  return copy;
+}
+
+function _mcFinalizeFF(){
+  if(!mcSession.results.length){ _mcCancel('No regions added'); return; }
+  pushUndo();
+  let made=0;
+  mcSession.results.forEach(r=>{
+    const srcEl=freeformElements[r.srcIdx];
+    if(!srcEl) return;
+    const group=[];
+    if(mcSession.keepOriginal) group.push(_mcMakeElement(srcEl,null,group.length));
+    r.regions.forEach(rect=>group.push(_mcMakeElement(srcEl,rect,group.length)));
+    group.forEach(el=>{ freeformElements.push(el); made++; });
+  });
+  logAction('multiCrop',{sources:mcSession.results.length, panels:made, mode:'freeform'});
+  _mcCancel(null);
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  toast(`Multi-crop: ${made} object${made>1?'s':''} placed`,'ok');
 }
 
 function mcAddRegion(){
@@ -5300,16 +5471,19 @@ function mcFinishNow(){
     mcSession.regions=[];
   }
   mcSession.queue=[];
-  _mcFinalize();
+  if(mcSession.mode==='freeform') _mcFinalizeFF(); else _mcFinalize();
 }
 
 function _mcAdvance(){
-  if(!mcSession.queue.length) return _mcFinalize();
+  const ff = mcSession.mode==='freeform';
+  if(!mcSession.queue.length) return ff ? _mcFinalizeFF() : _mcFinalize();
   const nextIdx=mcSession.queue.shift();
-  const im=images[nextIdx];
+  // grid works on images[]; freeform on the placed elements
+  const im = ff ? _mcFFSource(nextIdx) : images[nextIdx];
   if(!im||!im.img) return _mcAdvance(); // skip holes / unloaded
   // Mutate cropEdState in place — openCropModal would wipe .mc
-  cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
+  if(ff) cropEdState._fmIdx=nextIdx; else cropEdState.imgIdx=nextIdx;
+  cropEdState.img=im.img;
   const cw=mcSession.cropW||1, ch=mcSession.cropH||1;
   cropEdState.cw=cw; cropEdState.ch=ch;
   cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
