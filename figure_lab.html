@@ -4611,15 +4611,26 @@ function applyComposite(im, sx, sy, sw, sh){
   const base=applyAdjust(im,sx,sy,sw,sh);
   if(base.off) ctx2.drawImage(base.canvas,0,0);
   else ctx2.drawImage(im.img,sx,sy,sw,sh,0,0,c.width,c.height);
-  // Screen-blend each channel
+  // Screen-blend each channel.
+  // Each channel must be cropped to the SAME field of view as the base. The crop is
+  // stored as percentages, so applying them to the channel's own dimensions keeps the
+  // channels registered even when they were acquired at a different pixel size. Drawing
+  // the full channel frame into the cropped base rect would shift and squash it —
+  // showing colocalisation that isn't in the data.
   ctx2.globalCompositeOperation='screen';
+  const cl=(im.cropL||0)/100, ct=(im.cropT||0)/100, cr=(im.cropR||0)/100, cb=(im.cropB||0)/100;
   for(const ch of im.channels){
     if(!ch.img) continue;
+    const cw=ch.img.naturalWidth||ch.img.width, chh=ch.img.naturalHeight||ch.img.height;
+    if(!cw||!chh) continue;
+    const csx=cl*cw, csy=ct*chh;
+    const csw=cw*(1-cl-cr), csh=chh*(1-ct-cb);
+    if(csw<1||csh<1) continue;
     const chIm={img:ch.img,brightness:1,contrast:1,grayscale:true,invert:false,
                 lut:ch.lut||'green',blackPt:ch.blackPt||0,whitePt:ch.whitePt||255};
-    const chSrc=applyAdjust(chIm,0,0,ch.img.width,ch.img.height);
+    const chSrc=applyAdjust(chIm,csx,csy,csw,csh);
     if(chSrc.off) ctx2.drawImage(chSrc.canvas,0,0,chSrc.canvas.width,chSrc.canvas.height,0,0,c.width,c.height);
-    else ctx2.drawImage(ch.img,0,0,ch.img.width,ch.img.height,0,0,c.width,c.height);
+    else ctx2.drawImage(ch.img,csx,csy,csw,csh,0,0,c.width,c.height);
   }
   ctx2.globalCompositeOperation='source-over';
   return c;
@@ -7616,7 +7627,7 @@ function serializeSession(bundleImages){
       // re-derivable only by re-importing the file, so it never enters a saved session.
       const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,raw,
              _genemapStat,_genemapKey,_genemapCache,...rest}=el;
-      if(el.type==='paint' && _paintCanvas && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
+      if(el.type==='paint' && (_paintCanvas instanceof HTMLCanvasElement) && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
       return rest;
     }),
@@ -8558,9 +8569,12 @@ function renderFreeform(canvas, ctx, S, opts){
           else ctx.drawImage(imgEl,sx,sy,sw,sh,el.x,el.y,el.w,el.h);
         }
       }
-      // Scale bar for calibrated image elements
+      // Scale bar for calibrated image elements.
+      // The displayed magnification is el.w / the CROPPED source width — using the full
+      // natural width would draw the bar short by exactly the crop factor, so a reader
+      // measuring against it would overestimate every structure in the panel.
       if(el.sbOn&&el.umPerPx>0){
-        const scale=el.w/((el._imgEl?.width)||el.w);
+        const scale=el.w/(_ffSrcW(el)||el.w);
         const sbPxW=(el.sbUm||10)/el.umPerPx*scale;
         if(sbPxW>4&&sbPxW<el.w*0.6){
           const sbH2=Math.max(1,gi('sb-h'));
@@ -8665,6 +8679,15 @@ function renderFreeform(canvas, ctx, S, opts){
 }
 
 // Build an HTMLImageElement for a freeform image element
+// Width in SOURCE pixels of the part of a freeform image that is actually displayed,
+// i.e. after cropping. el.w / this is the true on-screen magnification, which is what
+// any µm/px-derived length (scale bar) must be scaled by.
+function _ffSrcW(el){
+  const iw=(el._imgEl&&(el._imgEl.naturalWidth||el._imgEl.width))||0;
+  if(!iw) return 0;
+  return iw*(1-((el.cropL||0)+(el.cropR||0))/100);
+}
+
 function buildImgEl(el){
   if(el._imgEl) return el._imgEl;
   if(!el.src) return null;
@@ -8846,7 +8869,7 @@ function freeformMouseup(e){
   }
   if(_paintStroke){
     const el=freeformElements[_paintStroke.idx];
-    if(el&&el._paintCanvas){ el.paintData=el._paintCanvas.toDataURL(); el._paintDirty=false; }
+    if(el&&(el._paintCanvas instanceof HTMLCanvasElement)){ el.paintData=el._paintCanvas.toDataURL(); el._paintDirty=false; }
     _paintStroke=null; _commitFF();
     if(typeof logAction==='function') logAction('paintStroke',{});
     scheduleRender(0); return true;
@@ -8996,6 +9019,9 @@ function duplicateSelectedElems(){
   const idMap={}, groupMap={};
   const copies=src.map(el=>{
     const copy=JSON.parse(JSON.stringify(el)); delete copy._imgEl;   // rebuild image from src, don't clone the node
+    // JSON-round-tripping a canvas yields {}, which then fails getContext on the next
+    // render. Drop every raster proxy; each is rebuilt lazily from the element's data.
+    delete copy._chartCache; delete copy._genemapCache; delete copy._paintCanvas;
     const oldId=el.id; copy.id=_uidElem(); if(oldId!=null) idMap[oldId]=copy.id;
     if(el.groupId){ groupMap[el.groupId]=groupMap[el.groupId]||_uidGroup(); copy.groupId=groupMap[el.groupId]; }
     copy.x=(el.x||0)+16; copy.y=(el.y||0)+16;
@@ -9134,7 +9160,8 @@ function _bgKeySampleAt(lx,ly){
 // image pixels are never modified. Disclosed (layer list + provenance) and
 // fully reversible, so it can't be used to quietly doctor data.
 function _ensurePaintCanvas(el){
-  if(el._paintCanvas) return el._paintCanvas;
+  // a JSON round-trip (duplicate, template) leaves {} where the canvas was
+  if(el._paintCanvas instanceof HTMLCanvasElement) return el._paintCanvas;
   const cv=document.createElement('canvas');
   cv.width=Math.max(1,Math.round(el.pw||el.w||100));
   cv.height=Math.max(1,Math.round(el.ph||el.h||100));
@@ -9978,7 +10005,9 @@ function _drawChartElement(el, ctx, isExport){
   ctx.restore();
   // Refresh the idle proxy (logical size) for the next gesture frame — never used for export.
   if(!isExport){
-    const cv=el._chartCache||(el._chartCache=document.createElement('canvas'));
+    // must be a real canvas: a JSON round-trip (duplicate, template) leaves {} behind
+    let cv=el._chartCache;
+    if(!(cv instanceof HTMLCanvasElement)) cv=el._chartCache=document.createElement('canvas');
     const w=Math.max(1,Math.round(el.w)), h=Math.max(1,Math.round(el.h));
     if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
     const cc=cv.getContext('2d'); cc.clearRect(0,0,cv.width,cv.height); cc.save(); _chartDraw(el,_chartEmitCanvas(cc)); cc.restore();
@@ -10528,7 +10557,9 @@ function _drawGenemapElement(el, ctx, isExport){
   _genemapDraw(el, _chartEmitCanvas(ctx));
   ctx.restore();
   if(!isExport){
-    const cv=el._genemapCache||(el._genemapCache=document.createElement('canvas'));
+    // must be a real canvas: a JSON round-trip (duplicate, template) leaves {} behind
+    let cv=el._genemapCache;
+    if(!(cv instanceof HTMLCanvasElement)) cv=el._genemapCache=document.createElement('canvas');
     const w=Math.max(1,Math.round(el.w)), h=Math.max(1,Math.round(el.h));
     if(cv.width!==w||cv.height!==h){ cv.width=w; cv.height=h; }
     const cc=cv.getContext('2d'); cc.clearRect(0,0,cv.width,cv.height);
@@ -10606,6 +10637,7 @@ function _parseGenBank(text){
   const name=locus?locus[1]:'';
   const topology=/^LOCUS\s.*\b(circular)\b/im.test(src)?'circular':'linear';
   const features=[];
+  let wrapped=0, joined=0;    // disclosed to the user after import
   const fm=/^FEATURES\s+Location\/Qualifiers\s*$/im.exec(src);
   if(fm){
     const rest=src.slice(fm.index+fm[0].length);
@@ -10617,9 +10649,18 @@ function _parseGenBank(text){
       const loc=_gbLocation(cur.loc);
       // `source` spans the whole record in every GenBank file — it's metadata,
       // not a drawable feature, so it never becomes a glyph.
-      if(loc && !/^source$/i.test(cur.key))
-        features.push({name:cur.name||cur.key, type:_gmTypeAlias(cur.key),
-          start:loc.start, end:loc.end, strand:loc.strand});
+      if(loc && !/^source$/i.test(cur.key)){
+        const nm=cur.name||cur.key, ty=_gmTypeAlias(cur.key);
+        const wrap=topology==='circular'?_gbWrapParts(loc,length):null;
+        if(wrap){
+          // origin-spanning: draw the two real arcs, not the whole molecule
+          wrap.forEach(w=>features.push({name:nm, type:ty, start:w.start, end:w.end, strand:loc.strand}));
+          wrapped++;
+        } else {
+          if(loc.segs && loc.segs.length>1) joined++;   // exon structure collapsed to its span
+          features.push({name:nm, type:ty, start:loc.start, end:loc.end, strand:loc.strand});
+        }
+      }
       cur=null; };
     for(const raw of lines){
       const mKey=/^ {1,10}(\S+)\s+(\S.*)$/.exec(raw);          // a new feature key
@@ -10635,17 +10676,44 @@ function _parseGenBank(text){
     push();
   }
   if(!length && features.length) length=features.reduce((m,f)=>Math.max(m,f.end),0);
-  return {length, topology, features, name};
+  return {length, topology, features, name, wrapped, joined};
 }
-// GenBank location → {start,end,strand}. join()/order() collapse to their envelope,
-// which is what a map can honestly draw; exact exon structure isn't represented.
+// GenBank location → {start,end,strand,segs}. `segs` keeps the ordered a..b pairs so a
+// caller can tell an origin-spanning feature (join(2600..2686,1..100) on a circular
+// plasmid) from a plain multi-exon join. Collapsing the former to its envelope would
+// inflate an AmpR or ori that crosses position 1 into a feature covering the whole
+// molecule — which is what most real SnapGene/Benchling plasmids contain.
 function _gbLocation(loc){
   const s=String(loc||'');
   const strand=/complement/i.test(s)?-1:1;
-  const nums=s.match(/\d+/g);
-  if(!nums||!nums.length) return null;
-  const vals=nums.map(Number);
-  return {start:Math.min(...vals), end:Math.max(...vals), strand};
+  const segs=[];
+  const re=/(\d+)\s*\.\.\s*[<>]?(\d+)/g;
+  let m;
+  while((m=re.exec(s))) segs.push([Number(m[1]), Number(m[2])]);
+  if(!segs.length){
+    const nums=s.match(/\d+/g);
+    if(!nums||!nums.length) return null;
+    const v=nums.map(Number);
+    return {start:Math.min(...v), end:Math.max(...v), strand, segs:[[Math.min(...v),Math.max(...v)]]};
+  }
+  const flat=segs.flat();
+  return {start:Math.min(...flat), end:Math.max(...flat), strand, segs};
+}
+// Split an origin-spanning location into its two drawable arcs. Returns null when the
+// feature does not wrap, so the ordinary envelope is used.
+function _gbWrapParts(loc, length){
+  if(!loc||!loc.segs||loc.segs.length<2||!length) return null;
+  let br=-1;
+  for(let i=1;i<loc.segs.length;i++) if(loc.segs[i][0]<loc.segs[i-1][0]){ br=i; break; }
+  if(br<0) return null;                                   // ascending: an ordinary join
+  const tail=loc.segs.slice(0,br).flat(), head=loc.segs.slice(br).flat();
+  return [ {start:Math.min(...tail), end:length}, {start:1, end:Math.max(...head)} ];
+}
+// Tell the user what the parser had to do to their file, rather than letting the map
+// quietly differ from the record.
+function _gbImportNotes(parsed){
+  if(parsed.wrapped) toast(`${parsed.wrapped} feature(s) cross the origin — drawn as two arcs`,'ok');
+  if(parsed.joined) toast(`${parsed.joined} multi-segment feature(s) drawn as their overall span`,'warn');
 }
 function _parseFASTA(text){
   const lines=String(text||'').split(/\r?\n/);
@@ -10679,6 +10747,7 @@ function _loadGeneFile(f, fail){
     logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
     updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
     toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
+    _gbImportNotes(parsed);
     openGenemapModal();
   };
   reader.onerror=()=>(fail||toast)('Could not read the sequence file','err');
@@ -10789,6 +10858,7 @@ function _gmImportFile(input){
       el._genemapCache=null;
       _genemapModalSync(); updateFreeformElemList(); scheduleRender(0);
       toast(`Loaded ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
+      _gbImportNotes(parsed);
     }
   };
   reader.readAsText(f);
@@ -11479,9 +11549,16 @@ function _panelSourceMap(pb, im){
 }
 
 // Statistics over the native samples inside a source-pixel rect.
-function _rawStatsRect(raw,u0,v0,u1,v1){
-  const x0=Math.max(0,Math.floor(Math.min(u0,u1))), x1=Math.min(raw.w-1,Math.ceil(Math.max(u0,u1))-1);
-  const y0=Math.max(0,Math.floor(Math.min(v0,v1))), y1=Math.min(raw.h-1,Math.ceil(Math.max(v0,v1))-1);
+// `win` (optional, from _panelSourceMap) restricts the rect to the pixels actually
+// VISIBLE in the panel. Without it a selection drawn over a contain-fit letterbox, or
+// spilling past a cropped edge, would silently report pixels the user excluded from
+// the figure — a raw number that looks authoritative and is measuring the wrong data.
+function _rawStatsRect(raw,u0,v0,u1,v1,win){
+  const lx0=win?Math.max(0,Math.floor(win.sx)):0, ly0=win?Math.max(0,Math.floor(win.sy)):0;
+  const lx1=win?Math.min(raw.w-1,Math.ceil(win.sx+win.sw)-1):raw.w-1;
+  const ly1=win?Math.min(raw.h-1,Math.ceil(win.sy+win.sh)-1):raw.h-1;
+  const x0=Math.max(lx0,Math.floor(Math.min(u0,u1))), x1=Math.min(lx1,Math.ceil(Math.max(u0,u1))-1);
+  const y0=Math.max(ly0,Math.floor(Math.min(v0,v1))), y1=Math.min(ly1,Math.ceil(Math.max(v0,v1))-1);
   if(x1<x0||y1<y0) return null;
   let sum=0,sum2=0,mn=Infinity,mx=-Infinity,n=0,atFull=0;
   const full=raw.full;
@@ -11499,8 +11576,20 @@ function _rawStatsRect(raw,u0,v0,u1,v1){
   const sd=n>1?Math.sqrt(Math.max(0,(sum2-n*mean*mean)/(n-1))):0;   // SD, n−1 denominator
   return {n,mean,min:mn,max:mx,sd,sum,atFull};
 }
-function _rawAt(raw,u,v){
-  const x=Math.min(raw.w-1,Math.max(0,Math.round(u))), y=Math.min(raw.h-1,Math.max(0,Math.round(v)));
+// Single sample. Returns null outside the visible crop window rather than clamping
+// onto an edge pixel, so a caller can decline instead of reporting the wrong pixel.
+function _rawAt(raw,u,v,win){
+  let x0=0,y0=0,x1=raw.w-1,y1=raw.h-1;
+  if(win){
+    // A point exactly on the far edge (a line drawn to the image boundary) maps to
+    // sx+sw, one past the last index — that is a real edge sample, so allow a half-pixel
+    // of slack and clamp. Anything further out is genuinely off the image: reject.
+    if(u<win.sx-0.5||u>win.sx+win.sw+0.5||v<win.sy-0.5||v>win.sy+win.sh+0.5) return null;
+    x0=Math.max(x0,Math.floor(win.sx)); y0=Math.max(y0,Math.floor(win.sy));
+    x1=Math.min(x1,Math.ceil(win.sx+win.sw)-1); y1=Math.min(y1,Math.ceil(win.sy+win.sh)-1);
+  }
+  if(x1<x0||y1<y0) return null;
+  const x=Math.min(x1,Math.max(x0,Math.round(u))), y=Math.min(y1,Math.max(y0,Math.round(v)));
   return raw.data[y*raw.w+x];
 }
 function _rawDepth(raw){ return raw.format===3?'32-bit float':raw.bps+'-bit'; }
@@ -11532,17 +11621,20 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
   const {pb,im,map,raw}=_measureCtx(rx,ry);
   const umPerPx=im?.umPerPx||0;
   // With an exact mapping the ROI's area is known in SOURCE pixels, which is the
-  // space µm/px is calibrated in; without one, fall back to figure pixels.
+  // space µm/px is calibrated in. Without one there is NO honest conversion —
+  // multiplying figure-canvas pixels by µm/px would be wrong by the display scale
+  // (often 5–50x), so µm² is withheld rather than guessed.
   let srcArea=map?(rw*map.kx)*(rh*map.ky):null;
 
-  let rawStat=null;
+  let rawStat=null, clipped=false;
   if(raw){
     const [u0,v0]=map.toSrc(rx,ry), [u1,v1]=map.toSrc(rx+rw,ry+rh);
-    rawStat=_rawStatsRect(raw,u0,v0,u1,v1);
+    rawStat=_rawStatsRect(raw,u0,v0,u1,v1,map);   // clipped to the visible crop window
     // report the pixels actually summed, so the area and the sample count agree
-    if(rawStat) srcArea=rawStat.n;
+    if(rawStat){ clipped=rawStat.n < Math.floor(srcArea)-1; srcArea=rawStat.n; }
   }
-  const areaUm=umPerPx>0?((srcArea!=null?srcArea:area)*umPerPx*umPerPx).toFixed(2):null;
+  const areaUm=(umPerPx>0&&srcArea!=null)?(srcArea*umPerPx*umPerPx).toFixed(2):null;
+  const noAreaUm=umPerPx>0&&srcArea==null;
 
   const res=document.getElementById('roi-results');
   res.className='show';
@@ -11551,6 +11643,7 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     Raw min: ${_fmtRaw(rawStat.min,raw)} · max: ${_fmtRaw(rawStat.max,raw)} · SD: ${_fmtRaw(rawStat.sd,raw)}<br>
     Raw integrated density: ${rawStat.sum.toPrecision(8)}<br>
     ${rawStat.atFull?`<span style="color:var(--warn,#c98a00)">${(rawStat.atFull/rawStat.n*100).toFixed(1)}% of pixels are saturated at the sensor maximum</span><br>`:''}
+    ${clipped?`<span style="color:var(--warn,#c98a00)">Selection extended past the panel image — only the ${rawStat.n} pixel(s) inside it were measured.</span><br>`:''}
     <span style="color:var(--muted);font-size:10px">Display mean ${meanGray.toFixed(1)} · min ${minV.toFixed(0)} · max ${maxV.toFixed(0)} (8-bit)</span>
     <div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_RAW_MEASURE_NOTE}</div>` : `
     Mean intensity: ${meanGray.toFixed(1)} <span style="color:var(--muted)">(R:${meanR.toFixed(0)} G:${meanG.toFixed(0)} B:${meanB.toFixed(0)})</span><br>
@@ -11558,7 +11651,8 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     Integrated density: ${intDens.toFixed(0)}
     <div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`;
   res.innerHTML=`<b>ROI Measurement</b><br>
-    Area: ${Math.round(srcArea!=null?srcArea:area)} ${srcArea!=null?'source':''} px²${areaUm?` (${areaUm} µm²)`:''}<br>
+    Area: ${Math.round(srcArea!=null?srcArea:area)} ${srcArea!=null?'source':'figure'} px²${areaUm?` (${areaUm} µm²)`:''}<br>
+    ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — this panel is rotated, flipped, shape-cropped or a channel merge, so figure pixels can't be mapped back to calibrated source pixels.</span><br>`:''}
     ${rawHtml}`;
 
   measurements.push({type:'roi',label:`ROI ${measurements.length+1}`,
@@ -11580,12 +11674,20 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
   // otherwise sample the 8-bit display as before.
   const {im,map,raw}=_measureCtx(x0,y0);
   const vals=[];
+  let usedRaw=false;
   if(raw){
+    // Sample raw only if the WHOLE line lies on the drawn image. A line running off
+    // the panel would otherwise read clamped edge pixels — real values, wrong location.
+    const rv=[];
     for(let i=0;i<=len;i++){
       const [u,v]=map.toSrc(x0+(x1-x0)*i/len, y0+(y1-y0)*i/len);
-      vals.push(_rawAt(raw,u,v));
+      const s=_rawAt(raw,u,v,map);
+      if(s===null){ rv.length=0; break; }
+      rv.push(s);
     }
-  } else {
+    if(rv.length){ vals.push(...rv); usedRaw=true; }
+  }
+  if(!usedRaw){
     for(let i=0;i<=len;i++){
       const px=Math.round(x0+(x1-x0)*i/len), py=Math.round(y0+(y1-y0)*i/len);
       const d=ctx.getImageData(px,py,1,1).data;
@@ -11608,11 +11710,11 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
   pctx.stroke();
   const pMax=Math.max(...vals), pMean=vals.reduce((a,b)=>a+b,0)/vals.length;
   document.getElementById('roi-results').className='show';
-  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${raw?_fmtRaw(pMax,raw):pMax.toFixed(0)} · mean: ${raw?_fmtRaw(pMean,raw):pMean.toFixed(1)}
-    ${raw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_rawDepth(raw)} raw samples. ${_RAW_MEASURE_NOTE}</div>`
-        :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`}`;
+  document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${usedRaw?_fmtRaw(pMax,raw):pMax.toFixed(0)} · mean: ${usedRaw?_fmtRaw(pMean,raw):pMean.toFixed(1)}
+    ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_rawDepth(raw)} raw samples. ${_RAW_MEASURE_NOTE}</div>`
+        :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${raw?'Part of this line falls outside the panel image, so raw samples could not be used. ':''}${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`}`;
   measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(','),
-    source:raw?`raw ${_rawDepth(raw)}`:'8-bit display'});
+    source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
 }
@@ -11883,19 +11985,27 @@ function exportReproLog(){
 function countCellsROI(ctx,rx,ry,rw,rh){
   const thresh=parseInt(document.getElementById('count-threshold').value)||128;
   const {im,map,raw}=_measureCtx(rx,ry);
-  let W,H,mask,rawThresh=0;
+  let W,H,mask,rawThresh=0,usedRaw=false,clipped=false;
   if(raw){
     // Segment the native samples at the panel's own resolution. The slider is 0–255,
     // so scale it onto the raw range — the equivalent level is reported to the user.
+    // Clamp to the VISIBLE crop window, never to the whole source image, or a selection
+    // over the letterbox would count objects the user cropped out of the figure.
     const [u0,v0]=map.toSrc(rx,ry), [u1,v1]=map.toSrc(rx+rw,ry+rh);
-    const x0=Math.max(0,Math.floor(Math.min(u0,u1))), x1=Math.min(raw.w-1,Math.ceil(Math.max(u0,u1))-1);
-    const y0=Math.max(0,Math.floor(Math.min(v0,v1))), y1=Math.min(raw.h-1,Math.ceil(Math.max(v0,v1))-1);
-    W=Math.max(1,x1-x0+1); H=Math.max(1,y1-y0+1);
-    rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1);
-    mask=new Uint8Array(W*H);
-    for(let y=0;y<H;y++) for(let x=0;x<W;x++)
-      mask[y*W+x]=raw.data[(y0+y)*raw.w+(x0+x)]>=rawThresh?1:0;
-  } else {
+    const lx0=Math.max(0,Math.floor(map.sx)), ly0=Math.max(0,Math.floor(map.sy));
+    const lx1=Math.min(raw.w-1,Math.ceil(map.sx+map.sw)-1), ly1=Math.min(raw.h-1,Math.ceil(map.sy+map.sh)-1);
+    const x0=Math.max(lx0,Math.floor(Math.min(u0,u1))), x1=Math.min(lx1,Math.ceil(Math.max(u0,u1))-1);
+    const y0=Math.max(ly0,Math.floor(Math.min(v0,v1))), y1=Math.min(ly1,Math.ceil(Math.max(v0,v1))-1);
+    if(x1>=x0&&y1>=y0){
+      W=x1-x0+1; H=y1-y0+1; usedRaw=true;
+      clipped = W*H < Math.floor((rw*map.kx)*(rh*map.ky))-1;
+      rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1);
+      mask=new Uint8Array(W*H);
+      for(let y=0;y<H;y++) for(let x=0;x<W;x++)
+        mask[y*W+x]=raw.data[(y0+y)*raw.w+(x0+x)]>=rawThresh?1:0;
+    }
+  }
+  if(!usedRaw){
     const idata=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
     const d=idata.data; W=idata.width; H=idata.height;
     // Build binary mask (above threshold = foreground)
@@ -11931,20 +12041,24 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   const area=W*H;                          // pixels actually segmented (source px on the raw path)
   const fgPx=mask.reduce((s,v)=>s+v,0);
   const umPerPx=im?.umPerPx||0;
-  const areaUm=umPerPx>0?(fgPx*umPerPx*umPerPx).toFixed(1):null;
+  // µm/px is calibrated in SOURCE pixels — only convert when we segmented those.
+  const areaUm=(umPerPx>0&&usedRaw)?(fgPx*umPerPx*umPerPx).toFixed(1):null;
+  const noAreaUm=umPerPx>0&&!usedRaw;
   const res=document.getElementById('roi-results');
   res.className='show';
-  res.innerHTML=`<b>Cell Count</b> (threshold ≥${thresh}${raw?` → raw ${_fmtRaw(rawThresh,raw)}`:''})<br>
+  res.innerHTML=`<b>Cell Count</b> (threshold ≥${thresh}${usedRaw?` → raw ${_fmtRaw(rawThresh,raw)}`:''})<br>
     Objects detected: <b>${count}</b><br>
-    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${raw?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
+    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${usedRaw?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
+    ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — figure pixels can't be mapped back to calibrated source pixels for this panel.</span><br>`:''}
+    ${clipped?`<span style="color:var(--warn,#c98a00);font-size:10px">Selection extended past the panel image — only the visible part was counted.</span><br>`:''}
     <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
-    ${raw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
+    ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
          :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
     count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',
-    source:raw?`raw ${_rawDepth(raw)}`:'8-bit display'});
+    source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
   logAction('cellCount',{count,threshold:thresh});
@@ -12057,7 +12171,7 @@ function _epSbEl(){ if(selectedElems.size!==1) return null; const el=freeformEle
 function _epSbLen(v){ const el=_epSbEl(); if(!el) return; const u=el.sbUnit||'µm'; el.sbUnit=u; el.sbUm=(parseFloat(v)||0)*_sbUnitFactor(u); scheduleRender(0); }
 function _epSbUnit(u){ const el=_epSbEl(); if(!el) return; el.sbUnit=u; const inp=document.getElementById('ep-sbum'); if(inp) inp.value=+(Math.round((el.sbUm||0)/_sbUnitFactor(u)*1000)/1000); scheduleRender(0); }
 function _epAutoSB(){ const el=_epSbEl(); if(!el) return; if(!(el.umPerPx>0)){ toast('Set µm/px first','warn'); return; }
-  const scale=el.w/((el._imgEl?.width)||el.w);
+  const scale=el.w/(_ffSrcW(el)||el.w);   // cropped source width — see _ffSrcW
   const best=_niceSnap((el.w*0.20)/scale*el.umPerPx);   // bar ≈ 20% of the object width
   el.sbUm=best; el.sbUnit=_sbUnitFor(best); el.sbOn=true;
   updateElemPropsBar(); scheduleRender(0); toast(`Scale bar: ${_sbLabel(el)}`,'ok');
@@ -12831,7 +12945,12 @@ function runExposureAnalysis(){
   const results=[];
   panelBounds.forEach(pb=>{
     const im=images[pb.idx]; if(!im) return;
-    const d=ctx.getImageData(pb.x,pb.y,pb.w,pb.h).data;
+    // Read the DRAWN image, not the whole grid cell: a contain-fit panel is letterboxed
+    // with background, and those pixels would drag the mean and the clipping percentages
+    // toward the background colour.
+    const map=_panelSourceMap(pb,im);
+    const rr=map?{x:map.dx,y:map.dy,w:map.dw,h:map.dh}:{x:pb.x,y:pb.y,w:pb.w,h:pb.h};
+    const d=ctx.getImageData(rr.x,rr.y,Math.max(1,rr.w),Math.max(1,rr.h)).data;
     const n=d.length/4;
     let sum=0,clippedHi=0,clippedLo=0;
     const hist=new Array(256).fill(0);
@@ -12861,10 +12980,11 @@ function runExposureAnalysis(){
     if(!warnings.length) warnings.push({s:'pass',m:`Well-exposed — mean ${mean.toFixed(0)}, range ${range} levels`});
     // If the native samples were retained, report TRUE sensor saturation — the number
     // that actually matters — instead of inferring it from the 8-bit display.
-    const map=_panelSourceMap(pb,im);
     const raw=(map&&im.raw&&im.raw.data)?im.raw:null;
     if(raw){
-      const st=_rawStatsRect(raw,0,0,raw.w,raw.h);
+      // only the pixels that survived the crop — a saturated region the user cropped
+      // away is not a problem with the published panel, and vice versa
+      const st=_rawStatsRect(raw,map.sx,map.sy,map.sx+map.sw,map.sy+map.sh,map);
       if(st){
         const satPct=st.atFull/st.n*100;
         warnings.unshift({s: satPct>1?'fail':satPct>0?'warn':'pass',
