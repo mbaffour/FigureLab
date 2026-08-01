@@ -676,9 +676,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details>
   <summary>Annotate &amp; Draw</summary>
   <div class="acc-body">
-    <!-- Grid-only. In freeform the annotation canvas hands every event to
-         freeformMousedown, so these tools do nothing at all — they used to stay
-         fully visible and silently ignore you. -->
     <div id="annotate-grid-only">
     <div class="sec-lbl">Tool</div>
     <div class="ann-tools" id="ann-tools">
@@ -717,8 +714,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
     </div><!-- /annotate-grid-only -->
-    <div id="annotate-ff-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4;margin-bottom:6px">
-      Annotation tools (arrows, boxes, text) apply to <b>grid</b> figures. In freeform, add text and shapes as objects below and drag them anywhere.</div>
     <div class="divider"></div>
     <!-- Object creators, moved out of Layout → freeform controls. "Things I add to
          the figure" belong together whichever layout mode you are in; these all
@@ -6584,13 +6579,38 @@ function hidePanelTooltip(){
   _panelTipTimer=setTimeout(()=>{ _panelTip.style.display='none'; },130);
 }
 
+// Annotation tools draw on the figure in BOTH layout modes. Freeform used to hand
+// every event to freeformMousedown, so arrows, boxes and text silently did nothing
+// there — the figure already rendered annotations (renderFreeform calls
+// drawAnnotations), you just had no way to make one.
+function _annToolActive(){
+  return activeTool && activeTool!=='none' && !/^measure-/.test(activeTool);
+}
+// In freeform with the Select tool, an existing annotation still wins the click —
+// otherwise you could create one and never be able to move it again.
+function _annUnderPoint(e){
+  if(!annotations.length) return false;
+  const {x,y}=canvasCoords(annCanvas,e);
+  const W=annCanvas.width, H=annCanvas.height;
+  if(selectedAnnotation>=0 && annotations[selectedAnnotation]
+     && hitAnnHandle(annotations[selectedAnnotation],x,y,W,H)) return true;
+  for(let i=annotations.length-1;i>=0;i--){
+    const a=annotations[i];
+    if(a.hidden||a.locked) continue;
+    if(hitAnnotation(a,x,y,W,H)) return true;
+  }
+  return false;
+}
+
 // ── Ann-canvas mouse events ──────────────────────────────────
 annCanvas.addEventListener('mousedown', e=>{
   e.preventDefault();
   // Freeform mode — delegate entirely (except space-pan)
   if(layoutMode==='freeform'&&!spaceDown){
     if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'down'); return; }
-    freeformMousedown(e); return;
+    // Annotation tools, and clicks that land on an existing annotation, fall through
+    // to the same code grid mode uses. Everything else is object manipulation.
+    if(!_annToolActive() && !_annUnderPoint(e)){ freeformMousedown(e); return; }
   }
   // Space + drag = pan the scroll container
   if(spaceDown){
@@ -6603,8 +6623,8 @@ annCanvas.addEventListener('mousedown', e=>{
   const {x,y}=canvasCoords(annCanvas,e);
   const W=annCanvas.width, H=annCanvas.height;
 
-  // ── Panel annotation mode
-  if(panelAnnMode){
+  // ── Panel annotation mode (grid only — freeform has no panel cells to pin to)
+  if(panelAnnMode && layoutMode!=='freeform'){
     if(activeTool!=='none'){
       // Find which panel the cursor is over
       const pb=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
@@ -6767,7 +6787,8 @@ annCanvas.addEventListener('mousemove', e=>{
   // Freeform mode
   if(layoutMode==='freeform'&&!panState){
     if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'move'); return; }
-    freeformMousemove(e); return;
+    // keep following an annotation that is being drawn, dragged or resized
+    if(!_annToolActive() && !annDragState && !annResizeState && !annState.drawing){ freeformMousemove(e); return; }
   }
   // Pan
   if(panState){
@@ -6942,7 +6963,7 @@ annCanvas.addEventListener('mousemove', e=>{
 annCanvas.addEventListener('mouseup', e=>{
   if(layoutMode==='freeform'&&!panState){
     if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'up'); return; }
-    freeformMouseup(e); return;
+    if(!_annToolActive() && !annDragState && !annResizeState && !annState.drawing){ freeformMouseup(e); return; }
   }
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
   // Scale-bar resize commit
@@ -9077,8 +9098,13 @@ function setLayoutMode(mode){
 function _syncModeSections(mode){
   const grid = mode!=='freeform';
   const show=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'':'none'; };
-  show('annotate-grid-only', grid);      // every annotation tool is inert in freeform
-  show('annotate-ff-note', !grid);
+  // Annotation tools work in both modes now. Only "Panel mode" — which pins an
+  // annotation to a grid cell — has nothing to attach to in freeform.
+  show('annotate-grid-only', true);
+  show('annotate-ff-note', false);
+  const pam=document.getElementById('panel-ann-mode-btn');
+  if(pam){ pam.style.display = grid ? '' : 'none';
+    if(!grid && typeof panelAnnMode!=='undefined' && panelAnnMode) togglePanelAnnMode(); }
   show('look-grid-only', grid);          // panel letters / row+col headers are grid concepts
   show('look-ff-note', !grid);
   // Templates rebuild a grid; say so instead of silently switching the mode back.

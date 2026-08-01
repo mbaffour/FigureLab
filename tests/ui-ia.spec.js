@@ -300,25 +300,73 @@ test('the region list shows what has been banked so far', async ({ page }) => {
 // and silently ignore clicks — worse than being absent, because you cannot tell
 // it apart from a broken tool.
 
-test('annotation tools are hidden in freeform, where they do nothing', async ({ page }) => {
+test('annotation tools work in freeform, not just grid', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
     document.querySelectorAll('.sidebar > details').forEach(d => { d.open = true; });
-    const vis = id => { const e = document.getElementById(id); return !!e && e.style.display !== 'none'; };
-    setLayoutMode('grid');
-    const g = { tools: vis('annotate-grid-only'), note: vis('annotate-ff-note'),
-                labels: vis('look-grid-only') };
     setLayoutMode('freeform');
-    const f = { tools: vis('annotate-grid-only'), note: vis('annotate-ff-note'),
-                labels: vis('look-grid-only') };
-    return { g, f };
+    render();
+    const before = annotations.length;
+    // draw an arrow the way the canvas handlers see it
+    const cv = annCanvas, R = cv.getBoundingClientRect();
+    const at = (fx, fy) => ({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy,
+                              preventDefault(){}, button: 0, shiftKey: false });
+    setTool('arrow');
+    cv.dispatchEvent(new MouseEvent('mousedown', at(0.2, 0.2)));
+    cv.dispatchEvent(new MouseEvent('mousemove', at(0.6, 0.5)));
+    cv.dispatchEvent(new MouseEvent('mouseup',   at(0.6, 0.5)));
+    const made = annotations.length - before;
+    const a = annotations[annotations.length - 1];
+    // and it is baked into the freeform render, not just the overlay
+    const off = document.createElement('canvas');
+    let drew = 0;
+    const realStroke = CanvasRenderingContext2D.prototype.stroke;
+    CanvasRenderingContext2D.prototype.stroke = function () { drew++; return realStroke.apply(this, arguments); };
+    try { render(off, 2); } finally { CanvasRenderingContext2D.prototype.stroke = realStroke; }
+    return { made, type: a && a.type, xf: a && +a.xf.toFixed(2), drew,
+             toolsVisible: document.getElementById('annotate-grid-only').style.display !== 'none' };
   });
-  expect(r.g.tools).toBe(true);     // grid: annotation tools available
-  expect(r.g.note).toBe(false);
-  expect(r.f.tools).toBe(false);    // freeform: hidden, with an explanation instead
-  expect(r.f.note).toBe(true);
-  expect(r.g.labels).toBe(true);    // panel letters are a grid concept
-  expect(r.f.labels).toBe(false);
+  expect(r.made).toBe(1);                 // the arrow was actually created
+  expect(r.type).toBe('arrow');
+  expect(r.xf).toBeCloseTo(0.2, 1);       // at the point that was clicked
+  expect(r.drew).toBeGreaterThan(0);      // and drawn into the freeform render
+  expect(r.toolsVisible).toBe(true);      // so the tools are no longer hidden
+  expect(errors).toEqual([]);
+});
+
+test('an existing annotation can still be selected and moved in freeform', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    setLayoutMode('freeform'); render();
+    annotations.push({ type: 'rect', xf: 0.2, yf: 0.2, x2f: 0.5, y2f: 0.5, color: '#fff', width: 2 });
+    renderAnnotationList(); render();
+    const cv = annCanvas, R = cv.getBoundingClientRect();
+    const at = (fx, fy) => ({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy,
+                              preventDefault(){}, button: 0, shiftKey: false });
+    setTool('none');                       // Select — objects normally own this
+    cv.dispatchEvent(new MouseEvent('mousedown', at(0.2, 0.2)));
+    const picked = selectedAnnotation;
+    cv.dispatchEvent(new MouseEvent('mousemove', at(0.3, 0.3)));
+    cv.dispatchEvent(new MouseEvent('mouseup',   at(0.3, 0.3)));
+    return { picked, movedTo: +annotations[0].xf.toFixed(2) };
+  });
+  expect(r.picked).toBe(0);               // the annotation won the click, not the canvas
+  expect(r.movedTo).toBeGreaterThan(0.25); // and it moved with the drag
+  expect(errors).toEqual([]);
+});
+
+test('panel-pin mode is grid-only — it has no cell to pin to in freeform', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    document.querySelectorAll('.sidebar > details').forEach(d => { d.open = true; });
+    const btn = document.getElementById('panel-ann-mode-btn');
+    setLayoutMode('grid');   const g = btn.style.display !== 'none';
+    setLayoutMode('freeform'); const f = btn.style.display !== 'none';
+    return { g, f, mode: panelAnnMode };
+  });
+  expect(r.g).toBe(true);
+  expect(r.f).toBe(false);
+  expect(r.mode).toBe(false);   // and it is switched off on the way in, not left stuck
   expect(errors).toEqual([]);
 });
 
