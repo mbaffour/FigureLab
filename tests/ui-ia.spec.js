@@ -294,3 +294,89 @@ test('the region list shows what has been banked so far', async ({ page }) => {
   expect(r.cleared).toBe('');       // field clears so you can type the next name
   expect(errors).toEqual([]);
 });
+
+// ── Mode awareness ───────────────────────────────────────────────────────────
+// Sections that do nothing in the current layout mode used to render unchanged
+// and silently ignore clicks — worse than being absent, because you cannot tell
+// it apart from a broken tool.
+
+test('annotation tools are hidden in freeform, where they do nothing', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    document.querySelectorAll('.sidebar > details').forEach(d => { d.open = true; });
+    const vis = id => { const e = document.getElementById(id); return !!e && e.style.display !== 'none'; };
+    setLayoutMode('grid');
+    const g = { tools: vis('annotate-grid-only'), note: vis('annotate-ff-note'),
+                labels: vis('look-grid-only') };
+    setLayoutMode('freeform');
+    const f = { tools: vis('annotate-grid-only'), note: vis('annotate-ff-note'),
+                labels: vis('look-grid-only') };
+    return { g, f };
+  });
+  expect(r.g.tools).toBe(true);     // grid: annotation tools available
+  expect(r.g.note).toBe(false);
+  expect(r.f.tools).toBe(false);    // freeform: hidden, with an explanation instead
+  expect(r.f.note).toBe(true);
+  expect(r.g.labels).toBe(true);    // panel letters are a grid concept
+  expect(r.f.labels).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('object creators stay reachable in BOTH modes', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    document.querySelectorAll('.sidebar > details').forEach(d => { d.open = true; });
+    const seen = () => {
+      const e = document.getElementById('icon-palette');
+      return !!e && e.offsetParent !== null;
+    };
+    setLayoutMode('grid'); const g = seen();
+    setLayoutMode('freeform'); const f = seen();
+    return { g, f };
+  });
+  // these switch to freeform themselves, so hiding them in grid would be a dead end
+  expect(r.g).toBe(true);
+  expect(r.f).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('PowerPoint export says why it is unavailable, before the click', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    setLayoutMode('grid');
+    const g = { disabled: document.getElementById('pptx-btn').disabled };
+    setLayoutMode('freeform');
+    const btn = document.getElementById('pptx-btn');
+    return { g, disabled: btn.disabled, title: btn.title };
+  });
+  expect(r.g.disabled).toBe(false);
+  expect(r.disabled).toBe(true);
+  expect(r.title).toMatch(/switch to Grid/i);
+  expect(errors).toEqual([]);
+});
+
+test('one name per concept — the collisions are resolved', async ({ page }) => {
+  await loadApp(page);
+  const headings = await page.evaluate(() =>
+    [...document.querySelectorAll('.sidebar .sec-lbl')].map(e => e.textContent.replace(/\s+/g, ' ').trim()));
+  const has = re => headings.some(h => re.test(h));
+  // "Presets" used to name four different things across three sections
+  expect(headings.filter(h => /preset/i.test(h)).length).toBeLessThanOrEqual(1);
+  expect(has(/Quick start/)).toBe(true);
+  expect(has(/Layout templates/)).toBe(true);
+  expect(has(/Journal house style/)).toBe(true);
+  // "Themes" meant both app chrome and figure look
+  expect(has(/Figure themes/)).toBe(true);
+  // "Save" meant five things
+  expect(has(/Save this layout as a template/)).toBe(true);
+  expect(has(/Session library/)).toBe(true);
+});
+
+test('the version badge tracks APP_VERSION and cannot drift', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => ({
+    badge: document.getElementById('version-badge').textContent,
+    constant: 'v' + APP_VERSION,
+  }));
+  expect(r.badge).toBe(r.constant);
+});

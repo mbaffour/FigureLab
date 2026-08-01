@@ -440,7 +440,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
   <div class="logo">Figure<span>Lab</span></div>
-  <span class="badge" id="version-badge">v3.9.0</span>
+  <span class="badge" id="version-badge">v3.9.2</span>
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
@@ -492,7 +492,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details open>
   <summary>Arrange</summary>
   <div class="acc-body">
-    <div class="sec-lbl">Quick Presets</div>
+    <div class="sec-lbl">Quick start</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
       <button class="btn" onclick="applyQuickPreset('fluorescence')" style="flex:1;justify-content:center;font-size:10px" title="Dark background, white labels, LUT-friendly">🔬 Fluorescence</button>
       <button class="btn" onclick="applyQuickPreset('brightfield')" style="flex:1;justify-content:center;font-size:10px" title="White background, dark labels, no LUTs">🔭 Brightfield</button>
@@ -599,10 +599,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </details>
 
 <!-- TEMPLATES -->
-<details>
+<details id="templates-acc">
   <summary>Templates</summary>
   <div class="acc-body">
-    <div class="sec-lbl">Built-in presets</div>
+    <div id="templates-ff-note" style="display:none;font-size:10px;color:var(--warn);line-height:1.4;margin-bottom:6px">
+      Templates build a <b>grid</b> figure — applying one switches you out of freeform.</div>
+    <div class="sec-lbl">Layout templates</div>
     <div class="tpl-grid">
       <button class="tpl-btn" onclick="applyTemplate('nature2x2')">Nature<br>2×2</button>
       <button class="tpl-btn" onclick="applyTemplate('nature3x2')">Nature<br>3×2</button>
@@ -614,7 +616,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="tpl-btn" onclick="applyTemplate('singlecol')">Single<br>column</button>
     </div>
     <div class="divider"></div>
-    <div class="sec-lbl">Save current layout</div>
+    <div class="sec-lbl">Save this layout as a template</div>
     <div style="display:flex;gap:5px">
       <input type="text" id="tpl-name-input" placeholder="Template name…" style="flex:1">
       <button class="btn" onclick="saveTemplate()" style="padding:3px 10px">Save</button>
@@ -674,6 +676,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details>
   <summary>Annotate &amp; Draw</summary>
   <div class="acc-body">
+    <!-- Grid-only. In freeform the annotation canvas hands every event to
+         freeformMousedown, so these tools do nothing at all — they used to stay
+         fully visible and silently ignore you. -->
+    <div id="annotate-grid-only">
     <div class="sec-lbl">Tool</div>
     <div class="ann-tools" id="ann-tools">
       <button class="ann-tool" data-tool="none" onclick="setTool('none')">↖ Select</button>
@@ -710,6 +716,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
+    </div><!-- /annotate-grid-only -->
+    <div id="annotate-ff-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4;margin-bottom:6px">
+      Annotation tools (arrows, boxes, text) apply to <b>grid</b> figures. In freeform, add text and shapes as objects below and drag them anywhere.</div>
     <div class="divider"></div>
     <!-- Object creators, moved out of Layout → freeform controls. "Things I add to
          the figure" belong together whichever layout mode you are in; these all
@@ -742,6 +751,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="color" id="bg-color" value="#ffffff" oninput="scheduleRender()"></div>
 
     <div class="divider"></div>
+    <div id="look-grid-only">
     <div class="sec-lbl">Panel Labels (A, B, C…) <span class="help-chip" tabindex="0" role="button" aria-label="About panel labels" data-tip="The A, B, C tags on each panel. Choose the format (A/a/1/i), position, and size to match your target journal.">?</span></div>
     <div style="font-size:10px;color:var(--muted);margin:-2px 0 4px;line-height:1.35">Tip: drag any label, title, row/col header or scale-bar text on the canvas to reposition it. Double-click a label to reset it. Export as <b>SVG</b> for infinitely-sharp (vector) label text.</div>
     <div class="field"><label>Show</label>
@@ -776,7 +786,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="checkbox" id="sb-text" checked onchange="scheduleRender()"></div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Journal preset</div>
+    </div><!-- /look-grid-only -->
+    <div id="look-ff-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4;margin-bottom:6px">
+      Panel letters and the global scale-bar defaults apply to <b>grid</b> figures. In freeform, set these per object in the properties bar above the canvas.</div>
+    <div class="sec-lbl">Journal house style</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap">
       <button class="btn" onclick="applyPreset('nature')" style="flex:1;justify-content:center">Nature</button>
       <button class="btn" onclick="applyPreset('science')" style="flex:1;justify-content:center">Science</button>
@@ -818,7 +831,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="adv">
     <div class="divider"></div>
-    <div class="sec-lbl">Themes <span class="help-chip" tabindex="0" role="button" aria-label="About themes" data-tip="One-click looks for the figure's chrome — background, labels, scale bars, axes and borders. Themes never recolour your own drawn objects, and each is a single undo step.">?</span></div>
+    <div class="sec-lbl">Figure themes <span class="help-chip" tabindex="0" role="button" aria-label="About themes" data-tip="One-click looks for the figure's chrome — background, labels, scale bars, axes and borders. Themes never recolour your own drawn objects, and each is a single undo step.">?</span></div>
     <div id="theme-presets" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
     <div class="sec-lbl">House styles <span class="help-chip" tabindex="0" role="button" aria-label="About house styles" data-tip="Save your lab's look — background, label font/size/colour/format, scale-bar style, panel border, and typography — and apply it to any figure in one click, so every figure in a paper matches.">?</span></div>
     <div style="display:flex;gap:4px">
@@ -918,7 +931,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:3px">Opens a <b>Save dialog</b> — change the name, format &amp; DPI before it downloads.</div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
-    <button class="btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
+    <button class="btn" id="pptx-btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
 
     <button class="btn" onclick="exportCSV()" style="width:100%;justify-content:center">⬇ CSV Metadata</button>
     <button class="btn" onclick="batchExportPanels()" style="width:100%;justify-content:center;margin-top:4px" title="Export each panel as a separate image file">⬙ Batch Export Panels</button>
@@ -940,7 +953,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Session <span class="help-chip" tabindex="0" role="button" aria-label="About sessions" data-tip="Bundled = a self-contained file with your images embedded (larger; reloads the whole figure). Lightweight = settings only (small; you re-drop the same images on load).">?</span></div>
+    <div class="sec-lbl">Save / load your work <span class="help-chip" tabindex="0" role="button" aria-label="About sessions" data-tip="Bundled = a self-contained file with your images embedded (larger; reloads the whole figure). Lightweight = settings only (small; you re-drop the same images on load).">?</span></div>
     <div style="display:flex;gap:5px">
       <button class="btn" onclick="saveJSON(true)" style="flex:1;justify-content:center" title="Bundled session — includes your images, so it reloads the whole figure with no re-dropping (larger file)">💾 Save (bundled)</button>
       <label class="btn" style="flex:1;justify-content:center;cursor:pointer" title="Load a saved session file (bundled or lightweight) and continue where you left off">
@@ -955,7 +968,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">My sessions <span class="help-chip" tabindex="0" role="button" aria-label="About the session library" data-tip="Keep multiple named figures in your browser and switch between them anytime — great for working on several figures at once. Stored locally (IndexedDB); nothing is uploaded.">?</span></div>
+    <div class="sec-lbl">Session library <span class="help-chip" tabindex="0" role="button" aria-label="About the session library" data-tip="Keep multiple named figures in your browser and switch between them anytime — great for working on several figures at once. Stored locally (IndexedDB); nothing is uploaded.">?</span></div>
     <button class="btn" onclick="saveToLibrary()" style="width:100%;justify-content:center" title="Save the current figure as a named session you can reopen later">＋ Save current to library</button>
     <div id="session-library" style="margin-top:4px;max-height:190px;overflow-y:auto"></div>
     <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
@@ -3209,6 +3222,11 @@ function toggleUiMode(){ toast('All tools are always visible now — sections co
 (function retireUiMode(){
   document.body.classList.remove('simple-mode');
   try{ localStorage.removeItem('fl-ui-mode'); }catch(e){}
+})();
+// Drive the header badge from the constant so it cannot drift out of date again.
+(function stampVersion(){
+  const b=document.getElementById('version-badge');
+  if(b && typeof APP_VERSION!=='undefined') b.textContent='v'+APP_VERSION;
 })();
 (function initCropPrefs(){
   const cb=document.getElementById('precrop-on-import'); if(cb) cb.checked=preCropOnImport();
@@ -9048,8 +9066,31 @@ function setLayoutMode(mode){
   document.getElementById('freeform-controls').style.display=mode==='freeform'?'':'none';
   // Update mini-grid visibility
   document.querySelector('.mini-grid-wrap').style.display=mode==='grid'?'':'none';
+  _syncModeSections(mode);
   if(typeof updateEmptyState==='function') updateEmptyState();
   scheduleRender(0);
+}
+
+// Show only what actually works in the current mode. Several blocks used to render
+// unchanged in freeform and quietly do nothing when clicked — a worse failure than
+// not being there, because you cannot tell the difference from a broken tool.
+function _syncModeSections(mode){
+  const grid = mode!=='freeform';
+  const show=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'':'none'; };
+  show('annotate-grid-only', grid);      // every annotation tool is inert in freeform
+  show('annotate-ff-note', !grid);
+  show('look-grid-only', grid);          // panel letters / row+col headers are grid concepts
+  show('look-ff-note', !grid);
+  // Templates rebuild a grid; say so instead of silently switching the mode back.
+  const t=document.getElementById('templates-acc');
+  if(t) t.style.opacity = grid ? '' : '.55';
+  const tn=document.getElementById('templates-ff-note');
+  if(tn) tn.style.display = grid ? 'none' : '';
+  // PPTX export refuses in freeform (7557) — say it before the click, not after.
+  const pptx=document.getElementById('pptx-btn');
+  if(pptx){ pptx.disabled=!grid;
+    pptx.title = grid ? 'Editable PowerPoint — one shape per panel'
+                      : 'PowerPoint export builds one shape per grid panel — switch to Grid layout to use it'; }
 }
 
 function snapValue(v){
