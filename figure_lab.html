@@ -468,13 +468,23 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="text" id="fname-pattern" placeholder="condition_time_channel_rep" style="flex:1;font-size:10px" title="Name your filename fields separated by _ (e.g. condition_time_channel_rep). Leave blank to just clean the name and detect the channel.">
       <button class="btn" style="font-size:10px;justify-content:center" onclick="parseFilenames()" title="Split each filename into the named fields, fill captions, and assign channel LUTs">⤷ Parse names</button>
     </div>
+    <div class="divider"></div>
+    <div class="sec-lbl">Match panel brightness</div>
+    <div class="field"><label>Reference panel</label>
+      <select id="norm-ref-panel" style="width:100px">
+        <option value="auto">Auto-stretch</option>
+        <option value="A">Panel A</option>
+        <option value="B">Panel B</option>
+        <option value="C">Panel C</option>
+      </select></div>
+    <button class="btn" onclick="normalizeHistograms()" style="width:100%;justify-content:center" title="Stretch every panel's histogram to match the reference, so brightness is comparable across the figure">📊 Normalize histograms</button>
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
 
 <!-- LAYOUT -->
 <details open>
-  <summary>Layout</summary>
+  <summary>Arrange</summary>
   <div class="acc-body">
     <div class="sec-lbl">Quick Presets</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
@@ -577,18 +587,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <input type="number" id="fm-snap-size" value="20" min="5" max="100"></div>
       <div class="sec-lbl" style="margin-top:4px">Elements <span id="fm-elem-count" class="badge">0</span></div>
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
-      <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center;margin-top:6px" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
-      <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
-      <div class="sec-lbl" style="margin-top:6px">Gene maps &amp; circuits</div>
-      <div class="inline-row">
-        <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('linear')" title="A linear construct scaled by base pairs, with SBOL Visual glyphs">🧬 Linear</button>
-        <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('circular')" title="A circular plasmid map scaled by base pairs">⭕ Plasmid</button>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.35">Drop a <code>.gb</code> / <code>.fasta</code> file on the canvas to build a map from it.</div>
-      <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
-      <input type="text" id="icon-search" placeholder="Search icons — cell, arrow, mouse…" oninput="renderIconPalette(this.value)" style="width:100%;margin-bottom:2px">
-      <div id="icon-palette" class="icon-palette"></div>
-      <button class="btn" onclick="relabelPanels()" style="width:100%;justify-content:center;margin-top:6px" title="Relabel image panels A, B, C… in reading order">🔤 Relabel A, B, C…</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -668,7 +666,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </details>
 
 <details>
-  <summary>Annotate</summary>
+  <summary>Annotate &amp; Draw</summary>
   <div class="acc-body">
     <div class="sec-lbl">Tool</div>
     <div class="ann-tools" id="ann-tools">
@@ -706,6 +704,24 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
+    <div class="divider"></div>
+    <!-- Object creators, moved out of Layout → freeform controls. "Things I add to
+         the figure" belong together whichever layout mode you are in; these all
+         switch to freeform themselves if needed. -->
+    <div class="sec-lbl">Add to figure</div>
+    <button class="btn" onclick="addCoverPatch()" style="width:100%;justify-content:center" title="Drop an opaque patch to cover baked-in text or a blemish, then type new text on top. It's a movable object — non-destructive, reversible, and recorded in the session, never a hidden pixel edit.">🩹 Cover patch (honest replace)</button>
+    <button class="btn" onclick="addPaintLayer()" style="width:100%;justify-content:center;margin-top:4px" title="Add a paint layer and brush/erase on top of the figure. Strokes live on a separate overlay — your original image pixels are never modified, and the layer is recorded in the figure's provenance.">🖌 Paint layer (non-destructive)</button>
+    <div class="sec-lbl" style="margin-top:6px">Gene maps &amp; circuits</div>
+    <div class="inline-row">
+      <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('linear')" title="A linear construct scaled by base pairs, with SBOL Visual glyphs">🧬 Linear</button>
+      <button class="btn" style="flex:1;justify-content:center" onclick="addGenemapElement('circular')" title="A circular plasmid map scaled by base pairs">⭕ Plasmid</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.35">Drop a <code>.gb</code> / <code>.fasta</code> file on the canvas to build a map from it.</div>
+    <div class="sec-lbl" style="margin-top:6px">Insert icon</div>
+    <input type="text" id="icon-search" placeholder="Search icons — cell, arrow, mouse…" oninput="renderIconPalette(this.value)" style="width:100%;margin-bottom:2px">
+    <div id="icon-palette" class="icon-palette"></div>
+
+    <div class="divider"></div>
     <div class="sec-lbl">Annotations <span id="ann-count">0</span></div>
     <div class="ann-list" id="ann-list"></div>
   </div>
@@ -713,7 +729,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 <!-- STYLE -->
 <details open>
-  <summary>Style</summary>
+  <summary>Look</summary>
   <div class="acc-body">
     <div class="sec-lbl">Background</div>
     <div class="field"><label>Color</label>
@@ -811,6 +827,50 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 
 <!-- EXPORT -->
+<!-- ══ MEASURE ══════════════════════════════════════════════════
+     These are setTool() drawing tools exactly like the annotation tools, and
+     they are the only tools that still work in freeform — but they were filed
+     under Export → "Analysis" behind the Advanced gate, where nobody looked. -->
+<details id="measure-acc">
+  <summary>Measure</summary>
+  <div class="acc-body">
+    <div class="sec-lbl">Tool</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <button class="ann-tool" data-tool="measure-roi" onclick="setTool('measure-roi')" style="font-size:11px">⬚ ROI</button>
+      <button class="ann-tool" data-tool="measure-line" onclick="setTool('measure-line')" style="font-size:11px">📏 Profile</button>
+      <button class="ann-tool" data-tool="measure-count" onclick="setTool('measure-count')" style="font-size:11px">🔢 Count</button>
+    </div>
+    <div class="field" id="count-thresh-row" style="display:none;margin-top:4px">
+      <label style="font-size:10px">Threshold</label>
+      <input type="range" id="count-threshold" min="1" max="254" value="128" style="width:80px">
+      <code id="count-thresh-v">128</code>
+    </div>
+    <div id="roi-results"></div>
+    <canvas id="line-profile-canvas" style="display:none"></canvas>
+    <button class="btn" id="export-measurements-btn" onclick="exportMeasurements()" style="width:100%;justify-content:center;display:none;margin-top:4px">⬇ Export Measurements CSV</button>
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">
+      Measurements read your camera's native samples where an exact mapping exists, and the 8-bit display otherwise — every result says which.</div>
+  </div>
+</details>
+
+<!-- ══ CHECK ════════════════════════════════════════════════════
+     Everything that inspects the figure before you submit it, gathered from
+     Export → "Compliance" and Export → "Analysis". -->
+<details id="check-acc">
+  <summary>Check</summary>
+  <div class="acc-body">
+    <div class="sec-lbl">Before you submit</div>
+    <button class="btn btn-primary" onclick="checkCompliance()" style="width:100%;justify-content:center">✓ Check journal compliance</button>
+    <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center;margin-top:4px">🔍 Deep figure audit</button>
+    <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Compare the pixels of every pair of panels to catch an accidental reuse, including rotated or mirrored">🧬 Duplicate-panel check</button>
+
+    <div class="divider"></div>
+    <div class="sec-lbl">Inspect</div>
+    <button class="btn" onclick="runExposureAnalysis()" style="width:100%;justify-content:center" title="Check each panel for over/underexposure, clipping, low contrast">⚡ Exposure analysis</button>
+    <button class="btn" onclick="openPanelComparison()" style="width:100%;justify-content:center;margin-top:4px" title="Side-by-side comparison of any two panels with synchronized zoom">⧉ Compare panels</button>
+  </div>
+</details>
+
 <details id="export-acc">
   <summary>Export</summary>
   <div class="acc-body">
@@ -894,11 +954,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="session-library" style="margin-top:4px;max-height:190px;overflow-y:auto"></div>
     <button class="btn" onclick="shareSession()" style="width:100%;justify-content:center;margin-top:4px" title="Copy a shareable link (settings only, not image data) to clipboard">🔗 Share settings link</button>
 
-    <div class="divider"></div>
-    <div class="sec-lbl">Compliance</div>
-    <button class="btn" onclick="checkCompliance()" style="width:100%;justify-content:center">
-      ✓ Check Journal Compliance
-    </button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Figure caption helper <span class="help-chip" tabindex="0" role="button" aria-label="About caption help" data-tip="Builds a structured A/B/C legend from your panel notes and scale bars. The on-device AI polish uses Chrome's built-in Gemini Nano — 100% local, nothing is uploaded — and falls back to the built-in caption if your browser lacks it.">?</span></div>
@@ -909,41 +964,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
     <textarea id="fig-notes" rows="3" placeholder="Antibody dilutions, conditions, reviewer comments…" style="width:100%;resize:vertical;padding:5px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:11px;font-family:var(--mono)"></textarea>
 
-    <div class="adv">
-    <div class="divider"></div>
-    <div class="sec-lbl">Analysis</div>
-    <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center">🔍 Deep Figure Audit</button>
-    <button class="btn" onclick="runExposureAnalysis()" style="width:100%;justify-content:center;margin-top:4px" title="Check each panel for over/underexposure, clipping, low contrast">⚡ Exposure Analysis</button>
-    <button class="btn" onclick="openPanelComparison()" style="width:100%;justify-content:center;margin-top:4px" title="Side-by-side comparison of any two panels with synchronized zoom">⧉ Compare Panels</button>
-    <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Compare the pixels of every pair of panels to catch an accidental reuse, including rotated or mirrored">🧬 Duplicate-panel Check</button>
-
-    <div class="divider"></div>
-    <div class="sec-lbl">Histogram Normalization</div>
-    <div class="field"><label>Reference panel</label>
-      <select id="norm-ref-panel" style="width:100px">
-        <option value="auto">Auto-stretch</option>
-        <option value="A">Panel A</option>
-        <option value="B">Panel B</option>
-        <option value="C">Panel C</option>
-      </select></div>
-    <button class="btn" onclick="normalizeHistograms()" style="width:100%;justify-content:center">📊 Normalize Histograms</button>
-
-    <div class="divider"></div>
-    <div class="sec-lbl">Measure</div>
-    <div style="display:flex;gap:4px;flex-wrap:wrap">
-      <button class="ann-tool" data-tool="measure-roi" onclick="setTool('measure-roi')" style="font-size:11px">⬚ ROI</button>
-      <button class="ann-tool" data-tool="measure-line" onclick="setTool('measure-line')" style="font-size:11px">📏 Profile</button>
-      <button class="ann-tool" data-tool="measure-count" onclick="setTool('measure-count')" style="font-size:11px">🔢 Count</button>
-    </div>
-    <div class="field" id="count-thresh-row" style="display:none;margin-top:4px">
-      <label style="font-size:10px">Threshold</label>
-      <input type="range" id="count-threshold" min="1" max="254" value="128" style="width:80px">
-      <code id="count-thresh-v">128</code>
-    </div>
-    <div id="roi-results"></div>
-    <canvas id="line-profile-canvas" style="display:none"></canvas>
-    <button class="btn" id="export-measurements-btn" onclick="exportMeasurements()" style="width:100%;justify-content:center;display:none;margin-top:4px">⬇ Export Measurements CSV</button>
-    </div>
   </div>
 </details>
 
