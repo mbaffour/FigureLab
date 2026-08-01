@@ -264,11 +264,18 @@ details[open]>.faq-q::before{content:'▾'}
   border-radius:4px;padding:1px 5px}
 .cmdp-empty{padding:16px;color:var(--muted);font-size:12px;text-align:center}
 
-/* ── Simple / Advanced mode ─────────────────────────────────── */
-body.simple-mode .adv{display:none !important}
-#mode-toggle{cursor:pointer;user-select:none}
-#mode-toggle::before{content:'●';margin-right:4px;font-size:8px;vertical-align:middle;color:var(--a2)}
-body:not(.simple-mode) #mode-toggle::before{color:var(--accent)}
+/* ── Deeper tools ───────────────────────────────────────────────
+   These used to be hidden outright by a global Simple/Advanced switch
+   (body.simple-mode .adv{display:none}). That is how Batch Crop became
+   invisible to every default user: you cannot look for a tool you have no
+   way of knowing exists. Progressive disclosure now happens per SECTION —
+   each accordion collapses — while within a section the deeper tools are
+   grouped and labelled, but always present. */
+.adv{position:relative;border-left:2px solid var(--border);padding-left:8px;margin-left:1px}
+.adv::before{content:'More';display:block;font-size:9px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);opacity:.75;margin:2px 0 3px}
+button.adv,.btn.adv{border-left:2px solid var(--border);padding-left:8px}
+button.adv::before,.btn.adv::before{content:none}
 
 /* ── Contextual "?" help chips ──────────────────────────────── */
 .help-chip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
@@ -437,7 +444,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
     <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
-    <button class="badge" id="mode-toggle" onclick="toggleUiMode()" title="Toggle Simple / Advanced interface. Simple hides advanced tools (AI, freeform, measurement, deep audit, per-panel levels) — switch anytime." style="background:none">Simple</button>
     <button class="btn-icon" id="cmd-btn" aria-label="Command palette" onclick="openCmdPalette()" title="Command palette (Ctrl+K)" style="font-size:11px;min-width:28px">⌘K</button>
     <button class="btn-icon" id="help-btn" aria-label="Help and FAQ" onclick="openHelp()" title="Help &amp; FAQ" style="font-size:13px;min-width:28px">❔</button>
     <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
@@ -968,7 +974,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </details>
 
 <!-- AI GENERATE -->
-<details class="adv">
+<details>
   <summary>✦ AI Generate</summary>
   <div class="acc-body">
     <div class="sec-lbl">Backend</div>
@@ -1959,9 +1965,22 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <span id="mc-progress" style="flex:1;font-weight:600;color:var(--warn)">Image 1 / 1 · 0 regions</span>
         <span id="mc-hint" style="color:var(--muted)">Draw a region to set the size</span>
       </div>
+      <!-- Name each region as you cut it. Cutting 6 plates into 3 regions each gives
+           18 panels; without names they arrive as A…R and you have to work out
+           afterwards which plaque was which phage. Type the name, press Enter, done. -->
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <input type="text" id="mc-region-label" placeholder="Name this region (e.g. T4, T7, λ) — optional"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();mcAddRegion();}"
+               style="flex:1;font-size:11px;padding:3px 6px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
+        <button class="btn btn-primary" onclick="mcAddRegion()" style="padding:2px 10px;font-size:10px" title="Bank this region and keep going (Enter)">＋ Add region</button>
+      </div>
+      <div id="mc-region-list" style="display:none;font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.5"></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Also add the full uncropped image as its own panel">
           <input type="checkbox" id="mc-keep-original"> Keep full image
+        </label>
+        <label style="display:flex;align-items:center;gap:4px" title="Name the source image — used as a row/column heading and to prefix region names">Plate
+          <input type="text" id="mc-source-label" placeholder="e.g. Plate 1" style="width:80px;font-size:10px;padding:1px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)">
         </label>
         <label style="display:flex;align-items:center;gap:4px">Arrange
           <select id="mc-arrange" style="font-size:10px;padding:1px 3px">
@@ -3078,7 +3097,6 @@ const CMD_REGISTRY=[
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
-  {label:'Toggle Simple / Advanced', keys:'simple advanced mode ui toggle',     run:()=>toggleUiMode()},
   // Crop: every entry point is searchable. Previously only 2 of 12 were, so typing
   // "crop" in the palette returned a single result and taught the user nothing.
   {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
@@ -3179,23 +3197,19 @@ function setCvdMode(mode){
 // Advanced controls carry class="adv"; Simple mode hides them via one
 // CSS rule. Nothing is removed from the DOM, so all JS reads still work.
 // ═══════════════════════════════════════════════════════════════
-function applyUiMode(mode){
-  const simple = mode!=='advanced';
-  if(simple){
-    // render() branches on #layout-mode; never hide the freeform selector while it's active
-    const lm=document.getElementById('layout-mode');
-    if(lm && lm.value==='freeform'){ if(typeof setLayoutMode==='function') setLayoutMode('grid'); lm.value='grid'; }
-  }
-  document.body.classList.toggle('simple-mode', simple);
-  const btn=document.getElementById('mode-toggle'); if(btn) btn.textContent = simple?'Simple':'Advanced';
-  try{ localStorage.setItem('fl-ui-mode', simple?'simple':'advanced'); }catch(e){}
-}
-function toggleUiMode(){
-  const toSimple=!document.body.classList.contains('simple-mode');
-  applyUiMode(toSimple?'simple':'advanced');
-  toast(toSimple?'Simple mode — advanced tools hidden':'Advanced mode — all tools shown','ok');
-}
-(function initUiMode(){ let m='simple'; try{ m=localStorage.getItem('fl-ui-mode')||'simple'; }catch(e){} applyUiMode(m); })();
+// The global Simple/Advanced switch is gone. It hid whole tools from every
+// default user — Batch Crop among them — and a tool you cannot see is a tool you
+// cannot look for. Sections collapse instead, and deeper tools stay visible,
+// grouped under a "More" rule.
+//
+// These two are kept as no-ops so an old saved session, an old bookmark, or a
+// stale localStorage value can't throw. They no longer hide anything.
+function applyUiMode(){ /* retired — see the .adv CSS comment */ }
+function toggleUiMode(){ toast('All tools are always visible now — sections collapse instead','ok'); }
+(function retireUiMode(){
+  document.body.classList.remove('simple-mode');
+  try{ localStorage.removeItem('fl-ui-mode'); }catch(e){}
+})();
 (function initCropPrefs(){
   const cb=document.getElementById('precrop-on-import'); if(cb) cb.checked=preCropOnImport();
 })();
@@ -4289,7 +4303,7 @@ const TOUR_STEPS=[
   {sel:'#cols', title:'2 · Choose a layout', body:'Set rows × columns for your grid, or pick a Template / Journal preset. The panel map shows how images are arranged.'},
   {sel:'#ann-tools', title:'3 · Annotate', body:'Add arrows, boxes, scale bars, and text. Switch to ↖ Select (or press Esc) to move or edit anything you draw.'},
   {sel:'#export-acc', title:'4 · Export', body:'Set a file name and DPI (300 for print, 600 for journals), then export PNG, TIFF, PDF, SVG — or a whole submission package.'},
-  {sel:'#mode-toggle', title:'5 · Simple vs Advanced', body:'Simple mode hides advanced tools so it stays approachable. Flip to Advanced anytime. Press ❔ for help & FAQ.'},
+  {sel:'#help-btn', title:'5 · Finding everything', body:'Sections are named for what you are doing — Crop & Scale, Measure, Check. Press ⌘K to search every tool by name. Press ❔ for help & FAQ.'},
 ];
 let _tourI=0;
 function startTour(force){
@@ -5407,12 +5421,14 @@ function _startMultiCropFF(idxList){
 }
 
 // One region → one placed freeform image element, cropped non-destructively.
-function _mcMakeElement(srcEl, rect, n){
+function _mcMakeElement(srcEl, rect, n, srcLabel){
   const copy=JSON.parse(JSON.stringify(srcEl));
   delete copy._imgEl; delete copy._adjCache; delete copy._adjKey;
   delete copy._chartCache; delete copy._genemapCache; delete copy._paintCanvas;
   copy.id=_uidElem();
   copy.zIndex=++_fmZCounter;
+  const nm=(rect&&rect.label)||'';
+  if(nm) copy.label = srcLabel ? `${srcLabel} ${nm}` : nm;
   if(rect){
     copy.cropT=Math.max(0,Math.round(rect.cy*100));
     copy.cropL=Math.max(0,Math.round(rect.cx*100));
@@ -5436,8 +5452,9 @@ function _mcFinalizeFF(){
     const srcEl=freeformElements[r.srcIdx];
     if(!srcEl) return;
     const group=[];
-    if(mcSession.keepOriginal) group.push(_mcMakeElement(srcEl,null,group.length));
-    r.regions.forEach(rect=>group.push(_mcMakeElement(srcEl,rect,group.length)));
+    const srcLabel=(r.srcLabel||'').trim();
+    if(mcSession.keepOriginal) group.push(_mcMakeElement(srcEl,null,group.length,srcLabel));
+    r.regions.forEach(rect=>group.push(_mcMakeElement(srcEl,rect,group.length,srcLabel)));
     group.forEach(el=>{ freeformElements.push(el); made++; });
   });
   logAction('multiCrop',{sources:mcSession.results.length, panels:made, mode:'freeform'});
@@ -5453,9 +5470,27 @@ function mcAddRegion(){
   cropEdState.cw=mcSession.cropW; cropEdState.ch=mcSession.cropH;
   cropEdState.cx=Math.max(0,Math.min(1-cropEdState.cw,cropEdState.cx));
   cropEdState.cy=Math.max(0,Math.min(1-cropEdState.ch,cropEdState.cy));
-  mcSession.regions.push({cx:cropEdState.cx,cy:cropEdState.cy,cw:cropEdState.cw,ch:cropEdState.ch});
+  // Name the region as it's banked. Cutting several plates into several regions each
+  // otherwise produces a wall of A…R panels you have to decode afterwards.
+  const li=document.getElementById('mc-region-label');
+  const label=(li&&li.value.trim())||'';
+  mcSession.regions.push({cx:cropEdState.cx,cy:cropEdState.cy,cw:cropEdState.cw,ch:cropEdState.ch,label});
+  if(li){ li.value=''; li.focus(); }        // ready for the next one
   cropEdState.hasBox=true;
   drawCropEd(); _mcUpdateUI();
+}
+
+// What you've banked so far, on this image and the ones before it, so a long
+// session stays legible instead of turning into guesswork at the end.
+function _mcRenderRegionList(){
+  const el=document.getElementById('mc-region-list'); if(!el) return;
+  const done=mcSession.results.reduce((n,r)=>n+r.regions.length+(mcSession.keepOriginal?1:0),0);
+  const cur=mcSession.regions;
+  if(!cur.length && !done){ el.style.display='none'; return; }
+  el.style.display='';
+  const chip=(t,i)=>`<span style="display:inline-block;background:var(--surf2);border:1px solid var(--border);border-radius:3px;padding:0 5px;margin:1px 3px 1px 0">${i+1}. ${esc(t||'unnamed')}</span>`;
+  el.innerHTML = (cur.length?`<b style="color:var(--warn)">This image:</b> ${cur.map((r,i)=>chip(r.label,i)).join('')}`:'')
+    + (done?`<div style="margin-top:2px">${done} panel${done===1?'':'s'} banked from ${mcSession.results.length} image${mcSession.results.length===1?'':'s'}</div>`:'');
 }
 
 function mcUndoRegion(){
@@ -5473,8 +5508,11 @@ function mcDoneSource(){
   if(!mcSession.regions.length && !mcSession.keepOriginal){
     toast('Add at least one region, or tick "Keep full image"','warn'); return;
   }
-  mcSession.results.push({...mcSession.cur, regions:mcSession.regions.slice()});
+  const sl=document.getElementById('mc-source-label');
+  mcSession.results.push({...mcSession.cur, srcLabel:(sl&&sl.value.trim())||'',
+                          regions:mcSession.regions.slice()});
   mcSession.regions=[];
+  if(sl) sl.value='';
   _mcAdvance();
 }
 
@@ -5487,7 +5525,9 @@ function mcSkipSource(){
 function mcFinishNow(){
   if(!mcSession.active) return;
   if(mcSession.regions.length||mcSession.keepOriginal){
-    mcSession.results.push({...mcSession.cur, regions:mcSession.regions.slice()});
+    const sl=document.getElementById('mc-source-label');
+    mcSession.results.push({...mcSession.cur, srcLabel:(sl&&sl.value.trim())||'',
+                            regions:mcSession.regions.slice()});
     mcSession.regions=[];
   }
   mcSession.queue=[];
@@ -5524,8 +5564,13 @@ function _mcAdvance(){
 // Follows the duplicate-panel recipe: new id, fresh label, deep-copied channels
 // and panelAnns, adjustment cache cleared. Spans and dragged label offsets reset
 // so one wide source panel doesn't make every region wide.
-function _mcMakePanel(srcPanel, rect){
-  const p={...srcPanel, id:Date.now()+Math.random(), label:'',
+function _mcMakePanel(srcPanel, rect, srcLabel){
+  // The region's name becomes the panel's name. Anything left unnamed falls through
+  // to the usual A, B, C… so you are never forced to name things.
+  const nm=(rect&&rect.label)||'';
+  const p={...srcPanel, id:Date.now()+Math.random(),
+    label: nm && srcLabel ? `${srcLabel} ${nm}` : (nm || ''),
+    name: nm ? `${srcLabel?srcLabel+'_':''}${nm}` : srcPanel.name,
     channels:(srcPanel.channels||[]).map(ch=>({...ch})),
     panelAnns:(srcPanel.panelAnns||[]).map(a=>({...a})),
     colSpan:1, rowSpan:1, lblDX:0, lblDY:0, sbDX:0, sbDY:0,
@@ -5550,8 +5595,9 @@ function _mcFinalize(){
     const srcPanel=images[r.srcIdx];
     if(!srcPanel) return [];
     const group=[];
-    if(keep) group.push(_mcMakePanel(srcPanel,null));
-    r.regions.forEach(rect=>group.push(_mcMakePanel(srcPanel,rect)));
+    const srcLabel=(r.srcLabel||'').trim();
+    if(keep) group.push(_mcMakePanel(srcPanel,null,srcLabel));
+    r.regions.forEach(rect=>group.push(_mcMakePanel(srcPanel,rect,srcLabel)));
     return group;
   }).filter(g=>g.length);
   if(!panels.length){ _mcCancel('No regions added'); return; }
@@ -5577,8 +5623,8 @@ function _mcFinalize(){
   images=block.concat(leftovers);
   const rows=RW+Math.ceil(leftovers.length/C);
 
-  // New panels carry label:'' — fill them in final grid order so they read
-  // A, B, C…; panels that didn't take part keep the label they had.
+  // Panels you named keep their name. Anything left unnamed carries label:'' and is
+  // lettered in final grid order, so naming stays optional but is never overwritten.
   images.forEach(im=>{ if(im&&!im.label) im.label=nextLabel(); });
 
   const capped=C>12||rows>12;
@@ -5626,6 +5672,10 @@ function _mcUpdateUI(){
     mcSession.queue.length? '✓ Next image' : `✓ Finish (${banked} panels)`;
   document.getElementById('mc-undo-btn').disabled=!mcSession.regions.length;
   document.getElementById('crop-ed-canvas').style.cursor=locked?'grab':'crosshair';
+  _mcRenderRegionList();
+  // name the source once per image, not once per region
+  const sl=document.getElementById('mc-source-label');
+  if(sl && !sl.placeholder.endsWith(String(done+1))) sl.placeholder=`e.g. Plate ${done+1}`;
 }
 
 // Dimmed numbered ghosts for regions already banked on this image

@@ -193,3 +193,104 @@ test('crop a panel picks the selected panel, and does not dead-end in freeform',
   expect(r.chose).toBe(2);
   expect(r.stillOpen).toBe(false);
 });
+
+// ── The plate → panels workflow ───────────────────────────────────────────────
+// Cutting several plates into several named regions each is the case multi-crop
+// exists for. Without names it produces a wall of A…R panels you have to decode
+// afterwards, which is exactly how a figure gets mixed up.
+
+test('regions can be named as they are cut, and the names become the panels', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    // three "plates"
+    const mk = (seed) => new Promise(ok => {
+      const c = document.createElement('canvas'); c.width = 180; c.height = 180;
+      const x = c.getContext('2d'); let s = seed;
+      const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+      x.fillStyle = '#ddd'; x.fillRect(0, 0, 180, 180);
+      for (let i = 0; i < 30; i++) { x.fillStyle = '#333';
+        x.beginPath(); x.arc(rnd() * 180, rnd() * 180, 3 + rnd() * 5, 0, 6.284); x.fill(); }
+      const src = c.toDataURL('image/png');
+      const im = new Image(); im.onload = () => { _commitImage(im, src, 'plate.png'); ok(); }; im.src = src;
+    });
+    await mk(11); await mk(22); await mk(33);
+    render();
+
+    const phages = ['T4', 'T7', 'lambda'];
+    startMultiCrop();
+    for (let plate = 1; plate <= 3; plate++) {
+      document.getElementById('mc-source-label').value = 'Plate ' + plate;
+      const spots = [[0.05, 0.05], [0.40, 0.05], [0.05, 0.40]];
+      phages.forEach((ph, i) => {
+        cropEdState.cx = spots[i][0]; cropEdState.cy = spots[i][1];
+        cropEdState.cw = 0.3; cropEdState.ch = 0.3;
+        document.getElementById('mc-region-label').value = ph;
+        mcAddRegion();
+      });
+      mcDoneSource();
+    }
+    return {
+      panels: images.filter(Boolean).length,
+      labels: images.filter(Boolean).map(im => im.label),
+      cols: +gv('cols'), rows: +gv('rows'),
+    };
+  });
+  expect(r.panels).toBe(9);                       // 3 plates x 3 regions
+  // every panel says which plate and which phage — no decoding afterwards
+  expect(r.labels).toContain('Plate 1 T4');
+  expect(r.labels).toContain('Plate 2 T7');
+  expect(r.labels).toContain('Plate 3 lambda');
+  expect(r.labels.filter(l => /^Plate \d (T4|T7|lambda)$/.test(l)).length).toBe(9);
+  // each plate reads as a column by default, so the grid matches the experiment
+  expect(r.cols).toBe(3);
+  expect(r.rows).toBe(3);
+  expect(errors).toEqual([]);
+});
+
+test('naming stays optional — unnamed regions still get A, B, C', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 120; c.height = 120;
+    const x = c.getContext('2d'); x.fillStyle = '#888'; x.fillRect(0, 0, 120, 120);
+    x.fillStyle = '#222'; x.fillRect(10, 10, 40, 40); x.fillRect(60, 60, 40, 40);
+    const src = c.toDataURL('image/png');
+    await new Promise(ok => { const i = new Image(); i.onload = () => { _commitImage(i, src, 'p.png'); ok(); }; i.src = src; });
+    render();
+    startMultiCrop([0]);
+    cropEdState.cx = .05; cropEdState.cy = .05; cropEdState.cw = .4; cropEdState.ch = .4;
+    document.getElementById('mc-region-label').value = 'named';
+    mcAddRegion();
+    cropEdState.cx = .5; cropEdState.cy = .5;      // second one left blank
+    mcAddRegion();
+    mcDoneSource();
+    return images.filter(Boolean).map(im => im.label);
+  });
+  expect(r).toContain('named');
+  expect(r.some(l => /^[A-Z]$/.test(l))).toBe(true);   // the unnamed one still lettered
+  expect(errors).toEqual([]);
+});
+
+test('the region list shows what has been banked so far', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 120; c.height = 120;
+    c.getContext('2d').fillRect(0, 0, 120, 120);
+    const src = c.toDataURL('image/png');
+    await new Promise(ok => { const i = new Image(); i.onload = () => { _commitImage(i, src, 'p.png'); ok(); }; i.src = src; });
+    render();
+    startMultiCrop([0]);
+    cropEdState.cx = .05; cropEdState.cy = .05; cropEdState.cw = .3; cropEdState.ch = .3;
+    document.getElementById('mc-region-label').value = 'T4'; mcAddRegion();
+    cropEdState.cx = .5; cropEdState.cy = .5;
+    document.getElementById('mc-region-label').value = 'T7'; mcAddRegion();
+    const list = document.getElementById('mc-region-list');
+    const cleared = document.getElementById('mc-region-label').value;
+    mcFinishNow();
+    return { text: list.innerText, shown: list.style.display !== 'none', cleared };
+  });
+  expect(r.shown).toBe(true);
+  expect(r.text).toContain('T4');
+  expect(r.text).toContain('T7');
+  expect(r.cleared).toBe('');       // field clears so you can type the next name
+  expect(errors).toEqual([]);
+});

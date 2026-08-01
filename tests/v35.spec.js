@@ -18,20 +18,35 @@ test('empty state shows initially, hides once images load', async ({ page }) => 
   expect(errors).toEqual([]);
 });
 
-test('Simple/Advanced mode toggles advanced-control visibility, keeps core visible', async ({ page }) => {
+// Replaces the old "Simple/Advanced toggles advanced-control visibility" test.
+// That mechanism is retired: hiding whole tools from every default user is how
+// Batch Crop became unfindable. The guarantee worth testing now is the opposite one.
+test('no tool is hidden from a default user', async ({ page }) => {
   await loadApp(page);
-  // NB: this used to probe #scale-match-target. The crop tools were deliberately
-  // un-gated in v3.9.3 — they were invisible to every default user, which is how
-  // Batch Crop became unfindable — so the mechanism is now probed with a control
-  // that is still advanced (the filename-pattern parser).
-  await page.evaluate(() => applyUiMode('simple'));
-  let advVisible = await page.evaluate(() => document.getElementById('fname-pattern').offsetParent !== null);
-  expect(advVisible).toBe(false);                    // advanced hidden in Simple
-  const dpiVisible = await page.evaluate(() => document.getElementById('export-dpi').offsetParent !== null);
-  expect(dpiVisible).toBe(true);                     // core stays visible
-  await page.evaluate(() => applyUiMode('advanced'));
-  advVisible = await page.evaluate(() => document.getElementById('fname-pattern').offsetParent !== null);
-  expect(advVisible).toBe(true);                     // revealed in Advanced
+  const r = await page.evaluate(() => {
+    document.querySelectorAll('.sidebar > details').forEach(d => { d.open = true; });
+    const vis = id => { const e = document.getElementById(id); return !!e && e.offsetParent !== null; };
+    return {
+      simpleClass: document.body.classList.contains('simple-mode'),
+      toggleGone: !document.getElementById('mode-toggle'),
+      // one probe from each formerly-gated group
+      filenameParser: vis('fname-pattern'),      // Images
+      themes: vis('theme-presets'),              // Look
+      scripts: vis('export-dpi'),                // Export
+      // the ROI tool button — NOT #count-threshold, which is legitimately hidden
+      // until the Count tool is picked (contextual, not gated)
+      measure: (() => { const e = document.querySelector('[data-tool="measure-roi"]');
+                        return !!e && e.offsetParent !== null; })(),
+      cropRef: vis('scale-match-target'),        // Crop & Scale
+    };
+  });
+  expect(r.simpleClass).toBe(false);
+  expect(r.toggleGone).toBe(true);
+  expect(r.filenameParser).toBe(true);
+  expect(r.themes).toBe(true);
+  expect(r.scripts).toBe(true);
+  expect(r.measure).toBe(true);
+  expect(r.cropRef).toBe(true);
 });
 
 test('crop tools are visible to a default (Simple-mode) user', async ({ page }) => {
