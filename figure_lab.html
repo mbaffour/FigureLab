@@ -795,13 +795,28 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">File name</div>
     <input type="text" id="export-name" value="figure" style="width:100%" placeholder="figure">
     <div class="field"><label>Export DPI <span class="help-chip" tabindex="0" role="button" aria-label="About Export DPI" data-tip="Dots per inch of the exported file. Use 300 for print, 600 for journal submission. The figure is re-rendered at the true pixel count, not just tagged.">?</span></label>
-      <select id="export-dpi">
+      <select id="export-dpi" onchange="_syncPhysReadout()">
         <option value="72">72 (screen)</option>
         <option value="150">150</option>
         <option value="300" selected>300 (print)</option>
         <option value="600">600 (journal)</option>
         <option value="1200">1200 (line art)</option>
       </select></div>
+    <div class="field"><label>Printed width <span class="help-chip" tabindex="0" role="button" aria-label="About printed width" data-tip="The physical width the figure will occupy in the journal. Journals specify this in millimetres, not pixels. Setting it makes the export land at exactly that size at the chosen DPI, and lets FigureLab tell you the true point size of your text.">?</span></label>
+      <select id="export-width-mm" onchange="_syncPhysReadout()">
+        <option value="0" selected>Free (whatever the canvas gives)</option>
+        <option value="89">89 mm — single column (Nature, eLife)</option>
+        <option value="183">183 mm — double column (Nature, eLife)</option>
+        <option value="55">55 mm — 1 column (Science)</option>
+        <option value="120">120 mm — 2 column (Science)</option>
+        <option value="183.5">183.5 mm — 3 column (Science)</option>
+        <option value="85">85 mm — single column (Cell)</option>
+        <option value="174">174 mm — double column (Cell)</option>
+        <option value="83">83 mm — single column (PLOS)</option>
+        <option value="173">173 mm — double column (PLOS)</option>
+        <option value="180">180 mm — full width (PNAS/EMBO)</option>
+      </select></div>
+    <div id="phys-readout" style="font-size:10px;color:var(--muted);line-height:1.5;margin:-2px 0 6px"></div>
 
     <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: uncompressed, most journals prefer it. PDF (lossless): no artefacts for line art. SVG: vector labels & annotations, infinitely sharp. JPEG/WebP: small but lossy.">?</span></div>
     <div class="export-grid">
@@ -878,6 +893,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center">🔍 Deep Figure Audit</button>
     <button class="btn" onclick="runExposureAnalysis()" style="width:100%;justify-content:center;margin-top:4px" title="Check each panel for over/underexposure, clipping, low contrast">⚡ Exposure Analysis</button>
     <button class="btn" onclick="openPanelComparison()" style="width:100%;justify-content:center;margin-top:4px" title="Side-by-side comparison of any two panels with synchronized zoom">⧉ Compare Panels</button>
+    <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Compare the pixels of every pair of panels to catch an accidental reuse, including rotated or mirrored">🧬 Duplicate-panel Check</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Histogram Normalization</div>
@@ -1529,6 +1545,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
+<h3 class="help-h">What's new in v3.9.1 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 24 July 2026</span></h3>
+<p class="help-p">A hardening release. An audit read the whole app looking for places a number could be wrong while looking authoritative &mdash; here is what it found, plus two features that came out of it.</p>
+<ul class="help-ul">
+  <li><b>&#129516; Duplicate-panel self-check.</b> Compares the <b>pixels</b> of every pair of panels, including rotated and mirrored reuse, and flags anything near-identical. Journals run duplication screens on submitted figures; this is your chance to catch an accidental reuse first. In <span class="help-ui">Analysis</span>, and inside the Deep Figure Audit.</li>
+  <li><b>Printed width in millimetres.</b> Journals specify figure width in mm, not pixels. Pick your target column width and the export lands at exactly that size at your chosen DPI &mdash; and FigureLab tells you the <b>true point size</b> your text will print at, warning you below ~5&nbsp;pt.</li>
+  <li><b>Scale bars on cropped freeform panels were drawn too short.</b> Magnification used the full image width instead of the cropped width, so a panel cropped in half showed a &ldquo;20&nbsp;&micro;m&rdquo; bar at the length of 10&nbsp;&micro;m. Fixed, along with the <span class="help-ui">Auto</span> bar length.</li>
+  <li><b>Channel merges ignored the crop.</b> Extra channels were drawn from the full frame into the cropped panel, displacing them by up to half a field &mdash; which can show colocalisation that isn't in your data. Every channel is now cropped to the same field of view.</li>
+  <li><b>Raw measurements could read pixels that aren't in your figure.</b> A selection over a panel's blank margin, or spilling past a cropped edge, could report a confident raw value computed from pixels you had cropped away. Measurements are now clipped to what's visible, say when they were clipped, and fall back to the display reading rather than guess. Exposure analysis got the same fix.</li>
+  <li><b>&micro;m&sup2; is now withheld</b> rather than guessed when a panel can't be mapped back to source pixels &mdash; it was previously wrong by the display scale.</li>
+  <li><b>GenBank features crossing the origin</b> are drawn as their two real arcs instead of being inflated to the whole plasmid, so an AmpR or ori spanning position 1 imports correctly.</li>
+  <li><b>Duplicating a gene map or chart no longer breaks the canvas.</b></li>
+</ul>
+<div style="height:12px;border-bottom:1px solid var(--border);margin-bottom:12px"></div>
 <h3 class="help-h">What's new in v3.9 <span style="font-size:11px;color:var(--muted);font-weight:400">· updated 24 July 2026</span></h3>
 <p class="help-p">Two big additions: measurements that read your <b>real</b> pixel data, and a bp-scaled gene-map / genetic-circuit tool. Still one offline file, still nothing uploaded.</p>
 <ul class="help-ul">
@@ -1963,7 +1992,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.9.0';  // single source of truth for the app version
+const APP_VERSION = '3.9.1';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -2808,6 +2837,7 @@ const CMD_REGISTRY=[
   {label:'Export submission package (ZIP)', keys:'submission package zip bundle everything', run:()=>exportSubmissionPackage()},
   {label:'Export editable PowerPoint (.pptx)', keys:'powerpoint pptx slides editable ppt', run:()=>exportPPTX()},
   {label:'Add splice marker (blot/gel)', keys:'splice blot gel lane divider integrity', run:()=>addSpliceMarker()},
+  {label:'Duplicate-panel check',    keys:'duplicate reuse identical panel integrity proofig imagetwin plagiarism', run:()=>runDuplicateScan()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
@@ -4476,9 +4506,12 @@ function render(targetCanvas, exportScale, opts){
   const rb=document.getElementById('render-btn'); if(rb) rb.classList.remove('stale');
   maybeShowHint();
   canvasLogicalW=totalW; canvasLogicalH=totalH;
-  const exportDpiVal=getExportDPI?getExportDPI():300;
-  const wMm=(totalW/exportDpiVal*25.4).toFixed(1), hMm=(totalH/exportDpiVal*25.4).toFixed(1);
-  document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${wMm}×${hMm}mm · ${cols}×${rows} · ${Math.round(zoom*100)}%`;
+  // Physical size must come from the SAME scale the export uses (dpi/96, or the
+  // target printed width when one is set). Dividing logical px by dpi assumes a
+  // scale of 1 and under-reports the real size by ~3x at 300 DPI.
+  const _pf=_physFacts();
+  document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${cols}×${rows} · ${Math.round(zoom*100)}%`;
+  _syncPhysReadout();
   setStatus(`${Math.min(images.length,cols*rows)} panel(s) · ${totalW}×${totalH}px`,
     `gap ${gH}h ${gV}v · panel ${pw}×${ph}px`);
 
@@ -5138,7 +5171,11 @@ function checkCompliance(){
   const canvas=document.getElementById('fig-canvas');
   const dpi=getExportDPI();
   const W=canvas.width, H=canvas.height;
-  const wIn=W/dpi, hIn=H/dpi;
+  // true printed size at the scale the export actually uses
+  const _pf=_physFacts();
+  const wIn=_pf.wMm/25.4, hIn=_pf.hMm/25.4;
+  const targetMm=getTargetWidthMm();
+  const labelPt=Math.max(1,gi('label-size')||8)*_pf.ptPerPx;
   const bg=gv('bg-color');
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const panelsWithImages=images.slice(0,cols*rows).filter(Boolean).length;
@@ -5150,8 +5187,11 @@ function checkCompliance(){
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
       fix:dpi<300?{a:'dpi300',t:'Set 300'}:null},
-    {label:'Figure width',  ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5, note:`${wIn.toFixed(2)}" (Nature/Cell max: 7.2–7.5")`},
-    {label:'Figure height', ok:hIn<=9.5, warn:false, note:`${hIn.toFixed(2)}"`},
+    {label:'Printed width', ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5,
+      note:`${_pf.wMm.toFixed(0)} mm (${wIn.toFixed(2)}")${targetMm?' — matches the chosen column width':' · max double-column is ~183 mm'}`},
+    {label:'Printed height',ok:hIn<=9.5, warn:false, note:`${_pf.hMm.toFixed(0)} mm (${hIn.toFixed(2)}")`},
+    {label:'Text size',     ok:labelPt>=5, warn:labelPt>=4&&labelPt<5,
+      note:`panel labels print at ${labelPt.toFixed(1)} pt${labelPt<5?' — below the ~5 pt most journals accept':''}`},
     {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${bg} — most journals require white`,
       fix:bgIsWhite?null:{a:'white',t:'Make white'}},
     {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
@@ -6800,8 +6840,41 @@ function getExportDPI(){ return parseInt(gv('export-dpi'))||300; }
 
 // Build an off-screen canvas rendered at the true target-DPI pixel count
 // (supersampled), so raster exports are genuinely high-res, not just DPI-tagged.
+// Target printed width in mm, or 0 for "free". Journals specify a physical width;
+// pixels are only the means of hitting it.
+function getTargetWidthMm(){ return parseFloat(gv('export-width-mm'))||0; }
+
+// Pixels per logical unit needed to land the figure at its target physical size.
+// Falls back to the plain dpi/96 when no target is set.
+function _exportScaleFor(dpi){
+  const mm=getTargetWidthMm(), lw=canvasLogicalW||1;
+  if(mm>0) return (mm/25.4)*dpi/lw;
+  return Math.max(1, dpi/96);
+}
+
+// Physical size and true type size at the current settings — what the journal
+// actually receives, as opposed to the pixel count.
+function _physFacts(){
+  const dpi=getExportDPI(), lw=canvasLogicalW||1, lh=canvasLogicalH||1;
+  const scale=_exportScaleFor(dpi);
+  const wMm=(lw*scale/dpi)*25.4, hMm=(lh*scale/dpi)*25.4;
+  // 1 logical px occupies (scale/dpi) inch = 72*scale/dpi points
+  const ptPerPx=72*scale/dpi;
+  return {dpi, scale, wMm, hMm, ptPerPx, px:Math.round(lw*scale)};
+}
+function _syncPhysReadout(){
+  const el=document.getElementById('phys-readout'); if(!el) return;
+  const f=_physFacts();
+  const lbl=Math.max(7,gi('label-size')||8);
+  const labelPt=lbl*f.ptPerPx;
+  const warn=labelPt<5;
+  el.innerHTML=`Prints ${f.wMm.toFixed(0)} × ${f.hMm.toFixed(0)} mm at ${f.dpi} DPI (${f.px} px wide) · `
+    +`panel labels ≈ <b style="color:${warn?'var(--danger)':'inherit'}">${labelPt.toFixed(1)} pt</b>`
+    +(warn?' — below the ~5 pt most journals accept':'');
+}
+
 function renderExportCanvas(dpi){
-  let scale=Math.max(1, dpi/96);
+  let scale=_exportScaleFor(dpi);
   const lw=canvasLogicalW||1, lh=canvasLogicalH||1;
   const MAXPX=60e6; // ~60 megapixels — guard against runaway memory
   if(lw*lh*scale*scale > MAXPX){
@@ -7425,6 +7498,9 @@ function applyPreset(name){
   sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
   sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
   sv('export-dpi',{nature:300,science:600,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
+  // the journal's double-column width, so the export lands at a real physical size
+  const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
+  sv('export-width-mm', wmm||'0');
   scheduleRender(); toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
 }
 
@@ -7598,7 +7674,7 @@ function serializeSession(bundleImages){
       labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
-    exportDpi:gv('export-dpi'), exportName:gv('export-name'),
+    exportDpi:gv('export-dpi'), exportWidthMm:gv('export-width-mm'), exportName:gv('export-name'),
     images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,sbUnit:im.sbUnit||'µm',brightness:im.brightness,contrast:im.contrast,
       cropT:im.cropT,cropL:im.cropL,cropB:im.cropB,cropR:im.cropR,cropShape:im.cropShape||'rect',
@@ -7681,6 +7757,7 @@ function applySession(s,_opts){
         if(T.axisAutoColor!==undefined) sc('axis-auto-color',T.axisAutoColor);
       }
       if(s.exportDpi) sv('export-dpi',s.exportDpi);
+      if(s.exportWidthMm) sv('export-width-mm',s.exportWidthMm);
       if(s.exportName) sv('export-name',s.exportName);
       if(Array.isArray(s.annotations)){ annotations=s.annotations; renderAnnotationList(); }
       if(s.notes){ const nt=document.getElementById('fig-notes'); if(nt) nt.value=s.notes; }
@@ -11373,6 +11450,149 @@ function normalizeHistograms(){
 }
 
 // ═══════════════════════════════════════════════════════════════
+// DUPLICATE-PANEL SELF-CHECK
+//
+// Journals run duplication screens (Proofig, ImageTwin) on submitted figures,
+// and an accidental reuse — the same control dropped in twice — surfaces months
+// later as a research-integrity query. Every other check in this app compares
+// SETTINGS; this one compares PIXELS, so it catches the case where two panels
+// are correctly and identically processed because they are the same image.
+//
+// Method: each panel is reduced to a 32x32 mean-subtracted luminance vector and
+// compared by normalised cross-correlation against all 8 dihedral transforms of
+// every other panel, so a rotated or mirrored reuse is caught too. Everything
+// runs on the user's own pixels, offline.
+//
+// Deliberate limit: this compares WHOLE panels. It does not detect a duplicated
+// region inside an otherwise different panel, and it is not a substitute for a
+// journal's screen — it is a chance to catch your own mistake first. The report
+// says so rather than implying a clean bill of health.
+// ═══════════════════════════════════════════════════════════════
+const _DUP_N=32;                 // thumbnail edge
+const _DUP_FLAT=3.0;             // below this SD (0–255) a panel is too flat to compare
+
+// Every panel currently in the figure, in either layout mode, with its crop.
+function _dupPanels(){
+  const out=[];
+  if(layoutMode==='freeform'){
+    freeformElements.forEach((el,i)=>{
+      if(el.type!=='image') return;
+      const img=el._imgEl||buildImgEl(el);
+      if(img&&(img.naturalWidth||img.width)) out.push({label:el.label||`Object ${i+1}`, img, src:el});
+    });
+  } else {
+    images.forEach((im,i)=>{
+      if(im&&im.img&&(im.img.naturalWidth||im.img.width)) out.push({label:im.label||`Panel ${i+1}`, img:im.img, src:im});
+    });
+  }
+  return out;
+}
+
+// Post-crop luminance thumbnail, mean-subtracted. Returns null if too flat to judge.
+function _panelThumb(p){
+  const img=p.img, s=p.src;
+  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+  if(!iw||!ih) return null;
+  const sx=(s.cropL||0)/100*iw, sy=(s.cropT||0)/100*ih;
+  const sw=iw*(1-((s.cropL||0)+(s.cropR||0))/100), sh=ih*(1-((s.cropT||0)+(s.cropB||0))/100);
+  if(sw<1||sh<1) return null;
+  const N=_DUP_N;
+  const c=document.createElement('canvas'); c.width=N; c.height=N;
+  const cx=c.getContext('2d',{willReadFrequently:true});
+  try{ cx.drawImage(img,sx,sy,sw,sh,0,0,N,N); }catch(e){ return null; }
+  const d=cx.getImageData(0,0,N,N).data;
+  const v=new Float32Array(N*N);
+  let sum=0;
+  for(let i=0;i<N*N;i++){
+    const L=0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2];
+    v[i]=L; sum+=L;
+  }
+  const mean=sum/(N*N);
+  let ss=0;
+  for(let i=0;i<N*N;i++){ v[i]-=mean; ss+=v[i]*v[i]; }
+  const sd=Math.sqrt(ss/(N*N));
+  if(sd<_DUP_FLAT) return null;              // blank or near-uniform: nothing to compare
+  return {v, norm:Math.sqrt(ss)};
+}
+
+// One of the 8 dihedral transforms (4 rotations x optional mirror) of an NxN vector.
+const _DUP_TF=['as-is','rotated 90°','rotated 180°','rotated 270°',
+               'mirrored','mirrored + 90°','mirrored + 180°','mirrored + 270°'];
+function _dihedral(v,N,k){
+  const out=new Float32Array(N*N), mir=k>=4, rot=k%4;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    let sxc=x, syc=y;
+    if(mir) sxc=N-1-sxc;
+    let tx,ty;
+    if(rot===0){ tx=sxc; ty=syc; }
+    else if(rot===1){ tx=N-1-syc; ty=sxc; }
+    else if(rot===2){ tx=N-1-sxc; ty=N-1-syc; }
+    else { tx=syc; ty=N-1-sxc; }
+    out[ty*N+tx]=v[y*N+x];
+  }
+  return out;
+}
+
+// Normalised cross-correlation of two mean-subtracted vectors, in -1..1.
+function _ncc(a,na,b,nb){
+  if(!na||!nb) return 0;
+  let s=0;
+  for(let i=0;i<a.length;i++) s+=a[i]*b[i];
+  return s/(na*nb);
+}
+
+// Compare every pair of panels. Returns matches sorted most-similar first.
+function _panelSimilarityScan(threshold=0.92){
+  const panels=_dupPanels();
+  const thumbs=panels.map(_panelThumb);
+  const hits=[], skipped=[];
+  panels.forEach((p,i)=>{ if(!thumbs[i]) skipped.push(p.label); });
+  for(let i=0;i<panels.length;i++){
+    if(!thumbs[i]) continue;
+    for(let j=i+1;j<panels.length;j++){
+      if(!thumbs[j]) continue;
+      let best=-1, bestK=0;
+      for(let k=0;k<8;k++){
+        const tv=k===0?thumbs[j].v:_dihedral(thumbs[j].v,_DUP_N,k);
+        const s=_ncc(thumbs[i].v,thumbs[i].norm,tv,thumbs[j].norm);
+        if(s>best){ best=s; bestK=k; }
+      }
+      if(best>=threshold) hits.push({a:panels[i].label, b:panels[j].label, score:best, tf:_DUP_TF[bestK]});
+    }
+  }
+  hits.sort((x,y)=>y.score-x.score);
+  return {hits, skipped, compared:thumbs.filter(Boolean).length};
+}
+
+// Standalone report, also surfaced as a row inside the Deep Figure Audit.
+function runDuplicateScan(){
+  const r=_panelSimilarityScan();
+  if(r.compared<2){
+    toast(r.compared?'Need at least two comparable panels':'No panels with enough detail to compare','warn');
+    return;
+  }
+  const rows = r.hits.length
+    ? r.hits.map(h=>`<div class="cc-row cc-fail"><span class="cc-icon">✗</span><span>
+        <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}
+        — confirm these are different acquisitions</span></div>`).join('')
+    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`;
+  const skip = r.skipped.length
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>Not compared (too uniform to judge): ${esc(r.skipped.join(', '))}</span></div>` : '';
+  const modal=document.createElement('div');
+  modal.className='modal-bg open';
+  modal.innerHTML=`<div class="modal" style="max-width:540px;padding:24px;max-height:80vh;overflow-y:auto">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">🧬 Duplicate-panel self-check</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Compares the pixels of every pair of panels, including rotated and mirrored reuse.</div>
+    ${rows}${skip}
+    <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      Whole panels only — this does not detect a duplicated region inside an otherwise different panel, and it is not a substitute for a journal's screening. It is a chance to catch an accidental reuse before a reviewer does.</div>
+    <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
+  </div>`;
+  document.body.appendChild(modal);
+  logAction('duplicateScan',{compared:r.compared, matches:r.hits.length});
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ANALYTICS: ADVANCED CONSISTENCY CHECKER
 // ═══════════════════════════════════════════════════════════════
 function runAdvancedConsistency(){
@@ -11427,6 +11647,13 @@ function runAdvancedConsistency(){
   const labelSz=gi('label-size');
   if(labelSz<8) results.push({status:'fail',msg:`Label font ${labelSz}px may be too small for publication (≥8px recommended)`});
   else results.push({status:'pass',msg:`Label font size ${labelSz}px`});
+
+  // 7. Duplicated panels — the only check here that compares pixels, not settings
+  const dup=_panelSimilarityScan();
+  if(dup.compared<2) results.push({status:'pass',msg:'Duplicate check skipped — fewer than two comparable panels'});
+  else if(dup.hits.length) dup.hits.forEach(h=>results.push({status:'fail',
+    msg:`${h.a} and ${h.b} are ${(h.score*100).toFixed(1)}% identical${h.tf==='as-is'?'':` (${h.tf})`} — confirm these are different acquisitions`}));
+  else results.push({status:'pass',msg:`No duplicated panels among the ${dup.compared} compared (whole-panel, incl. rotated/mirrored)`});
 
   // Show results in modal
   const rows=results.map(r=>`

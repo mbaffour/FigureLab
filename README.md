@@ -1,4 +1,4 @@
-# FigureLab v3.9.0
+# FigureLab v3.9.1
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -119,10 +119,17 @@ Draw directly on the rendered figure:
 
 **Undo / Redo** — full history for all annotation actions
 
+### Integrity checks
+- **🧬 Duplicate-panel check** — compares the pixels of every pair of panels, including rotated and mirrored reuse, and flags near-identical ones before a journal's screen does
+- **Deep figure audit** — LUT/brightness/gamma/intensity consistency, scale-bar calibration, label coverage, and the duplicate check
+- **Journal compliance** — printed width and height in mm, true text point size, DPI, background, and export size
+
 ### Measurement
 - **ROI** — area, mean/min/max intensity, SD (n−1), and integrated density over a dragged rectangle
 - **Line profile** — an intensity trace along a dragged line
 - **Cell count** — connected-component count above an intensity threshold
+
+Measurements read the **native samples** of 16-bit/float TIFFs where an exact mapping exists, and the 8-bit display otherwise — always stating which.
 - **Exposure analysis** — per-panel over/under-exposure, dynamic range, and saturation
 
 **Raw vs display.** Import a **16-bit or 32-bit float TIFF** and FigureLab keeps the decoder's native samples in memory next to the 8-bit display image; measurements then read *those*, giving absolute intensity at the acquisition bit depth, areas counted in source pixels, and true sensor saturation — all before any brightness/contrast/gamma/LUT. For 8-bit sources, PNG/JPEG imports, JPEG-compressed TIFFs, or a reloaded session, measurements read the rendered 8-bit canvas and say so.
@@ -253,6 +260,25 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.9.1 — 24 July 2026
+**Focus: hardening. A whole-app audit hunted for places a number could be wrong while looking authoritative.**
+
+- **🧬 Duplicate-panel self-check** — compares the **pixels** of every pair of panels, not their settings, and flags near-identical ones including rotated and mirrored reuse (32×32 mean-subtracted luminance, normalised cross-correlation across all 8 dihedral transforms). Journals run duplication screens on submitted figures; this catches an accidental reuse first. Panels too uniform to judge are reported as not-compared rather than silently passed. Whole panels only — it does not detect a duplicated region inside a different panel, and the report says so.
+- **Printed width in millimetres** — journals specify figure width in mm, not pixels. Choose a target column width (Nature 89/183, Science 55/120/183.5, Cell 85/174, PLOS 83/173, PNAS/EMBO 180) and the export lands at exactly that physical size at the chosen DPI. A live readout gives the printed size and the **true point size** of your panel labels, and compliance fails text below ~5 pt. Journal presets set their own column width.
+- **Fixed: the on-canvas mm readout and the compliance width check** both divided logical pixels by DPI, but exports render at DPI/96 — under-reporting the real printed size by about 3× at 300 DPI.
+
+Integrity fixes, each with a regression test confirmed to fail against the previous build:
+
+- **Freeform scale bars ignored the crop** — magnification was computed against the full image width instead of the cropped width, so a panel cropped 50% drew its "20 µm" bar at the length of 10 µm. A reader measuring against it would have overestimated every structure by 2×. Grid mode was already correct; both now share one helper, and `Auto` bar length is fixed the same way.
+- **Channel merges ignored the crop** — extra channels were drawn from their full frame into the cropped panel rect, displacing and squashing them by up to half a field, which can show colocalisation that is not in the data. Each channel is now cropped to the same normalised field of view, so channels acquired at different pixel sizes still register.
+- **Raw measurements could read pixels outside the figure** — an ROI over a contain-fit panel's letterbox, or spilling past a cropped edge, reported a confident raw value computed from pixels the user had cropped away. Measurements are now clipped to the visible crop window, disclose when they were clipped, and fall back to the disclosed display reading when nothing visible remains. A line profile leaving the image declines rather than reading clamped edge pixels.
+- **Exposure analysis** scanned the whole sensor frame, so a saturated region cropped out of the figure still failed the panel. It now measures the cropped panel, and reads the drawn image rather than the whole grid cell.
+- **µm² is withheld, not guessed**, when a panel cannot be mapped back to source pixels (rotated, flipped, shape-cropped, or a channel merge) — it was previously wrong by the display scale.
+- **GenBank features crossing the origin** collapsed to their full-span envelope, drawing a full-ring arrow that hid every other feature — and most real plasmids have an AmpR or ori crossing position 1. Wrapping features on circular records now become their two real arcs; ordinary multi-exon joins still collapse to their span, now disclosed.
+- **Duplicating a gene map or chart bricked the canvas** — the deep copy turned a cached canvas into `{}` and every later render threw.
+
+- **178 Playwright tests** (up from 157).
 
 ### v3.9 — 24 July 2026
 **Focus: measure the real data, and draw the constructs behind it. Same single, offline, private file.**
