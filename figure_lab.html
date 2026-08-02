@@ -559,6 +559,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Row labels</label>
       <input type="checkbox" id="show-row-labels" onchange="onLayoutChange()"></div>
     <div id="row-label-inputs"></div>
+    <div class="field" style="margin-top:2px"><label title="Distance between a row/column header and the panel it labels. Lower it to bring the headers in tight against the figure.">Gap to figure (px)</label>
+      <input type="number" id="axis-gap" value="6" min="0" max="80" oninput="onLayoutChange()"></div>
     <div class="sec-lbl" style="margin-top:6px">Label style</div>
     <div class="field"><label>Font</label>
       <select id="axis-font" onchange="scheduleRender()" style="width:130px">
@@ -4205,7 +4207,7 @@ function _collectHouseStyle(){
     labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
     sbH:gv('sb-h'), sbColor:gv('sb-color'), sbText:gc('sb-text'),
     panelBorderW:gv('panel-border-w'), panelBorderC:gv('panel-border-c'),
-    axisFs:gv('axis-fs'), axisFont:gv('axis-font'), axisColor:gv('axis-color'),
+    axisFs:gv('axis-fs'), axisGap:gv('axis-gap'), axisFont:gv('axis-font'), axisColor:gv('axis-color'),
     axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'), axisAutoColor:gc('axis-auto-color'),
   };
 }
@@ -4217,7 +4219,7 @@ function _applyHouseStyle(s){
   set('label-font',s.labelFont); chk('label-bold',s.labelBold); chk('label-italic',s.labelItalic);
   set('sb-h',s.sbH); set('sb-color',s.sbColor); chk('sb-text',s.sbText);
   set('panel-border-w',s.panelBorderW); set('panel-border-c',s.panelBorderC);
-  set('axis-fs',s.axisFs); set('axis-font',s.axisFont); set('axis-color',s.axisColor);
+  set('axis-fs',s.axisFs); set('axis-gap',s.axisGap); set('axis-font',s.axisFont); set('axis-color',s.axisColor);
   chk('axis-bold',s.axisBold); chk('axis-italic',s.axisItalic); chk('axis-auto-color',s.axisAutoColor);
   if(typeof onLayoutChange==='function') onLayoutChange(); scheduleRender(0);
 }
@@ -4457,7 +4459,8 @@ function gridGeom(){
   const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
   const axisFs=gi('axis-fs');
   const titleH=gv('fig-title').trim()?axisFs+20:0;
-  const colLblH=showCols?axisFs+14:0, rowLblW=showRows?axisFs+14:0;
+  const axisGap=_axisGap();
+  const colLblH=showCols?axisFs+axisGap:0, rowLblW=showRows?axisFs+axisGap:0;
   const x0=rowLblW+gi('m-left'), y0=titleH+gi('m-top')+colLblH;
   const gridW=cols*pw+totalGapsW(cols,gH), gridH=rows*ph+totalGapsH(rows,gV);
   return {cols,rows,pw,ph,gH,gV,x0,y0,gridW,gridH,titleH,colLblH,rowLblW};
@@ -4540,8 +4543,11 @@ function render(targetCanvas, exportScale, opts){
   const panelBorderC=gv('panel-border-c')||'#000000';
 
   const titleH  = figTitle ? axisFs+20 : 0;
-  const colLblH = showCols ? axisFs+14 : 0;
-  const rowLblW = showRows ? axisFs+14 : 0;
+  // The band reserved for a row/column header is the type size plus the gap you
+  // asked for, so the header sits exactly that far from the panel edge.
+  const axisGap = _axisGap();
+  const colLblH = showCols ? axisFs+axisGap : 0;
+  const rowLblW = showRows ? axisFs+axisGap : 0;
 
   // Size arrays to current grid so stale overrides don't linger
   syncGapArrays(cols, rows);
@@ -4592,8 +4598,10 @@ function render(targetCanvas, exportScale, opts){
   if(showCols){
     const ins=[...document.querySelectorAll('#col-label-inputs input')];
     for(let c=0;c<cols;c++){
+      // Sit at the top of the reserved band, which leaves exactly axisGap
+      // between the text and the panel below it.
       emitText('col',c, ins[c]?.value||`Col ${c+1}`,
-        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+colLblH/2,
+        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+axisFs/2,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',0);
     }
   }
@@ -4602,7 +4610,10 @@ function render(targetCanvas, exportScale, opts){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
     for(let r=0;r<rows;r++){
       const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + ph/2;
-      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft/2, cy,
+      // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
+      // whatever the margin happened to be and you could only close it by moving the
+      // whole figure. Now anchored to the panel edge, axisGap away from it.
+      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft+axisFs/2, cy,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
   }
@@ -6139,7 +6150,7 @@ function cloneElemForUndo(el){
 }
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
-  'axis-font','axis-color','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
+  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
 const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
   'axis-bold','axis-italic','axis-auto-color'];
 function captureLayout(){
@@ -8561,7 +8572,7 @@ function serializeSession(bundleImages){
       colGaps, rowGaps, advancedSpacing },
     style:{ bgColor:gv('bg-color'),showLabels:gc('show-labels'),labelSize:gv('label-size'),
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
-      sbText:gc('sb-text'),axisFs:gv('axis-fs'),labelFont:gv('label-font'),
+      sbText:gc('sb-text'),axisFs:gv('axis-fs'),axisGap:gv('axis-gap'),labelFont:gv('label-font'),
       labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
@@ -8637,7 +8648,7 @@ function applySession(s,_opts){
         const T=s.style;
         sv('bg-color',T.bgColor);sc('show-labels',T.showLabels);sv('label-size',T.labelSize);
         sv('label-color',T.labelColor);sv('label-pos',T.labelPos);sv('sb-h',T.sbH);
-        sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);
+        sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);
         if(T.labelFont) sv('label-font',T.labelFont);
         if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
         if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);
@@ -9076,6 +9087,9 @@ document.getElementById('canvas-wrap').addEventListener('wheel', e=>{
 const gv = id => document.getElementById(id)?.value ?? '';
 const gi = id => parseInt(gv(id)) || 0;
 const gc = id => document.getElementById(id)?.checked ?? false;
+// Distance from a row/column header to the panel edge. Defaults to 6 for figures
+// saved before the control existed, where the header floated in the left margin.
+const _axisGap = () => { const v=gi('axis-gap'); return Number.isFinite(v)&&v>=0 ? Math.min(80,v) : 6; };
 const sv = (id,v) => { const el=document.getElementById(id); if(el) el.value=v??''; };
 const sc = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.checked=!!v; };
 // Snap number inputs back into their [min,max] range when the user types/pastes out-of-range.
@@ -13897,7 +13911,7 @@ function shareSession(){
     style:{
       bgColor:gv('bg-color'), showLabels:gc('show-labels'), labelSize:gv('label-size'),
       labelColor:gv('label-color'), labelPos:gv('label-pos'), sbH:gv('sb-h'),
-      sbColor:gv('sb-color'), sbText:gc('sb-text'), axisFs:gv('axis-fs'),
+      sbColor:gv('sb-color'), sbText:gc('sb-text'), axisFs:gv('axis-fs'), axisGap:gv('axis-gap'),
       labelFont:gv('label-font'), labelBold:gc('label-bold'), labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'), axisBold:gc('axis-bold'), axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'), axisAutoColor:gc('axis-auto-color'),
@@ -13965,7 +13979,7 @@ function shareSession(){
       const T=s.style;
       sv('bg-color',T.bgColor);sc('show-labels',T.showLabels);sv('label-size',T.labelSize);
       sv('label-color',T.labelColor);sv('label-pos',T.labelPos);sv('sb-h',T.sbH);
-      sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);
+      sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);
       if(T.labelFont) sv('label-font',T.labelFont);
       if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
       if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);

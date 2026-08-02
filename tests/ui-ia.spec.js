@@ -531,6 +531,51 @@ test('tighten spacing closes the gaps but keeps room for what is switched on', a
   expect(errors).toEqual([]);
 });
 
+test('row and column headers sit exactly the requested distance from the figure', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page, 4);
+  const r = await page.evaluate(() => {
+    const chk = (id, on) => { const e = document.getElementById(id); if (e) e.checked = on; };
+    sv('cols', '2'); sv('rows', '2');
+    chk('show-col-labels', true); chk('show-row-labels', true);
+    onLayoutChange();
+    const probe = () => {
+      render();
+      const fs = gi('axis-fs'), pb = panelBounds[0];
+      const col = figTextItems.find(t => t.kind === 'col');
+      const row = figTextItems.find(t => t.kind === 'row');
+      return { col: Math.round(pb.y - (col.y + fs / 2)),      // header bottom → panel top
+               row: Math.round(pb.x - (row.x + fs / 2)),      // header right  → panel left
+               h: canvasLogicalH };
+    };
+    sv('axis-gap', '6');  onLayoutChange(); const a = probe();
+    sv('axis-gap', '0');  onLayoutChange(); const b = probe();
+    sv('axis-gap', '30'); onLayoutChange(); const c = probe();
+    return { a, b, c };
+  });
+  // the number in the box is the gap, on both axes — it used to be mLeft/2 for rows,
+  // i.e. wherever the margin happened to put it
+  expect(r.a.col).toBe(6);  expect(r.a.row).toBe(6);
+  expect(r.b.col).toBe(0);  expect(r.b.row).toBe(0);
+  expect(r.c.col).toBe(30); expect(r.c.row).toBe(30);
+  expect(r.b.h).toBeLessThan(r.c.h);        // and the canvas follows
+  expect(errors).toEqual([]);
+});
+
+test('the header gap survives a session round-trip', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page, 2);
+  const r = await page.evaluate(() => {
+    sv('axis-gap', '3');
+    const s = JSON.parse(JSON.stringify(serializeSession(false)));
+    sv('axis-gap', '20');
+    applySession(s);
+    return gv('axis-gap');
+  });
+  expect(String(r)).toBe('3');
+  expect(errors).toEqual([]);
+});
+
 test('mixed-shape panels are fitted to the middle one, and you are told', async ({ page }) => {
   const errors = await loadApp(page);
   await seedWide(page, 2);
