@@ -517,6 +517,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
       <input type="number" id="panel-h" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
+    <div class="inline-row" style="margin:3px 0 5px">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitPanelsToContent()" title="Match the panel shape to your images so they fill the cell — a 4:3 crop in a square cell leaves white bars above and below">⤢ Fit panels to images</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="tightenSpacing()" title="Close the gaps and margins around the panels">⇲ Tighten spacing</button>
+    </div>
     <div class="field"><label>H gap (px)</label>
       <input type="number" id="gap-h" value="6" min="0" max="100" oninput="scheduleRender()"></div>
     <div class="field"><label>V gap (px)</label>
@@ -3121,6 +3125,8 @@ const CMD_REGISTRY=[
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
   // Crop: every entry point is searchable. Previously only 2 of 12 were, so typing
   // "crop" in the palette returned a single result and taught the user nothing.
+  {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape', run:()=>fitPanelsToContent()},
+  {label:'Tighten spacing',          keys:'tight spacing gaps margins white space close', run:()=>tightenSpacing()},
   {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
@@ -5657,6 +5663,10 @@ function _mcFinalize(){
   const capped=C>12||rows>12;
   sv('cols',Math.min(12,C)); sv('rows',Math.min(12,Math.max(1,rows)));
   onLayoutChange();
+  // Every region shares one crop size, so the panel shape is known exactly. Fit the
+  // cells to it instead of dropping the crops into square cells and letterboxing
+  // each one. Inside the same pushUndo() as the rest of the session.
+  fitPanelsToContent({quiet:true});
 
   const total=panels.reduce((a,g)=>a+g.length,0);
   logAction('multiCrop',{sources:M,panels:total,arrange,keepOriginal:keep});
@@ -11862,6 +11872,58 @@ function _letterLabel(i){
   if(fmt==='1') return String(i+1);
   return U;
 }
+// ── Killing white space ──────────────────────────────────────────────────
+// Panel cells are a fixed size and each image is CONTAIN-FIT inside its cell, so
+// content whose shape differs from the cell's is drawn with blank bars around it.
+// A 4:3 crop in the default 300x300 square cell is drawn 300x225 — 38px of white
+// above and below, a quarter of every cell. Nothing is wrong with the crop; the
+// cell is the wrong shape. These two match the layout to the content.
+
+// Displayed aspect (w/h) of a panel's cropped content, accounting for a quarter turn.
+function _panelContentAspect(im){
+  const img=im&&im.img; if(!img) return 0;
+  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+  if(!iw||!ih) return 0;
+  const sw=iw*(1-((im.cropL||0)+(im.cropR||0))/100);
+  const sh=ih*(1-((im.cropT||0)+(im.cropB||0))/100);
+  if(sw<1||sh<1) return 0;
+  const r=(((im.rotate||0)%360)+360)%360;
+  return (r===90||r===270) ? sh/sw : sw/sh;   // 90/270 swaps the axes
+}
+
+// Reshape the cell to the content. Keeps panel WIDTH and solves for height, so the
+// figure's overall width — which is what a journal specifies — doesn't move.
+function fitPanelsToContent(opts){
+  const quiet=!!(opts&&opts.quiet);
+  const asp=images.filter(Boolean).map(_panelContentAspect).filter(a=>a>0).sort((a,b)=>a-b);
+  if(!asp.length){ if(!quiet) toast('Add images first','warn'); return false; }
+  const med=asp[(asp.length-1)>>1];
+  const lo=asp[0], hi=asp[asp.length-1];
+  if(!quiet) pushUndo();
+  const pw=Math.max(40,Math.min(1400, gi('panel-w')||300));
+  sv('panel-h', Math.max(40, Math.min(1400, Math.round(pw/med))));
+  onLayoutChange();
+  if(!quiet){
+    toast(`Panels fitted to ${med.toFixed(2)}:1 — the white bars are gone`,'ok');
+    // Cells can only be one shape, so mixed content still letterboxes. Say so.
+    if(hi/lo>1.05) toast(`Your panels aren't all the same shape (${lo.toFixed(2)}:1 to ${hi.toFixed(2)}:1) — fitted to the middle one, so the odd ones still have some bars`,'warn');
+  }
+  return true;
+}
+
+// Close the gaps and margins. Keeps room for whatever is actually switched on —
+// a title, or row/column headers — instead of clipping it.
+function tightenSpacing(){
+  pushUndo();
+  sv('gap-h',2); sv('gap-v',2);
+  const hasTitle=!!(gv('fig-title')||'').trim();
+  sv('m-top',  (hasTitle||gc('show-col-labels')) ? 26 : 6);
+  sv('m-left', gc('show-row-labels') ? 34 : 6);
+  sv('m-btm',6); sv('m-right',6);
+  onLayoutChange();
+  toast('Gaps and margins tightened','ok');
+}
+
 function relabelPanels(){
   if(layoutMode==='freeform'){
     const imgs=freeformElements.filter(e=>e.type==='image');

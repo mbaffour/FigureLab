@@ -428,3 +428,122 @@ test('the version badge tracks APP_VERSION and cannot drift', async ({ page }) =
   }));
   expect(r.badge).toBe(r.constant);
 });
+
+// ── White space ──────────────────────────────────────────────────────────────
+// Panel cells are a fixed size and images are contain-fit inside them, so content
+// whose shape differs from the cell's is drawn with blank bars around it. A 4:3
+// crop in the default square cell wastes a quarter of every cell.
+
+/** Seed one non-square (4:3) image, the normal shape for a plate photograph. */
+async function seedWide(page, n = 2) {
+  await page.evaluate(async (count) => {
+    for (let k = 0; k < count; k++) {
+      const c = document.createElement('canvas'); c.width = 800; c.height = 600;
+      const x = c.getContext('2d'); let s = 7 + k * 91;
+      const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+      x.fillStyle = '#e8e4d8'; x.fillRect(0, 0, 800, 600);
+      for (let i = 0; i < 50; i++) { x.fillStyle = 'rgba(30,30,30,.8)';
+        x.beginPath(); x.arc(rnd() * 800, rnd() * 600, 3 + rnd() * 6, 0, 6.284); x.fill(); }
+      const src = c.toDataURL('image/png');
+      await new Promise(ok => { const i = new Image(); i.onload = () => { _commitImage(i, src, 'p.png'); ok(); }; i.src = src; });
+    }
+    render();
+  }, n);
+  await page.waitForFunction(() => Array.isArray(panelBounds) && panelBounds.length > 0);
+}
+
+/** Blank bars around the drawn image inside panel 0's cell. */
+const LETTERBOX = () => {
+  const im = images[0];
+  const iw = im.img.naturalWidth, ih = im.img.naturalHeight;
+  const sw = iw * (1 - (im.cropL + im.cropR) / 100), sh = ih * (1 - (im.cropT + im.cropB) / 100);
+  const pw = gi('panel-w'), ph = gi('panel-h'), sc = Math.min(pw / sw, ph / sh);
+  return { v: Math.round((ph - sh * sc) / 2), h: Math.round((pw - sw * sc) / 2),
+           wasted: 1 - (sw * sc * sh * sc) / (pw * ph), cw: canvasLogicalW, chh: canvasLogicalH };
+};
+
+test('fitting panels to the images removes the letterbox', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page);
+  const r = await page.evaluate((LB) => {
+    const lb = new Function('return ' + LB)();
+    sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    const before = lb();
+    fitPanelsToContent(); render();
+    return { before, after: lb(), h: gi('panel-h') };
+  }, LETTERBOX.toString());
+  // 4:3 content in a square cell wastes a quarter of it
+  expect(r.before.v).toBeGreaterThan(30);
+  expect(r.before.wasted).toBeGreaterThan(0.2);
+  // fitted: no bars at all, and the canvas got shorter rather than wider
+  expect(r.after.v).toBe(0);
+  expect(r.after.h).toBe(0);
+  expect(r.after.wasted).toBeCloseTo(0, 2);
+  expect(r.h).toBe(225);                        // 300 / (4/3)
+  expect(r.after.chh).toBeLessThan(r.before.chh);
+  expect(r.after.cw).toBe(r.before.cw);         // width is what journals specify — unchanged
+  expect(errors).toEqual([]);
+});
+
+test('multi-crop fits the cells to the regions automatically', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page, 2);
+  const r = await page.evaluate((LB) => {
+    const lb = new Function('return ' + LB)();
+    sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange();
+    startMultiCrop();
+    for (let img = 0; img < 2; img++) {
+      [[0.05, 0.05], [0.55, 0.05], [0.05, 0.55]].forEach(p => {
+        cropEdState.cx = p[0]; cropEdState.cy = p[1];
+        cropEdState.cw = 0.35; cropEdState.ch = 0.35; mcAddRegion();
+      });
+      mcDoneSource();
+    }
+    render();
+    return { lb: lb(), panels: images.filter(Boolean).length };
+  }, LETTERBOX.toString());
+  expect(r.panels).toBe(6);
+  // the regions all share one shape, so this should be exact — no bars at all
+  expect(r.lb.v).toBe(0);
+  expect(r.lb.h).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('tighten spacing closes the gaps but keeps room for what is switched on', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page);
+  const r = await page.evaluate(() => {
+    // NB: sv() writes .value, so it does nothing to a checkbox — set .checked directly
+    const chk = (id, on) => { const e = document.getElementById(id); if (e) e.checked = on; };
+    sv('fig-title', ''); chk('show-row-labels', false); chk('show-col-labels', false);
+    tightenSpacing(); render();
+    const bare = { gh: gi('gap-h'), top: gi('m-top'), left: gi('m-left'), w: canvasLogicalW };
+    // with a title and row headers on, the margins must not clip them
+    sv('fig-title', 'Figure 1'); chk('show-row-labels', true); onLayoutChange();
+    tightenSpacing(); render();
+    return { bare, titled: { top: gi('m-top'), left: gi('m-left') } };
+  });
+  expect(r.bare.gh).toBe(2);
+  expect(r.bare.top).toBe(6);
+  expect(r.bare.left).toBe(6);
+  expect(r.titled.top).toBeGreaterThan(r.bare.top);    // room kept for the title
+  expect(r.titled.left).toBeGreaterThan(r.bare.left);  // and for the row headers
+  expect(errors).toEqual([]);
+});
+
+test('mixed-shape panels are fitted to the middle one, and you are told', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedWide(page, 2);
+  const r = await page.evaluate(() => {
+    // make panel 1 a different shape than panel 0
+    images[1].cropL = 30; images[1].cropR = 0; render();
+    const toasts = [];
+    const realToast = window.toast;
+    window.toast = (m, k) => { toasts.push(String(m)); };
+    try { fitPanelsToContent(); } finally { window.toast = realToast; }
+    return { toasts };
+  });
+  // cells can only be one shape, so this is a real limit — it must be stated
+  expect(r.toasts.some(t => /aren't all the same shape/i.test(t))).toBe(true);
+  expect(errors).toEqual([]);
+});
