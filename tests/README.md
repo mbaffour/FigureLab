@@ -39,6 +39,32 @@ blocked Google-Fonts CDN) fails the suite.
 - **Session save/load** — round-trips layout, gutters, and adjustments.
 - **Error handling** — a corrupt image surfaces an error toast without hanging.
 
+## Source encoding (`encoding.spec.js`)
+
+The only spec that never opens a browser — it reads the repo's text files as bytes.
+
+Cutting v3.9.4 I edited `figure_lab.html`, `README.md` and `CITATION.cff` through a
+PowerShell round-trip. Windows PowerShell 5.1 reads a BOM-less UTF-8 file as ANSI, so
+`Get-Content -Raw` returned every non-ASCII character as its raw bytes and
+`Set-Content -Encoding utf8` re-encoded them — double-encoding 519 em-dashes, 4088
+box-drawing rules and 80 micron signs, and adding a BOM. It committed and pushed
+cleanly, and **the entire suite still passed**: mojibake is valid UTF-8, the page
+parses, and nothing was looking at bytes.
+
+So this file does. For each character the repo actually contains it derives the
+CP1252 mojibake sequence and fails on any hit, on a UTF-8 BOM, on invalid UTF-8, on a
+missing `<meta charset>`, on a version that disagrees across the three release files,
+and on a `CITATION.cff` with no DOI for the version it claims to be.
+
+Its self-test is pinned to `fixtures/mojibake-sample.txt` — twelve lines lifted
+verbatim from the corrupted commit, not a simulation. The first draft synthesised the
+corruption with `Buffer.toString('latin1')` and gave a wrong answer, because Latin-1
+and CP1252 disagree over `0x80`–`0x9F` and PowerShell used CP1252. Simulating the bug
+tests your model of the bug.
+
+**Don't edit repo text files through PowerShell.** Use an editor that is UTF-8 aware.
+PowerShell is fine for `git`, `gh` and `npx`.
+
 ## Notes
 
 - `helpers.js` seeds panels through the real `_commitImage` path and drives
