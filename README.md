@@ -373,7 +373,7 @@ Integrity fixes, each with a regression test confirmed to fail against the previ
 - **Save dialog** â€” every export opens a dialog to set name, format & DPI first; on Chrome/Edge you choose the folder in the OS's native Save window.
 - **Duplicate** (`Ctrl+D`), **lock**, and multi-object layer ordering for Freeform objects.
 
-_Published & citable â€” latest version DOI [`10.5281/zenodo.21737534`](https://doi.org/10.5281/zenodo.21737534) (v3.9.3). The concept DOI always resolves to the latest._
+_Published & citable â€” latest version DOI [`10.5281/zenodo.21778169`](https://doi.org/10.5281/zenodo.21778169) (v3.9.4). The concept DOI always resolves to the latest._
 
 ### v3.5 â€” 8 July 2026
 **Focus: UI/UX clarity, onboarding, scientific integrity, and export reliability â€” without changing the single-file, offline, privacy-first identity.**
@@ -492,7 +492,7 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** â€” it always resolves to the latest version.
-To cite this exact release, use the v3.9.3 DOI [`10.5281/zenodo.21737534`](https://doi.org/10.5281/zenodo.21737534). Every archived version's DOI is listed in [`CITATION.cff`](CITATION.cff).
+To cite this exact release, use the v3.9.4 DOI [`10.5281/zenodo.21778169`](https://doi.org/10.5281/zenodo.21778169). Every archived version's DOI is listed in [`CITATION.cff`](CITATION.cff).
 
 ---
 
