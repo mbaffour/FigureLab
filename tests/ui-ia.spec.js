@@ -576,6 +576,109 @@ test('the header gap survives a session round-trip', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ── Showing a subset of the panels ───────────────────────────────────────────
+// Multi-crop can produce far more panels than a figure needs. Hiding has to be
+// non-destructive: re-cropping is the expensive part, so the panels you don't
+// show must stay recoverable.
+
+async function seedNumbered(page, n) {
+  await page.evaluate(async (count) => {
+    for (let k = 1; k <= count; k++) {
+      const c = document.createElement('canvas'); c.width = 200; c.height = 150;
+      const x = c.getContext('2d');
+      x.fillStyle = `hsl(${k * 40},50%,70%)`; x.fillRect(0, 0, 200, 150);
+      const src = c.toDataURL('image/png');
+      await new Promise(ok => { const i = new Image(); i.onload = () => { _commitImage(i, src, 'p' + k + '.png'); ok(); }; i.src = src; });
+    }
+    sv('cols', '3'); sv('rows', '2'); onLayoutChange(); render();
+  }, n);
+  await page.waitForFunction(() => Array.isArray(panelBounds) && panelBounds.length > 0);
+}
+
+const SHOWN = () => panelBounds.map(p => images[p.idx] ? images[p.idx].name.replace('.png', '') : '-').join(',');
+
+test('hiding a panel takes it out of the figure and the grid closes up', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate((S) => {
+    const shown = new Function('return ' + S)();
+    render(); const before = shown();
+    togglePanelExcluded(1); togglePanelExcluded(4);   // hide p2 and p5
+    render();
+    return { before, after: shown(),
+             badge: document.getElementById('img-count').textContent,
+             stillThere: images.filter(Boolean).length };
+  }, SHOWN.toString());
+  expect(r.before).toBe('p1,p2,p3,p4,p5,p6');
+  // the remaining panels move up — no holes where the hidden ones were
+  expect(r.after.startsWith('p1,p3,p4,p6')).toBe(true);
+  expect(r.badge).toBe('4 of 6');            // the hidden ones are never a surprise
+  expect(r.stillThere).toBe(6);              // hidden, not deleted
+  expect(errors).toEqual([]);
+});
+
+test('relabelling letters only the panels a reader will see', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(() => {
+    togglePanelExcluded(1); togglePanelExcluded(4);
+    relabelPanels(); render();
+    return figTextItems.filter(f => f.kind === 'panel').map(f => f.str);
+  });
+  expect(r).toEqual(['A', 'B', 'C', 'D']);   // contiguous, no gap where p2/p5 were
+  expect(errors).toEqual([]);
+});
+
+test('"show only ticked" keeps the ticked panels and hides the rest', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate((S) => {
+    const shown = new Function('return ' + S)();
+    document.querySelectorAll('.panel-pick').forEach((e, i) => { e.checked = (i === 0 || i === 2); });
+    showOnlySelectedPanels(); render();
+    const after = shown();
+    showAllPanels(); render();
+    return { after, restored: shown() };
+  }, SHOWN.toString());
+  expect(r.after.startsWith('p1,p3')).toBe(true);
+  expect(r.restored).toBe('p1,p2,p3,p4,p5,p6');   // one click brings them all back
+  expect(errors).toEqual([]);
+});
+
+test('hidden panels survive a saved session', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(async () => {
+    togglePanelExcluded(1); togglePanelExcluded(4);
+    const s = JSON.parse(JSON.stringify(serializeSession(true)));   // bundled, as a saved file
+    showAllPanels();
+    applySession(s);
+    await new Promise(ok => setTimeout(ok, 500));
+    return { flags: images.map(im => im && im.excluded ? 'H' : '.').join(''), n: images.filter(Boolean).length };
+  });
+  expect(r.flags).toBe('.H..H.');
+  expect(r.n).toBe(6);
+  expect(errors).toEqual([]);
+});
+
+test('deleting hidden panels is explicit, and undoable', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(() => {
+    togglePanelExcluded(1); togglePanelExcluded(4);
+    deleteHiddenPanels();
+    const asked = !!document.getElementById('confirm-modal-bg');   // never silent
+    document.getElementById('cm-ok').click();
+    const after = images.filter(Boolean).length;
+    undo();
+    return { asked, after, undone: images.filter(Boolean).length };
+  });
+  expect(r.asked).toBe(true);
+  expect(r.after).toBe(4);
+  expect(r.undone).toBe(6);
+  expect(errors).toEqual([]);
+});
+
 test('mixed-shape panels are fitted to the middle one, and you are told', async ({ page }) => {
   const errors = await loadApp(page);
   await seedWide(page, 2);

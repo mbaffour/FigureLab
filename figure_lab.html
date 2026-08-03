@@ -475,6 +475,17 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="font-size:10px;justify-content:center" onclick="parseFilenames()" title="Split each filename into the named fields, fill captions, and assign channel LUTs">⤷ Parse names</button>
     </div>
     <div class="divider"></div>
+    <!-- Use a subset of the panels without losing the rest. Cutting several plates
+         into several regions can produce far more panels than a figure needs; the
+         ones you don't show stay in the list and in the session. -->
+    <div class="sec-lbl">Show a subset <span class="help-chip" tabindex="0" role="button" aria-label="About showing a subset" data-tip="Tick panels in the list and press “Show only ticked”, or use the 👁 on any row. Hidden panels leave the figure but stay in your session, so nothing is lost and the grid closes up around them.">?</span></div>
+    <div class="inline-row">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showOnlySelectedPanels()" title="Keep only the ticked panels in the figure; hide the rest">☑ Show only ticked</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showAllPanels()" title="Bring every hidden panel back into the figure">👁 Show all</button>
+    </div>
+    <button class="btn adv" style="width:100%;justify-content:center;font-size:11px;margin-top:4px;color:var(--danger)" onclick="deleteHiddenPanels()" title="Permanently remove the panels that are currently hidden">🗑 Delete hidden panels…</button>
+
+    <div class="divider"></div>
     <div class="sec-lbl">Match panel brightness</div>
     <div class="field"><label>Reference panel</label>
       <select id="norm-ref-panel" style="width:100px">
@@ -3127,6 +3138,9 @@ const CMD_REGISTRY=[
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
   // Crop: every entry point is searchable. Previously only 2 of 12 were, so typing
   // "crop" in the palette returned a single result and taught the user nothing.
+  {label:'Show only ticked panels',  keys:'subset show only selected hide panels some', run:()=>showOnlySelectedPanels()},
+  {label:'Show all panels',          keys:'show all unhide restore panels subset',      run:()=>showAllPanels()},
+  {label:'Delete hidden panels…',    keys:'delete hidden excluded panels remove',       run:()=>deleteHiddenPanels()},
   {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape', run:()=>fitPanelsToContent()},
   {label:'Tighten spacing',          keys:'tight spacing gaps margins white space close', run:()=>tightenSpacing()},
   {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
@@ -3454,7 +3468,10 @@ function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // p
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
 function renderImgList(){
-  document.getElementById('img-count').textContent = images.filter(Boolean).length;
+  {  // "6 of 18" while a subset is shown, so the hidden ones are never a surprise
+    const tot=images.filter(Boolean).length, shown=_includedCount();
+    document.getElementById('img-count').textContent = shown<tot ? `${shown} of ${tot}` : tot;
+  }
   if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
   list.innerHTML = '';
@@ -3471,12 +3488,15 @@ function renderImgList(){
     const _ch=_detectChannel(im.name);
     const _dup=nameCounts[im.name]>1;
     item.innerHTML = `
-      <div class="img-item-main">
+      <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
+        <input type="checkbox" class="panel-pick" data-pick="${idx}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
-        <img class="img-thumb" src="${im.src}" draggable="false">
+        <img class="img-thumb" src="${im.src}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
+        ${im.excluded?`<span style="font-size:9px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
         ${im.sbOn && !im.umPerPx ? `<span style="font-size:9px;color:var(--warn);flex-shrink:0" title="Scale bar shown but µm/px not set">⚠</span>` : ''}
+        <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
         <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
         <button class="icon-btn gear" aria-label="Panel settings" title="Settings" data-gear="${idx}">⚙</button>
@@ -3680,6 +3700,8 @@ function renderImgList(){
     item.querySelector('[data-lock]').addEventListener('click',()=>{
       images[idx].locked=!images[idx].locked; renderImgList();
     });
+
+    item.querySelector('[data-eye]').addEventListener('click',()=>togglePanelExcluded(idx));
 
     // Crop shape buttons
     item.querySelectorAll('.cs-btn').forEach(btn=>{
@@ -4621,11 +4643,16 @@ function render(targetCanvas, exportScale, opts){
   // Panels — span-aware layout
   {
     const occupied=new Set();
-    let imgIdx=0;
+    // Cells are filled from the INCLUDED panels only, so hiding one closes the gap
+    // instead of leaving a hole. seq walks the cells; imgIdx stays the true index
+    // into images[] that panelBounds, scale bars and every hit-test rely on.
+    const _order=_gridOrder();
+    let seq=0, imgIdx=-1;
     for(let r=0;r<rows;r++){
       for(let c=0;c<cols;c++){
         if(occupied.has(`${r}_${c}`)) continue;
-        const im=images[imgIdx];
+        imgIdx = seq<_order.length ? _order[seq] : -1;
+        const im = imgIdx>=0 ? images[imgIdx] : null;
         const cs=Math.min((im?.colSpan||1),cols-c);
         const rs=Math.min((im?.rowSpan||1),rows-r);
         for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
@@ -4644,15 +4671,15 @@ function render(targetCanvas, exportScale, opts){
           ctx.font=`bold ${Math.max(14,Math.round(Math.min(apw,aph)*0.18))}px system-ui,sans-serif`;
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
           ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(String(imgIdx+1), px+apw/2, py+aph/2);
+          ctx.fillText(String(seq+1), px+apw/2, py+aph/2);
           ctx.restore();
-          imgIdx++; continue;
+          seq++; continue;
         }
         // Apply crop to get source rect
         const iw=im.img.width, ih=im.img.height;
         const sx=im.cropL/100*iw, sy=im.cropT/100*ih;
         const sw=iw*(1-(im.cropL+im.cropR)/100), sh=ih*(1-(im.cropT+im.cropB)/100);
-        if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); imgIdx++; continue; }
+        if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); seq++; continue; }
         // Contain-fit
         const scale=Math.min(apw/sw, aph/sh);
         const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
@@ -4703,7 +4730,7 @@ function render(targetCanvas, exportScale, opts){
         // Panel label
         if(showLbls){
           const lFmt=gv('label-format')||'custom';
-          const displayLbl=lFmt==='custom'?im.label:formatLabel(im.label,imgIdx);
+          const displayLbl=lFmt==="custom"?im.label:formatLabel(im.label,seq);
           if(displayLbl){
             const fs=Math.max(7,lblSz);
             const lFam=gv('label-font')||'system-ui,sans-serif';
@@ -4771,7 +4798,7 @@ function render(targetCanvas, exportScale, opts){
         }
         // Panel-bound annotations (follow image when reordered)
         drawPanelAnnotations(ctx, px, py, apw, aph, im);
-        imgIdx++;
+        seq++;
       }
     }
   }
@@ -8583,7 +8610,7 @@ function serializeSession(bundleImages){
       captionNote:im.captionNote,metaNote:im.metaNote,grayscale:im.grayscale,invert:im.invert,
       lut:im.lut||'none',blackPt:im.blackPt||0,whitePt:im.whitePt||255,
       gamma:im.gamma||1, rotate:im.rotate||0, flipH:im.flipH||false, flipV:im.flipV||false,
-      locked:im.locked||false, group:im.group||'',
+      locked:im.locked||false, excluded:im.excluded||false, group:im.group||'',
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
@@ -9090,6 +9117,57 @@ const gc = id => document.getElementById(id)?.checked ?? false;
 // Distance from a row/column header to the panel edge. Defaults to 6 for figures
 // saved before the control existed, where the header floated in the left margin.
 const _axisGap = () => { const v=gi('axis-gap'); return Number.isFinite(v)&&v>=0 ? Math.min(80,v) : 6; };
+
+// ── Showing a subset of the panels ───────────────────────────────────────
+// Cutting six plates into three regions gives eighteen panels when the figure
+// may only need six. Deleting the rest throws away work you might want back —
+// and re-cropping is the expensive part. im.excluded takes a panel out of the
+// FIGURE while it stays in the list, in the session, and one click from
+// returning. Excluded panels don't occupy a cell, so the rest close up.
+const _gridOrder = () =>
+  images.map((im,i)=>i).filter(i => !images[i] || !images[i].excluded);
+const _includedCount = () => images.filter(im=>im && !im.excluded).length;
+
+function togglePanelExcluded(idx){
+  const im=images[idx]; if(!im) return;
+  pushUndo();
+  im.excluded=!im.excluded;
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  toast(`${im.label||('Panel '+(idx+1))} ${im.excluded?'hidden from the figure':'shown again'}`,'ok');
+}
+// Keep only what is currently selected in the list; everything else is hidden,
+// not deleted.
+function showOnlySelectedPanels(){
+  const keep=new Set(_listSelection());
+  if(!keep.size){ toast('Tick the panels you want to keep first','warn'); return; }
+  pushUndo();
+  images.forEach((im,i)=>{ if(im) im.excluded=!keep.has(i); });
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  toast(`Showing ${keep.size} of ${images.filter(Boolean).length} panels`,'ok');
+}
+function showAllPanels(){
+  if(!images.some(im=>im&&im.excluded)){ toast('All panels are already shown','ok'); return; }
+  pushUndo();
+  images.forEach(im=>{ if(im) im.excluded=false; });
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  toast('All panels shown','ok');
+}
+// Permanently drop the hidden ones — offered separately, and only ever explicit.
+function deleteHiddenPanels(){
+  const n=images.filter(im=>im&&im.excluded).length;
+  if(!n){ toast('No hidden panels to delete','warn'); return; }
+  showConfirmModal(`Delete ${n} hidden panel${n===1?'':'s'}?`,
+    'They are removed from the session. Undo still works, but a saved file written afterwards will not contain them.',
+    ()=>{
+      pushUndo();
+      images=images.filter(im=>!(im&&im.excluded));
+      renderImgList(); renderMiniGrid(); onLayoutChange();
+      toast(`${n} hidden panel${n===1?'':'s'} deleted`,'ok');
+    });
+}
+// Indices ticked in the image list.
+const _listSelection = () =>
+  [...document.querySelectorAll('#img-list .panel-pick:checked')].map(e=>+e.dataset.pick);
 const sv = (id,v) => { const el=document.getElementById(id); if(el) el.value=v??''; };
 const sc = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.checked=!!v; };
 // Snap number inputs back into their [min,max] range when the user types/pastes out-of-range.
@@ -11948,7 +12026,10 @@ function relabelPanels(){
   } else {
     if(!images.length){ toast('No panels to relabel','warn'); return; }
     pushUndo();
-    images.forEach((im,i)=>{ if(im) im.label=_letterLabel(i); });
+    // Letter the panels the reader will actually see, so a subset reads A, B, C…
+    // with no gaps. Hidden panels keep whatever label they had.
+    let n=0;
+    images.forEach(im=>{ if(im && !im.excluded) im.label=_letterLabel(n++); });
     renderImgList(); scheduleRender(0);
   }
   toast('Panels relabelled in order','ok');
