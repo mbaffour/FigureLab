@@ -572,6 +572,28 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="row-label-inputs"></div>
     <div class="field" style="margin-top:2px"><label title="Distance between a row/column header and the panel it labels. Lower it to bring the headers in tight against the figure.">Gap to figure (px)</label>
       <input type="number" id="axis-gap" value="6" min="0" max="80" oninput="onLayoutChange()"></div>
+
+    <!-- A second level of labelling, outside the row/column headers: the
+         "No ATC" / "+5uM ATC" band of a spot-dilution figure. -->
+    <div class="sec-lbl" style="margin-top:6px">Group bands <span class="help-chip" tabindex="0" role="button" aria-label="About group bands" data-tip="An outer label spanning several rows or columns, with a bracket — e.g. one band over the three untreated rows and another over the three treated ones. Build them by range, in repeating blocks, or from the panels' own match-group tags.">?</span></div>
+    <div class="inline-row">
+      <select id="group-axis" style="flex:1;font-size:11px" title="Which way the band runs">
+        <option value="row">band down the rows</option>
+        <option value="col">band across the columns</option>
+      </select>
+      <select id="group-bracket" onchange="onLayoutChange()" style="flex:1;font-size:11px" title="How the bracket beside the label is drawn">
+        <option value="bar">solid bar</option>
+        <option value="square">square bracket</option>
+        <option value="none">label only</option>
+      </select>
+    </div>
+    <div class="inline-row" style="margin-top:3px">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="addFigGroup()" title="Add one band and set its range by hand">＋ Add band</button>
+      <input type="number" id="group-block" value="3" min="1" max="24" style="width:44px;font-size:11px" title="Rows (or columns) per block">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="_grpFromBlocksUI()" title="One band every N rows/columns — for figures where each condition has the same number of strains">⧉ Every N</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="_grpFromTagsUI()" title="Build bands from the panels' match-group tags">⇉ From tags</button>
+    </div>
+    <div id="group-list" style="margin-top:3px"></div>
     <div class="sec-lbl" style="margin-top:6px">Label style</div>
     <div class="field"><label>Font</label>
       <select id="axis-font" onchange="scheduleRender()" style="width:130px">
@@ -4482,7 +4504,7 @@ function gridGeom(){
   const axisFs=gi('axis-fs');
   const titleH=gv('fig-title').trim()?axisFs+20:0;
   const axisGap=_axisGap();
-  const colLblH=showCols?axisFs+axisGap:0, rowLblW=showRows?axisFs+axisGap:0;
+  const colLblH=(showCols?axisFs+axisGap:0)+_grpBand("col"), rowLblW=(showRows?axisFs+axisGap:0)+_grpBand("row");
   const x0=rowLblW+gi('m-left'), y0=titleH+gi('m-top')+colLblH;
   const gridW=cols*pw+totalGapsW(cols,gH), gridH=rows*ph+totalGapsH(rows,gV);
   return {cols,rows,pw,ph,gH,gV,x0,y0,gridW,gridH,titleH,colLblH,rowLblW};
@@ -4568,8 +4590,8 @@ function render(targetCanvas, exportScale, opts){
   // The band reserved for a row/column header is the type size plus the gap you
   // asked for, so the header sits exactly that far from the panel edge.
   const axisGap = _axisGap();
-  const colLblH = showCols ? axisFs+axisGap : 0;
-  const rowLblW = showRows ? axisFs+axisGap : 0;
+  const colLblH = (showCols ? axisFs+axisGap : 0) + _grpBand("col");
+  const rowLblW = (showRows ? axisFs+axisGap : 0) + _grpBand("row");
 
   // Size arrays to current grid so stale overrides don't linger
   syncGapArrays(cols, rows);
@@ -4623,7 +4645,7 @@ function render(targetCanvas, exportScale, opts){
       // Sit at the top of the reserved band, which leaves exactly axisGap
       // between the text and the panel below it.
       emitText('col',c, ins[c]?.value||`Col ${c+1}`,
-        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+axisFs/2,
+        rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+_grpBand('col')+axisFs/2,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',0);
     }
   }
@@ -4635,9 +4657,49 @@ function render(targetCanvas, exportScale, opts){
       // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
       // whatever the margin happened to be and you could only close it by moving the
       // whole figure. Now anchored to the panel edge, axisGap away from it.
-      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft+axisFs/2, cy,
+      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
+  }
+
+  // Group bands — the outer "No ATC" / "+5uM ATC" level, with its bracket.
+  if(figGroups.length){
+    const style=_bracketStyle();
+    const bw=Math.max(1,Math.round(axisFs/4));         // bracket thickness
+    const cap=Math.round(axisFs*0.45);                 // end-cap length for 'square'
+    figGroups.forEach((g,gi_)=>{
+      const label=String(g.label||'').trim(); if(!label) return;
+      const isRow=g.axis==='row';
+      const n=isRow?rows:cols;
+      const a=Math.max(1,Math.min(n,Math.min(g.from,g.to)));
+      const b=Math.max(1,Math.min(n,Math.max(g.from,g.to)));
+      let x1,y1,x2,y2,tx,ty;
+      if(isRow){
+        const top=titleH+mTop+colLblH+rowOffset(a-1,ph,gV);
+        const bot=titleH+mTop+colLblH+rowOffset(b-1,ph,gV)+ph;
+        x1=x2=mLeft+_grpBand('row')-Math.round(_axisGap()/2)-bw;
+        y1=top; y2=bot; tx=mLeft+axisFs/2; ty=(top+bot)/2;
+      } else {
+        const lf=rowLblW+mLeft+colOffset(a-1,pw,gH);
+        const rt=rowLblW+mLeft+colOffset(b-1,pw,gH)+pw;
+        y1=y2=titleH+mTop+_grpBand('col')-Math.round(_axisGap()/2)-bw;
+        x1=lf; x2=rt; tx=(lf+rt)/2; ty=titleH+mTop+axisFs/2;
+      }
+      if(style!=='none'){
+        ctx.save();
+        ctx.strokeStyle=axisClr; ctx.lineWidth=bw; ctx.lineCap='butt';
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        if(style==='square'){                          // ⌈ ⌉ end caps
+          ctx.beginPath();
+          if(isRow){ ctx.moveTo(x1,y1); ctx.lineTo(x1+cap,y1); ctx.moveTo(x2,y2); ctx.lineTo(x2+cap,y2); }
+          else     { ctx.moveTo(x1,y1); ctx.lineTo(x1,y1+cap); ctx.moveTo(x2,y2); ctx.lineTo(x2,y2+cap); }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      emitText('group',gi_, label, tx, ty,
+        `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle', isRow?1:0);
+    });
   }
 
   // Panels — span-aware layout
@@ -8599,7 +8661,7 @@ function serializeSession(bundleImages){
       colGaps, rowGaps, advancedSpacing },
     style:{ bgColor:gv('bg-color'),showLabels:gc('show-labels'),labelSize:gv('label-size'),
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
-      sbText:gc('sb-text'),axisFs:gv('axis-fs'),axisGap:gv('axis-gap'),labelFont:gv('label-font'),
+      sbText:gc('sb-text'),axisFs:gv('axis-fs'),axisGap:gv('axis-gap'),figGroups:JSON.parse(JSON.stringify(figGroups)),groupBracket:gv('group-bracket'),labelFont:gv('label-font'),
       labelBold:gc('label-bold'),labelItalic:gc('label-italic'),
       axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
@@ -8675,7 +8737,7 @@ function applySession(s,_opts){
         const T=s.style;
         sv('bg-color',T.bgColor);sc('show-labels',T.showLabels);sv('label-size',T.labelSize);
         sv('label-color',T.labelColor);sv('label-pos',T.labelPos);sv('sb-h',T.sbH);
-        sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);
+        sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);if(Array.isArray(T.figGroups)){figGroups=T.figGroups;renderGroupList();}if(T.groupBracket)sv('group-bracket',T.groupBracket);
         if(T.labelFont) sv('label-font',T.labelFont);
         if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
         if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);
@@ -9117,6 +9179,93 @@ const gc = id => document.getElementById(id)?.checked ?? false;
 // Distance from a row/column header to the panel edge. Defaults to 6 for figures
 // saved before the control existed, where the header floated in the left margin.
 const _axisGap = () => { const v=gi('axis-gap'); return Number.isFinite(v)&&v>=0 ? Math.min(80,v) : 6; };
+
+// ── Group bands (spot-dilution style outer labels) ───────────────────────
+// A second level of labelling: "No ATC" / "+5uM ATC" spanning three rows each,
+// beside the per-row labels. One structure — {axis, from, to, label} over 1-based
+// inclusive row/column ranges — with three ways to fill it, so ranges, repeating
+// blocks and per-panel tags are all the same thing underneath.
+let figGroups = [];
+const GROUP_BRACKETS = ['bar','square','none'];
+const _bracketStyle = () => gv('group-bracket') || 'bar';
+const _hasGroups = axis => figGroups.some(g => g.axis===axis && String(g.label||'').trim());
+// Width/height reserved beside the ordinary row/column labels.
+const _grpBand = axis => _hasGroups(axis) ? gi('axis-fs')+_axisGap()+9 : 0;
+
+// (2) repeating blocks — every N rows (or columns) is one group
+function groupsFromBlocks(axis, size, names){
+  const n = axis==='row' ? Math.max(1,gi('rows')) : Math.max(1,gi('cols'));
+  const out=[];
+  for(let s=1, k=0; s<=n; s+=size, k++)
+    out.push({axis, from:s, to:Math.min(n,s+size-1), label:(names&&names[k])||''});
+  return out;
+}
+// (3) per-panel tags — a run of panels sharing im.group becomes one band.
+// Only meaningful when the run lines up with whole rows/columns, which is the
+// case multi-crop produces (each source image is a column, or a row).
+function groupsFromPanelTags(axis){
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const order=_gridOrder();
+  const tagAt=(r,c)=>{ const i=order[r*cols+c]; const im=i>=0?images[i]:null; return (im&&im.group)||''; };
+  const n = axis==='row'?rows:cols;
+  const lineTag=k=>{                       // a whole row/column shares a tag, or nothing
+    const m = axis==='row'?cols:rows, t0 = axis==='row'?tagAt(k,0):tagAt(0,k);
+    if(!t0) return '';
+    for(let j=1;j<m;j++){ const t = axis==='row'?tagAt(k,j):tagAt(j,k); if(t!==t0) return ''; }
+    return t0;
+  };
+  const out=[]; let cur=null;
+  for(let k=0;k<n;k++){
+    const t=lineTag(k);
+    if(t && cur && cur.label===t){ cur.to=k+1; continue; }
+    if(t){ cur={axis, from:k+1, to:k+1, label:t}; out.push(cur); } else cur=null;
+  }
+  return out;
+}
+function setFigGroups(list, note){
+  pushUndo();
+  // Keep unlabelled bands — the generators create the ranges and you type the names
+  // into them. An unnamed band simply doesn't draw (and reserves no space), so an
+  // empty one is harmless rather than something to silently discard.
+  figGroups=(list||[]).filter(Boolean);
+  renderGroupList(); onLayoutChange();
+  if(note!==false) toast(figGroups.length?`${figGroups.length} group band${figGroups.length===1?'':'s'}`:'Group bands cleared','ok');
+}
+function addFigGroup(){
+  const axis=gv('group-axis')||'row';
+  const n = axis==='row' ? Math.max(1,gi('rows')) : Math.max(1,gi('cols'));
+  setFigGroups(figGroups.concat([{axis, from:1, to:n, label:'Group '+(figGroups.length+1)}]), false);
+}
+function _grpFromBlocksUI(){
+  const axis=gv('group-axis')||'row', size=Math.max(1,gi('group-block')||3);
+  setFigGroups(groupsFromBlocks(axis,size));
+}
+function _grpFromTagsUI(){
+  const axis=gv('group-axis')||'row';
+  const g=groupsFromPanelTags(axis);
+  if(!g.length){ toast(`No whole ${axis}s share a panel group tag — set "Match group" on the panels first`,'warn'); return; }
+  setFigGroups(g);
+}
+// Compact editor: one line per band.
+function renderGroupList(){
+  const el=document.getElementById('group-list'); if(!el) return;
+  el.innerHTML = figGroups.map((g,i)=>`
+    <div class="inline-row" style="margin-bottom:2px">
+      <select data-gaxis="${i}" style="font-size:10px;width:46px">
+        <option value="row"${g.axis==='row'?' selected':''}>row</option>
+        <option value="col"${g.axis==='col'?' selected':''}>col</option>
+      </select>
+      <input type="number" data-gfrom="${i}" value="${g.from}" min="1" max="99" style="width:38px;font-size:10px" title="First ${g.axis}">
+      <input type="number" data-gto="${i}"   value="${g.to}"   min="1" max="99" style="width:38px;font-size:10px" title="Last ${g.axis}">
+      <input type="text"   data-glabel="${i}" value="${esc(g.label)}" placeholder="label" style="flex:1;font-size:10px">
+      <button class="icon-btn del" data-gdel="${i}" title="Remove band">×</button>
+    </div>`).join('') || `<div style="font-size:10px;color:var(--muted)">No group bands yet.</div>`;
+  el.querySelectorAll('[data-gaxis]').forEach(s=>s.onchange=()=>{ figGroups[+s.dataset.gaxis].axis=s.value; renderGroupList(); onLayoutChange(); });
+  el.querySelectorAll('[data-gfrom]').forEach(s=>s.oninput=()=>{ figGroups[+s.dataset.gfrom].from=Math.max(1,+s.value||1); onLayoutChange(); });
+  el.querySelectorAll('[data-gto]').forEach(s=>s.oninput=()=>{ figGroups[+s.dataset.gto].to=Math.max(1,+s.value||1); onLayoutChange(); });
+  el.querySelectorAll('[data-glabel]').forEach(s=>s.oninput=()=>{ figGroups[+s.dataset.glabel].label=s.value; onLayoutChange(); });
+  el.querySelectorAll('[data-gdel]').forEach(b=>b.onclick=()=>{ pushUndo(); figGroups.splice(+b.dataset.gdel,1); renderGroupList(); onLayoutChange(); });
+}
 
 // ── Showing a subset of the panels ───────────────────────────────────────
 // Cutting six plates into three regions gives eighteen panels when the figure
@@ -14060,7 +14209,7 @@ function shareSession(){
       const T=s.style;
       sv('bg-color',T.bgColor);sc('show-labels',T.showLabels);sv('label-size',T.labelSize);
       sv('label-color',T.labelColor);sv('label-pos',T.labelPos);sv('sb-h',T.sbH);
-      sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);
+      sv('sb-color',T.sbColor);sc('sb-text',T.sbText);sv('axis-fs',T.axisFs);if(T.axisGap!=null)sv('axis-gap',T.axisGap);if(Array.isArray(T.figGroups)){figGroups=T.figGroups;renderGroupList();}if(T.groupBracket)sv('group-bracket',T.groupBracket);
       if(T.labelFont) sv('label-font',T.labelFont);
       if(T.labelBold!==undefined) sc('label-bold',T.labelBold);
       if(T.labelItalic!==undefined) sc('label-italic',T.labelItalic);

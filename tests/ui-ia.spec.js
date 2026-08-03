@@ -679,6 +679,92 @@ test('deleting hidden panels is explicit, and undoable', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+// ── Group bands (spot-dilution style outer labels) ───────────────────────────
+
+test('a group band spans the rows you give it and draws a bracket', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(() => {
+    sv('rows', '6'); sv('cols', '1');
+    document.getElementById('show-row-labels').checked = true;
+    onLayoutChange();
+    sv('group-axis', 'row'); sv('group-block', '3');
+    _grpFromBlocksUI();
+    const generated = figGroups.map(g => `${g.axis}${g.from}-${g.to}`);
+    figGroups[0].label = 'No ATC'; figGroups[1].label = '+ 5uM ATC';
+    sv('group-bracket', 'bar'); render();
+    const bands = figTextItems.filter(t => t.kind === 'group');
+    const widthWith = canvasLogicalW;
+    figGroups = []; render();
+    return { generated, labels: bands.map(b => b.str), rotated: bands.every(b => !!b.rot),
+             widthWith, widthWithout: canvasLogicalW };
+  });
+  // "Every N" builds the ranges; unlabelled bands are kept so you can name them
+  expect(r.generated).toEqual(['row1-3', 'row4-6']);
+  expect(r.labels).toEqual(['No ATC', '+ 5uM ATC']);
+  expect(r.rotated).toBe(true);                       // row bands read vertically
+  expect(r.widthWith).toBeGreaterThan(r.widthWithout); // the band reserves its own space
+  expect(errors).toEqual([]);
+});
+
+test('an unnamed band draws nothing and costs no space', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(() => {
+    sv('rows', '6'); sv('cols', '1'); onLayoutChange(); render();
+    const bare = canvasLogicalW;
+    sv('group-axis', 'row'); sv('group-block', '3'); _grpFromBlocksUI(); render();
+    return { bare, unnamed: canvasLogicalW, kept: figGroups.length,
+             drawn: figTextItems.filter(t => t.kind === 'group').length };
+  });
+  expect(r.kept).toBe(2);        // the ranges survive so you can type into them
+  expect(r.drawn).toBe(0);       // but nothing is drawn until they are named
+  expect(r.unnamed).toBe(r.bare);
+  expect(errors).toEqual([]);
+});
+
+test('bands work across columns too, and the bracket style is selectable', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(() => {
+    sv('cols', '3'); sv('rows', '2'); onLayoutChange();
+    figGroups = [{ axis: 'col', from: 1, to: 2, label: 'treated' }];
+    const styles = {};
+    for (const s of ['bar', 'square', 'none']) {
+      sv('group-bracket', s); render();
+      styles[s] = { h: canvasLogicalH, drawn: figTextItems.filter(t => t.kind === 'group').length,
+                    rot: !!figTextItems.find(t => t.kind === 'group').rot };
+    }
+    return styles;
+  });
+  // a column band reads horizontally, and the label shows whatever the bracket style
+  expect(r.bar.rot).toBe(false);
+  expect(r.bar.drawn).toBe(1);
+  expect(r.none.drawn).toBe(1);      // "label only" still labels
+  expect(r.square.h).toBe(r.bar.h);  // style doesn't change the reserved space
+  expect(errors).toEqual([]);
+});
+
+test('group bands survive a session round-trip', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedNumbered(page, 6);
+  const r = await page.evaluate(async () => {
+    figGroups = [{ axis: 'row', from: 1, to: 3, label: 'No ATC' },
+                 { axis: 'row', from: 4, to: 6, label: '+ 5uM ATC' }];
+    sv('group-bracket', 'square');
+    const s = JSON.parse(JSON.stringify(serializeSession(true)));
+    figGroups = []; sv('group-bracket', 'bar');
+    applySession(s);
+    await new Promise(ok => setTimeout(ok, 400));
+    return { n: figGroups.length, first: figGroups[0] && figGroups[0].label,
+             bracket: gv('group-bracket') };
+  });
+  expect(r.n).toBe(2);
+  expect(r.first).toBe('No ATC');
+  expect(r.bracket).toBe('square');
+  expect(errors).toEqual([]);
+});
+
 test('mixed-shape panels are fitted to the middle one, and you are told', async ({ page }) => {
   const errors = await loadApp(page);
   await seedWide(page, 2);
