@@ -679,6 +679,31 @@ test('deleting hidden panels is explicit, and undoable', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('sv/gv work on checkboxes instead of silently doing nothing', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const id = 'show-col-labels';
+    const el = document.getElementById(id);
+    el.checked = false;
+    sv(id, true);  const onT = el.checked, readT = gv(id);
+    sv(id, false); const offT = el.checked, readF = gv(id);
+    sv(id, '1');   const onStr = el.checked;
+    // a text input must be completely unaffected by the change
+    sv('fig-title', 'Figure 1');
+    const text = gv('fig-title');
+    sv('fig-title', '');
+    return { onT, readT, offT, readF, onStr, text, gcAgrees: (sv(id, true), gc(id) === true) };
+  });
+  expect(r.onT).toBe(true);        // used to be a no-op: .value on a checkbox is inert
+  expect(r.offT).toBe(false);
+  expect(r.onStr).toBe(true);      // '1' from a serialised session works too
+  expect(r.readT).toBeTruthy();    // gv used to return "on" regardless of state
+  expect(r.readF).toBeFalsy();
+  expect(r.gcAgrees).toBe(true);   // and agrees with the dedicated reader
+  expect(r.text).toBe('Figure 1'); // text inputs unchanged
+  expect(errors).toEqual([]);
+});
+
 // ── Group bands (spot-dilution style outer labels) ───────────────────────────
 
 test('a group band spans the rows you give it and draws a bracket', async ({ page }) => {

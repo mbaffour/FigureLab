@@ -9173,7 +9173,13 @@ document.getElementById('canvas-wrap').addEventListener('wheel', e=>{
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════════════
-const gv = id => document.getElementById(id)?.value ?? '';
+// See the note on sv(): reading .value off a checkbox returns "on" regardless of
+// state, so gv() on a toggle used to be quietly always-truthy. Route to .checked.
+const gv = id => {
+  const el=document.getElementById(id); if(!el) return '';
+  if(el.type==='checkbox'||el.type==='radio') return el.checked ? '1' : '';
+  return el.value ?? '';
+};
 const gi = id => parseInt(gv(id)) || 0;
 const gc = id => document.getElementById(id)?.checked ?? false;
 // Distance from a row/column header to the panel edge. Defaults to 6 for figures
@@ -9317,7 +9323,17 @@ function deleteHiddenPanels(){
 // Indices ticked in the image list.
 const _listSelection = () =>
   [...document.querySelectorAll('#img-list .panel-pick:checked')].map(e=>+e.dataset.pick);
-const sv = (id,v) => { const el=document.getElementById(id); if(el) el.value=v??''; };
+// A checkbox's .value is the literal string "on" whatever its state, so writing or
+// reading .value on one is meaningless: sv() silently did nothing and gv() always
+// came back truthy. No call site does that today — this is a trap for the next
+// person (it caught a test during the group-band work), so both now route to
+// .checked and the mistake becomes impossible rather than invisible.
+const _isToggle = el => el && (el.type==='checkbox' || el.type==='radio');
+const sv = (id,v) => {
+  const el=document.getElementById(id); if(!el) return;
+  if(_isToggle(el)) el.checked = (v===true||v===1||v==='1'||v==='true'||v==='on');
+  else el.value = v??'';
+};
 const sc = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.checked=!!v; };
 // Snap number inputs back into their [min,max] range when the user types/pastes out-of-range.
 document.addEventListener('change', e=>{
