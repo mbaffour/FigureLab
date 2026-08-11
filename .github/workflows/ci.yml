@@ -15,11 +15,14 @@ jobs:
       run:
         working-directory: tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # Active LTS. Node 20 reached end of life on 2026-04-30, so the suite was
+          # running on an unsupported runtime; this is separate from the runner's
+          # deprecation warning, which was about the actions' own node20 runtime.
+          node-version: 24
           cache: npm
           cache-dependency-path: tests/package-lock.json
 
@@ -34,7 +37,7 @@ jobs:
 
       - name: Upload report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: tests/playwright-report/
