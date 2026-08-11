@@ -1,4 +1,4 @@
-# FigureLab v3.9.4
+# FigureLab v3.9.5
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -263,6 +263,19 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.9.5 — 11 August 2026
+**Focus: crops that aren't square to the camera, and multi-crop sessions you can correct without starting over.**
+
+- **A crop can be tilted.** Drag the round grip above the crop box, or type an angle — <kbd>Shift</kbd> snaps to 15°, <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°. The *region* turns and the panel comes out **upright**, so a plate photographed at an angle no longer forces a choice between a skewed panel and background wedges in the corners. This is different from rotating a panel, which turns the whole cropped picture inside its cell. Works in the single-panel editor, batch crop and multi-crop.
+- **Tilt is per region in multi-crop.** Every region still shares one size, so the panels stay uniform, but each keeps its own angle — six plates photographed at six slightly different angles all straighten independently. Each image starts upright rather than inheriting the last one's tilt, which would be a guess.
+- **Banked multi-crop regions can be edited.** The session used to be forward-only: a region placed slightly wrong three back couldn't be reached, because Undo only removes the last one. Region chips are now controls — click one to reopen it in the editor, move, tilt or rename it, then **Update**; `×` drops it outright. Leaving the name blank on update keeps the name it already had, so repositioning never silently strips a label.
+- **What a tilt costs is stated, not buried.** Every other crop in FigureLab selects existing pixels; a tilted one has to resample them, so that panel's *displayed* pixels are interpolated. The editor says so while you turn it, the metadata CSV gained `CropAngle` and `Resampling` columns, the provenance hash covers it, and the deep audit names the tilted panels.
+- **Measurements are not degraded by a tilt.** An axis-aligned selection on screen is a rotated quadrilateral in the source, so it is measured as one: a pixel counts if its centre falls inside, and its **original** stored value is used. Measuring the straightened canvas instead would average neighbouring samples into values that were never recorded and report them at the acquisition bit depth as though they had been. The one exception is crop-on-import, which is destructive — a tilt there drops the native samples and says so.
+- **The landing page describes the app that exists.** It had been stuck at v3.5 since 8 July, still advertising the Simple/Advanced toggle that was removed in v3.9.3 and a crop-on-import step that is now off by default.
+- **270 Playwright tests** (up from 252). Three of the new ones were checked by mutation — rotating in normalised space, dropping the rotation from the source mapping, and straightening at every angle each make a specific test fail.
+
+> **Note on the v3.9.4 archive.** The Zenodo record for v3.9.4 contains a `README.md` with ~200 double-encoded characters, from a PowerShell round-trip during that release. `figure_lab.html` in that archive is unaffected, and every machine-readable citation field is correct. The tag was deliberately left alone so it and its DOI describe the same bytes. **This release supersedes it with a clean archive**, and `tests/encoding.spec.js` now fails the build on mojibake, a BOM, invalid UTF-8, a version that disagrees across the three release files, or a `CITATION.cff` with no DOI for the version it claims to be.
 
 ### v3.9.4 — 3 August 2026
 **Focus: making a real figure. Every item came from assembling a spot-dilution plate figure and hitting where the tool got in the way.**

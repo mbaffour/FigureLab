@@ -128,7 +128,14 @@ test('save dialog: editable name/format/DPI, and fallback download uses a saniti
     document.getElementById('pf-name').value = 'fig 2/final*';   // '/' and '*' are illegal
     _refreshPreflight();
     await _saveFromDialog();
-    await new Promise(r => setTimeout(r, 600));                  // fallback doExport() encodes async
+    // doExport() encodes asynchronously and calls dl() after _saveFromDialog resolves, so
+    // this has to wait for the download rather than for a duration. It used to sleep a
+    // fixed 600ms, which passed on an idle machine and failed on a busy one — the encode
+    // itself is unchanged, only how long the test is willing to wait for it.
+    const t0 = Date.now();
+    while (window.__dlName === null && Date.now() - t0 < 15000) {
+      await new Promise(r => setTimeout(r, 25));
+    }
     window.dl = origDl; window.showSaveFilePicker = savedPicker;
     return {
       name: window.__dlName,
