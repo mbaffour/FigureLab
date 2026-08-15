@@ -1031,7 +1031,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div id="gemini-settings">
       <div class="sec-lbl" style="margin-top:6px">Gemini API Key</div>
-      <input type="password" id="gemini-api-key" placeholder="AIza…" style="width:100%" oninput="localStorage.setItem('gemini-api-key',this.value)">
+      <input type="password" id="gemini-api-key" placeholder="AIza…" style="width:100%" oninput="setGeminiKey(this.value)">
       <div style="font-size:9px;color:var(--muted);margin-top:2px">Get free key at ai.google.dev · stored locally only</div>
     </div>
     <div id="sd-settings" style="display:none">
@@ -1057,7 +1057,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl" style="margin-top:6px">Quick subjects</div>
     <div id="ai-quick-prompts" style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px"></div>
     <div class="field"><label style="font-size:10px">Remove white bg</label>
-      <input type="checkbox" id="ai-remove-bg" title="Replace near-white pixels with transparency after generation"></div>
+      <input type="checkbox" id="ai-remove-bg" title="Key out the white background non-destructively on insert — adjustable (tolerance/feather) and reversible in the element's properties"></div>
     <button class="btn btn-primary" id="ai-gen-btn" onclick="generateAIImage()" style="width:100%;justify-content:center;margin-top:4px">✦ Generate</button>
     <div class="ai-preview" id="ai-preview">Preview will appear here</div>
     <button class="btn btn-success" id="ai-insert-btn" onclick="insertAIImage()" style="width:100%;justify-content:center;margin-top:4px;display:none">+ Insert into canvas</button>
@@ -6431,6 +6431,12 @@ function checkCompliance(){
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
     {label:'Min panel size',ok:gi('panel-w')>=80&&gi('panel-h')>=80, warn:false, note:`${gi('panel-w')}×${gi('panel-h')} px per panel`},
+    // Warn, never fail: AI-generated schematics are legitimate in many venues, but the
+    // author must disclose them — and the strictest journals refuse them outright.
+    {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
+      note:_aiGeneratedCount()
+        ? `${_aiGeneratedCount()} AI-generated schematic(s) — disclose to the journal; Nature, Science and Cell currently do not accept generative-AI figures`
+        : 'No AI-generated content ✓'},
   ];
   const html=checks.map(c=>{
     const icon=c.ok?'✓':c.warn?'⚠':'✗';
@@ -9122,7 +9128,10 @@ function serializeSession(bundleImages){
       const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,raw,
              _genemapStat,_genemapKey,_genemapCache,...rest}=el;
       if(el.type==='paint' && (_paintCanvas instanceof HTMLCanvasElement) && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
-      if(!_bundle){ delete rest.src; delete rest.paintData; }   // lightweight = no pixel/paint data
+      // Lightweight = no pixel/paint data — EXCEPT AI-generated images. A user's photo
+      // can be re-dropped from disk; an AI generation cannot be reproduced, so dropping
+      // its src from a "settings-only" save would silently destroy it.
+      if(!_bundle && !rest.aiGenerated){ delete rest.src; delete rest.paintData; }
       return rest;
     }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
@@ -9199,7 +9208,9 @@ function applySession(s,_opts){
       }
       if(Array.isArray(s.freeformElements)){
         freeformElements=s.freeformElements.map(el=>{
-          if(el.type==='image'&&el.src){
+          // aiicon is an image in every other code path; excluding it here merely made
+          // its first render depend on the lazy buildImgEl fallback.
+          if((el.type==='image'||el.type==='aiicon')&&el.src){
             const img=new Image(); img.src=el.src; return {...el,img};
           }
           return el;
@@ -12959,8 +12970,27 @@ function importTemplates(input){
 // ═══════════════════════════════════════════════════════════════
 // AI GENERATION
 // ═══════════════════════════════════════════════════════════════
+// Gemini API key, fl- prefixed like every other preference. The getter migrates the
+// pre-3.9.6 unprefixed 'gemini-api-key' once, so nobody re-pastes after updating.
+function geminiKey(){
+  try{
+    let k=localStorage.getItem('fl-gemini-key');
+    if(k===null){
+      const legacy=localStorage.getItem('gemini-api-key');
+      if(legacy!==null){ localStorage.setItem('fl-gemini-key',legacy); localStorage.removeItem('gemini-api-key'); k=legacy; }
+    }
+    return k||'';
+  }catch(e){ return ''; }
+}
+function setGeminiKey(v){
+  try{ v?localStorage.setItem('fl-gemini-key',v):localStorage.removeItem('fl-gemini-key'); }catch(e){}
+}
+
 function setAIBackend(b){
   aiBackend=b;
+  // Persisted — this was read at startup for years but never written, so the choice
+  // silently reset to Gemini on every reload.
+  try{ localStorage.setItem('fl-ai-backend',b); }catch(e){}
   document.getElementById('gemini-settings').style.display=b==='gemini'?'':'none';
   document.getElementById('sd-settings').style.display=b==='sd'?'':'none';
   document.getElementById('ai-backend-gemini').style.borderColor=b==='gemini'?'var(--accent)':'var(--border)';
@@ -12979,7 +13009,9 @@ async function generateAIImage(){
   aiGeneratedSrc=null;
   try{
     let src;
-    if(aiBackend==='gemini'){ window._lastAIEngine='gemini-2.0-flash'; src=await generateWithGemini(prompt,style); }
+    // The engine string is provenance: it lands in the element, the repro log and the
+    // export metadata, so it must be the model id actually called — not an approximation.
+    if(aiBackend==='gemini'){ window._lastAIEngine=GEMINI_IMAGE_MODEL; src=await generateWithGemini(prompt,style); }
     else { window._lastAIEngine='stable-diffusion'; src=await generateWithSD(prompt,style); }
     if(src){
       aiGeneratedSrc=src;
@@ -12998,12 +13030,17 @@ async function generateAIImage(){
   btn.disabled=false; btn.innerHTML='✦ Generate';
 }
 
+// One place names the model, because three places must agree on it: the request URL,
+// the provenance engine string, and the export metadata. (Phase 2 replaces this with a
+// user-selectable model table; the constant keeps them in lockstep until then.)
+const GEMINI_IMAGE_MODEL='gemini-2.0-flash-exp';
+
 async function generateWithGemini(prompt,style){
-  const key=(document.getElementById('gemini-api-key').value||localStorage.getItem('gemini-api-key')||'').trim();
+  const key=(document.getElementById('gemini-api-key').value||geminiKey()||'').trim();
   if(!key){ toast('Enter your Gemini API key','warn'); return null; }
   const fullPrompt=`${prompt}, ${style}`;
   const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`,
     { method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key},
       body:JSON.stringify({
         contents:[{parts:[{text:fullPrompt}]}],
@@ -13034,25 +13071,30 @@ function insertAIImage(){
   if(!aiGeneratedSrc){ toast('No image generated yet','warn'); return; }
   const img=new Image();
   img.onload=()=>{
-    const el={
-      id:_uidElem(),
+    if(layoutMode!=='freeform'){
+      document.getElementById('layout-mode').value='freeform';
+      setLayoutMode('freeform');
+    }
+    // Routed through addFreeformElement so insertion is undoable and picks up id and
+    // z-order assignment like every other object. The old hand-rolled push skipped
+    // pushUndo entirely — Ctrl+Z after inserting an AI image undid the WRONG thing.
+    addFreeformElement({
       type:'aiicon', src:aiGeneratedSrc, _imgEl:img,
       // Disclosed as AI-generated: tagged in the layer list, provenance log, and export metadata.
       // Generation only ever inserts a NEW object — it is never applied to an imported
       // experimental image (no inpainting / region-redraw exists in FigureLab).
       aiGenerated:true, aiEngine:(window._lastAIEngine||'ai'), aiPrompt:(document.getElementById('ai-prompt')?.value||'').slice(0,200),
       x:50, y:50, w:Math.min(400,img.width), h:Math.min(400,img.height),
-      zIndex:++_fmZCounter, rotation:0, locked:false, opacity:1,
       color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI schematic',
       brightness:1,contrast:1,gamma:1,blackPt:0,whitePt:255,
       grayscale:false,invert:false,lut:'none',
-    };
-    if(layoutMode!=='freeform'){
-      document.getElementById('layout-mode').value='freeform';
-      setLayoutMode('freeform');
-    }
-    freeformElements.push(el); updateFreeformElemList(); scheduleRender(0);
-    logAction('aiGenerate',{engine:el.aiEngine, kind:'schematic'});   // disclosed in provenance
+      // "Remove background" now means the non-destructive keyer, not the old baked-in
+      // 230-threshold rewrite of the pixels: reversible, tunable in the element props
+      // (tolerance/feather), and it leaves the generated source intact.
+      ...(document.getElementById('ai-remove-bg')?.checked
+          ? {bgKey:{on:true,mode:'white',color:'#ffffff',tol:32,feather:0}} : {}),
+    });
+    logAction('aiGenerate',{engine:window._lastAIEngine||'ai', kind:'schematic'});   // disclosed in provenance
     toast('AI schematic inserted — tagged as AI-generated in the layer list & export metadata','ok');
   };
   img.onerror=()=>toast('Generated image could not be inserted','err');
@@ -14298,42 +14340,12 @@ function initAIQuickPrompts(){
   });
 }
 
-function removeBgFromCanvas(src){
-  return new Promise(resolve=>{
-    const img=new Image(); img.onload=()=>{
-      const c=document.createElement('canvas');
-      c.width=img.width; c.height=img.height;
-      const ctx=c.getContext('2d');
-      ctx.drawImage(img,0,0);
-      const d=ctx.getImageData(0,0,c.width,c.height);
-      // Replace near-white pixels (threshold 230/255) with transparent
-      for(let i=0;i<d.data.length;i+=4){
-        const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
-        if(r>230&&g>230&&b>230) d.data[i+3]=0;
-      }
-      ctx.putImageData(d,0,0);
-      resolve(c.toDataURL('image/png'));
-    };
-    img.src=src;
-  });
-}
-
-// Patch generateAIImage to apply bg removal if checked
-const _origGenerateAIImage=generateAIImage;
-async function generateAIImage(){
-  await _origGenerateAIImage();
-  if(aiGeneratedSrc && document.getElementById('ai-remove-bg')?.checked){
-    const btn=document.getElementById('ai-gen-btn');
-    if(btn) btn.innerHTML='⟳ Removing bg…';
-    try{
-      aiGeneratedSrc=await removeBgFromCanvas(aiGeneratedSrc);
-      const preview=document.getElementById('ai-preview');
-      if(preview){ preview.innerHTML=''; const im=document.createElement('img'); im.src=aiGeneratedSrc; preview.appendChild(im); }
-      toast('Background removed','ok');
-    }catch(e){ toast('BG removal failed: '+e.message,'err'); }
-    if(btn) btn.innerHTML='✦ Generate';
-  }
-}
+// NOTE: an earlier build patched generateAIImage here by shadowing it with a second
+// `async function generateAIImage()` that awaited `_origGenerateAIImage`. Both
+// declarations hoist, so the "original" it captured was ITSELF — every call was an
+// infinite async recursion and the generate button span forever. Background removal
+// now happens at insert time as a non-destructive bgKey on the element (see
+// insertAIImage), and the destructive removeBgFromCanvas helper is gone with it.
 
 // ═══════════════════════════════════════════════════════════════
 // AUTO SCALE BAR DETECTION
@@ -15257,12 +15269,16 @@ setTool('none'); // start in select mode so ann-canvas has pointer events
 
 // Load persisted API settings
 (function(){
-  const k=localStorage.getItem('gemini-api-key');
-  const ep=localStorage.getItem('sd-endpoint');
-  if(k){ const el=document.getElementById('gemini-api-key'); if(el) el.value=k; }
-  if(ep){ const el=document.getElementById('sd-endpoint'); if(el) el.value=ep; }
-  const bk=localStorage.getItem('ai-backend');
-  if(bk){ aiBackend=bk; setAIBackend(bk); }
+  try{
+    const k=geminiKey();   // migrates the pre-3.9.6 unprefixed key on first read
+    const ep=localStorage.getItem('sd-endpoint');
+    if(k){ const el=document.getElementById('gemini-api-key'); if(el) el.value=k; }
+    if(ep){ const el=document.getElementById('sd-endpoint'); if(el) el.value=ep; }
+    // fl-ai-backend is the written key; plain 'ai-backend' was read here for years but
+    // never written anywhere, so it also serves as the (almost certainly empty) legacy slot.
+    const bk=localStorage.getItem('fl-ai-backend')||localStorage.getItem('ai-backend');
+    if(bk==='gemini'||bk==='sd') setAIBackend(bk);
+  }catch(e){}
 })();
 
 renderSavedTemplates();
