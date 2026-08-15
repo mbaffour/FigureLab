@@ -144,4 +144,42 @@ async function panelCenter(page, idx = 0) {
   }, idx);
 }
 
-module.exports = { APP_URL, loadApp, seedPanels, seedFreeform, setInput, state, gesture, panelCenter };
+/** A 1x1 transparent PNG, base64 body only (no data: prefix). */
+const TINY_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+/**
+ * Intercept every request to the Gemini API and fulfill it locally. The real API is
+ * paid per image — CI must NEVER reach it, and this is the single mocking pattern all
+ * AI tests use. Returns the capture array; each entry records {url, headers, body} so
+ * specs can assert the request SHAPE (endpoint version, model, exact header set,
+ * snake_case inline_data) — which is where the real bugs live.
+ *
+ * status !== 200 fulfills an error body in Google's shape, for error-taxonomy tests.
+ * delayMs delays fulfillment, for abort/cancel tests.
+ */
+async function stubGemini(page, { status = 200, b64png = TINY_PNG_B64, delayMs = 0 } = {}) {
+  const captured = [];
+  await page.route('https://generativelanguage.googleapis.com/**', async route => {
+    let body = null;
+    try { body = route.request().postDataJSON(); } catch (e) { /* GET has none */ }
+    captured.push({ url: route.request().url(), method: route.request().method(),
+                    headers: route.request().headers(), body });
+    if (delayMs) await new Promise(r => setTimeout(r, delayMs));
+    if (status !== 200) {
+      return route.fulfill({ status, contentType: 'application/json',
+        body: JSON.stringify({ error: { code: status, message: 'stubbed error', status: 'STUBBED' } }) });
+    }
+    // GET /v1/models (the connect-flow validation) vs POST :generateContent
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ models: [{ name: 'models/gemini-3.1-flash-image' }] }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ candidates: [{ content: { parts: [
+        { inlineData: { mimeType: 'image/png', data: b64png } }] } }] }) });
+  });
+  return captured;
+}
+
+module.exports = { APP_URL, loadApp, seedPanels, seedFreeform, setInput, state, gesture, panelCenter, stubGemini, TINY_PNG_B64 };

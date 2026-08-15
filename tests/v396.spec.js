@@ -126,18 +126,37 @@ test('a pre-3.9.6 API key migrates to fl-gemini-key on first read', async ({ pag
   expect(errors).toEqual([]);
 });
 
-test('the engine string, the request model, and the constant agree', async ({ page }) => {
+test('the model recorded as provenance is the model actually requested', async ({ page }) => {
   const errors = await loadApp(page);
-  // Provenance accuracy: the string written into elements/logs must be the model the
-  // URL actually names. Before this fix the log said gemini-2.0-flash while the URL
-  // said gemini-2.0-flash-exp — the export metadata attributed the wrong model.
-  const r = await page.evaluate(() => {
-    const src = generateWithGemini.toString();
-    return { constant: GEMINI_IMAGE_MODEL, urlUsesConstant: src.includes('GEMINI_IMAGE_MODEL') };
+  const { stubGemini } = require('./helpers');
+  const captured = await stubGemini(page);
+  // Provenance accuracy: the model written into the element, the repro log and the
+  // export metadata must be the one the request URL named. Before this fix the log
+  // said gemini-2.0-flash while the URL said gemini-2.0-flash-exp, so exports
+  // attributed the wrong model. Asserted through behaviour, not source text — where
+  // the id comes from is an implementation detail free to change.
+  const r = await page.evaluate(async () => {
+    document.getElementById('ai-adv').open = true;
+    document.getElementById('gemini-api-key').value = 'AIzaTestKey';
+    _syncAIModelUI();
+    document.getElementById('ai-model').value = 'gemini-3-pro-image';
+    _syncAIModelUI();
+    document.getElementById('ai-prompt').value = 'ribosome schematic';
+    document.getElementById('layout-mode').value = 'freeform';
+    setLayoutMode('freeform');
+    freeformElements.length = 0;
+    await generateAIImage();
+    insertAIImage();
+    await new Promise(r => setTimeout(r, 150));
+    const el = freeformElements[0];
+    return { recorded: el.aiModel, engine: el.aiEngine,
+             logged: reproLog.filter(e => e.action === 'aiGenerate').pop()?.engine };
   });
-  expect(r.urlUsesConstant).toBe(true);
-  const genSrc = await page.evaluate(() => generateAIImage.toString());
-  expect(genSrc).toContain('GEMINI_IMAGE_MODEL');     // engine string set from the same constant
+  const requested = captured.find(c => c.url.includes(':generateContent')).url;
+  expect(requested).toContain('gemini-3-pro-image');
+  expect(r.recorded).toBe('gemini-3-pro-image');   // element metadata
+  expect(r.engine).toBe('gemini-3-pro-image');
+  expect(r.logged).toBe('gemini-3-pro-image');     // repro log
   expect(errors).toEqual([]);
 });
 

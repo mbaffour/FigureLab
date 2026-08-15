@@ -1024,22 +1024,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details>
   <summary>✦ AI Generate</summary>
   <div class="acc-body">
-    <div class="sec-lbl">Backend</div>
-    <div style="display:flex;gap:4px">
-      <button class="btn" id="ai-backend-gemini" onclick="setAIBackend('gemini')" style="flex:1;justify-content:center">Gemini</button>
-      <button class="btn" id="ai-backend-sd" onclick="setAIBackend('sd')" style="flex:1;justify-content:center">Stable Diffusion</button>
-    </div>
-    <div id="gemini-settings">
-      <div class="sec-lbl" style="margin-top:6px">Gemini API Key</div>
-      <input type="password" id="gemini-api-key" placeholder="AIza…" style="width:100%" oninput="setGeminiKey(this.value)">
-      <div style="font-size:9px;color:var(--muted);margin-top:2px">Get free key at ai.google.dev · stored locally only</div>
-    </div>
-    <div id="sd-settings" style="display:none">
-      <div class="sec-lbl" style="margin-top:6px">Local endpoint</div>
-      <input type="text" id="sd-endpoint" value="http://127.0.0.1:7860" style="width:100%" oninput="localStorage.setItem('sd-endpoint',this.value)">
-      <div style="font-size:9px;color:var(--muted);margin-top:2px">Automatic1111 WebUI · must be running locally</div>
-    </div>
-    <div class="divider"></div>
     <div class="sec-lbl">Prompt</div>
     <textarea id="ai-prompt" rows="3" placeholder="e.g. phage injecting DNA into bacteria, flat icon style…" style="width:100%"></textarea>
     <div class="field" style="margin-top:4px"><label>Style</label>
@@ -1052,13 +1036,74 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="medical illustration, anatomical, professional, white background">Medical illustration</option>
         <option value="infographic, simple icons, white background">Infographic style</option>
         <option value="scientific illustration, detailed, textbook quality">Textbook illustration</option>
-        <option value="photorealistic microscopy image">Photo-realistic</option>
+        <!-- "photorealistic microscopy image" used to live here. A fake micrograph is
+             fabricated data however it is tagged; a figure tool must not offer it. -->
+        <option value="dramatic scientific cover art, journal cover style">Cover art</option>
       </select></div>
     <div class="sec-lbl" style="margin-top:6px">Quick subjects</div>
     <div id="ai-quick-prompts" style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px"></div>
     <div class="field"><label style="font-size:10px">Remove white bg</label>
       <input type="checkbox" id="ai-remove-bg" title="Key out the white background non-destructively on insert — adjustable (tolerance/feather) and reversible in the element's properties"></div>
-    <button class="btn btn-primary" id="ai-gen-btn" onclick="generateAIImage()" style="width:100%;justify-content:center;margin-top:4px">✦ Generate</button>
+
+    <!-- Primary path: the user's own signed-in Gemini tab. Free on a consumer Google
+         account, no key, and FigureLab itself sends nothing anywhere — the clipboard
+         does the travelling. There is no in-app "sign in with Google" because Google's
+         image API offers no OAuth scopes, a static file cannot hold the client secret
+         web OAuth requires, and proxying a consumer Gemini session is a ToS violation
+         Google actively suspends accounts for. The bridge is the honest maximum. -->
+    <button class="btn btn-primary" id="ai-bridge-btn" onclick="startGeminiBridge()" style="width:100%;justify-content:center;margin-top:4px">🎨 Generate with your Gemini account</button>
+    <div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.4">Free with your Google account. Copies the prompt and opens gemini.google.com — paste it there, then copy the image and paste it back here. FigureLab never sees your login and sends nothing itself.</div>
+    <div id="ai-bridge-wait" style="display:none;background:rgba(91,141,238,.10);border:1px solid rgba(91,141,238,.35);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.5">
+      <b>Waiting for your image…</b><br>
+      1. In the Gemini tab: paste the prompt (<kbd>Ctrl</kbd>+<kbd>V</kbd>) and generate.<br>
+      2. Copy the generated image (right-click → Copy image).<br>
+      3. Come back here and paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>) — it lands as a tagged AI schematic.
+      <div style="margin-top:6px;display:flex;gap:6px">
+        <button class="btn" onclick="copyBridgePrompt()" style="padding:2px 8px;font-size:10px" title="Copy the prompt again">⧉ Re-copy prompt</button>
+        <button class="btn" onclick="cancelGeminiBridge()" style="padding:2px 8px;font-size:10px">✕ Cancel</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <!-- Advanced: direct API calls. Kept for automation and for editing workflows, but
+         demoted: the key is free to create while image generation now requires billing
+         linked to the Google account behind it (no free tier for image models). -->
+    <details id="ai-adv">
+      <summary style="font-size:10px;color:var(--muted);cursor:pointer">Advanced: direct API (key required · generation is paid)</summary>
+      <div class="sec-lbl" style="margin-top:6px">Backend</div>
+      <div style="display:flex;gap:4px">
+        <button class="btn" id="ai-backend-gemini" onclick="setAIBackend('gemini')" style="flex:1;justify-content:center">Gemini API</button>
+        <button class="btn" id="ai-backend-sd" onclick="setAIBackend('sd')" style="flex:1;justify-content:center">Stable Diffusion</button>
+      </div>
+      <div id="gemini-settings">
+        <div class="sec-lbl" style="margin-top:6px">Gemini API key</div>
+        <div style="display:flex;gap:4px">
+          <input type="password" id="gemini-api-key" placeholder="AIza…" style="flex:1" oninput="setGeminiKey(document.getElementById('ai-key-session-only').checked?'':this.value)">
+          <button class="btn" id="ai-connect-btn" onclick="connectGemini()" style="padding:2px 10px" title="Validate the key with a free models call — proves the key works, not that billing is linked">Connect</button>
+        </div>
+        <div id="ai-key-status" style="font-size:9px;color:var(--muted);margin-top:2px">Key from aistudio.google.com (free to create) · stored only on this machine · generating images additionally needs billing linked to that account</div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer">
+          <input type="checkbox" id="ai-key-session-only" onchange="if(this.checked){setGeminiKey('');}else{setGeminiKey(document.getElementById('gemini-api-key').value);}"> Don't save the key (this session only)
+        </label>
+        <div class="field" style="margin-top:6px"><label>Model</label>
+          <select id="ai-model" style="width:100%" onchange="_syncAIModelUI()"></select></div>
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <div class="field" style="flex:1"><label>Aspect</label>
+            <select id="ai-aspect" style="width:100%"></select></div>
+          <div class="field" style="flex:1"><label>Size</label>
+            <select id="ai-size" style="width:100%"></select></div>
+        </div>
+      </div>
+      <div id="sd-settings" style="display:none">
+        <div class="sec-lbl" style="margin-top:6px">Local endpoint</div>
+        <input type="text" id="sd-endpoint" value="http://127.0.0.1:7860" style="width:100%" oninput="localStorage.setItem('sd-endpoint',this.value)">
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">Automatic1111 WebUI · must be running locally</div>
+        <div id="ai-sd-mixed-warn" style="display:none;font-size:9px;color:var(--warn);margin-top:2px">Browsers block http://127.0.0.1 calls from an https page (mixed content). Use the downloaded file:// copy of FigureLab for local Stable Diffusion.</div>
+      </div>
+      <button class="btn btn-primary" id="ai-gen-btn" onclick="generateAIImage()" style="width:100%;justify-content:center;margin-top:6px">✦ Generate via API</button>
+      <div style="font-size:9px;color:var(--muted);margin-top:2px">Clicking sends your prompt to Google's servers. Nothing else ever leaves this machine.</div>
+    </details>
+
     <div class="ai-preview" id="ai-preview">Preview will appear here</div>
     <button class="btn btn-success" id="ai-insert-btn" onclick="insertAIImage()" style="width:100%;justify-content:center;margin-top:4px;display:none">+ Insert into canvas</button>
   </div>
@@ -1641,7 +1686,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
-<h3 class="help-h">What's new in v3.9.5 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 11 August 2026</span></h3>
+<h3 class="help-h">What's new in v3.10.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 11 August 2026</span></h3>
+<ul class="help-ul">
+  <li><b>&#127912; Generate figures with your own Gemini account.</b> Write a prompt, click <span class="help-ui">Generate with your Gemini account</span>, and FigureLab copies the prompt and opens <span class="help-ui">gemini.google.com</span>. Generate there &mdash; free on a consumer Google account &mdash; copy the image, come back and paste. It lands as a schematic object, tagged AI-generated. <b>FigureLab sends nothing:</b> the clipboard does the travelling, and it never sees your Google login.</li>
+  <li><b>Why there's no "sign in with Google" button.</b> Google's image API publishes no OAuth scopes; web OAuth needs a client secret a single offline HTML file cannot hold; and routing a consumer Gemini session through a third-party app breaks Google's terms &mdash; they have suspended accounts for it. Handing the prompt to your own tab is the most FigureLab can honestly do, and it is the only path that spends your free usage.</li>
+  <li><b>The direct API path works again.</b> It had been calling a retired model since 2025 and could not have succeeded. Now on the current endpoint with the <b>Nano Banana</b> family selectable (Flash, Flash Lite, Pro), aspect ratio and 1K/2K/4K size, cancel mid-flight, and errors that say what to do &mdash; including the one everyone hits: creating a key is free, but Google removed the free tier for image models, so generation needs billing linked.</li>
+  <li><b>Disclosure got stronger.</b> Exports now carry the exact model id and the prompt that produced each object, plus a note that Gemini output is invisibly watermarked with SynthID. The compliance check has a new AI row. Removed the "photo-realistic microscopy" style &mdash; a fabricated micrograph is fabricated data however it is labelled.</li>
+  <li><b>Privacy, stated precisely.</b> Your experimental images never leave your machine under any feature. Bridge mode transmits nothing at all. API mode sends your prompt, and says so at the button.</li>
+</ul>
+<h3 class="help-h">v3.9.5 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; 11 August 2026</span></h3>
 <ul class="help-ul">
   <li><b>&#8635; Crops can be tilted.</b> Specimens do not always sit square to the camera. Drag the round grip above the crop box to turn it, or type an angle &mdash; <kbd>Shift</kbd> snaps to 15&deg;, <kbd>[</kbd> and <kbd>]</kbd> nudge by 1&deg;. The region turns; the panel comes out <i>upright</i>. This is different from rotating a panel, which turns the whole cropped picture inside its cell.</li>
   <li><b>Tilt is per region in multi-crop.</b> Every region still shares one size, so the panels stay uniform, but each keeps its own angle &mdash; six plates photographed at six slightly different angles all straighten independently.</li>
@@ -2184,7 +2237,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.9.5';  // single source of truth for the app version
+const APP_VERSION = '3.10.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -2372,6 +2425,9 @@ document.addEventListener('paste', e=>{
   const imgItem=items.find(i=>i.kind==='file'&&/^image\//.test(i.type));
   if(imgItem){
     const blob=imgItem.getAsFile();
+    // While the Gemini bridge is waiting, a pasted image is the generation coming back
+    // from the user's Gemini tab: it becomes a tagged AI schematic, not a data panel.
+    if(blob && typeof _bridgeArmed!=='undefined' && _bridgeArmed){ e.preventDefault(); _bridgePaste(blob); return; }
     if(blob){ e.preventDefault(); addFiles([_renamedFile(blob,imgItem.type)]); return; }
   }
   const url=_imgUrlFromClipboard(dt);
@@ -3187,6 +3243,8 @@ const CMD_REGISTRY=[
   {label:'Customize (name, theme, background)', keys:'customize name theme background animation welcome', run:()=>openCustomize()},
   {label:'Toggle animated background', keys:'background animation motion science toggle', run:()=>{ if(typeof setBgAnimation==='function') setBgAnimation(!(typeof bgAnimationEnabled==='function'&&bgAnimationEnabled())); }},
   {label:'Polish caption (on-device AI)', keys:'ai caption gemini nano polish legend', run:()=>aiPolishCaption()},
+  {label:'AI: Generate with your Gemini account', keys:'ai generate gemini nano banana image schematic bridge', run:()=>startGeminiBridge()},
+  {label:'AI: Generate via API (advanced)', keys:'ai generate api key gemini image', run:()=>generateAIImage()},
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
@@ -12995,15 +13053,30 @@ function setAIBackend(b){
   document.getElementById('sd-settings').style.display=b==='sd'?'':'none';
   document.getElementById('ai-backend-gemini').style.borderColor=b==='gemini'?'var(--accent)':'var(--border)';
   document.getElementById('ai-backend-sd').style.borderColor=b==='sd'?'var(--accent)':'var(--border)';
+  // From an https origin the browser silently blocks calls to http://127.0.0.1
+  // (mixed content) — say so up front instead of letting the generate click fail.
+  const warn=document.getElementById('ai-sd-mixed-warn');
+  if(warn){
+    const ep=document.getElementById('sd-endpoint')?.value||'';
+    warn.style.display=(b==='sd' && location.protocol==='https:' && /^http:\/\//.test(ep))?'':'none';
+  }
 }
 
+let _aiAbort=null;   // in-flight request; the Generate button becomes Cancel while set
 async function generateAIImage(){
+  if(_aiAbort){ _aiAbort.abort(); return; }   // second click = cancel
   const prompt=document.getElementById('ai-prompt').value.trim();
   if(!prompt){ toast('Enter a prompt','warn'); return; }
+  // Offline is the one failure fetch reports uselessly (bare TypeError), so it is
+  // named before the call rather than guessed at afterwards.
+  if(aiBackend==='gemini' && navigator.onLine===false){
+    toast('You’re offline — AI generation needs an internet connection. Everything else in FigureLab still works.','warn'); return;
+  }
   const style=document.getElementById('ai-style').value;
   const btn=document.getElementById('ai-gen-btn');
   const preview=document.getElementById('ai-preview');
-  btn.disabled=true; btn.innerHTML='<span class="spin">⟳</span> Generating…';
+  _aiAbort=new AbortController();
+  btn.innerHTML='✕ Cancel';
   preview.innerHTML='<span class="spin">⟳</span> Generating…';
   document.getElementById('ai-insert-btn').style.display='none';
   aiGeneratedSrc=null;
@@ -13011,7 +13084,7 @@ async function generateAIImage(){
     let src;
     // The engine string is provenance: it lands in the element, the repro log and the
     // export metadata, so it must be the model id actually called — not an approximation.
-    if(aiBackend==='gemini'){ window._lastAIEngine=GEMINI_IMAGE_MODEL; src=await generateWithGemini(prompt,style); }
+    if(aiBackend==='gemini'){ window._lastAIEngine=_aiModel(); src=await generateWithGemini(prompt,style); }
     else { window._lastAIEngine='stable-diffusion'; src=await generateWithSD(prompt,style); }
     if(src){
       aiGeneratedSrc=src;
@@ -13024,35 +13097,139 @@ async function generateAIImage(){
       toast('Generation failed','err');
     }
   }catch(err){
-    preview.innerHTML='Error: '+err.message;
-    toast('Error: '+err.message,'err');
+    if(err && err.name==='AbortError'){ preview.innerHTML='Cancelled.'; }
+    else { preview.innerHTML='Error: '+err.message; toast('Error: '+err.message,'err'); }
   }
-  btn.disabled=false; btn.innerHTML='✦ Generate';
+  _aiAbort=null;
+  btn.innerHTML='✦ Generate via API';
 }
 
-// One place names the model, because three places must agree on it: the request URL,
-// the provenance engine string, and the export metadata. (Phase 2 replaces this with a
-// user-selectable model table; the constant keeps them in lockstep until then.)
-const GEMINI_IMAGE_MODEL='gemini-2.0-flash-exp';
+const GEMINI_HOST='https://generativelanguage.googleapis.com';
+// Current image models (Aug 2026) with what a user needs to choose one: the cost of a
+// click, and which output sizes each supports. Costs are Google's list prices, stated
+// approximately on purpose — they change, the order of magnitude doesn't.
+const GEMINI_MODELS={
+  'gemini-3.1-flash-image':      {label:'Nano Banana 2 — ~$0.04–0.15/image', sizes:['1K','2K','4K']},
+  'gemini-3.1-flash-lite-image': {label:'Nano Banana 2 Lite — ~$0.03/image', sizes:['1K']},
+  'gemini-3-pro-image':          {label:'Nano Banana Pro (best text) — ~$0.13–0.24/image', sizes:['1K','2K','4K']},
+  'gemini-2.5-flash-image':      {label:'Nano Banana legacy — ~$0.04/image', sizes:['1K']},
+};
+const GEMINI_IMAGE_MODEL='gemini-3.1-flash-image';   // default
+const GEMINI_ASPECTS=['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9'];
+// The model actually used: the picker's choice, or the default before the UI exists.
+function _aiModel(){
+  const v=document.getElementById('ai-model')?.value;
+  return (v && GEMINI_MODELS[v]) ? v : GEMINI_IMAGE_MODEL;
+}
+let _geminiSessionKey='';   // session-only key mode: held here, never persisted
+function _geminiKeyNow(){
+  return (_geminiSessionKey||document.getElementById('gemini-api-key')?.value||geminiKey()||'').trim();
+}
 
-async function generateWithGemini(prompt,style){
-  const key=(document.getElementById('gemini-api-key').value||geminiKey()||'').trim();
-  if(!key){ toast('Enter your Gemini API key','warn'); return null; }
-  const fullPrompt=`${prompt}, ${style}`;
-  const resp=await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`,
-    { method:'POST', headers:{'Content-Type':'application/json','x-goog-api-key':key},
-      body:JSON.stringify({
-        contents:[{parts:[{text:fullPrompt}]}],
-        generationConfig:{responseModalities:['IMAGE','TEXT']}
-      })
-    }
-  );
-  if(!resp.ok){ const t=await resp.text(); throw new Error(`Gemini ${resp.status}: ${t.slice(0,120)}`); }
+// Map an HTTP failure to advice a user can act on. The 403 wording matters most:
+// creating a key is free, but image generation lost its free tier in 2026, and
+// "valid key + no billing" is the failure every new user will hit first.
+function _geminiErrMsg(status,bodyText){
+  if(status===400) return 'API key rejected — check the key you pasted (it starts “AIza”).';
+  if(status===403) return 'The key works, but image generation needs billing linked to that Google account — creating a key is free, generating images is not. Link billing at aistudio.google.com → Settings → Plan. (Or use “Generate with your Gemini account” above, which is free.)';
+  if(status===429) return 'Rate or spend cap reached (Google defaults to ~$10 per 10 minutes). Wait a few minutes and try again.';
+  return `Gemini ${status}: ${(bodyText||'').slice(0,140)}`;
+}
+
+// The one request function every Gemini feature calls — generation, and later editing
+// and reference-guided generation, which add inline_data parts.
+//
+// Two things here are load-bearing and easy to "fix" into a breakage:
+//  · Headers are EXACTLY Content-Type + x-goog-api-key. Google's CORS preflight
+//    allowlists only {content-type, x-goog-api-key, authorization, x-goog-api-client};
+//    any other header fails the preflight with an opaque 403 — which is also why the
+//    official @google/genai SDK cannot run in a browser today. Never add a header.
+//  · The API is asymmetric about casing: REQUEST parts use snake_case inline_data /
+//    mime_type, the RESPONSE comes back camelCase inlineData / mimeType.
+async function geminiRequest({parts, model, aspectRatio, imageSize, signal}){
+  const key=_geminiKeyNow();
+  if(!key){ toast('Connect a Gemini API key first (Advanced), or use “Generate with your Gemini account”','warn'); return null; }
+  const generationConfig={responseModalities:['TEXT','IMAGE']};
+  if(aspectRatio||imageSize){
+    generationConfig.responseFormat={image:{}};
+    if(aspectRatio) generationConfig.responseFormat.image.aspectRatio=aspectRatio;
+    if(imageSize)   generationConfig.responseFormat.image.imageSize=imageSize;   // '1K'/'2K'/'4K' — uppercase K required
+  }
+  const resp=await fetch(`${GEMINI_HOST}/v1/models/${encodeURIComponent(model)}:generateContent`,
+    { method:'POST',
+      headers:{'Content-Type':'application/json','x-goog-api-key':key},
+      body:JSON.stringify({contents:[{role:'user',parts}], generationConfig}),
+      signal });
+  if(!resp.ok){ const t=await resp.text().catch(()=>''); throw new Error(_geminiErrMsg(resp.status,t)); }
   const data=await resp.json();
   const part=data.candidates?.[0]?.content?.parts?.find(p=>p.inlineData);
-  if(!part) throw new Error('No image in response — model may not support image generation on this key');
+  if(!part) throw new Error('No image returned — if the key is new, check that billing is enabled on it.');
   return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+}
+
+async function generateWithGemini(prompt,style){
+  return geminiRequest({
+    parts:[{text:`${prompt}, ${style}`}],
+    model:_aiModel(),
+    aspectRatio:document.getElementById('ai-aspect')?.value||undefined,
+    imageSize:document.getElementById('ai-size')?.value||undefined,
+    signal:_aiAbort?.signal,
+  });
+}
+
+// Validate a pasted key with the models listing — free, needs no billing. The status
+// line says so explicitly, because "connected" must not be read as "ready to spend".
+async function connectGemini(){
+  const input=document.getElementById('gemini-api-key');
+  const st=document.getElementById('ai-key-status');
+  const key=(input?.value||'').trim();
+  if(!key){ toast('Paste a key first — aistudio.google.com → Get API key','warn'); return; }
+  st.textContent='Checking key…';
+  try{
+    const r=await fetch(`${GEMINI_HOST}/v1/models`,{headers:{'x-goog-api-key':key}});
+    if(!r.ok) throw new Error(_geminiErrMsg(r.status,''));
+    _geminiSessionKey=key;
+    if(!document.getElementById('ai-key-session-only')?.checked) setGeminiKey(key);
+    st.innerHTML=`<span style="color:var(--a2)">● Connected · key ending …${esc(key.slice(-4))}</span>`
+      +` <a onclick="disconnectGemini()" style="cursor:pointer;color:var(--accent)">disconnect</a>`
+      +`<br>Key is valid. Image generation additionally needs billing linked to that account.`;
+  }catch(err){
+    st.innerHTML=`<span style="color:var(--danger)">${esc(err.message)}</span>`;
+  }
+}
+function disconnectGemini(){
+  _geminiSessionKey=''; setGeminiKey('');
+  const input=document.getElementById('gemini-api-key'); if(input) input.value='';
+  const st=document.getElementById('ai-key-status');
+  if(st) st.textContent='Key from aistudio.google.com (free to create) · stored only on this machine · generating images additionally needs billing linked to that account';
+  toast('Gemini key removed','ok');
+}
+
+// Model/aspect/size pickers. Size options are filtered per model (Lite is 1K-only),
+// and the three choices persist like every other preference.
+function _syncAIModelUI(){
+  const mSel=document.getElementById('ai-model'), aSel=document.getElementById('ai-aspect'), sSel=document.getElementById('ai-size');
+  if(!mSel||!aSel||!sSel) return;
+  if(!mSel.options.length){
+    for(const [id,m] of Object.entries(GEMINI_MODELS)){
+      const o=document.createElement('option'); o.value=id; o.textContent=m.label; mSel.appendChild(o);
+    }
+    for(const a of GEMINI_ASPECTS){ const o=document.createElement('option'); o.value=a; o.textContent=a; aSel.appendChild(o); }
+    try{
+      const m=localStorage.getItem('fl-ai-model'); if(m&&GEMINI_MODELS[m]) mSel.value=m; else mSel.value=GEMINI_IMAGE_MODEL;
+      const a=localStorage.getItem('fl-ai-aspect'); if(a&&GEMINI_ASPECTS.includes(a)) aSel.value=a;
+    }catch(e){}
+    aSel.onchange=()=>{ try{ localStorage.setItem('fl-ai-aspect',aSel.value); }catch(e){} };
+    sSel.onchange=()=>{ try{ localStorage.setItem('fl-ai-size',sSel.value); }catch(e){} };
+  }
+  try{ localStorage.setItem('fl-ai-model',mSel.value); }catch(e){}
+  const sizes=GEMINI_MODELS[mSel.value]?.sizes||['1K'];
+  const keep=sSel.value;
+  sSel.innerHTML='';
+  for(const s of sizes){ const o=document.createElement('option'); o.value=s; o.textContent=s; sSel.appendChild(o); }
+  let want=keep;
+  try{ want=localStorage.getItem('fl-ai-size')||keep; }catch(e){}
+  sSel.value=sizes.includes(want)?want:sizes[0];   // default 1K keeps the cost floor
 }
 
 async function generateWithSD(prompt,style){
@@ -13067,38 +13244,103 @@ async function generateWithSD(prompt,style){
   return `data:image/png;base64,${data.images[0]}`;
 }
 
+// One constructor for every AI image that lands on the canvas — API result, bridge
+// paste, and later the editing paths — so the disclosure fields cannot drift apart.
+// Routed through addFreeformElement so insertion is undoable and picks up id and
+// z-order assignment like every other object. (The old hand-rolled push skipped
+// pushUndo entirely — Ctrl+Z after inserting an AI image undid the WRONG thing.)
+function _insertAIElement(src,img,{engine,prompt,bridge}={}){
+  if(layoutMode!=='freeform'){
+    document.getElementById('layout-mode').value='freeform';
+    setLayoutMode('freeform');
+  }
+  addFreeformElement({
+    type:'aiicon', src, _imgEl:img,
+    // Disclosed as AI-generated: tagged in the layer list, provenance log, and export metadata.
+    // Generation only ever inserts a NEW object — it is never applied to an imported
+    // experimental image (no inpainting / region-redraw exists in FigureLab).
+    aiGenerated:true,
+    aiEngine:engine||'ai',
+    aiModel:engine||'ai',                       // the model id IS the engine now; kept as
+                                                // two fields for session back-compat
+    aiPrompt:(prompt||'').slice(0,500),
+    aiTs:new Date().toISOString(),
+    x:50, y:50, w:Math.min(400,img.width), h:Math.min(400,img.height),
+    color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI schematic',
+    brightness:1,contrast:1,gamma:1,blackPt:0,whitePt:255,
+    grayscale:false,invert:false,lut:'none',
+    // "Remove background" means the non-destructive keyer, not a baked-in rewrite of
+    // the pixels: reversible, tunable in the element props, source left intact.
+    ...(document.getElementById('ai-remove-bg')?.checked
+        ? {bgKey:{on:true,mode:'white',color:'#ffffff',tol:32,feather:0}} : {}),
+  });
+  logAction('aiGenerate',{engine:engine||'ai', kind:'schematic', ...(bridge?{bridge:true}:{})});
+  toast('AI schematic inserted — tagged as AI-generated in the layer list & export metadata','ok');
+}
+
 function insertAIImage(){
   if(!aiGeneratedSrc){ toast('No image generated yet','warn'); return; }
   const img=new Image();
-  img.onload=()=>{
-    if(layoutMode!=='freeform'){
-      document.getElementById('layout-mode').value='freeform';
-      setLayoutMode('freeform');
-    }
-    // Routed through addFreeformElement so insertion is undoable and picks up id and
-    // z-order assignment like every other object. The old hand-rolled push skipped
-    // pushUndo entirely — Ctrl+Z after inserting an AI image undid the WRONG thing.
-    addFreeformElement({
-      type:'aiicon', src:aiGeneratedSrc, _imgEl:img,
-      // Disclosed as AI-generated: tagged in the layer list, provenance log, and export metadata.
-      // Generation only ever inserts a NEW object — it is never applied to an imported
-      // experimental image (no inpainting / region-redraw exists in FigureLab).
-      aiGenerated:true, aiEngine:(window._lastAIEngine||'ai'), aiPrompt:(document.getElementById('ai-prompt')?.value||'').slice(0,200),
-      x:50, y:50, w:Math.min(400,img.width), h:Math.min(400,img.height),
-      color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI schematic',
-      brightness:1,contrast:1,gamma:1,blackPt:0,whitePt:255,
-      grayscale:false,invert:false,lut:'none',
-      // "Remove background" now means the non-destructive keyer, not the old baked-in
-      // 230-threshold rewrite of the pixels: reversible, tunable in the element props
-      // (tolerance/feather), and it leaves the generated source intact.
-      ...(document.getElementById('ai-remove-bg')?.checked
-          ? {bgKey:{on:true,mode:'white',color:'#ffffff',tol:32,feather:0}} : {}),
-    });
-    logAction('aiGenerate',{engine:window._lastAIEngine||'ai', kind:'schematic'});   // disclosed in provenance
-    toast('AI schematic inserted — tagged as AI-generated in the layer list & export metadata','ok');
-  };
+  img.onload=()=>_insertAIElement(aiGeneratedSrc,img,{
+    engine:window._lastAIEngine||'ai',
+    prompt:document.getElementById('ai-prompt')?.value||'',
+  });
   img.onerror=()=>toast('Generated image could not be inserted','err');
   img.src=aiGeneratedSrc;
+}
+
+// ── The Gemini bridge ─────────────────────────────────────────
+// Generation on the user's own signed-in gemini.google.com tab — free on a consumer
+// account, no API key, and FigureLab transmits nothing: the prompt travels out on the
+// clipboard and the image travels back as a paste. This is the deliberate answer to
+// "log in to Gemini from the tool": Google's image API has no OAuth scopes, a static
+// file cannot hold the client secret web OAuth requires, and proxying a consumer
+// Gemini session is a ToS violation Google suspends accounts for. The user's own tab
+// is the one place their free usage can legitimately be spent.
+let _bridgeArmed=null;   // {prompt, full} while waiting for the paste back
+
+async function startGeminiBridge(){
+  const prompt=document.getElementById('ai-prompt').value.trim();
+  if(!prompt){ toast('Enter a prompt first','warn'); return; }
+  const style=document.getElementById('ai-style').value;
+  _bridgeArmed={prompt, full:`${prompt}, ${style}`};
+  await copyBridgePrompt();
+  document.getElementById('ai-bridge-wait').style.display='';
+  document.getElementById('ai-bridge-btn').style.display='none';
+  window.open('https://gemini.google.com/app','_blank');
+}
+async function copyBridgePrompt(){
+  if(!_bridgeArmed) return;
+  try{
+    await navigator.clipboard.writeText(_bridgeArmed.full);
+    toast('Prompt copied — paste it in the Gemini tab','ok');
+  }catch(e){
+    // Clipboard access can be denied (browser setting, non-Chrome file://). The flow
+    // still works — the prompt is right there in the box to copy by hand.
+    toast('Couldn’t copy automatically — select the prompt text and copy it yourself','warn');
+  }
+}
+function cancelGeminiBridge(){
+  _bridgeArmed=null;
+  document.getElementById('ai-bridge-wait').style.display='none';
+  document.getElementById('ai-bridge-btn').style.display='';
+}
+// Called from the global paste handler: while armed, an image paste is the generation
+// coming home, so it lands as a tagged AI schematic instead of a normal panel import.
+function _bridgePaste(blob){
+  const armed=_bridgeArmed;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    const src=rd.result;
+    const img=new Image();
+    img.onload=()=>{
+      _insertAIElement(src,img,{engine:'gemini-app', prompt:armed.prompt, bridge:true});
+      cancelGeminiBridge();
+    };
+    img.onerror=()=>{ toast('Pasted image could not be read','err'); cancelGeminiBridge(); };
+    img.src=src;
+  };
+  rd.readAsDataURL(blob);
 }
 // Count AI-generated objects currently on the canvas (for export disclosure).
 function _aiGeneratedCount(){ return (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e&&e.aiGenerated).length; }
@@ -14532,8 +14774,12 @@ async function exportPNGWithMeta(name, dpi, canvas){
   // Disclose AI-generated content in the exported file's metadata, honestly and machine-readably.
   const aiN=(typeof _aiGeneratedCount==='function')?_aiGeneratedCount():0;
   if(aiN>0){
-    const engines=[...new Set(freeformElements.filter(e=>e&&e.aiGenerated).map(e=>e.aiEngine||'ai'))];
-    meta['AI-Generated-Content']=`${aiN} object(s) are AI-generated schematics (engine: ${engines.join(', ')}). No AI was applied to imported experimental images.`;
+    const aiEls=freeformElements.filter(e=>e&&e.aiGenerated);
+    const engines=[...new Set(aiEls.map(e=>e.aiModel||e.aiEngine||'ai'))];
+    meta['AI-Generated-Content']=`${aiN} object(s) are AI-generated schematics (model: ${engines.join(', ')}). No AI was applied to imported experimental images. Gemini output carries an invisible SynthID watermark embedded by Google.`;
+    // The prompt is provenance too — Science requires the full prompt when generative
+    // imagery is permitted at all, so it ships in the file rather than in the author's memory.
+    aiEls.forEach((e,i)=>{ if(e.aiPrompt) meta[`AI-Prompt-${i+1}`]=`[${e.aiModel||e.aiEngine||'ai'}] ${e.aiPrompt}`; });
   }
   if(typeof _figAltText==='string' && _figAltText.trim()) meta['Alt-Text']=_figAltText.trim();
   // Add per-panel metadata
@@ -15286,6 +15532,7 @@ renderSessionLibrary();
 startAutosave();
 checkAutosave();
 initAIQuickPrompts();
+_syncAIModelUI();
 
 // Count threshold slider live label
 (function(){

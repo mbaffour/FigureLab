@@ -1,4 +1,4 @@
-# FigureLab v3.9.5
+# FigureLab v3.10.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -51,7 +51,17 @@ Tools that cannot work in your current layout mode are hidden or disabled **with
 
 > Earlier versions had a Simple/Advanced switch. It hid about thirty-five controls, including whole tools like Batch Crop, which made them impossible to discover — you cannot look for something you have no way of knowing exists. It was removed in v3.9.3.
 
-## On-device AI
+## AI features & privacy
+
+FigureLab's privacy rule is simple: **your experimental images never leave your machine, under any feature.** Three AI features exist, each with a different (and clearly stated) network story:
+
+1. **On-device caption polish** — runs entirely in your browser via Chrome's built-in Prompt API (Gemini Nano). No server, no key, nothing uploaded, works offline.
+2. **Generate with your Gemini account** (the default generator) — FigureLab itself sends *nothing*. It copies your prompt to the clipboard and opens gemini.google.com, where you generate on your own signed-in account (free on consumer accounts), then paste the image back. The result is tagged AI-generated and disclosed in every export. There is no in-app "sign in with Google": Google's image API has no OAuth path a serverless static file can use, and proxying a consumer Gemini session violates Google's ToS — so the bridge is the honest maximum.
+3. **Direct API mode (advanced)** — you paste your own AI Studio API key, and clicking Generate sends **your prompt (and, in later versions, any reference schematic you explicitly attach)** to Google's Gemini API. The key is stored only on your machine (or held for the session only, if you prefer). Creating a key is free; **image generation requires billing linked to the Google account** (Google removed the image-model free tier in 2026, ~$0.03–0.24/image). All Gemini output carries Google's invisible SynthID watermark.
+
+**AI never touches your data panels.** Generation only ever inserts a *new* schematic object; there is no inpainting or AI retouching of imported experimental images, and exports state this in their metadata.
+
+### On-device caption polish
 
 The **caption helper** can optionally polish your figure legend with AI that runs **entirely in your browser, on your own machine** — no server, no API key, nothing uploaded. It uses **Chrome's built-in Prompt API (Gemini Nano)**, the browser-native on-device model, so it fits FigureLab's offline/privacy promise exactly.
 
@@ -263,6 +273,17 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.10.0 — 11 August 2026
+**Focus: generating figure artwork with Gemini, using your own account rather than an API key — and making the existing AI path honest.**
+
+- **🎨 Generate with your Gemini account.** Write a prompt, click the button, and FigureLab copies the prompt and opens gemini.google.com. You generate there — free on a consumer Google account — copy the image, come back and paste. It lands as a schematic object, tagged AI-generated, with the prompt recorded. **FigureLab transmits nothing:** the clipboard does the travelling, and the app never sees your Google login. A test asserts zero network requests for the whole bridge flow.
+- **Why there is no in-app "sign in with Google".** It was the obvious design and it isn't available: Google's image API publishes no OAuth scopes for generation, web OAuth requires a client secret that a single offline HTML file cannot hold (and `file://` origins can't be registered at all), and routing a consumer Gemini session through a third-party app violates Google's terms — they began suspending accounts for it in March 2026. Handing the prompt to the user's own tab is the honest maximum, and it's the only route that spends the free consumer usage.
+- **The direct API path works again.** It had been calling `gemini-2.0-flash-exp` — retired — so it could not have succeeded for some time. Now on the current `/v1/…:generateContent` endpoint with the **Nano Banana** family selectable (Flash, Flash Lite, Pro), aspect ratio, 1K/2K/4K output, cancel mid-flight, and an error for each real failure: offline (named before the call, not surfaced as `Failed to fetch`), bad key, rate/spend cap, and the one every new user hits — **creating a key is free, but Google removed the free tier for image models in 2026, so generation needs billing linked**. The old "Get free key" text said the opposite.
+- **Stronger disclosure.** Exports now record the exact model id and the prompt behind each AI object, and state that Gemini output carries Google's invisible SynthID watermark. The journal-compliance check gained an AI row. The "photo-realistic microscopy" prompt style is gone: a fabricated micrograph is fabricated data however it is labelled.
+- **Eight defects fixed in the existing AI extension**, one serious: a patch had shadowed `generateAIImage` with a wrapper that awaited "the original", but both declarations hoist, so it captured *itself* — every click was infinite async recursion and the spinner never stopped. Also: inserting an AI image skipped `pushUndo` (Ctrl+Z undid the wrong thing); the provenance engine string didn't match the model actually called; the backend choice never persisted despite being read at startup; lightweight session saves discarded AI image data that cannot be re-imported; and the API key moved to the `fl-` settings convention with a one-time migration.
+- **Privacy stated precisely** rather than absolutely. Your experimental images never leave your machine under any feature, and AI never touches a data panel — generation only ever inserts a *new* object. Bridge mode transmits nothing; API mode sends your prompt, and says so at the button. The landing page and README no longer claim "no data leaves your machine" without qualification.
+- **294 Playwright tests** (up from 270), including a `stubGemini` route helper so no test ever calls the paid API.
 
 ### v3.9.5 — 11 August 2026
 **Focus: crops that aren't square to the camera, and multi-crop sessions you can correct without starting over.**
