@@ -474,6 +474,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="text" id="fname-pattern" placeholder="condition_time_channel_rep" style="flex:1;font-size:10px" title="Name your filename fields separated by _ (e.g. condition_time_channel_rep). Leave blank to just clean the name and detect the channel.">
       <button class="btn" style="font-size:10px;justify-content:center" onclick="parseFilenames()" title="Split each filename into the named fields, fill captions, and assign channel LUTs">⤷ Parse names</button>
     </div>
+    <!-- Labels built from the fields the parser already found, so eighteen panels get
+         their names from the filenames rather than from eighteen pieces of typing. -->
+    <div class="adv" style="display:flex;gap:4px;margin-top:4px">
+      <input type="text" id="label-template" placeholder="{condition} {time}" style="flex:1;font-size:10px" title="Build each panel's label from the fields named above, e.g. {condition} {time}. Positional {1} {2} also work. An unknown field resolves to nothing, so a typo leaves a gap rather than printing braces into your figure.">
+      <button class="btn" style="font-size:10px;justify-content:center" onclick="applyLabelTemplate()" title="Fill every panel label from the template">⤷ Label from fields</button>
+    </div>
     <div class="divider"></div>
     <!-- Use a subset of the panels without losing the rest. Cutting several plates
          into several regions can produce far more panels than a figure needs; the
@@ -915,6 +921,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Before you submit</div>
     <button class="btn btn-primary" onclick="checkCompliance()" style="width:100%;justify-content:center">✓ Check journal compliance</button>
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center;margin-top:4px">🔍 Deep figure audit</button>
+    <button class="btn" onclick="auditConsistency()" style="width:100%;justify-content:center;margin-top:4px" title="Find text sizes, fonts, stroke widths and line colours that differ across the figure, and collapse them to one value in a single undoable step">⚖ Homogenize styles</button>
+    <button class="btn" onclick="addLinkedInset()" style="width:100%;justify-content:center;margin-top:4px" title="Add a magnified daughter panel of the selected panel. It stays bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways.">⧉ Add linked inset</button>
     <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Compare the pixels of every pair of panels to catch an accidental reuse, including rotated or mirrored">🧬 Duplicate-panel check</button>
 
     <div class="divider"></div>
@@ -965,6 +973,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:3px">Opens a <b>Save dialog</b> — change the name, format &amp; DPI before it downloads.</div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
+    <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
     <button class="btn" id="pptx-btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
 
     <button class="btn" onclick="exportCSV()" style="width:100%;justify-content:center">⬇ CSV Metadata</button>
@@ -1696,7 +1705,17 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
-<h3 class="help-h">What's new in v3.10.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 11 August 2026</span></h3>
+<h3 class="help-h">What's new in v3.11.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 11 August 2026</span></h3>
+<ul class="help-ul">
+  <li><b>&#10024; Edit schematics with AI &mdash; and never your data.</b> AI-generated and hand-drawn objects gain <span class="help-ui">Edit in Gemini</span> (your own tab, nothing sent) and <span class="help-ui">Edit via API</span>, plus variations and style references. Imported experimental images and grid panels are <b>refused</b>, loudly: journals treat AI alteration of data images as misconduct. One rule decides every entry point, and a test asserts refused paths make zero network requests.</li>
+  <li><b>Export stops if the journal says no.</b> Exporting a figure containing AI content under the Nature, Science or Cell preset shows that journal's actual position, dated with a link to verify. Continuing writes the disclosure sentence &mdash; tool, model, version, prompt &mdash; into your figure notes, where the caption generator and submission package pick it up.</li>
+  <li><b>&#9878; Homogenize styles.</b> Finds every font, text size, stroke width and line colour that has drifted across the figure and collapses each to one value in a single undoable step. This is what makes a figure look authored rather than assembled.</li>
+  <li><b>&#10696; Linked insets.</b> A magnified daughter panel that stays bound to its parent by id: adjust the parent and the inset follows, reorder panels and it still follows, and the magnification lands in the metadata CSV. A hand-made inset silently diverges the moment the parent is touched.</li>
+  <li><b>36 new icons</b> &mdash; anatomy and clinical, study-design and workflow, and the microbiology set this tool is actually used for (phage, plaque assay, colonies, biofilm, plasmid, CRISPR). Every icon now carries a licence record, and <span class="help-ui">&#9878; Credits</span> generates the attribution paragraph for anything that needs one. FigureLab's own icons need none: no publication licence, no watermark, no per-figure fee.</li>
+  <li><b>Per-panel processing history</b> in the submission package &mdash; every operation applied to every panel, in order, as text and JSON. Honest about being unsigned.</li>
+  <li><b>Deliverable presets</b> (graphical abstract, TOC image, A0 poster, 16:9 slide), <b>labels built from filename fields</b> (<span class="help-ui">{condition} {time}</span>), and <b>duplicate row / column</b>.</li>
+</ul>
+<h3 class="help-h">v3.10.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; 11 August 2026</span></h3>
 <ul class="help-ul">
   <li><b>&#127912; Generate figures with your own Gemini account.</b> Write a prompt, click <span class="help-ui">Generate with your Gemini account</span>, and FigureLab copies the prompt and opens <span class="help-ui">gemini.google.com</span>. Generate there &mdash; free on a consumer Google account &mdash; copy the image, come back and paste. It lands as a schematic object, tagged AI-generated. <b>FigureLab sends nothing:</b> the clipboard does the travelling, and it never sees your Google login.</li>
   <li><b>Why there's no "sign in with Google" button.</b> Google's image API publishes no OAuth scopes; web OAuth needs a client secret a single offline HTML file cannot hold; and routing a consumer Gemini session through a third-party app breaks Google's terms &mdash; they have suspended accounts for it. Handing the prompt to your own tab is the most FigureLab can honestly do, and it is the only path that spends your free usage.</li>
@@ -2247,7 +2266,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.10.0';  // single source of truth for the app version
+const APP_VERSION = '3.11.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -3081,6 +3100,67 @@ function parseFilenames(){
   renderImgList(); if(typeof renderChList==='function') renderChList(); scheduleRender();
   toast(`Parsed ${n} filename${n>1?'s':''}${fields?' by pattern':''}`,'ok');
 }
+// ── Token-driven labels ───────────────────────────────────────
+// Panel labels are usually the filename's own fields rearranged: "24h", "+ATC", "GFP".
+// Typing them by hand for eighteen panels is where transcription errors come from, so
+// a template resolves them from what the filename parser already extracted. It reuses
+// that parse — no second filename grammar to keep in step with the first.
+function _panelTokens(im){
+  const base=(im.name||'').replace(/\.[^.]+$/,'');
+  const toks=base.split(/[_\-\s.]+/).filter(Boolean);
+  const pat=(gv('fname-pattern')||'').trim();
+  const fields=pat?pat.split(/[_\-\s]+/).filter(Boolean):[];
+  const map={};
+  fields.forEach((f,i)=>{ if(toks[i]!=null) map[f.toLowerCase()]=toks[i]; });
+  toks.forEach((t,i)=>{ map['$'+(i+1)]=t; });          // positional fallback
+  map.name=base;
+  return map;
+}
+// Resolve {token} against the parsed fields. An unknown token resolves to nothing
+// rather than to the literal text, so a typo leaves a gap you can see instead of
+// printing "{conditon}" into a published figure.
+function _resolveTemplate(tpl,map){
+  return String(tpl||'').replace(/\{([^}]+)\}/g,(m,k)=>{
+    const key=k.trim().toLowerCase();
+    return (map[key]!==undefined?map[key]:(map['$'+key]!==undefined?map['$'+key]:''));
+  }).replace(/\s{2,}/g,' ').trim();
+}
+function applyLabelTemplate(){
+  if(!images.length){ toast('Add images first','warn'); return; }
+  const tpl=(gv('label-template')||'').trim();
+  if(!tpl){ toast('Enter a template, e.g. {condition} {time}','warn'); return; }
+  pushUndo();
+  let n=0;
+  images.forEach(im=>{ if(!im) return;
+    const v=_resolveTemplate(tpl,_panelTokens(im));
+    if(v){ im.label=v; n++; } });
+  renderImgList(); scheduleRender(0);
+  toast(n?`Labelled ${n} panel${n===1?'':'s'} from the template`:'Template resolved to nothing — check the field names in Parse filenames','warn');
+}
+
+// Duplicate a whole row or column of the grid — the layout action OMERO.figure has and
+// hand-assembly makes tedious, since it means re-inserting N panels in the right order.
+function duplicateGridLine(kind){
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const idx=selectedPanel>=0?selectedPanel:0;
+  if(!images[idx]){ toast('Select a panel in the row/column you want to duplicate','warn'); return; }
+  pushUndo();
+  const r=Math.floor(idx/cols), c=idx%cols;
+  if(kind==='row'){
+    const line=[]; for(let i=0;i<cols;i++) line.push(images[r*cols+i]);
+    images.splice((r+1)*cols,0,...line.map(im=>im?cloneImageForUndo(im):null));
+    sv('rows',rows+1);
+  } else {
+    for(let i=rows-1;i>=0;i--){
+      const src=images[i*cols+c];
+      images.splice(i*cols+c+1,0,src?cloneImageForUndo(src):null);
+    }
+    sv('cols',cols+1);
+  }
+  onLayoutChange(); renderImgList(); scheduleRender(0);
+  toast(`Duplicated the ${kind}`,'ok');
+}
+
 function autoDetectChannels(){
   if(!images.length){ toast('Add images first','warn'); return; }
   pushUndo();
@@ -3259,6 +3339,16 @@ const CMD_REGISTRY=[
   {label:'AI: Edit selected object via API', keys:'ai edit object api gemini', run:()=>aiEditSelected()},
   {label:'AI: Variation of selected object', keys:'ai variation alternative regenerate', run:()=>aiVariation()},
   {label:'AI: Revert last AI edit', keys:'ai revert undo edit restore', run:()=>revertAIEdit()},
+  {label:'Show credits & attribution', keys:'credits attribution licence license icons cite', run:()=>showCredits()},
+  {label:'Homogenize text & stroke styles', keys:'homogenize consistent font size stroke tidy uniform', run:()=>auditConsistency()},
+  {label:'Add linked inset (magnify this panel)', keys:'inset magnify zoom daughter linked region detail', run:()=>addLinkedInset()},
+  {label:'Label panels from filename fields', keys:'label template tokens filename fields rename', run:()=>applyLabelTemplate()},
+  {label:'Duplicate this row', keys:'duplicate row copy layout grid', run:()=>duplicateGridLine('row')},
+  {label:'Duplicate this column', keys:'duplicate column copy layout grid', run:()=>duplicateGridLine('col')},
+  {label:'Canvas: graphical abstract (Elsevier)', keys:'graphical abstract elsevier deliverable canvas preset', run:()=>applyDeliverable('graphicalAbstract')},
+  {label:'Canvas: TOC image (Nature Chem)', keys:'toc table of contents image nature deliverable', run:()=>applyDeliverable('tocImage')},
+  {label:'Canvas: A0 poster panel', keys:'poster a0 conference deliverable canvas', run:()=>applyDeliverable('posterA0')},
+  {label:'Canvas: 16:9 slide', keys:'slide powerpoint keynote talk deliverable canvas', run:()=>applyDeliverable('slide169')},
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
@@ -4557,7 +4647,7 @@ function exportCSV(){
   // CropAngle + Resampling are stated as their own columns rather than folded into a
   // note: a tilted crop is the one crop that changes pixel values, so a reader
   // checking the table should not have to infer it.
-  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,Caption,Meta';
+  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,Caption,Meta';
   const lines=[header];
   images.slice(0,cols*rows).forEach((im,i)=>{
     if(!im) return;
@@ -4566,6 +4656,10 @@ function exportCSV(){
       im.lut||'none',im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,
       (im.cropAngle?'resampled (bilinear)':'none'),
+      // An inset's magnification is a number a reader needs and an author usually
+      // states from memory; it is derived here rather than typed.
+      (im.insetOf?(_findPanelById(im.insetOf)?.label||'?'):''),
+      (im.insetOf?(_insetMag(im)+'×'):''),
       `"${(im.captionNote||'').replace(/"/g,'""')}"`,
       `"${(im.metaNote||'').replace(/"/g,'""')}"`].join(','));
   });
@@ -4665,6 +4759,10 @@ function render(targetCanvas, exportScale, opts){
   // re-emits that text as real <text>); figTextItems still records each label.
   const isExport = !!targetCanvas;
   const S = exportScale || 1;
+  // Linked insets re-derive their crop and display settings from their parent here, so
+  // a parent adjustment made a moment ago is reflected in the same frame. Cheap: it
+  // only touches panels that carry an insetOf binding.
+  if(typeof syncLinkedInsets==='function') syncLinkedInsets();
   // opts.skipLabels: true skips ALL figure text (SVG export re-emits every label as
   // vector). A FUNCTION skips per item — the PDF export uses this, because it can only
   // typeset text its embedded font can represent, and anything else must stay in the
@@ -6505,6 +6603,14 @@ function checkCompliance(){
     {label:'Min panel size',ok:gi('panel-w')>=80&&gi('panel-h')>=80, warn:false, note:`${gi('panel-w')}×${gi('panel-h')} px per panel`},
     // Warn, never fail: AI-generated schematics are legitimate in many venues, but the
     // author must disclose them — and the strictest journals refuse them outright.
+    // An inset whose parent was deleted still renders, but it is no longer bound to
+    // anything and will not follow future adjustments — silence there would be a figure
+    // showing two processings of one field with nothing to say so.
+    {label:'Linked insets', ok:images.filter(im=>im&&im.insetOrphaned).length===0, warn:images.filter(im=>im&&im.insetOrphaned).length>0,
+      note:images.filter(im=>im&&im.insetOrphaned).length
+        ? `${images.filter(im=>im&&im.insetOrphaned).length} inset(s) lost their parent panel — no longer synced`
+        : (images.filter(im=>im&&im.insetOf).length
+           ? `${images.filter(im=>im&&im.insetOf).length} inset(s), all linked ✓` : 'None')},
     {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
       note:_aiGeneratedCount()
         ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
@@ -8178,6 +8284,135 @@ function getExportDPI(){ return parseInt(gv('export-dpi'))||300; }
 // (supersampled), so raster exports are genuinely high-res, not just DPI-tagged.
 // Target printed width in mm, or 0 for "free". Journals specify a physical width;
 // pixels are only the means of hitting it.
+// ═══════════════════════════════════════════════════════════════
+// HOMOGENIZER
+// A figure assembled from several sources drifts: text at four sizes, strokes at three
+// weights, two fonts that are nearly the same. Each difference is invisible alone and
+// together they are what makes a figure look assembled rather than authored. This finds
+// the drift and collapses it in one undoable step — Scientific Inkscape's best idea,
+// which is trivial here because FigureLab owns the objects rather than parsing an SVG.
+// ═══════════════════════════════════════════════════════════════
+const _HOMO_PROPS=[
+  {key:'fontFamily', label:'Font',        applies:el=>el.type==='text'||el.type==='connector'||el.type==='chart'},
+  {key:'fontSize',   label:'Text size',   applies:el=>el.type==='text'||el.type==='connector', num:true},
+  {key:'strokeWidth',label:'Stroke width',applies:el=>el.strokeWidth!==undefined&&el.type!=='text', num:true},
+  {key:'color',      label:'Line colour', applies:el=>el.color!==undefined&&el.color!=='transparent'},
+];
+// What distinct values exist for each property, and how many objects use each.
+function _homoScan(){
+  const els=(typeof freeformElements!=='undefined'?freeformElements:[]).filter(Boolean);
+  const out=[];
+  for(const p of _HOMO_PROPS){
+    const counts=new Map();
+    for(const el of els){
+      if(!p.applies(el)) continue;
+      const v=el[p.key];
+      if(v===undefined||v===null||v==='') continue;
+      counts.set(v,(counts.get(v)||0)+1);
+    }
+    if(counts.size>1){
+      // Majority wins by default — the value already used most is the least surprising
+      // thing to converge on, and the user can override it in the dropdown.
+      const sorted=[...counts.entries()].sort((a,b)=>b[1]-a[1]);
+      out.push({...p, values:sorted, majority:sorted[0][0], total:sorted.reduce((a,b)=>a+b[1],0)});
+    }
+  }
+  return out;
+}
+function auditConsistency(){
+  if(layoutMode!=='freeform'){ toast('The homogenizer works on freeform objects','warn'); return; }
+  const found=_homoScan();
+  if(!found.length){
+    showInfoModal('✓ Consistent', `<div style="font-size:11px;line-height:1.6">
+      Every object already shares one font, one text size, one stroke width and one line colour.
+      Nothing to homogenize.</div>`);
+    return;
+  }
+  const rows=found.map(f=>`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="flex:1;font-size:11px">${f.label}
+        <span style="color:var(--muted)">— ${f.values.length} different values across ${f.total} objects</span></span>
+      <select id="homo-${f.key}" style="font-size:10px;max-width:130px">
+        ${f.values.map(([v,n])=>`<option value="${esc(String(v))}">${esc(String(v))} (${n})</option>`).join('')}
+      </select>
+    </div>`).join('');
+  showInfoModal('⚖ Homogenize styles', `
+    <div style="font-size:11px;line-height:1.6">
+      <p style="margin-bottom:8px">These properties differ across the figure. Pick the value each should take —
+      the one already most common is preselected.</p>
+      ${rows}
+      <button class="btn btn-primary" onclick="applyHomogenize()" style="margin-top:8px">Apply to all objects</button>
+      <p style="margin-top:6px;color:var(--muted);font-size:10px">One undo step reverses the whole thing.</p>
+    </div>`);
+}
+function applyHomogenize(){
+  const found=_homoScan();
+  const picks=found.map(f=>({...f, chosen:(document.getElementById('homo-'+f.key)||{}).value}))
+                   .filter(f=>f.chosen!==undefined&&f.chosen!=='');
+  if(!picks.length){ toast('Nothing to apply','warn'); return; }
+  pushUndo();                                     // ONE undo step for the whole sweep
+  let changed=0;
+  for(const el of freeformElements){
+    if(!el) continue;
+    for(const p of picks){
+      if(!p.applies(el)) continue;
+      const cur=el[p.key];
+      if(cur===undefined||cur===null||cur==='') continue;
+      const val=p.num?parseFloat(p.chosen):p.chosen;
+      if(String(cur)!==String(val)){ el[p.key]=val; changed++;
+        el._chartCache=undefined; el._chartKey=undefined; }
+    }
+  }
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  updateFreeformElemList(); updateElemPropsBar(); scheduleRender(0);
+  logAction('homogenize',{props:picks.map(p=>p.key), changed});
+  toast(changed?`Homogenized ${changed} propert${changed===1?'y':'ies'}`:'Everything already matched','ok');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DELIVERABLE PRESETS
+// A figure is not the only thing people build here. Graphical abstracts, TOC images,
+// posters and slides each have a target the author is expected to hit exactly, and
+// missing it is discovered at submission. These set the canvas to the real target and
+// say what it will print at — with the caveat, because these specs move.
+// ═══════════════════════════════════════════════════════════════
+const DELIVERABLES={
+  graphicalAbstract:{label:'Graphical abstract (Elsevier)', w:1328, h:531, dpi:300, widthMm:112.4,
+    note:'Elsevier asks for at least 1328×531 px at ≥300 dpi (5:2 landscape). Spec as of Aug 2026 — check your journal.'},
+  tocImage:{label:'TOC image (Nature Chem / Chem Biol)', w:1063, h:591, dpi:300, widthMm:90,
+    note:'Fits 90×50 mm at 300 dpi, white background, minimal text. Most Nature journals do NOT accept graphical abstracts — verify yours does.'},
+  posterA0:{label:'Poster panel (A0 portrait)', w:2384, h:3370, dpi:150, widthMm:841,
+    note:'A0 is 841×1189 mm. 150 dpi is normal for large-format printing; check with your print shop.'},
+  slide169:{label:'Slide (16:9)', w:1920, h:1080, dpi:96, widthMm:338,
+    note:'Full-bleed 16:9 for PowerPoint or Keynote at 1920×1080.'},
+};
+function applyDeliverable(key){
+  const d=DELIVERABLES[key]; if(!d) return;
+  pushUndo();
+  if(layoutMode!=='freeform'){ document.getElementById('layout-mode').value='freeform'; setLayoutMode('freeform'); }
+  sv('fm-canvas-w',d.w); sv('fm-canvas-h',d.h);
+  // DPI and printed width are <select>s of journal-standard values, and a deliverable's
+  // numbers are not always among them — assigning a missing value to a select silently
+  // does nothing and leaves the field blank. Add the option, then select it.
+  const _ensureOpt=(id,val,text)=>{
+    const s=document.getElementById(id); if(!s) return;
+    if(!Array.from(s.options).some(o=>o.value===String(val))){
+      const o=document.createElement('option');
+      o.value=String(val); o.textContent=text; s.appendChild(o);
+    }
+  };
+  _ensureOpt('export-dpi', d.dpi, `${d.dpi} (${d.label})`);
+  _ensureOpt('export-width-mm', d.widthMm, `${d.widthMm} mm — ${d.label}`);
+  sv('export-dpi',String(d.dpi));
+  sv('export-width-mm',String(d.widthMm));
+  onLayoutChange(); scheduleRender(0); _syncPhysReadout();
+  showInfoModal(d.label, `<div style="font-size:11px;line-height:1.6">
+    <p style="margin-bottom:6px">Canvas set to <b>${d.w}×${d.h}px</b>, exporting at <b>${d.dpi} DPI</b>
+    (${d.widthMm} mm wide).</p>
+    <p style="color:var(--muted)">${esc(d.note)}</p></div>`);
+  toast(`${d.label} applied`,'ok');
+}
+
 function getTargetWidthMm(){ return parseFloat(gv('export-width-mm'))||0; }
 
 // Pixels per logical unit needed to land the figure at its target physical size.
@@ -8421,6 +8656,153 @@ async function _captureDownload(fn){
 // ═══════════════════════════════════════════════════════════════
 // SUBMISSION PACKAGE — one ZIP with every artifact a journal/lab needs
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// LINKED INSETS
+// A magnified daughter panel that stays bound to its parent: it re-derives its crop
+// from the parent's ORIGINAL source every render, so adjusting the parent's brightness
+// or LUT propagates, and reordering panels cannot break the link because the binding is
+// by panel id, not by index. Hand-made insets are a copy that silently diverges the
+// moment the parent is touched — which is how a figure ends up showing two different
+// processings of the same field and nobody notices.
+// ═══════════════════════════════════════════════════════════════
+function _findPanelById(id){ return images.find(im=>im&&im.id===id)||null; }
+
+// Create an inset of the selected panel from a fractional region of it.
+function addLinkedInset(fx,fy,fw,fh){
+  const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  const src=images[idx];
+  if(!src){ toast('Select a panel to magnify','warn'); return; }
+  // Default to the middle third if no region was dragged.
+  fx=(fx==null?1/3:fx); fy=(fy==null?1/3:fy); fw=(fw==null?1/3:fw); fh=(fh==null?1/3:fh);
+  pushUndo();
+  const inset=cloneImageForUndo(src);
+  inset.id=Date.now()+Math.random();
+  inset.label='';
+  inset.insetOf=src.id;                       // the binding — by id, survives reorder
+  inset.insetRect={x:fx,y:fy,w:fw,h:fh};      // fractions OF THE PARENT'S VISIBLE CROP
+  inset.colSpan=1; inset.rowSpan=1; inset.lblDX=0; inset.lblDY=0;
+  inset.panelAnns=[];
+  _syncInsetFromParent(inset);
+  images.push(inset);
+  images.forEach(im=>{ if(im&&!im.label) im.label=nextLabel(); });
+  onLayoutChange(); renderImgList(); scheduleRender(0);
+  logAction('linkedInset',{parent:src.label||'?', magnification:+(1/Math.max(fw,fh)).toFixed(2)});
+  toast(`Inset linked to ${src.label||'the source panel'} — it follows that panel's adjustments`,'ok');
+}
+
+// Re-derive an inset's crop and display settings from its parent. Called before every
+// render so the parent's adjustments propagate; the inset owns only its region.
+function _syncInsetFromParent(inset){
+  if(!inset||!inset.insetOf||!inset.insetRect) return false;
+  const p=_findPanelById(inset.insetOf);
+  if(!p){ return false; }                     // parent deleted — see _insetsOrphaned
+  const r=inset.insetRect;
+  // The parent's own crop defines the visible field; the inset's rect is a fraction of
+  // THAT, so an inset drawn on what you can see stays on what you can see.
+  const pl=(p.cropL||0), pt=(p.cropT||0), pw=100-pl-(p.cropR||0), ph=100-pt-(p.cropB||0);
+  inset.cropL=pl+pw*r.x;          inset.cropT=pt+ph*r.y;
+  inset.cropR=100-(pl+pw*(r.x+r.w));
+  inset.cropB=100-(pt+ph*(r.y+r.h));
+  inset.cropAngle=p.cropAngle||0;
+  // Everything that changes how the pixels are shown comes from the parent, so the two
+  // panels can never display the same data two different ways.
+  for(const k of ['brightness','contrast','gamma','blackPt','whitePt','grayscale','invert','lut','umPerPx','cropShape']) inset[k]=p[k];
+  inset.img=p.img; inset.src=p.src; inset.raw=p.raw;
+  inset.channels=(p.channels||[]).map(c=>({...c}));
+  inset._adjCache=undefined; inset._adjKey=undefined;
+  inset._cropCache=undefined; inset._cropKey=undefined;
+  return true;
+}
+// Called from render: keep every inset current, and disclose any whose parent is gone.
+function syncLinkedInsets(){
+  let orphan=0, n=0;
+  for(const im of images){
+    if(!im||!im.insetOf) continue;
+    n++;
+    if(!_syncInsetFromParent(im)){ im.insetOrphaned=true; orphan++; }
+    else im.insetOrphaned=false;
+  }
+  return {n,orphan};
+}
+// Magnification, for the metadata CSV and the caption.
+function _insetMag(im){
+  if(!im||!im.insetRect) return null;
+  return +(1/Math.max(im.insetRect.w,im.insetRect.h)).toFixed(2);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PER-PANEL PROCESSING HISTORY
+// FigureJ's best idea: an exported figure should carry what was done to each panel,
+// not just the result. Everything below is already stored on the panel — this only
+// assembles it into something a reviewer or a co-author can read.
+//
+// Deliberately NOT a C2PA manifest: that needs a signing certificate and a CBOR
+// writer, neither of which belongs in a dependency-free offline file. The wording is
+// C2PA-shaped (actions on an asset) and the file says plainly that it is unsigned.
+// ═══════════════════════════════════════════════════════════════
+function _panelHistory(im){
+  if(!im) return null;
+  const ops=[];
+  const src=im.img||im._imgEl;
+  const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
+  ops.push({op:'import', file:im.name||'(unnamed)', pixels:dims,
+    nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:'not retained (8-bit display)'});
+  const cropped=(im.cropT||im.cropL||im.cropB||im.cropR);
+  if(cropped||im.cropAngle){
+    ops.push({op:'crop', topPct:im.cropT||0, leftPct:im.cropL||0, bottomPct:im.cropB||0, rightPct:im.cropR||0,
+      angleDeg:im.cropAngle||0,
+      resampling: im.cropAngle?'bilinear (tilted crop — displayed pixels interpolated)':'none (pixels selected, not resampled)'});
+  }
+  if(im.cropShape&&im.cropShape!=='rect') ops.push({op:'clipShape', shape:im.cropShape});
+  if(im.rotate||im.flipH||im.flipV) ops.push({op:'orient', rotateDeg:im.rotate||0, flipH:!!im.flipH, flipV:!!im.flipV});
+  const adj={};
+  if((im.brightness??1)!==1) adj.brightness=im.brightness;
+  if((im.contrast??1)!==1) adj.contrast=im.contrast;
+  if((im.gamma||1)!==1) adj.gamma=im.gamma;
+  if((im.blackPt||0)!==0) adj.blackPoint=im.blackPt;
+  if((im.whitePt??255)!==255) adj.whitePoint=im.whitePt;
+  if(im.grayscale) adj.grayscale=true;
+  if(im.invert) adj.invert=true;
+  if(Object.keys(adj).length) ops.push({op:'adjust', ...adj,
+    note:'Non-destructive display adjustment; source pixels unchanged.'});
+  if(im.lut&&im.lut!=='none') ops.push({op:'lut', lut:im.lut});
+  if(im.channels&&im.channels.length) ops.push({op:'composite',
+    channels:im.channels.map(c=>({file:c.name||'(channel)', lut:c.lut||'green'})),
+    blend:'screen', note:'Each channel cropped by the same percentages as the base.'});
+  if(im.bgKey&&im.bgKey.on) ops.push({op:'backgroundKey', mode:im.bgKey.mode, tolerance:im.bgKey.tol,
+    feather:im.bgKey.feather||0, note:'Reversible; does not alter stored pixels.'});
+  if(im.umPerPx>0) ops.push({op:'calibrate', umPerPx:im.umPerPx, scaleBarUm:im.sbUm||null});
+  if(im.insetOf){
+    const p=_findPanelById(im.insetOf);
+    ops.push({op:'linkedInset', parentPanel:p?(p.label||'(unlabelled)'):'(parent deleted)',
+      magnification:_insetMag(im)+'×',
+      note:'Re-derived from the parent panel’s source on every render; display settings are the parent’s.'});
+  }
+  return {panel:im.label||'(unlabelled)', source:im.name||'(unnamed)', operations:ops};
+}
+function _panelHistoryText(){
+  const hist=images.filter(Boolean).map(_panelHistory);
+  const L=[];
+  L.push('PER-PANEL PROCESSING HISTORY');
+  L.push(`FigureLab v${APP_VERSION} — generated ${new Date().toISOString()}`);
+  L.push('');
+  L.push('Every operation applied to every panel, in order. This is an unsigned');
+  L.push('provenance record: it is C2PA-shaped in intent but carries no cryptographic');
+  L.push('signature, so treat it as the author’s account rather than as proof.');
+  L.push('');
+  for(const h of hist){
+    L.push(`── ${h.panel} ── (source: ${h.source})`);
+    h.operations.forEach((o,i)=>{
+      const {op,note,...rest}=o;
+      const args=Object.entries(rest).map(([k,v])=>`${k}=${typeof v==='object'?JSON.stringify(v):v}`).join(', ');
+      L.push(`  ${i+1}. ${op}${args?': '+args:''}`);
+      if(note) L.push(`     ${note}`);
+    });
+    L.push('');
+  }
+  return L.join('\n');
+}
+
 async function exportSubmissionPackage(){
   if(!images.length && !(typeof freeformElements!=='undefined' && freeformElements.length)){ toast('Add images or objects first, or ✨ Load example figure','warn'); return; }
   if(!_aiPolicyGate(()=>exportSubmissionPackage())) return;
@@ -8447,6 +8829,21 @@ async function exportSubmissionPackage(){
     const cap=gv('caption-out').trim(); if(cap) files.push({name:name+'-caption.txt', data:cap});
     const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
     if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
+    // Attribution obligations ship with the figure, so a co-author assembling the
+    // submission doesn't have to reconstruct which icons needed a credit line.
+    const credits=(typeof _creditsText==='function')?_creditsText():'';
+    if(credits) files.push({name:'CREDITS.txt',
+      data:'Attribution required for material used in this figure\n'
+          +'(generated by FigureLab v'+APP_VERSION+')\n\n'+credits+'\n'});
+    // What was done to each panel, in order — the thing a reviewer asks for and an
+    // author reconstructs from memory months later.
+    if(images.filter(Boolean).length){
+      files.push({name:'PANEL_HISTORY.txt', data:_panelHistoryText()});
+      files.push({name:'PANEL_HISTORY.json',
+        data:JSON.stringify({app:'FigureLab', version:APP_VERSION,
+          generated:new Date().toISOString(), signed:false,
+          panels:images.filter(Boolean).map(_panelHistory)},null,2)});
+    }
     // individual panels (movable pieces for downstream editing)
     try{
       const sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
@@ -11115,7 +11512,8 @@ const _ICO_KEY='#222222';
 // Stroked icons (the common case): one <g> carries the sentinel + stroke style.
 const _icoG=(inner,sw)=>_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="${sw||7}" stroke-linecap="round" stroke-linejoin="round">${inner}</g>`);
 const _icoF=(inner)=>_icoWrap(`<g fill="${_ICO_KEY}">${inner}</g>`);
-const ICON_GROUPS={marks:'Arrows & marks',cell:'Cells',molecule:'Molecules',organism:'Organisms',labware:'Lab equipment'};
+const ICON_GROUPS={marks:'Arrows & marks',cell:'Cells',molecule:'Molecules',organism:'Organisms',
+                   labware:'Lab equipment',anatomy:'Anatomy & clinical',workflow:'Workflow & study design'};
 const SCIENCE_ICONS={
   // ── Arrows & annotation marks ──
   arrow:{label:'Arrow',group:'marks',keys:'arrow point direction',w:150,h:64,svg:_icoG('<line x1="8" y1="50" x2="82" y2="50"/><polyline points="64,28 92,50 64,72"/>')},
@@ -11185,7 +11583,58 @@ const SCIENCE_ICONS={
   slide:{label:'Microscope slide',group:'labware',keys:'slide coverslip histology section mount',w:130,h:80,svg:_icoG('<rect x="10" y="26" width="80" height="48" rx="3"/><rect x="46" y="38" width="34" height="24" rx="2"/>',5)},
   microscope:{label:'Microscope',group:'labware',keys:'microscope imaging objective scope',w:100,h:120,svg:_icoG('<line x1="24" y1="88" x2="76" y2="88"/><path d="M40 88 q-14 -18 2 -34"/><rect x="46" y="14" width="20" height="30" rx="4"/><line x1="56" y1="44" x2="56" y2="58"/><line x1="40" y1="66" x2="72" y2="66"/>',5)},
   centrifuge:{label:'Centrifuge',group:'labware',keys:'centrifuge spin rotor rpm pellet',w:100,h:100,svg:_icoG('<circle cx="50" cy="50" r="36"/><line x1="50" y1="50" x2="50" y2="18"/><line x1="50" y1="50" x2="78" y2="66"/><line x1="50" y1="50" x2="22" y2="66"/>',6)},
+  thermocycler:{label:'Thermocycler',group:'labware',keys:'pcr thermocycler machine amplify block',w:130,h:100,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><rect x="10" y="30" width="80" height="50" rx="5"/><line x1="10" y1="44" x2="90" y2="44"/></g><g fill="${_ICO_KEY}"><circle cx="26" cy="62" r="4"/><circle cx="40" cy="62" r="4"/><circle cx="54" cy="62" r="4"/><circle cx="68" cy="62" r="4"/></g>`)},
+  gelTank:{label:'Gel tank',group:'labware',keys:'electrophoresis gel tank running buffer agarose',w:130,h:90,svg:_icoG('<path d="M12 34 h76 v34 q0 8 -8 8 h-60 q-8 0 -8 -8 z"/><line x1="30" y1="34" x2="30" y2="20"/><line x1="70" y1="34" x2="70" y2="20"/><line x1="26" y1="52" x2="74" y2="52" stroke-dasharray="6 6"/>',5)},
+  flowCytometer:{label:'Flow cytometry',group:'labware',keys:'flow cytometry facs sorting cells stream',w:100,h:120,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><path d="M36 12 h28 v26 l-8 12 v40 h-12 v-40 l-8 -12 z"/></g><g fill="${_ICO_KEY}"><circle cx="50" cy="58" r="4"/><circle cx="50" cy="74" r="4"/><circle cx="50" cy="88" r="4"/></g>`)},
+  incubator:{label:'Incubator',group:'labware',keys:'incubator oven 37 culture growth shaker',w:110,h:110,svg:_icoG('<rect x="14" y="16" width="72" height="70" rx="5"/><line x1="14" y1="34" x2="86" y2="34"/><circle cx="76" cy="25" r="4"/><path d="M34 68 q8 -14 16 0 q8 14 16 0"/>',5)},
+
+  // ── Anatomy & clinical ──
+  // These fill the gap the competitor survey found: icon libraries skew heavily to
+  // molecular and cell biology, leaving whole-organism and clinical figures unserved.
+  heart:{label:'Heart',group:'anatomy',keys:'heart cardiac cardiovascular organ',w:100,h:96,svg:_icoG('<path d="M50 84 C 14 58, 14 24, 34 20 C 44 18, 50 26, 50 32 C 50 26, 56 18, 66 20 C 86 24, 86 58, 50 84 z"/>')},
+  lungs:{label:'Lungs',group:'anatomy',keys:'lung lungs pulmonary respiratory airway',w:110,h:100,svg:_icoG('<line x1="50" y1="12" x2="50" y2="40"/><path d="M50 40 q-6 -14 -20 -8 q-18 8 -16 34 q2 24 16 26 q12 2 14 -14 z"/><path d="M50 40 q6 -14 20 -8 q18 8 16 34 q-2 24 -16 26 q-12 2 -14 -14 z"/>',5)},
+  brain:{label:'Brain',group:'anatomy',keys:'brain neural cortex cerebral neuro',w:110,h:96,svg:_icoG('<path d="M50 16 q-18 -6 -26 8 q-16 4 -12 20 q-10 12 4 22 q2 16 20 14 q6 8 14 8 z"/><path d="M50 16 q18 -6 26 8 q16 4 12 20 q10 12 -4 22 q-2 16 -20 14 q-6 8 -14 8 z"/><line x1="50" y1="16" x2="50" y2="88"/>',5)},
+  liver:{label:'Liver',group:'anatomy',keys:'liver hepatic hepatocyte organ',w:120,h:86,svg:_icoG('<path d="M12 34 q30 -18 76 -10 q10 2 8 18 q-4 26 -34 30 q-32 4 -44 -14 q-8 -12 -6 -24 z"/><path d="M46 26 v40"/>',5)},
+  kidney:{label:'Kidney',group:'anatomy',keys:'kidney renal nephron organ',w:90,h:110,svg:_icoG('<path d="M62 16 q22 14 22 38 q0 34 -26 40 q-22 6 -26 -14 q-4 -20 10 -26 q-16 -6 -8 -24 q8 -18 28 -14 z"/><path d="M56 46 q-14 6 -8 18"/>',5)},
+  stomach:{label:'Stomach / gut',group:'anatomy',keys:'stomach gut intestine gastric digestive microbiome',w:110,h:110,svg:_icoG('<path d="M34 12 v18 q-20 6 -18 30 q2 26 26 30 q22 4 28 -16 q6 -20 -12 -26"/><path d="M58 48 q16 4 12 18"/>',5)},
+  bone:{label:'Bone',group:'anatomy',keys:'bone skeletal osteo marrow',w:130,h:60,svg:_icoG('<path d="M24 30 a10 10 0 1 1 8 14 h36 a10 10 0 1 1 8 -14 a10 10 0 1 1 -8 -14 h-36 a10 10 0 1 1 -8 14 z"/>',5)},
+  tumour:{label:'Tumour',group:'anatomy',keys:'tumour tumor cancer lesion mass nodule',w:100,h:96,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="6"><path d="M28 40 q-10 -20 12 -24 q18 -4 24 8 q22 -6 24 16 q2 22 -18 26 q-2 20 -22 18 q-22 -2 -22 -20 q-16 -6 2 -24 z"/></g><g fill="${_ICO_KEY}"><circle cx="44" cy="48" r="5"/><circle cx="62" cy="56" r="5"/></g>`)},
+  patient:{label:'Patient',group:'anatomy',keys:'patient person human subject cohort participant',w:70,h:120,svg:_icoG('<circle cx="50" cy="22" r="14"/><line x1="50" y1="36" x2="50" y2="66"/><line x1="30" y1="48" x2="70" y2="48"/><line x1="50" y1="66" x2="34" y2="94"/><line x1="50" y1="66" x2="66" y2="94"/>',6)},
+  mouseAnimal:{label:'Mouse (animal)',group:'anatomy',keys:'mouse mice rodent animal in vivo model',w:130,h:80,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="46" cy="52" rx="30" ry="20"/><circle cx="78" cy="46" r="12"/><circle cx="76" cy="30" r="7"/><path d="M16 52 q-10 -14 -2 -22"/></g><g fill="${_ICO_KEY}"><circle cx="88" cy="46" r="3"/></g>`)},
+  bloodDrop:{label:'Blood drop',group:'anatomy',keys:'blood drop sample serum plasma draw',w:70,h:100,svg:_icoG('<path d="M50 14 q22 30 22 44 a22 22 0 1 1 -44 0 q0 -14 22 -44 z"/>',6)},
+
+  // ── Workflow & study design ──
+  timeline:{label:'Timeline',group:'workflow',keys:'timeline time course days schedule experiment',w:160,h:70,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><line x1="8" y1="50" x2="92" y2="50"/><line x1="22" y1="42" x2="22" y2="58"/><line x1="44" y1="42" x2="44" y2="58"/><line x1="66" y1="42" x2="66" y2="58"/><line x1="88" y1="42" x2="88" y2="58"/></g><g fill="${_ICO_KEY}"><circle cx="44" cy="30" r="5"/></g>`)},
+  treatmentArm:{label:'Treatment vs control',group:'workflow',keys:'treatment control arm randomise randomize group compare',w:150,h:100,svg:_icoG('<line x1="16" y1="50" x2="40" y2="50"/><path d="M40 50 l24 -24"/><path d="M40 50 l24 24"/><circle cx="76" cy="26" r="12"/><circle cx="76" cy="74" r="12"/>',5)},
+  replicate:{label:'Replicates',group:'workflow',keys:'replicate n biological technical repeat triplicate',w:120,h:100,svg:_icoG('<rect x="14" y="14" width="46" height="46" rx="5"/><rect x="26" y="26" width="46" height="46" rx="5"/><rect x="38" y="38" width="46" height="46" rx="5"/>',5)},
+  clockIcon:{label:'Time point',group:'workflow',keys:'time clock hours incubation duration timepoint',w:90,h:90,svg:_icoG('<circle cx="50" cy="50" r="34"/><polyline points="50,28 50,50 68,60"/>',6)},
+  checkMark:{label:'Included / pass',group:'workflow',keys:'check tick pass included yes success',w:80,h:80,svg:_icoG('<polyline points="20,52 40,70 78,24"/>',9)},
+  crossMark:{label:'Excluded / fail',group:'workflow',keys:'cross excluded fail no reject discard',w:80,h:80,svg:_icoG('<line x1="26" y1="26" x2="74" y2="74"/><line x1="74" y1="26" x2="26" y2="74"/>',9)},
+  database:{label:'Dataset',group:'workflow',keys:'database dataset repository archive deposit data',w:100,h:110,svg:_icoG('<ellipse cx="50" cy="26" rx="32" ry="12"/><path d="M18 26 v46 q0 12 32 12 q32 0 32 -12 v-46"/><path d="M18 50 q0 12 32 12 q32 0 32 -12"/>',5)},
+  statsChart:{label:'Quantification',group:'workflow',keys:'chart bar graph quantification statistics plot',w:110,h:100,svg:_icoG('<line x1="16" y1="84" x2="88" y2="84"/><line x1="16" y1="84" x2="16" y2="16"/><rect x="28" y="52" width="14" height="32"/><rect x="50" y="34" width="14" height="50"/><rect x="72" y="62" width="14" height="22"/>',5)},
+
+  // ── Microbiology (phage & bacteria) ──
+  // FigureLab is used for phage plaque work, and generic libraries under-serve it.
+  // (a `phage` icon already exists above — a second one here silently shadowed it,
+  //  which is legal JS and always a bug. See the duplicate-key test in v312.spec.js.)
+  plaque:{label:'Plaque assay',group:'organism',keys:'plaque assay lysis phage titre titer lawn',w:100,h:100,svg:_icoWrap(`<circle cx="50" cy="50" r="38" fill="none" stroke="${_ICO_KEY}" stroke-width="6"/><g fill="${_ICO_KEY}"><circle cx="38" cy="38" r="7"/><circle cx="62" cy="44" r="5"/><circle cx="46" cy="62" r="4"/><circle cx="66" cy="66" r="3"/></g>`)},
+  colony:{label:'Bacterial colonies',group:'organism',keys:'colony colonies cfu streak plate growth',w:100,h:100,svg:_icoWrap(`<circle cx="50" cy="50" r="38" fill="none" stroke="${_ICO_KEY}" stroke-width="6"/><g fill="${_ICO_KEY}"><circle cx="36" cy="36" r="6"/><circle cx="58" cy="34" r="5"/><circle cx="66" cy="54" r="6"/><circle cx="42" cy="60" r="5"/><circle cx="56" cy="68" r="4"/></g>`)},
+  biofilm:{label:'Biofilm',group:'organism',keys:'biofilm matrix eps attached community surface',w:140,h:80,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><line x1="8" y1="76" x2="92" y2="76"/><path d="M14 76 q10 -30 30 -18 q16 -22 32 -4 q18 -4 12 22"/></g><g fill="${_ICO_KEY}"><ellipse cx="34" cy="62" rx="7" ry="4"/><ellipse cx="54" cy="56" rx="7" ry="4"/><ellipse cx="72" cy="64" rx="7" ry="4"/></g>`)},
+  plasmid:{label:'Plasmid',group:'molecule',keys:'plasmid vector circular dna construct',w:100,h:100,svg:_icoWrap(`<circle cx="50" cy="50" r="32" fill="none" stroke="${_ICO_KEY}" stroke-width="6"/><g fill="${_ICO_KEY}"><path d="M50 12 l10 8 l-10 8 z"/><rect x="74" y="46" width="10" height="10" rx="2"/></g>`)},
+  crispr:{label:'CRISPR–Cas',group:'molecule',keys:'crispr cas9 guide rna editing knockout',w:120,h:100,svg:_icoWrap(`<g fill="none" stroke="${_ICO_KEY}" stroke-width="5" stroke-linecap="round"><path d="M14 62 h30"/><path d="M62 62 h30"/><path d="M44 62 q6 -18 18 0"/></g><g fill="${_ICO_KEY}"><path d="M40 20 q22 -10 28 12 q6 20 -14 24 q-22 4 -22 -16 q0 -14 8 -20 z"/></g>`)},
 };
+// ── Icon licensing ────────────────────────────────────────────
+// Every icon carries a licence record, because an icon library is only "free to use"
+// if the obligations travel with the artwork. Icons drawn for FigureLab are 'original'
+// (MIT with the project, no attribution required); imported packs declare their own.
+//
+// The allowlist is enforced by a test, not by good intentions. CC-BY-SA is deliberately
+// excluded: share-alike can be read as reaching the figure the icon is placed in, which
+// is a trap to hand an author who is about to submit a manuscript.
+const ICON_LICENSES_ALLOWED=['original','CC0-1.0','MIT','CC-BY-3.0','CC-BY-4.0','public-domain'];
+const ICON_LICENSES_ATTRIB=['CC-BY-3.0','CC-BY-4.0'];   // these require a credit line
+function _iconLic(ic){ return (ic&&ic.lic)||{spdx:'original'}; }
+
 function insertIcon(name){
   const ic=SCIENCE_ICONS[name]; if(!ic) return;
   if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
@@ -11195,12 +11644,71 @@ function insertIcon(name){
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=ic.w||90, h=ic.h||90;
     addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg, iconSrc0:ic.svg, isVector:true, isIcon:true, iconColor:_ICO_KEY,
+      // The licence record rides on the placed object, so it survives into the session
+      // file and can be gathered at export time without re-deriving anything.
+      iconName:name, iconLabel:ic.label, iconLic:_iconLic(ic),
       x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
       blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:ic.label});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     drawFreeformOverlay(); scheduleRender(0);
   }, ()=>toast('Could not add icon','err'));
+}
+
+// ── Credits ───────────────────────────────────────────────────
+// BioRender charges for a publication licence and requires an attribution line on every
+// published figure. FigureLab's answer is to make attribution a generated artefact: the
+// obligations of whatever you actually used, written out ready to paste.
+function _collectCredits(){
+  const els=(typeof freeformElements!=='undefined'?freeformElements:[]).filter(Boolean);
+  const byKey=new Map();
+  for(const el of els){
+    if(!el.iconLic) continue;
+    const L=el.iconLic;
+    if(!ICON_LICENSES_ATTRIB.includes(L.spdx)) continue;   // CC0/MIT/original need no credit
+    const key=`${L.author||'Unknown'}|${L.spdx}|${L.src||''}`;
+    if(!byKey.has(key)) byKey.set(key,{author:L.author||'Unknown', spdx:L.spdx, src:L.src||'', items:new Set()});
+    byKey.get(key).items.add(el.iconLabel||el.label||el.iconName||'icon');
+  }
+  const ai=(typeof _aiGeneratedCount==='function')?_aiGeneratedCount():0;
+  const aiModels=[...new Set(els.filter(e=>e.aiGenerated).map(e=>e.aiModel||e.aiEngine||'AI'))];
+  return {groups:[...byKey.values()], ai, aiModels,
+          freeCount:els.filter(e=>e.iconLic&&!ICON_LICENSES_ATTRIB.includes(e.iconLic.spdx)).length};
+}
+function _creditsText(){
+  const c=_collectCredits();
+  const lines=[];
+  for(const g of c.groups){
+    lines.push(`${[...g.items].sort().join(', ')}: © ${g.author}, ${g.spdx}`+(g.src?` (${g.src})`:''));
+  }
+  if(c.ai) lines.push(`${c.ai} schematic element${c.ai===1?'':'s'} generated with Google Gemini (${c.aiModels.join(', ')}).`);
+  return lines.join('\n');
+}
+function showCredits(){
+  const c=_collectCredits();
+  const txt=_creditsText();
+  const body = txt
+    ? `<div style="font-size:11px;line-height:1.6">
+         <p style="margin-bottom:8px">Paste this into your figure legend or acknowledgements:</p>
+         <textarea id="credits-text" rows="6" style="width:100%;font-family:var(--mono);font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:6px">${esc(txt)}</textarea>
+         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+           <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('credits-text').value).then(()=>toast('Credits copied','ok'))">⧉ Copy</button>
+           <button class="btn" onclick="appendCreditsToNotes()">+ Add to figure notes</button>
+         </div>
+         <p style="margin-top:8px;color:var(--muted);font-size:10px">${c.freeCount} other element(s) use CC0, MIT or FigureLab's own artwork and need no attribution.</p>
+       </div>`
+    : `<div style="font-size:11px;line-height:1.6">
+         <p>Nothing in this figure requires attribution.</p>
+         <p style="color:var(--muted);font-size:10px;margin-top:6px">FigureLab's own icons are MIT-licensed with the app, and any CC0 or MIT pack icons you have used carry no credit obligation. No publication licence, no watermark, no per-figure fee.</p>
+       </div>`;
+  showInfoModal('⚖ Credits & attribution', body);
+}
+function appendCreditsToNotes(){
+  const txt=_creditsText(); if(!txt){ toast('Nothing needs attribution','ok'); return; }
+  const el=document.getElementById('fig-notes'); if(!el) return;
+  if(el.value.includes('Credits:')){ toast('Credits already in the notes','warn'); return; }
+  el.value=(el.value.trim()?el.value.trim()+'\n\n':'')+'Credits:\n'+txt;
+  toast('Credits added to the figure notes','ok');
 }
 // Score an icon against a search query — label and keyword hits, substring-tolerant.
 function _iconMatch(ic, q){

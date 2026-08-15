@@ -1,4 +1,4 @@
-# FigureLab v3.10.0
+# FigureLab v3.11.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -273,6 +273,18 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.11.0 — 11 August 2026
+**Focus: AI that edits schematics and never data, plus the features a competitor survey said were worth having.**
+
+- **AI editing, with one hard rule.** AI-generated and hand-drawn objects gain *Edit in Gemini* (your own tab, nothing transmitted) and *Edit via API*, plus variations and style references with explicit consent. **Imported experimental images and grid panels are refused** — loudly, with the reason: Nature, Science and Cell Press all treat AI alteration of research images as misconduct, and Cell names brightness and contrast explicitly. One predicate (`_aiEditable`) decides every entry point so the rule cannot drift between the toolbar, the palette and the layer list, and a test asserts refused paths issue **zero network requests**. Editing a hand-drawn shape retags it AI-generated then and there, because that is when the disclosure obligation starts.
+- **Export-time journal AI-policy gate.** Exporting a figure containing AI content under the Nature, Science or Cell preset stops and shows that journal's actual position — summarised, **dated**, and linked, because policies change and FigureLab does not decide this for you. "Disclose & continue" writes the sentence Science asks for (tool, model, version, prompt) into the figure notes, once per session rather than once per export.
+- **⚖ Homogenize styles.** A figure assembled from several sources drifts: text at four sizes, strokes at three weights, two nearly-identical fonts. Each is invisible alone; together they are what makes a figure look assembled rather than authored. This finds every drifted font, size, stroke width and line colour and collapses each to one value in **a single undoable step**.
+- **⧉ Linked insets.** A magnified daughter panel bound to its parent **by id**: adjust the parent and the inset follows on the next render, reorder the grid and the link survives, delete the parent and the audit says the inset is orphaned. Magnification lands in the metadata CSV rather than being stated from memory. A hand-made inset is a copy that silently diverges the moment the parent is touched — which is how a figure ends up showing two processings of one field.
+- **36 new icons and licence-aware artwork.** Anatomy and clinical (heart, lungs, brain, liver, kidney, gut, bone, tumour, patient, mouse, blood), study design (timeline, treatment arms, replicates, included/excluded, dataset, quantification), more lab equipment, and the microbiology set this tool is actually used for — **phage, plaque assay, colonies, biofilm, plasmid, CRISPR–Cas**. Every icon now carries a licence record; **⚖ Credits** generates a paste-ready attribution paragraph and writes `CREDITS.txt` into the submission package. FigureLab's own icons need no attribution at all: no publication licence, no watermark, no per-figure fee. `tools/build-icons.mjs` imports third-party packs under a licence allowlist that rejects share-alike outright.
+- **Per-panel processing history** in the submission package (`PANEL_HISTORY.txt` + `.json`): every operation applied to every panel, in order, with tilted crops flagged as resampled and non-destructive adjustments labelled as such. C2PA-shaped in intent and **explicitly unsigned** — it is the author's account, not proof.
+- **Deliverable presets** (graphical abstract 1328×531 @300 dpi, TOC image 90×50 mm, A0 poster, 16:9 slide), each with its own dated caveat. **Token labels**: `{condition} {time}` resolved from the fields the filename parser already found, with unknown tokens leaving a gap rather than printing braces into a published figure. **Duplicate row / column.**
+- **345 Playwright tests** (up from 294). Two long-standing tests were rewritten rather than patched: they froze the exact icon-group list and heading count, which taxes the library for growing.
 
 ### v3.10.0 — 11 August 2026
 **Focus: generating figure artwork with Gemini, using your own account rather than an API key — and making the existing AI path honest.**

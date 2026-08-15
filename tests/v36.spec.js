@@ -168,7 +168,12 @@ test('icon library is large, grouped, and every source is valid single-colour SV
   expect(r.bad).toEqual([]);
   expect(r.offColour).toEqual([]);
   expect(r.ungrouped).toEqual([]);
-  expect(r.groups).toEqual(['cell', 'labware', 'marks', 'molecule', 'organism']);
+  // Every group in use must be declared (asserted via `ungrouped` above). The set is
+  // checked as a superset rather than frozen: the library is meant to grow, and a test
+  // that fails whenever a category is added is a tax on the thing it exists to protect.
+  for (const core of ['cell', 'labware', 'marks', 'molecule', 'organism']) {
+    expect(r.groups).toContain(core);
+  }
   expect(errors).toEqual([]);
 });
 
@@ -185,9 +190,14 @@ test('icon palette groups when browsing and filters when searching', async ({ pa
     const hits = [...pal.querySelectorAll('.icon-btn-sci')].map(b => b.dataset.icon);
     renderIconPalette('zzzznope');
     const empty = pal.querySelectorAll('.icon-btn-sci').length;
-    return { browsing, hits, empty };
+    // How many groups actually contain an icon — the palette only heads non-empty ones.
+    const used = new Set(Object.values(SCIENCE_ICONS).map(ic => ic.group));
+    const declaredGroups = Object.keys(ICON_GROUPS).filter(g => used.has(g)).length;
+    return { browsing, hits, empty, declaredGroups };
   });
-  expect(r.browsing.groupLabels).toBe(5);
+  // One heading per declared group — derived, not hard-coded, so adding a category
+  // doesn't fail a test about grouping behaviour.
+  expect(r.browsing.groupLabels).toBe(r.declaredGroups);
   expect(r.browsing.buttons).toBeGreaterThanOrEqual(40);
   expect(r.hits).toContain('mouse');
   expect(r.hits.length).toBeLessThan(r.browsing.buttons);   // actually filtered
