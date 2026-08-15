@@ -1052,6 +1052,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
          web OAuth requires, and proxying a consumer Gemini session is a ToS violation
          Google actively suspends accounts for. The bridge is the honest maximum. -->
     <button class="btn btn-primary" id="ai-bridge-btn" onclick="startGeminiBridge()" style="width:100%;justify-content:center;margin-top:4px">🎨 Generate with your Gemini account</button>
+    <button class="btn" onclick="aiGenerateWithReference()" style="width:100%;justify-content:center;margin-top:4px" title="Send the selected schematic object(s) as a style reference along with the prompt (API mode — the reference image is sent to Google)">⧉ Use selection as style reference (API)</button>
     <div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.4">Free with your Google account. Copies the prompt and opens gemini.google.com — paste it there, then copy the image and paste it back here. FigureLab never sees your login and sends nothing itself.</div>
     <div id="ai-bridge-wait" style="display:none;background:rgba(91,141,238,.10);border:1px solid rgba(91,141,238,.35);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.5">
       <b>Waiting for your image…</b><br>
@@ -1226,6 +1227,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <option value="sbol">SBOL</option><option value="cb">Okabe–Ito</option><option value="mono">Mono</option>
         </select></label>
       <span id="ep-gm-scale" style="color:var(--muted);font-size:10px"></span>
+    </div>
+    <!-- AI editing. Shown only for objects the gate allows: AI-generated or hand-drawn.
+         It stays hidden for imported experimental images and never appears in grid mode. -->
+    <div id="ep-ai-props" style="display:none;align-items:center;gap:6px">
+      <div class="abar-sep"></div>
+      <button class="btn" onclick="aiEditViaBridge()" title="Edit in your own Gemini tab — FigureLab sends nothing">✨ Edit in Gemini</button>
+      <button class="btn" onclick="aiEditSelected()" title="Edit via the Gemini API (sends this object to Google; needs a key + billing)">⚡ Edit via API</button>
+      <button class="btn" onclick="aiVariation()" title="Generate another take on this object's own prompt, placed beside it">⧉ Variation</button>
+      <button class="btn" id="ep-ai-revert" onclick="revertAIEdit()" title="Undo the last AI edit on this object" style="display:none">↩ Revert AI edit</button>
     </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
@@ -3245,6 +3255,10 @@ const CMD_REGISTRY=[
   {label:'Polish caption (on-device AI)', keys:'ai caption gemini nano polish legend', run:()=>aiPolishCaption()},
   {label:'AI: Generate with your Gemini account', keys:'ai generate gemini nano banana image schematic bridge', run:()=>startGeminiBridge()},
   {label:'AI: Generate via API (advanced)', keys:'ai generate api key gemini image', run:()=>generateAIImage()},
+  {label:'AI: Edit selected object in Gemini', keys:'ai edit object schematic gemini bridge', run:()=>aiEditViaBridge()},
+  {label:'AI: Edit selected object via API', keys:'ai edit object api gemini', run:()=>aiEditSelected()},
+  {label:'AI: Variation of selected object', keys:'ai variation alternative regenerate', run:()=>aiVariation()},
+  {label:'AI: Revert last AI edit', keys:'ai revert undo edit restore', run:()=>revertAIEdit()},
   {label:'Keyboard shortcuts',       keys:'keyboard shortcuts keys',       run:()=>document.getElementById('kb-modal').classList.add('open'), hint:'?'},
   {label:'Run journal audit',        keys:'audit compliance integrity check',  run:()=>checkCompliance()},
   {label:'Export preflight (PNG)',   keys:'preflight export check dimensions', run:()=>doExportPreflight('png')},
@@ -6493,7 +6507,10 @@ function checkCompliance(){
     // author must disclose them — and the strictest journals refuse them outright.
     {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
       note:_aiGeneratedCount()
-        ? `${_aiGeneratedCount()} AI-generated schematic(s) — disclose to the journal; Nature, Science and Cell currently do not accept generative-AI figures`
+        ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
+          + (JOURNAL_AI_POLICIES[_lastPresetName]
+             ? `${JOURNAL_AI_POLICIES[_lastPresetName].name} does not accept generative-AI figures (summarised ${JOURNAL_POLICY_FETCHED}; verify)`
+             : 'disclose to the journal; Nature, Science and Cell currently do not accept generative-AI figures')
         : 'No AI-generated content ✓'},
   ];
   const html=checks.map(c=>{
@@ -8216,8 +8233,110 @@ function _safeDataURL(canvas, type, q){
   if(!url || url.length<32) throw new Error('canvas too large');
   return url;
 }
+// ═══════════════════════════════════════════════════════════════
+// JOURNAL AI POLICY GATE
+// Generative-AI imagery is not a grey area at the strictest journals: Nature, Science
+// and Cell Press each refuse it outright, with narrow exceptions. FigureLab already
+// tags AI objects; this is the step that makes the tag do something — an export cannot
+// leave the building without the author being told what the target journal's policy
+// says, and without the disclosure sentence being written for them.
+//
+// Summaries are paraphrases with a date on them, not quotations, and every one tells
+// the reader to verify. Policies change; this file does not.
+// ═══════════════════════════════════════════════════════════════
+const JOURNAL_AI_POLICIES={
+  nature:{name:'Nature portfolio / Springer Nature', blocks:true,
+    text:'Does not accept figures created with generative AI, with narrow exceptions (agency images under contract, and pieces specifically about AI, case by case). Non-generative machine learning used to enhance or combine images must be disclosed in the caption.',
+    url:'https://www.nature.com/nature-portfolio/editorial-policies/ai'},
+  science:{name:'Science / AAAS', blocks:true,
+    text:'AI-generated images are not permitted without explicit permission from the editors. Where permission is given, the methods must state the full prompt, the tool and its version.',
+    url:'https://www.science.org/content/page/science-journals-editorial-policies'},
+  cell:{name:'Cell Press / Elsevier', blocks:true,
+    text:'Generative AI may not be used to create or alter research images — explicitly including adjustments to brightness, contrast or colour balance. Cover art needs prior editorial approval.',
+    url:'https://www.cell.com/information-for-authors/figure-guidelines'},
+};
+const JOURNAL_POLICY_FETCHED='August 2026';
+let _lastPresetName='';                 // which journal preset is in force
+let _aiPolicyAcked=false;               // acknowledged once per session, not per export
+
+// Build the disclosure sentence a journal would want: tool, model, version, prompt.
+// Science asks for exactly this, so it is generated rather than left to memory.
+function _aiDisclosureSentence(){
+  const els=(typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e&&e.aiGenerated);
+  if(!els.length) return '';
+  const models=[...new Set(els.map(e=>e.aiModel||e.aiEngine||'AI'))];
+  const prompts=[...new Set(els.map(e=>e.aiPrompt).filter(Boolean))];
+  return `AI disclosure: ${els.length} schematic element${els.length===1?'':'s'} in this figure `
+    +`${els.length===1?'was':'were'} generated with Google Gemini (${models.join(', ')}) via FigureLab v${APP_VERSION}`
+    +(prompts.length?`; prompt${prompts.length===1?'':'s'}: ${prompts.map(p=>`“${p}”`).join('; ')}`:'')
+    +`. No AI was applied to experimental image data. Generated output carries Google's SynthID watermark.`;
+}
+
+// Append the sentence to the figure notes, once. The notes flow into the caption
+// generator and the submission package, so this is the place it reaches a manuscript.
+function _appendAIDisclosure(){
+  const s=_aiDisclosureSentence(); if(!s) return;
+  const el=document.getElementById('fig-notes'); if(!el) return;
+  if(el.value.includes('AI disclosure:')) return;
+  el.value=(el.value.trim()?el.value.trim()+'\n\n':'')+s;
+  logAction('aiPolicyAck',{journal:_lastPresetName||'none', models:[...new Set(
+    freeformElements.filter(e=>e&&e.aiGenerated).map(e=>e.aiModel||e.aiEngine||'ai'))]});
+}
+
+let _aiGatePending=null;   // the export to resume after the user decides
+// Returns true when the export may proceed now. Otherwise it opens the modal and the
+// caller stops; the buttons re-enter the export.
+function _aiPolicyGate(resume){
+  const n=(typeof _aiGeneratedCount==='function')?_aiGeneratedCount():0;
+  const pol=JOURNAL_AI_POLICIES[_lastPresetName];
+  if(!n || !pol || _aiPolicyAcked) return true;
+  _aiGatePending=resume;
+  showInfoModal('AI content — check the journal’s policy', `
+    <div style="font-size:11px;line-height:1.6;color:var(--text)">
+      <p style="margin-bottom:8px">This figure contains <b>${n} AI-generated schematic${n===1?'':'s'}</b>,
+      and the active preset is <b>${esc(pol.name)}</b>.</p>
+      <p style="margin-bottom:8px;color:var(--warn)">${esc(pol.text)}</p>
+      <p style="margin-bottom:10px;color:var(--muted);font-size:10px">
+        Summarised ${JOURNAL_POLICY_FETCHED} — policies change, so
+        <a href="${pol.url}" target="_blank" rel="noopener" style="color:var(--accent)">check the current guidelines</a>
+        before you submit. FigureLab is not able to decide this for you.</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn" onclick="_aiGateShow()">Show me the AI objects</button>
+        <button class="btn btn-primary" onclick="_aiGateProceed()">Disclose &amp; continue</button>
+        <button class="btn" onclick="_aiGateCancel()">Cancel export</button>
+      </div>
+      <div style="margin-top:8px;font-size:10px;color:var(--muted)">“Disclose &amp; continue” writes the
+      tool, model and prompt into your figure notes, where the caption generator and the
+      submission package pick them up.</div>
+    </div>`);
+  return false;
+}
+function _aiGateShow(){
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  _aiGatePending=null;
+  if(layoutMode!=='freeform'){ document.getElementById('layout-mode').value='freeform'; setLayoutMode('freeform'); }
+  selectedElems.clear();
+  freeformElements.forEach((e,i)=>{ if(e&&e.aiGenerated) selectedElems.add(i); });
+  updateFreeformElemList(); drawFreeformOverlay();
+  toast('AI-generated objects selected — delete them, or export again to disclose','ok');
+}
+function _aiGateProceed(){
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  _aiPolicyAcked=true;
+  _appendAIDisclosure();
+  toast('Disclosure added to the figure notes','ok');
+  const fn=_aiGatePending; _aiGatePending=null;
+  if(typeof fn==='function') fn();
+}
+function _aiGateCancel(){
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  _aiGatePending=null;
+  toast('Export cancelled','warn');
+}
+
 async function doExport(fmt){
   if(!images.length&&!freeformElements.length){ toast('Add images first','warn'); return; }
+  if(!_aiPolicyGate(()=>doExport(fmt))) return;
   if(_exporting){ toast('Export already in progress…','warn'); return; }
   _exporting=true; document.body.classList.add('exporting');
   const dpi=getExportDPI();
@@ -8304,6 +8423,7 @@ async function _captureDownload(fn){
 // ═══════════════════════════════════════════════════════════════
 async function exportSubmissionPackage(){
   if(!images.length && !(typeof freeformElements!=='undefined' && freeformElements.length)){ toast('Add images or objects first, or ✨ Load example figure','warn'); return; }
+  if(!_aiPolicyGate(()=>exportSubmissionPackage())) return;
   const grid=layoutMode!=='freeform';
   const dpi=getExportDPI();
   const name=(gv('export-name').trim()||'figure');
@@ -8973,6 +9093,8 @@ function applyCalib(){
 // ═══════════════════════════════════════════════════════════════
 function applyPreset(name){
   const p=PRESETS[name]; if(!p) return;
+  // Remembered so the export-time AI policy gate knows which journal to check against.
+  _lastPresetName=name; _aiPolicyAcked=false;
   sv('panel-w',p.panelW); sv('panel-h',p.panelH);
   sv('gap-h',p.gapH);     sv('gap-v',p.gapV);
   sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
@@ -9188,8 +9310,11 @@ function serializeSession(bundleImages){
       if(el.type==='paint' && (_paintCanvas instanceof HTMLCanvasElement) && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       // Lightweight = no pixel/paint data — EXCEPT AI-generated images. A user's photo
       // can be re-dropped from disk; an AI generation cannot be reproduced, so dropping
-      // its src from a "settings-only" save would silently destroy it.
+      // its src from a "settings-only" save would silently destroy it. aiPrevSrc is
+      // dropped either way: it is a one-step convenience, not provenance, and it would
+      // double the size of every AI object in the file.
       if(!_bundle && !rest.aiGenerated){ delete rest.src; delete rest.paintData; }
+      if(!_bundle) delete rest.aiPrevSrc;
       return rest;
     }),
     fmCanvasW:gv('fm-canvas-w'), fmCanvasH:gv('fm-canvas-h'),
@@ -13289,6 +13414,201 @@ function insertAIImage(){
   img.src=aiGeneratedSrc;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AI EDITING — and the one gate that keeps it away from data
+// ═══════════════════════════════════════════════════════════════
+// Every AI entry point that could touch existing pixels asks this function, and only
+// this function. Editing is allowed on things FigureLab or the user drew — AI-generated
+// objects, shapes, icons, charts. It is refused on imported experimental images and on
+// every grid panel, because AI alteration of research images is misconduct at Nature,
+// Science and Cell Press alike (Cell names brightness and contrast explicitly).
+//
+// Having one predicate rather than a check per button is the point: the rule cannot
+// drift apart between the toolbar, the layer list and the command palette, and a test
+// can assert that refused paths issue ZERO network requests.
+function _aiEditable(el){
+  if(!el) return false;
+  if(el.aiGenerated) return true;                 // it came from AI; editing it is fine
+  if(el.type==='image') return false;             // an imported file — never
+  if(el.type==='paint') return false;             // hand-painted over something imported
+  return true;                                    // shapes, icons, text, charts, gene maps
+}
+function _aiRefuse(){
+  toast('FigureLab never sends or AI-edits experimental images. Journals treat AI alteration of data images as misconduct — only AI-generated or hand-drawn schematic objects can be edited.','warn');
+}
+
+// Rasterise one freeform element on its own, for sending as an edit input or a style
+// reference. Vector objects are drawn through the normal element renderer, so what the
+// model receives is what the user sees.
+function _elemToPNG(el){
+  const w=Math.max(1,Math.round(el.w||100)), h=Math.max(1,Math.round(el.h||100));
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx=c.getContext('2d');
+  ctx.save(); ctx.translate(-(el.x||0),-(el.y||0));
+  try{ drawFreeformElement(ctx,el); }catch(e){}
+  ctx.restore();
+  return c.toDataURL('image/png');
+}
+const _b64of=dataUrl=>String(dataUrl||'').split(',')[1]||'';
+
+// Multi-turn context: replay the last few turns so "now make the arrows red" means
+// something. Capped — a long history is a large upload for diminishing returns.
+function _aiEditParts(el,instruction){
+  const parts=[];
+  const hist=(el.aiHistory||[]).slice(-2);
+  for(const h of hist){
+    if(!h.srcAfter) continue;
+    parts.push({text:h.prompt||''});
+    parts.push({inline_data:{mime_type:'image/png', data:_b64of(h.srcAfter)}});
+  }
+  parts.push({text:instruction});
+  parts.push({inline_data:{mime_type:'image/png', data:_b64of(el.src||_elemToPNG(el))}});
+  return parts;
+}
+
+// Edit the selected object with an instruction. API mode only — the bridge equivalent
+// is aiEditViaBridge below, which sends nothing.
+async function aiEditSelected(){
+  const el=_selectedAIEditable(); if(!el) return;
+  const instruction=prompt('Describe the change (the object is sent to Google):','');
+  if(!instruction||!instruction.trim()) return;
+  if(navigator.onLine===false){ toast('You’re offline — AI editing needs a connection.','warn'); return; }
+  toast('Editing with Gemini…','ok');
+  try{
+    const out=await geminiRequest({
+      parts:_aiEditParts(el,instruction.trim()),
+      model:_aiModel(),
+      signal:(_aiAbort=new AbortController()).signal,
+    });
+    if(!out) return;
+    _applyAIEdit(el,out,instruction.trim(),_aiModel());
+  }catch(err){
+    if(err&&err.name==='AbortError') return;
+    toast('Edit failed: '+err.message,'err');
+  }finally{ _aiAbort=null; }
+}
+
+// Shared by API and bridge editing: swap the pixels, keep one level of revert, and
+// record the turn. An element that had never been AI-touched becomes AI-tagged here —
+// that is the moment the disclosure obligation starts, so it is not deferred.
+function _applyAIEdit(el,newSrc,promptText,model){
+  pushUndo();
+  const wasAI=!!el.aiGenerated;
+  el.aiPrevSrc=el.src;                       // single-level revert; deeper is undo's job
+  el.src=newSrc;
+  el._imgEl=undefined; el._adjCache=undefined; el._adjKey=undefined;
+  el._cropCache=undefined; el._cropKey=undefined;
+  if(el.type!=='aiicon'&&el.type!=='image') el.type='aiicon';   // it is a raster now
+  el.aiGenerated=true;
+  el.aiModel=model; el.aiEngine=model;
+  el.aiTs=new Date().toISOString();
+  el.aiHistory=(el.aiHistory||[]).concat([{prompt:promptText,ts:el.aiTs,model,kind:'edit',srcAfter:newSrc}]);
+  if(!el.aiPrompt) el.aiPrompt=promptText;
+  logAction('aiEdit',{engine:model, kind:'edit'});
+  updateFreeformElemList(); updateElemPropsBar(); scheduleRender(0);
+  toast(wasAI?'AI edit applied':'AI edit applied — this object is now tagged AI-generated and will be disclosed on export','ok');
+}
+
+function revertAIEdit(){
+  const el=_selectedAIEditable(true); if(!el) return;
+  if(!el.aiPrevSrc){ toast('Nothing to revert','warn'); return; }
+  pushUndo();
+  el.src=el.aiPrevSrc; el.aiPrevSrc=undefined;
+  el._imgEl=undefined; el._adjCache=undefined; el._adjKey=undefined;
+  if(el.aiHistory&&el.aiHistory.length) el.aiHistory.pop();
+  updateFreeformElemList(); updateElemPropsBar(); scheduleRender(0);
+  toast('Reverted the last AI edit','ok');
+}
+
+// Re-run an object's own prompt to get an alternative, inserted BESIDE it — a variation
+// never overwrites the thing you already liked.
+async function aiVariation(){
+  const el=_selectedAIEditable(); if(!el) return;
+  const p=el.aiPrompt; if(!p){ toast('This object has no recorded prompt to vary','warn'); return; }
+  toast('Generating a variation…','ok');
+  try{
+    const out=await geminiRequest({parts:[{text:p}], model:_aiModel(),
+      aspectRatio:document.getElementById('ai-aspect')?.value||undefined,
+      imageSize:document.getElementById('ai-size')?.value||undefined});
+    if(!out) return;
+    const img=new Image();
+    img.onload=()=>{
+      addFreeformElement({type:'aiicon', src:out, _imgEl:img,
+        aiGenerated:true, aiEngine:_aiModel(), aiModel:_aiModel(),
+        aiPrompt:p, aiTs:new Date().toISOString(),
+        x:(el.x||0)+(el.w||100)+16, y:el.y||0,
+        w:el.w||200, h:el.h||200,
+        color:'transparent', fillOpacity:0, strokeWidth:0, label:'AI variation',
+        brightness:1,contrast:1,gamma:1,blackPt:0,whitePt:255,
+        grayscale:false,invert:false,lut:'none'});
+      logAction('aiGenerate',{engine:_aiModel(), kind:'variation'});
+    };
+    img.src=out;
+  }catch(err){ toast('Variation failed: '+err.message,'err'); }
+}
+
+// The selection, if it is one element and the gate allows it. Refusal is loud.
+function _selectedAIEditable(quiet){
+  if(layoutMode!=='freeform'){ if(!quiet) toast('AI editing works on freeform objects','warn'); return null; }
+  if(selectedElems.size!==1){ if(!quiet) toast('Select one object first','warn'); return null; }
+  const el=freeformElements[[...selectedElems][0]];
+  if(!_aiEditable(el)){ _aiRefuse(); return null; }
+  return el;
+}
+
+// Use the current selection as a style reference for a NEW generation. The gate applies
+// to every member: one experimental image in the selection refuses the whole thing.
+async function aiGenerateWithReference(){
+  // The gate is checked BEFORE the prompt: if the selection contains an experimental
+  // image the answer is "never", and saying "enter a prompt first" would send the user
+  // off to fix the wrong thing and then hit the real refusal.
+  if(layoutMode!=='freeform'||!selectedElems.size){ toast('Select the object(s) to use as a style reference','warn'); return; }
+  const els=[...selectedElems].map(i=>freeformElements[i]).filter(Boolean);
+  if(!els.every(_aiEditable)){ _aiRefuse(); return; }
+  const prompt=document.getElementById('ai-prompt').value.trim();
+  if(!prompt){ toast('Enter a prompt first','warn'); return; }
+  if(!confirm('The selected object(s) will be rendered to an image and sent to Google with your prompt. Continue?')) return;
+  const ref=els.length===1?(els[0].src||_elemToPNG(els[0])):_elemToPNG(els[0]);
+  toast('Generating with your reference…','ok');
+  try{
+    const out=await geminiRequest({
+      parts:[{text:`${prompt}, ${document.getElementById('ai-style').value}`},
+             {inline_data:{mime_type:'image/png', data:_b64of(ref)}}],
+      model:_aiModel(),
+      aspectRatio:document.getElementById('ai-aspect')?.value||undefined,
+      imageSize:document.getElementById('ai-size')?.value||undefined});
+    if(!out) return;
+    aiGeneratedSrc=out;
+    window._lastAIEngine=_aiModel();
+    const pv=document.getElementById('ai-preview');
+    pv.innerHTML=''; const im=document.createElement('img'); im.src=out; pv.appendChild(im);
+    document.getElementById('ai-insert-btn').style.display='';
+    toast('Generated from your reference','ok');
+  }catch(err){ toast('Reference generation failed: '+err.message,'err'); }
+}
+
+// Bridge editing: copy the object's PNG and the instruction, then let the user do the
+// edit in their own Gemini tab and paste the result back. Sends nothing.
+let _bridgeEditIdx=-1;
+async function aiEditViaBridge(){
+  const el=_selectedAIEditable(); if(!el) return;
+  const instruction=prompt('Describe the change — it will be copied for you to paste in Gemini:','');
+  if(!instruction||!instruction.trim()) return;
+  _bridgeEditIdx=[...selectedElems][0];
+  _bridgeArmed={prompt:instruction.trim(), full:instruction.trim(), edit:true};
+  try{
+    const src=el.src||_elemToPNG(el);
+    const blob=await (await fetch(src)).blob();
+    await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+    toast('Object image copied — paste it in Gemini with your instruction, then paste the result back here','ok');
+  }catch(e){
+    toast('Couldn’t copy the image automatically — export the object and upload it in Gemini instead','warn');
+  }
+  document.getElementById('ai-bridge-wait').style.display='';
+  document.getElementById('ai-bridge-btn').style.display='none';
+  window.open('https://gemini.google.com/app','_blank');
+}
+
 // ── The Gemini bridge ─────────────────────────────────────────
 // Generation on the user's own signed-in gemini.google.com tab — free on a consumer
 // account, no API key, and FigureLab transmits nothing: the prompt travels out on the
@@ -13334,7 +13654,16 @@ function _bridgePaste(blob){
     const src=rd.result;
     const img=new Image();
     img.onload=()=>{
-      _insertAIElement(src,img,{engine:'gemini-app', prompt:armed.prompt, bridge:true});
+      // Armed for an edit: the paste replaces that object's pixels rather than adding
+      // a new one. The gate is re-checked, because the selection may have moved on.
+      if(armed.edit && _bridgeEditIdx>=0){
+        const el=freeformElements[_bridgeEditIdx];
+        if(el && _aiEditable(el)) _applyAIEdit(el,src,armed.prompt,'gemini-app');
+        else _aiRefuse();
+        _bridgeEditIdx=-1;
+      } else {
+        _insertAIElement(src,img,{engine:'gemini-app', prompt:armed.prompt, bridge:true});
+      }
       cancelGeminiBridge();
     };
     img.onerror=()=>{ toast('Pasted image could not be read','err'); cancelGeminiBridge(); };
@@ -14396,6 +14725,14 @@ function updateElemPropsBar(){
     const set=(id,v)=>{ const e=document.getElementById(id); if(e){ if(e.type==='checkbox') e.checked=!!v; else e.value=v; } };
     set('ep-conn-route',el.route||'straight'); set('ep-conn-arrow',el.arrow||'end'); set('ep-conn-w',el.strokeWidth||2);
     set('ep-conn-dash',!!el.dash); set('ep-conn-color',el.color||'#333333'); set('ep-conn-label',el.labelText||'');
+  }
+  // AI editing is offered only where the gate permits it, so an imported experimental
+  // image simply has no button to press — the rule is visible, not just enforced.
+  const aiPane=document.getElementById('ep-ai-props');
+  if(aiPane){
+    aiPane.style.display=_aiEditable(el)?'flex':'none';
+    const rv=document.getElementById('ep-ai-revert');
+    if(rv) rv.style.display=el.aiPrevSrc?'':'none';
   }
   const isIcon=!!el.isIcon;
   document.getElementById('ep-icon-props').style.display=isIcon?'flex':'none';
