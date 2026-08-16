@@ -38,8 +38,13 @@ test('no icon key is defined twice', async ({ page }) => {
   const fs = require('fs');
   const path = require('path');
   const src = fs.readFileSync(path.join(__dirname, '..', 'figure_lab.html'), 'utf8');
-  const body = src.match(/const SCIENCE_ICONS=\{[\s\S]*?\n\};/)[0];
-  const keys = [...body.matchAll(/^ {2}([A-Za-z0-9_]+):\{label:/gm)].map(m => m[1]);
+  // Icons come from two places now: the hand-written literal and any generated
+  // Object.assign pack blocks. A key colliding ACROSS those is the live risk — the pack
+  // is appended, so it would silently overwrite a built-in.
+  const literal = src.match(/const SCIENCE_ICONS=\{[\s\S]*?\n\};/)[0];
+  const packs = [...src.matchAll(/Object\.assign\(SCIENCE_ICONS,\s*\{[\s\S]*?\n\}\);/g)].map(m => m[0]);
+  const keys = [literal, ...packs]
+    .flatMap(b => [...b.matchAll(/^ {2}([A-Za-z0-9_]+):\{label:/gm)].map(m => m[1]));
   const seen = new Set(), dup = [];
   for (const k of keys) { if (seen.has(k)) dup.push(k); seen.add(k); }
   expect(dup).toEqual([]);
@@ -89,6 +94,76 @@ test('every icon renders to a real bitmap', async ({ page }) => {
     return fails;
   });
   expect(bad).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('imported pack icons are CC0/MIT only, and carry no attribution burden', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const pack = Object.entries(SCIENCE_ICONS).filter(([k]) => k.startsWith('bi_'));
+    const spdx = new Set(pack.map(([, ic]) => _iconLic(ic).spdx));
+    return { n: pack.length, spdx: [...spdx].sort(),
+      // The whole point of picking these two licences: nothing is owed.
+      owed: pack.filter(([, ic]) => ICON_LICENSES_ATTRIB.includes(_iconLic(ic).spdx)).length,
+      allSourced: pack.every(([, ic]) => _iconLic(ic).src),
+      // Software logos are a trademark question a CC0 file does not answer.
+      logos: pack.filter(([k]) => /keras|julia|python|colab|tensorflow|docker|github/i.test(k)).map(([k]) => k) };
+  });
+  expect(r.n).toBeGreaterThanOrEqual(70);
+  expect(r.spdx).toEqual(['CC0-1.0', 'MIT']);
+  expect(r.owed).toBe(0);
+  expect(r.allSourced).toBe(true);
+  expect(r.logos).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('colour illustrations are placed as drawn and refuse recolouring', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    // A full-colour illustration has no single colour to swap; forcing one would
+    // flatten the artwork to a silhouette, so the control hides and the call declines.
+    const colourIcon = Object.keys(SCIENCE_ICONS).find(k => SCIENCE_ICONS[k].mono === false);
+    document.getElementById('layout-mode').value = 'freeform';
+    setLayoutMode('freeform');
+    freeformElements.length = 0;
+    insertIcon(colourIcon);
+    await new Promise(r => setTimeout(r, 500));
+    const el = freeformElements[0];
+    selectedElems.clear(); selectedElems.add(0);
+    updateElemPropsBar();
+    const colourUIShown = document.getElementById('ep-icon-props').style.display !== 'none';
+    const before = el.src;
+    recolorIcon('#ff0000');
+    await new Promise(r => setTimeout(r, 200));
+    return { name: colourIcon, mono: el.iconMono, hasSrc0: !!el.iconSrc0,
+             colourUIShown, unchanged: freeformElements[0].src === before };
+  });
+  expect(r.mono).toBe(false);
+  expect(r.hasSrc0).toBe(false);      // no pristine recolour source is kept
+  expect(r.colourUIShown).toBe(false);// the control isn't offered
+  expect(r.unchanged).toBe(true);     // and calling it anyway is a no-op
+  expect(errors).toEqual([]);
+});
+
+test('FigureLab’s own line-art icons still recolour', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    document.getElementById('layout-mode').value = 'freeform';
+    setLayoutMode('freeform');
+    freeformElements.length = 0;
+    insertIcon('heart');
+    await new Promise(r => setTimeout(r, 500));
+    selectedElems.clear(); selectedElems.add(0);
+    updateElemPropsBar();
+    const shown = document.getElementById('ep-icon-props').style.display !== 'none';
+    recolorIcon('#ff0000');
+    await new Promise(r => setTimeout(r, 300));
+    const el = freeformElements[0];
+    return { shown, colour: el.iconColor, inSvg: el.svgSource.includes('#ff0000') };
+  });
+  expect(r.shown).toBe(true);
+  expect(r.colour).toBe('#ff0000');
+  expect(r.inSvg).toBe(true);
   expect(errors).toEqual([]);
 });
 

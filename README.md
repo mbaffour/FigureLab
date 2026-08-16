@@ -1,4 +1,4 @@
-# FigureLab v3.11.0
+# FigureLab v3.12.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -273,6 +273,19 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.12.0 — 11 August 2026
+**Focus: the icon library, doubled with imported artwork — and the licence discipline to make that safe.**
+
+- **82 icons imported from [Bioicons](https://bioicons.com/)**, taking the library to **169**. GHS hazard pictograms, nucleotide bases, fluorescent beads, capsules, plasmids, lab apparatus, molecular-modelling notation, plots and assay readouts.
+- **CC0 and MIT only.** Those are the licences that oblige the user nothing — no attribution line, no publication licence, no watermark, no per-figure fee, which is the entire point next to BioRender's model. **Share-alike was excluded** (it can be read as reaching the figure the icon is placed in), and **software logos were excluded outright**: a CC0 SVG grants copyright permission, not trademark permission, and that distinction doesn't survive being placed in a published figure.
+- **A second icon class: full-colour illustrations.** FigureLab's own icons are single-colour line art whose colour you can change. Imported illustrations are artwork whose colours *are* the content — forcing them through the same recolour would flatten a drawn cell to a silhouette. They carry `mono:false`, are placed as drawn, and the colour control hides for them rather than pretending to work.
+- **Two silent-damage bugs found by rendering every icon before shipping it**, both in the import cleanup and both invisible in the source text:
+  - Stripping `xmlns:` declarations while leaving `<sodipodi:namedview/>` behind produced an undeclared namespace prefix — an XML parse error, so **23 of 86 icons failed to load at all**.
+  - Stripping `class="…"` severed the `<style>` blocks these SVGs keep their colours in, so the artwork rendered as **flat black silhouettes** while still parsing fine. Pills, viruses and plasmids all came through as blobs.
+  Neither would have been caught by reading the files. The import now renders each icon, measures its ink, and rejects a "colour" icon that comes out in one tone.
+- `tools/build-icons.mjs` carries both fixes and documents why `id` and `class` must survive cleanup.
+- **351 Playwright tests.** The duplicate-key guard now spans the hand-written literal *and* the generated pack blocks, since an appended pack silently overwriting a built-in is the new failure mode.
 
 ### v3.11.0 — 11 August 2026
 **Focus: AI that edits schematics and never data, plus the features a competitor survey said were worth having.**

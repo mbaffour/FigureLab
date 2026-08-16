@@ -154,9 +154,14 @@ test('icon library is large, grouped, and every source is valid single-colour SV
     for (const [k, ic] of entries) {
       const doc = new DOMParser().parseFromString(ic.svg, 'image/svg+xml');
       if (doc.querySelector('parsererror')) bad.push(k);
-      // Every literal colour in the source must be the sentinel, or recolour breaks.
-      const hexes = ic.svg.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
-      if (hexes.some(h => h.toLowerCase() !== '#222222')) offColour.push(k + ':' + hexes.join(','));
+      // The sentinel rule applies to RECOLOURABLE icons only. A mono icon with any
+      // other literal colour would ignore the colour picker; imported illustrations
+      // are mono:false precisely because their colours are the artwork, and forcing
+      // the sentinel on them would flatten them to silhouettes.
+      if (ic.mono !== false) {
+        const hexes = ic.svg.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+        if (hexes.some(h => h.toLowerCase() !== '#222222')) offColour.push(k + ':' + hexes.join(','));
+      }
       if (!ic.group || !ICON_GROUPS[ic.group]) ungrouped.push(k);
     }
     return {

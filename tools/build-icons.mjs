@@ -33,20 +33,51 @@ const arg = (n, d) => {
   return i > -1 ? process.argv[i + 1] : d;
 };
 
-/** Strip an SVG down to what FigureLab can recolour and inline. */
-function normalise(svg, key = '#222222') {
+/**
+ * Strip an SVG down to what FigureLab can inline.
+ *
+ * The namespace handling is the fiddly part and it is not optional. Editor exports
+ * (Inkscape especially) carry elements in their own namespaces — `<sodipodi:namedview/>`,
+ * `<inkscape:*>`, RDF metadata. Dropping the matching `xmlns:` declarations while leaving
+ * one of those elements behind produces an undeclared prefix, which is an XML parse
+ * ERROR: the image fails to load entirely rather than rendering imperfectly. Prefixed
+ * elements must therefore go first, in BOTH paired and self-closing form.
+ * (Getting this wrong silently killed 23 of 86 icons on the first import run — they
+ * looked fine as text and rendered as nothing.)
+ *
+ * `id` and `class` are deliberately NOT stripped, though both look like removable noise:
+ *   · gradients, clip paths and masks are referenced by `url(#id)`;
+ *   · most illustration exports put their colours in a `<style>` block keyed on
+ *     `.cls-N` and carry no inline fills at all, so dropping `class` severs every rule
+ *     and the artwork renders as flat black silhouettes.
+ * Both failures are silent — the SVG still parses and still draws something.
+ *
+ * Pass `mono:true` only for genuine single-colour line art. Forcing the sentinel onto a
+ * full-colour illustration flattens it to a silhouette.
+ */
+function normalise(svg, { key = '#222222', mono = false } = {}) {
   let s = svg
     .replace(/<\?xml[\s\S]*?\?>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!DOCTYPE[\s\S]*?>/g, '')
+    .replace(/<([a-zA-Z][\w-]*):([\w-]+)[\s\S]*?<\/\1:\2>/g, '')   // paired prefixed
+    .replace(/<[a-zA-Z][\w-]*:[\w-]+\b[^>]*\/>/g, '')              // self-closing prefixed
     .replace(/<(metadata|title|desc)[\s\S]*?<\/\1>/g, '')
-    .replace(/\s+(id|class|data-[\w-]+)="[^"]*"/g, '')
+    .replace(/<(metadata|title|desc)\b[^>]*\/>/g, '')
+    // surviving prefixed ATTRIBUTES, then their declarations (order matters)
+    .replace(/\s+(?!xmlns:)[a-zA-Z][\w-]*:[\w-]+="[^"]*"/g, '')
+    .replace(/\s+xmlns:[\w-]+="[^"]*"/g, '')
+    .replace(/\s+data-[\w-]+="[^"]*"/g, '')
+    .replace(/(\d+\.\d{3,})/g, m => (+m).toFixed(2))               // trim coordinate noise
+    .replace(/>\s+</g, '><')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  // FigureLab recolours by substituting a sentinel colour, so every explicit fill or
-  // stroke has to become that sentinel. Anything left as a literal colour would ignore
-  // the colour picker and quietly look wrong next to the rest of the figure.
-  s = s.replace(/(fill|stroke)="(?!none)[^"]*"/g, `$1="${key}"`)
-       .replace(/currentColor/g, key);
+  if (mono) {
+    // FigureLab recolours single-colour icons by substituting a sentinel, so every
+    // explicit fill/stroke has to become that sentinel or it will ignore the picker.
+    s = s.replace(/(fill|stroke)="(?!none)[^"]*"/g, `$1="${key}"`)
+         .replace(/currentColor/g, key);
+  }
   return s;
 }
 
@@ -72,7 +103,7 @@ async function main() {
     try {
       const r = await fetch(item.url);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      svg = normalise(await r.text());
+      svg = normalise(await r.text(), { mono: !!item.mono });
     } catch (e) { skipped.push([item.name, `fetch failed: ${e.message}`]); continue; }
     if (svg.length > 4096) { skipped.push([item.name, `too large after cleanup (${svg.length}B)`]); continue; }
     kept.push({ ...item, svg });
