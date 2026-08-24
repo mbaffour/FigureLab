@@ -28,9 +28,10 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     'compare-modal', 'cmp-left', 'cmp-right', 'cmp-zoom', 'cmp-zoom-v',
     'cmp-diff', 'cmp-canvas-l', 'cmp-canvas-r', 'cmp-pixel-info',
     'tour-ov', 'panel-ctx-menu',
-    // Built inside showInfoModal bodies: the credits textarea, and the homogenizer's
-    // per-property selects (homo-<prop>, which are generated from what actually drifted).
-    'credits-text',
+    // Built inside showInfoModal bodies: the credits textareas (required attribution, and
+    // the separate courtesy block that only appears when something carries a credit line),
+    // and the homogenizer's per-property selects (homo-<prop>, generated from what drifted).
+    'credits-text', 'courtesy-text',
   ]);
   const real = missing.filter(id => !runtimeBuilt.has(id));
   expect(real, `ids the script looks up but the markup no longer has: ${real.join(', ')}`).toEqual([]);
