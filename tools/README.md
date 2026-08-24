@@ -54,3 +54,8 @@ Whatever lands in the app appears in the **⚖ Credits** panel, which generates 
 attribution paragraph and writes `CREDITS.txt` into the submission package. The licence
 allowlist is asserted by `tests/v312.spec.js`, so a pack that violates it fails the build
 rather than reaching a user.
+
+`bioicons-ccby-pack.json` is the second shipped tranche (41 icons, v3.13.0):
+Servier Medical Art (CC-BY-3.0) and DBCLS (CC-BY-4.0) — attribution-required artwork
+that was deliberately excluded from the first import until the ⚖ Credits machinery
+existed to honour it. Same regeneration command, same review-then-paste workflow.

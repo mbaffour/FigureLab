@@ -235,6 +235,28 @@ test('a CC-BY icon produces a paste-ready credit line, grouped by author', async
   expect(errors).toEqual([]);
 });
 
+test('placing a real Servier icon generates the real Servier credit line', async ({ page }) => {
+  const errors = await loadApp(page);
+  // End-to-end over the shipped CC-BY pack: place one, and the obligation it carries
+  // must come out of the Credits panel as a line pointing at Servier's own site —
+  // that is the condition under which importing attribution-required art was OK at all.
+  const r = await page.evaluate(async () => {
+    const servier = Object.keys(SCIENCE_ICONS).find(k =>
+      k.startsWith('by_') && SCIENCE_ICONS[k].lic?.author === 'Servier Medical Art');
+    document.getElementById('layout-mode').value = 'freeform';
+    setLayoutMode('freeform');
+    freeformElements.length = 0;
+    insertIcon(servier);
+    await new Promise(r => setTimeout(r, 500));
+    return { icon: servier, credits: _creditsText(),
+             groups: _collectCredits().groups.length };
+  });
+  expect(r.icon).toBeTruthy();
+  expect(r.groups).toBe(1);
+  expect(r.credits).toMatch(/© Servier Medical Art, CC-BY-3\.0 \(https:\/\/smart\.servier\.com\/\)/);
+  expect(errors).toEqual([]);
+});
+
 test('AI-generated content appears in the credits too', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {

@@ -1,4 +1,4 @@
-# FigureLab v3.12.0
+# FigureLab v3.13.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -273,6 +273,14 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ---
 
 ## Changelog
+
+### v3.13.0 — 24 August 2026
+**Focus: the duplication check journals actually run, and the attribution-required icon tranche the Credits machinery was built for.**
+
+- **🧬 Region-level duplication check.** The whole-panel check caught a panel reused wholesale; what journal screens (Proofig, ImageTwin) actually flag is a *region* reused — a lane cloned inside a blot, a patch of one micrograph living in another, possibly rotated or mirrored. The scan now anchors patches to **content keypoints** (Laplacian-energy maxima), so the same pixels produce the same patches wherever they were pasted — a first fixed-grid implementation missed a duplicate shifted by 8 px, which is disqualifying for an integrity tool and why the grid went. Matches merge into regions, shown **boxed side-by-side** in the report; flat areas are excluded and the report says so rather than passing them. Thresholds are measured, not guessed: a planted rotated duplicate lands at 0.83–0.93 correlation after ±2 px alignment refinement, unrelated texture never exceeded 0.19 across 233 gated pairs. The shifted re-crop that was the *documented limitation* of the panel check is now a regression test for the region check. Within-panel cloning is covered too.
+- **41 more icons: Servier Medical Art and DBCLS (CC-BY).** The attribution-required tranche deliberately left out of v3.12.0 until the ⚖ Credits machinery existed to honour it. Placing one creates a real obligation, and the licence records discharge it: Credits groups by author into a paste-ready line pointing at each author's own site (smart.servier.com, togotv.dbcls.jp), and `CREDITS.txt` ships in the submission package. A test places a real Servier icon and asserts the real credit line comes out. Library now **210 icons**. NIH BioArt was investigated and skipped: it is a JS app with no public API, and scraping its internal endpoints is neither stable nor clearly sanctioned.
+- Curation remains reproducible: `tools/bioicons-ccby-pack.json` regenerates the tranche through `tools/build-icons.mjs`, same review-then-paste workflow, share-alike still rejected outright.
+- **359 Playwright tests** (up from 351). The region check's development was driven by adversarial fixtures (deterministic noise with planted, shifted, rotated duplications) — two implementation strategies failed against them before keypoint anchoring passed.
 
 ### v3.12.0 — 11 August 2026
 **Focus: the icon library, doubled with imported artwork — and the licence discipline to make that safe.**

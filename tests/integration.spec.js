@@ -109,28 +109,34 @@ test('adding the same region twice by mistake IS called a duplicate', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('a reuse that was re-cropped may score below threshold — the documented limit', async ({ page }) => {
+test('a shifted re-crop — once the documented limit — is now caught at region level', async ({ page }) => {
   const errors = await loadApp(page);
   await seedTextured(page);
   const r = await page.evaluate(() => {
-    // Same source, regions offset by ~1% of the image. This is the case the report
-    // warns about: the panels are compared as DISPLAYED, so a shifted re-crop of fine
-    // texture can fall under the threshold. Asserted so the limitation stays true to
-    // what the UI claims, rather than drifting silently.
+    // Same source, regions offset by ~1% of the image. The WHOLE-panel check compares
+    // panels as displayed, so this shifted re-crop can fall under its threshold — that
+    // used to be the report's documented limitation. The region-level scan anchors its
+    // patches to content keypoints, which land on the same pixels wherever the crop
+    // window sits, so exactly this case is what it exists to catch.
     startMultiCrop([0]);
     cropEdState.cx = 0.10; cropEdState.cy = 0.10; cropEdState.cw = 0.5; cropEdState.ch = 0.5; mcAddRegion();
     cropEdState.cx = 0.11; cropEdState.cy = 0.11; cropEdState.cw = 0.5; cropEdState.ch = 0.5; mcAddRegion();
     mcDoneSource(); render();
     const s = _panelSimilarityScan();
+    const rr = _regionDupScan();
     runDuplicateScan();
     const all = document.querySelectorAll('.modal-bg');
     const txt = all.length ? all[all.length - 1].innerText : '';
     if (all.length) all[all.length - 1].remove();
-    return { compared: s.compared, hits: s.hits.length, txt };
+    return { compared: s.compared, regionHits: rr.regions.length,
+             tf: rr.regions[0] && rr.regions[0].tf, txt };
   });
-  expect(r.compared).toBe(2);                          // both were genuinely compared
-  // whatever the verdict, the report must state that a re-cropped reuse can be missed
-  expect(r.txt).toMatch(/re-cropped or shifted/i);
+  expect(r.compared).toBe(2);                    // whole-panel genuinely compared them
+  expect(r.regionHits).toBeGreaterThanOrEqual(1);// and the region scan finds the reuse
+  expect(r.tf).toBe('as-is');
+  // The remaining honest limits must still be stated: rescaling, and flat background.
+  expect(r.txt).toMatch(/rescaled far from the original size/i);
+  expect(r.txt).toMatch(/blank background is not findable/i);
   expect(errors).toEqual([]);
 });
 
