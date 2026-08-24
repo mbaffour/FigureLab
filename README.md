@@ -1,4 +1,4 @@
-# FigureLab v3.12.0
+# FigureLab v3.13.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -131,6 +131,15 @@ Draw directly on the rendered figure:
 - **Panel annotations** (📌 mode) pin annotations to a specific panel — they follow it when panels are reordered
 
 **Undo / Redo** — full history for all annotation actions
+
+### Icon & illustration library
+Search the **Insert icon** box in *Annotate & Draw* — 569 vector assets, placed as true vector and re-exported as vector.
+
+- **FigureLab's own line art** (~87) — arrows, brackets, significance marks, cells, molecules, lab equipment, study-design glyphs. Single-colour, so the colour picker actually recolours them. MIT-licensed with the app.
+- **82 icons from [Bioicons](https://bioicons.com/)** — CC0 and MIT only.
+- **400 illustrations from [NIH BioArt Source](https://bioart.niaid.nih.gov/)** — NIAID's professionally drawn science and medical art, all Public Domain. Full-colour artwork, so it is placed as drawn and the recolour control declines rather than flattening it to a silhouette.
+- **The rest of BioArt is one click away.** ~2,000 assets exist; the 400 that fit in a single portable file are carried inline, and the larger ones appear in search as name-only chips that open their download page. **Drop the downloaded file back on the canvas and FigureLab reads its embedded title, illustrator and credit line** (SVG `<metadata>`, PNG `tEXt`), so it arrives credited rather than anonymous.
+- **⚖ Credits** generates the attribution paragraph for whatever you actually used, and writes `CREDITS.txt` into the submission package. Required attribution and NIAID's customary "Courtesy of NIAID" line are kept under separate headings — Public Domain obliges you nothing, and this panel will not pretend otherwise. No publication licence, no watermark, no per-figure fee.
 
 ### Integrity checks
 - **🧬 Duplicate-panel check** — compares the pixels of every pair of panels, including rotated and mirrored reuse, and flags near-identical ones before a journal's screen does
@@ -269,10 +278,25 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - SVG export: background PNG + native SVG shapes for vector annotations
 - Gamma correction uses a 256-entry LUT computed once per render for speed
 - Fonts: JetBrains Mono, Instrument Serif (loaded from Google Fonts if online, falls back to system fonts offline)
+- **File size: ~5.2 MB.** Most of that is the 400 inlined BioArt illustrations. Carrying them is what makes the library work offline, from `file://`, with no server and no fetch — the alternative was a tool that needs the internet to draw a macrophage. A per-asset cap keeps the painterly renderings out (they run to several MB each), and a test fails if a future import pushes the file past 7 MB.
 
 ---
 
 ## Changelog
+
+### v3.13.0 — 24 August 2026
+**Focus: NIH BioArt — 400 professional science illustrations in the box, and the whole 2,000-asset catalogue reachable from the search field.**
+
+- **400 illustrations imported from [NIH BioArt Source](https://bioart.niaid.nih.gov/)**, taking the library to **569**. Macrophages, neutrophils and organelles; ticks, mosquitoes and lab animals; viruses, bacteria, parasites and fungi; plates, flow cytometers and instruments; antibodies, receptors and plasmids; people and clinical scenes. Two new groups — **Microbes & pathogens** and **People & clinical** — because the existing seven could not hold them honestly.
+- **All Public Domain.** NIAID's terms are "free for any use, including commercial", citation appreciated but not required. Nothing here obliges a user anything, which is the same bar the Bioicons import had to clear.
+- **A courtesy tier in ⚖ Credits.** Public Domain requires no attribution, so it is *not* listed as required — but NIAID asks for "Courtesy of NIAID" and an author submitting a manuscript wants it offered. It appears under **"Not required, but customary"**, with its own copy button, and `CREDITS.txt` separates the two under headings. Presenting a courtesy as an obligation would be the one mistake this panel exists to prevent.
+- **Drop in any BioArt file and it arrives already credited.** Downloaded SVGs carry their provenance in a `<metadata>` block and PNGs in `tEXt` chunks; FigureLab reads both, and a recognised file lands with its title, illustrator and credit line attached — placed as true vector, with recolouring correctly declined. It only fires when the credit line actually names NIAID *and* the licence is Public Domain, so an ordinary SVG with a `<title>` is never stamped with someone else's licence.
+- **The catalogue for what could not fit.** BioArt SVGs run from 1 KB of line art to 8.6 MB of painterly rendering; inlining all ~2,000 would be about 140 MB, and minifying does not rescue it because it is raw path data. So everything under a 32 KB cap ships inline, and the **286 larger assets appear in the palette as name-only chips** that open their download page — searched by the same scorer, listed after what you can place immediately. Combined with the drop-in recognition, the whole catalogue stays usable without the file carrying it.
+- **The palette renders lazily.** At 569 icons, painting a full-colour illustration into every button on every keystroke stalls the sidebar. Buttons now fill as they scroll into view, and the search field is debounced.
+- **A third silent-damage bug in the import cleanup**, of exactly the kind the v3.12.0 notes describe. BioArt serialises its documents as `<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg">` — a prefix bound to the SVG namespace itself. The foreign-namespace strip matched the **root element** and deleted every asset whole. `normalise()` now reads the root's prefix map and unprefixes SVG-namespace elements before removing anything, and `xlink:href` is promoted to plain `href` rather than stripped, which had been quietly discarding embedded rasters. A test rasterises a sample of the pack and fails on blank output, because that is the only way to see this failure.
+- **`tools/build-bioart.mjs`** crawls, licence-gates, normalises and caps, then emits the pack and the catalogue for a human to review and paste — the same discipline as `build-icons.mjs`, which it reuses. It reads the licence from each asset rather than assuming, and skips anything it cannot place in the allowlist.
+- **The file is now ~5.2 MB, up from 1.2 MB.** That is the honest cost of carrying 400 illustrations offline in one file, and it was a deliberate choice rather than a drift: a test fails if a future import pushes past 7 MB.
+- **365 Playwright tests.**
 
 ### v3.12.0 — 11 August 2026
 **Focus: the icon library, doubled with imported artwork — and the licence discipline to make that safe.**

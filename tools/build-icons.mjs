@@ -16,6 +16,7 @@
 // Building it is the curation work; this script is the mechanical part.
 
 import fs from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 
 // Mirrors ICON_LICENSES_ALLOWED in figure_lab.html. A test in tests/v312.spec.js
 // asserts the app never contains anything outside this set, so the two cannot drift
@@ -33,6 +34,36 @@ const arg = (n, d) => {
   return i > -1 ? process.argv[i + 1] : d;
 };
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Rewrite elements that are in the SVG namespace under a prefix back to plain tags.
+ *
+ * Only prefixes the ROOT element binds to the SVG namespace are touched; a prefix bound to
+ * anything else is left exactly as it was, for the foreign-namespace strip to remove.
+ */
+function unprefixSvgNs(svg) {
+  const root = svg.match(/<([a-zA-Z][\w-]*:)?svg\b[^>]*>/);
+  if (!root) return svg;
+  const prefixes = [...root[0].matchAll(/xmlns:([\w-]+)="([^"]*)"/g)]
+    .filter(m => m[2] === SVG_NS).map(m => m[1]);
+  if (!prefixes.length) return svg;
+  let out = svg;
+  for (const p of prefixes) {
+    out = out.replace(new RegExp(`<${p}:([\\w-]+)`, 'g'), '<$1')
+             .replace(new RegExp(`</${p}:([\\w-]+)`, 'g'), '</$1');
+  }
+  // The declarations are now unused, and the document needs a default namespace instead —
+  // an SVG served without one is not an SVG as far as the browser is concerned.
+  const hasDefault = /\sxmlns="/.test(root[0]);
+  for (const p of prefixes) {
+    out = out.replace(new RegExp(`\\s+xmlns:${p}="[^"]*"`), hasDefault ? '' : ` xmlns="${SVG_NS}"`);
+    break;   // only the first needs promoting; drop the rest
+  }
+  for (const p of prefixes) out = out.replace(new RegExp(`\\s+xmlns:${p}="[^"]*"`, 'g'), '');
+  return out;
+}
+
 /**
  * Strip an SVG down to what FigureLab can inline.
  *
@@ -45,6 +76,15 @@ const arg = (n, d) => {
  * (Getting this wrong silently killed 23 of 86 icons on the first import run — they
  * looked fine as text and rendered as nothing.)
  *
+ * But a prefix is not automatically foreign, and that distinction has to be drawn BEFORE
+ * anything is deleted. NIH BioArt serialises its whole document in a prefix bound to the
+ * SVG namespace itself — `<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg">` — so the
+ * paired-prefix rule below matches the ROOT element and takes the entire artwork with it.
+ * `unprefixSvgNs` therefore runs first: it reads the root's prefix→URI map, rewrites every
+ * prefix bound to the SVG namespace back to plain tags, and promotes one declaration to a
+ * default `xmlns=`. Only genuinely foreign prefixes survive to be stripped. Same failure
+ * mode as the Inkscape case — a valid-looking string that renders as nothing — one level up.
+ *
  * `id` and `class` are deliberately NOT stripped, though both look like removable noise:
  *   · gradients, clip paths and masks are referenced by `url(#id)`;
  *   · most illustration exports put their colours in a `<style>` block keyed on
@@ -55,8 +95,8 @@ const arg = (n, d) => {
  * Pass `mono:true` only for genuine single-colour line art. Forcing the sentinel onto a
  * full-colour illustration flattens it to a silhouette.
  */
-function normalise(svg, { key = '#222222', mono = false } = {}) {
-  let s = svg
+export function normalise(svg, { key = '#222222', mono = false } = {}) {
+  let s = unprefixSvgNs(svg)
     .replace(/<\?xml[\s\S]*?\?>/g, '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<!DOCTYPE[\s\S]*?>/g, '')
@@ -64,6 +104,11 @@ function normalise(svg, { key = '#222222', mono = false } = {}) {
     .replace(/<[a-zA-Z][\w-]*:[\w-]+\b[^>]*\/>/g, '')              // self-closing prefixed
     .replace(/<(metadata|title|desc)[\s\S]*?<\/\1>/g, '')
     .replace(/<(metadata|title|desc)\b[^>]*\/>/g, '')
+    // `xlink:href` is the one prefixed attribute that carries content rather than editor
+    // state — embedded rasters and <use> targets hang off it. The strip below would take it
+    // silently, so promote it to the plain SVG2 `href` first. (Only where there is no `href`
+    // already; when both are present the unprefixed one wins in every current browser.)
+    .replace(/(<[^>]*?)\sxlink:href=("[^"]*")/g, (m, head, val) => /\shref=/.test(head) ? head : `${head} href=${val}`)
     // surviving prefixed ATTRIBUTES, then their declarations (order matters)
     .replace(/\s+(?!xmlns:)[a-zA-Z][\w-]*:[\w-]+="[^"]*"/g, '')
     .replace(/\s+xmlns:[\w-]+="[^"]*"/g, '')
@@ -134,4 +179,8 @@ async function main() {
   console.log('Review the artwork and the licence claims, then paste into figure_lab.html.');
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// Importable as a module (tools/build-bioart.mjs reuses normalise) — only run the CLI when
+// this file is what was actually invoked.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(e => { console.error(e); process.exit(1); });
+}
