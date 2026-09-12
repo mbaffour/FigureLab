@@ -16281,19 +16281,29 @@ async function exportMultiPagePDF(){
     const pageRows = Math.min(rpp, rows - page * rpp);
     const pageImages = images.slice(page * rpp * cols, (page * rpp + pageRows) * cols);
 
-    // Temporarily swap row count and images to re-render just this page
+    // Temporarily swap row count and images to re-render just this page.
+    // The restore MUST be in a finally: any throw between the swap and the restore
+    // (an over-large canvas, an OOM, a render error) used to leave images[] holding
+    // one page's slice and the user's other panels gone from the live session, with
+    // no undo entry for the swap.
     const origImages = images.splice(0, images.length, ...pageImages);
-    document.getElementById('rows').value = pageRows;
-    onLayoutChange(); render();
+    try{
+      document.getElementById('rows').value = pageRows;
+      onLayoutChange(); render();
 
-    const c = document.getElementById('fig-canvas');
-    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
-    pageBlobs.push({ blob, W: c.width, H: c.height });
-
-    // Restore
-    images.splice(0, images.length, ...origImages);
-    document.getElementById('rows').value = origRows;
-    onLayoutChange(); render();
+      // Each page goes through the same supersampled export path as every other
+      // raster export — this used to grab the 1x on-screen preview canvas and then
+      // divide its pixel width by the requested DPI, which made every page dpi/96x
+      // too small (83 mm instead of 261 mm at 300 DPI) and ignored the printed-width
+      // target entirely.
+      const c = renderExportCanvas(dpi);
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+      pageBlobs.push({ blob, W: c.width, H: c.height, dpi: c._effDpi || dpi });
+    } finally {
+      images.splice(0, images.length, ...origImages);
+      document.getElementById('rows').value = origRows;
+      onLayoutChange(); render();
+    }
   }
 
   // Build multi-page PDF manually
@@ -16310,12 +16320,15 @@ async function exportMultiPagePDF(){
 
   const imgBytesList = [];
   for(let p = 0; p < pageCount; p++){
-    const { blob, W, H } = pageBlobs[p];
+    const { blob, W, H, dpi: pageDpi } = pageBlobs[p];
     const jpgBytes = new Uint8Array(await blob.arrayBuffer());
     imgBytesList.push(jpgBytes);
 
-    const wPt = (W * 72 / dpi).toFixed(3);
-    const hPt = (H * 72 / dpi).toFixed(3);
+    // Page size from the resolution the page canvas ACTUALLY carries (the printed
+    // width when one is set, the 60 MP-capped DPI when the cap fired) — the same
+    // number the single-page PDF puts in its /MediaBox.
+    const wPt = (W * 72 / (pageDpi || dpi)).toFixed(3);
+    const hPt = (H * 72 / (pageDpi || dpi)).toFixed(3);
     const pgId  = pageObjBase + p * 3;       // Page object
     const imId  = pageObjBase + p * 3 + 1;   // Image XObject
     const csId  = pageObjBase + p * 3 + 2;   // Content stream
