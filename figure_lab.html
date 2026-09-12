@@ -1710,7 +1710,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
-<h3 class="help-h">What's new in v3.13.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 24 August 2026</span></h3>
+<h3 class="help-h">What's new in v3.13.1 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 12 September 2026</span></h3>
+<p class="help-p">A correctness release, from an independent audit. No new features &mdash; but if you have exported a figure at a journal column width, or pasted a generated caption into a manuscript, please read this.</p>
+<ul class="help-ul">
+  <li><b>&#128207; "Printed width" now reaches the file.</b> Choosing a column width (for example <span class="help-ui">183 mm &mdash; double column</span>) at 300 DPI produced a PNG, TIFF and PDF tagged <b>210 dpi and 261 mm</b> &mdash; 43% oversize and below the 300 dpi bar this app's own compliance check had just told you it cleared. The on-screen readout said 183 mm the whole time. Every column preset was affected, and the error grew as the column got narrower. <b>Re-export any figure you made with a column width set.</b></li>
+  <li><b>&#10060; The caption no longer invents a magnification.</b> It printed 1/(&micro;m per pixel) as "&times;" &mdash; a 100&times; objective on a 6.5&micro;m camera pixel was captioned <b>"(15&times;)"</b>. FigureLab never knows your objective, so it now reports the &micro;m/px it does know. <b>Check any legend you have already pasted into a manuscript.</b></li>
+  <li><b>&#9878; The caption discloses every adjustment, not just levels.</b> Gamma, brightness, contrast, invert, the LUT and background keying all reached the pixels undeclared &mdash; and gamma is exactly the non-linear adjustment Nature, JCB and Cell require in the legend. The caption now names each one, and says whether the settings were the same on every panel.</li>
+  <li><b>&#128269; A scale bar that cannot be drawn now fails the check.</b> A bar outside the drawable range was silently not painted while compliance reported "All calibrated &#10003;". There is a new failing row, a pre-flight warning, and a badge in the panel list. Bars are also no longer rounded to whole logical pixels, so their length is exact and matches between grid and freeform.</li>
+  <li><b>&#128230; The submission package is honest.</b> Per-panel PNGs were cropped in the wrong coordinate system under a column width (some were blank, some included their neighbour), and any artifact that failed to build was dropped from the ZIP while the toast still said "ready". Both fixed; anything missing is now named on screen and in the package's README.</li>
+  <li><b>&#128196; Multi-page PDF</b> used the un-supersampled preview canvas and declared pages roughly three times too small; it now matches the single-page export. A failure mid-export can no longer take your panel list with it.</li>
+  <li><b>&#128274; Zero network requests.</b> The app fetched a Google Fonts stylesheet on every open, and one icon pulled a font from excalidraw.com. Both are gone: FigureLab now contacts nothing at all, which is what it always claimed. A test fails the build if that changes.</li>
+  <li><b>SVG export honours the printed width</b> too, and <b>378 Playwright tests</b> (up from 359) &mdash; the new ones read the exported bytes, which is what found all of this.</li>
+</ul>
+<h3 class="help-h">v3.13.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; 24 August 2026</span></h3>
 <ul class="help-ul">
   <li><b>&#129516; The duplication check now finds repeated <i>regions</i></b> &mdash; a lane cloned inside a blot, a patch of one micrograph reappearing in another, rotated or mirrored, within one panel or across two. This is what journal screens (Proofig, ImageTwin) actually flag; ASM's pilot found duplications in 3.9% of accepted manuscripts. Matches are shown <b>boxed, side by side</b>. Flat background is excluded and the report says so &mdash; a duplicate hiding in blank sky is not findable by correlation, and pretending otherwise would be worse than saying it.</li>
   <li><b>It finds candidates; it does not judge them.</b> Repeated texture, a deliberate inset, shared background can all trigger a match. The report says exactly that, every time.</li>
@@ -2284,7 +2296,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.13.0';  // single source of truth for the app version
+const APP_VERSION = '3.13.1';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {

@@ -1,4 +1,4 @@
-# FigureLab v3.13.0
+# FigureLab v3.13.1
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,6 +281,20 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### v3.13.1 — 12 September 2026
+**Focus: correctness, from an independent audit. No new features — but two of these reached files that go to journals, so re-export and re-read anything you made with a column width set.**
+
+- **The "Printed width" target now reaches the exported file.** Selecting a journal column width (say `183 mm — double column`) at 300 DPI produced a PNG whose `pHYs` chunk said **210 dpi**, a TIFF tagged the same, and a PDF `/MediaBox` **261 mm** wide — 43 % oversize and below the ≥300 dpi bar FigureLab's own compliance panel had just reported as cleared. The on-screen readout said "183 mm, 300 DPI" throughout. Every column preset was affected and the error grew as the column narrowed (89 mm at 600 dpi was 168 % too large). The cause was one expression: the effective DPI was computed as `scale × 96`, which is the resolution only when *no* printed width is set. It is now derived from the physical width the canvas actually has. **Re-export any figure made with a column width selected.**
+- **The generated caption no longer prints a magnification it cannot know.** It rendered 1/(µm per pixel) as "×", so a 100× oil objective on a 6.5 µm camera pixel was captioned **"(15×)"**. That is sampling density, not magnification, and a wrong magnification in a legend is a correction-grade error. The caption now states the µm/px it genuinely has. **Check any legend already pasted into a manuscript.**
+- **The caption discloses every adjustment that was applied.** It disclosed levels and nothing else — gamma, brightness, contrast, invert, the LUT and background keying all reached the pixels undeclared, and gamma is precisely the non-linear adjustment Nature, JCB and Cell require in the legend. Each is now named once, and the legend states whether the settings were uniform across panels or differ. The data was always tracked in the CSV and `PANEL_HISTORY.txt`; it just never reached the artefact that goes to the journal.
+- **A scale bar that cannot be drawn now fails the compliance check.** A bar outside the drawable range (4 px … 75 % of the panel; 60 % in freeform) was simply not painted — no bar, no label, no handle, no warning — while compliance reported "All calibrated ✓" because it only tested whether µm/px was set. A mistyped calibration therefore shipped a figure with no scale bar and a green report. There is now a failing compliance row with the reason, a pre-flight warning, and a ⚠ badge in the panel list. Bar length is also no longer rounded to whole *logical* pixels, which happened before supersampling and so did not improve at 600 or 1200 dpi (+9.2 % on a 2 µm bar); grid and freeform now agree for the same calibration.
+- **The submission package is honest about what it contains.** Per-panel PNGs were cropped with `dpi/96` while the canvas was rendered at the printed-width scale, so under a column width some panels were cropped past the right edge of the canvas (blank) and others took in their neighbour. And any artifact that threw — a TIFF or lossless PDF on the 60 MP path — was dropped from the ZIP silently while the toast still said "ready". Crops now use the scale the canvas was actually rendered at, and anything missing is named on screen and in the package's own `README.txt`. PowerPoint export had the same crop bug and is fixed with it.
+- **Multi-page PDF** rendered the un-supersampled preview canvas and declared pages ~3.1× too small, ignoring the printed width entirely; it now uses the same export canvas and page size as the single-page path. A throw mid-export could also leave `images[]` holding one page's slice — the user's other panels gone, with no undo entry — now restored in a `finally`.
+- **SVG export honours the printed width** instead of always declaring `logical/96` inches. The `viewBox` is unchanged, so the vector layer is byte-for-byte identical.
+- **Zero network requests.** The app fetched a Google Fonts stylesheet on every open, and the `bi_line` icon embedded `@font-face{src:url(https://excalidraw.com/Virgil.woff2)}`, so placing it reached a third party. Both are gone, and `tools/build-icons.mjs` strips remote `@font-face` on import so the next tranche cannot reintroduce one. "No internet required" is now literally true, and a test fails the build if it stops being.
+- **Landing page** meets WCAG AA: the gold used for body text was 3.43:1, now 5.30:1. Added a skip link and focus styles — there was no `:focus` rule in the file at all.
+- **378 Playwright tests** (up from 359). The nineteen new ones parse the exported bytes — PNG `pHYs`, TIFF `XResolution`, every PDF `/MediaBox`, each panel PNG inside the ZIP — because the printed-width bug survived a 359-test suite that only ever asserted the app's own readout. One pre-existing red test is fixed: it cached a canvas rect and missed its hit target by 0.35 logical px.
+
 ### v3.13.0 — 24 August 2026
 **Focus: the duplication check journals actually run, and the attribution-required icon tranche the Credits machinery was built for.**
 
@@ -548,7 +562,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.6.1) [Computer software].
+> publication-quality scientific figures* (Version 3.13.1) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -558,7 +572,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.6.1},
+  version   = {3.13.1},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
@@ -566,7 +580,9 @@ button automatically.
 ```
 
 The DOI above is the **concept DOI** — it always resolves to the latest version.
-To cite this exact release, use the v3.13.0 DOI [`10.5281/zenodo.22084181`](https://doi.org/10.5281/zenodo.22084181). Every archived version's DOI is listed in [`CITATION.cff`](CITATION.cff).
+To cite this exact release, use its own version DOI. Each release's version DOI is
+listed in [`CITATION.cff`](CITATION.cff); the most recent recorded there is
+v3.13.0's, [`10.5281/zenodo.22084181`](https://doi.org/10.5281/zenodo.22084181). Every archived version's DOI is listed in [`CITATION.cff`](CITATION.cff).
 
 ---
 

@@ -147,13 +147,64 @@ test('the version is stated identically in the app, the README and CITATION.cff'
     .toEqual({ readme: app[1], cff: app[1] });
 });
 
+test('the citation block and BibTeX quote the version the app actually is', () => {
+  // The check above reads the README's title heading, so the citation section a
+  // reader copies could drift on its own -- and did: both the prose citation and the
+  // BibTeX `version` field sat at 3.6.1 while everything else had reached 3.13.0,
+  // seven minor releases later. A citation is the one string in the repo whose whole
+  // job is to be exact.
+  const app = read('figure_lab.html').toString('utf8')
+    .match(/const APP_VERSION = '([^']+)'/)[1];
+  const readme = read('README.md').toString('utf8');
+
+  const prose = readme.match(/\(Version ([^)]+)\) \[Computer software\]/);
+  const bibtex = readme.match(/^\s*version\s*=\s*\{([^}]+)\},\s*$/m);
+
+  expect(prose, 'prose citation not found in README.md').toBeTruthy();
+  expect(bibtex, 'BibTeX version field not found in README.md').toBeTruthy();
+  expect({ prose: prose[1], bibtex: bibtex[1] }).toEqual({ prose: app, bibtex: app });
+});
+
+test('the landing page and .zenodo.json keep step with the app version', () => {
+  const app = read('figure_lab.html').toString('utf8')
+    .match(/const APP_VERSION = '([^']+)'/)[1];
+  const index = read('index.html').toString('utf8');
+  // Three places on the landing page state the version; all three are hand-written.
+  const stated = [...index.matchAll(/v(\d+\.\d+\.\d+)/g)].map(m => m[1]);
+  expect(stated.length).toBeGreaterThan(0);
+  expect([...new Set(stated)]).toEqual([app]);
+
+  // .zenodo.json is what Zenodo shows on the record page, and it had drifted a full
+  // feature set behind CITATION.cff's abstract.
+  const zen = JSON.parse(read('.zenodo.json').toString('utf8'));
+  const cff = read('CITATION.cff').toString('utf8');
+  const abstract = (cff.match(/^abstract: >-\n((?:  .*\n)+)/m)[1] || '')
+    .split('\n').map(l => l.trim()).filter(Boolean).join(' ');
+  const desc = zen.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  expect(desc).toBe(abstract.replace(/\s+/g, ' ').trim());
+});
+
 test('CITATION.cff records a DOI for the version it claims to be', () => {
   // A release that mints a Zenodo DOI but forgets to record it leaves the archive
   // uncitable by version -- the exact thing CITATION.cff exists to prevent.
   const cff = read('CITATION.cff').toString('utf8');
   const version = cff.match(/^version: "([^"]+)"/m)[1];
   const described = [...cff.matchAll(/description: "Version ([\d.]+)"/g)].map(m => m[1]);
-  expect(described, `CITATION.cff has no identifier entry for the current version ` +
-    `(${version}). Add the version DOI Zenodo minted for this release.`)
+  // Zenodo cannot mint a version DOI before the release commit exists, so there is
+  // always a window where the current version has no identifier. That window used to
+  // be a red suite; it is now a declared state -- a `# DOI-PENDING: <version>` marker
+  // in CITATION.cff -- which the follow-up "Record the ... Zenodo DOI" commit removes.
+  // A released version that is neither recorded nor declared pending still fails.
+  const pending = (cff.match(/^# DOI-PENDING: ([\d.]+)\s*$/m) || [])[1];
+  expect(described.concat(pending || []),
+    `CITATION.cff has no identifier entry for the current version (${version}), and ` +
+    `no "# DOI-PENDING: ${version}" marker. Add the version DOI Zenodo minted for ` +
+    `this release, or declare it pending until the archive exists.`)
     .toContain(version);
+  if (pending) {
+    expect(pending, 'the DOI-PENDING marker names a version that is not the current one')
+      .toBe(version);
+    expect(described, `version ${version} has a recorded DOI, so the DOI-PENDING ` +
+      `marker is stale -- delete it.`).not.toContain(version);
+  }
 });
