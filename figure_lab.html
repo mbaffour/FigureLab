@@ -9120,10 +9120,16 @@ ${pics}${titleSp}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMa
 function exportSVG(name, dpi, canvas){
   // Logical figure dimensions (coordinate space for the vector layer).
   const Lw=canvasLogicalW||canvas.width, Lh=canvasLogicalH||canvas.height;
-  const wIn=(Lw/96).toFixed(4), hIn=(Lh/96).toFixed(4);
+  // Declared physical size honours the "Printed width" target, exactly as PNG/TIFF/PDF
+  // do — choosing "183 mm — double column" used to change every other format and
+  // silently do nothing here. The viewBox stays in logical units, so the vector layer
+  // is untouched; only the size the SVG asks to be placed at changes.
+  const _tgtMm=getTargetWidthMm();
+  const wIn=(_tgtMm>0 ? _tgtMm/25.4 : Lw/96).toFixed(4);
+  const hIn=(_tgtMm>0 ? (_tgtMm/25.4)*(Lh/Lw) : Lh/96).toFixed(4);
   // High-resolution raster of the figure WITHOUT text labels or annotations.
   // The labels are re-emitted below as real vector <text> so they never pixelate.
-  let S=Math.max(1, dpi/96);
+  let S=_exportScaleFor(dpi);
   const MAXPX=60e6; if(Lw*Lh*S*S>MAXPX) S=Math.max(1, Math.sqrt(MAXPX/(Lw*Lh)));
   const off=document.createElement('canvas');
   const savedAnns=annotations; annotations=[];
