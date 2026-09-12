@@ -9587,11 +9587,42 @@ function applyPreset(name){
 // ═══════════════════════════════════════════════════════════════
 // CAPTION GENERATOR
 // ═══════════════════════════════════════════════════════════════
+const LUT_NAMES={fire:'Fire LUT',green:'GFP (green)',cyan:'Cyan',magenta:'Magenta',yellow:'Yellow',blue:'DAPI (blue)',none:null};
+
+// Every adjustment that actually reached the displayed pixels, phrased for a figure
+// legend. Nature, JCB and Cell all require NON-LINEAR adjustments — gamma above all —
+// to be declared there; disclosing only the levels, as this used to, leaves the one
+// artefact that reaches the manuscript silent about the adjustment most likely to be
+// questioned. The predicate deliberately matches _panelHistory()/_adjustedPanelNote()
+// so the caption, the CSV, PANEL_HISTORY.txt and the measurement disclaimers agree.
+// `skip` names things the surrounding sentence already says (LUT, grayscale), so the
+// legend discloses everything exactly once.
+function _captionAdjustments(im, skip){
+  if(!im) return [];
+  skip=skip||{};
+  const a=[];
+  if((im.blackPt||0)>0||(im.whitePt??255)<255) a.push(`levels ${im.blackPt||0}–${im.whitePt??255}`);
+  if((im.gamma||1)!==1) a.push(`gamma ${(+im.gamma).toFixed(2)} (non-linear)`);
+  if((im.brightness??1)!==1) a.push(`brightness ×${(+im.brightness).toFixed(2)}`);
+  if((im.contrast??1)!==1) a.push(`contrast ×${(+im.contrast).toFixed(2)}`);
+  if(im.invert) a.push('signal inverted');
+  if(im.grayscale&&!skip.grayscale) a.push('converted to grayscale');
+  if(im.lut&&im.lut!=='none'&&!skip.lut) a.push(`${LUT_NAMES[im.lut]||im.lut} lookup table applied`);
+  if(im.bgKey&&im.bgKey.on) a.push(`background keyed out (${im.bgKey.mode||'white'}, tolerance ${im.bgKey.tol||0})`);
+  return a;
+}
+// Do two panels carry the same adjustment settings? Journals ask whether adjustments
+// were applied uniformly across the figure, so the caption has to be able to say.
+function _sameAdjustments(a,b){
+  const k=im=>[im.brightness??1, im.contrast??1, im.gamma||1, im.blackPt||0, im.whitePt??255,
+               !!im.invert, !!im.grayscale, im.lut||'none', !!(im.bgKey&&im.bgKey.on)].join('|');
+  return k(a)===k(b);
+}
+
 function generateCaption(){
   const cols=gi('cols'), rows=gi('rows');
   const n=Math.min(images.length,cols*rows);
   if(!n){ toast('No images to caption','warn'); return; }
-  const LUT_NAMES={fire:'Fire LUT',green:'GFP (green)',cyan:'Cyan',magenta:'Magenta',yellow:'Yellow',blue:'DAPI (blue)',none:null};
   const parts=images.slice(0,n).map(im=>{
     const note=im.captionNote?.trim();
     const meta=im.metaNote?.trim();
@@ -9599,24 +9630,33 @@ function generateCaption(){
     let desc=note||'';
     // LUT → channel hint
     const lutLabel=LUT_NAMES[im.lut||'none'];
+    let lutInDesc=false, grayInDesc=false;
     if(lutLabel&&!desc.toLowerCase().includes('gfp')&&!desc.toLowerCase().includes('dapi')&&!desc.toLowerCase().includes('lut')){
       desc=desc?(desc+', '+lutLabel):lutLabel;
+      lutInDesc=true;
+    } else if(lutLabel){
+      lutInDesc=true;    // the author's own note already names the channel/LUT
     }
     // Grayscale hint
-    if(im.grayscale&&!desc.toLowerCase().includes('grayscale')) desc=desc?(desc+', grayscale'):'Grayscale';
+    if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
+    else if(im.grayscale){ grayInDesc=true; }
     if(!desc) desc=`Panel ${im.label}`;
     let s=`(${im.label}) ${desc}.`;
-    // Scale bar
+    // Scale bar. FigureLab knows the sampling density (µm per pixel) and nothing about
+    // the objective, so it reports exactly that. The old "(15×)" here was 1/(µm/px)
+    // printed as a magnification — for a 100× objective on a 6.5 µm camera pixel it
+    // claimed 15×. A wrong magnification in a legend is a correction-grade error, and
+    // no quantity in this app can yield the real one.
     if(im.sbOn&&im.sbUm>0){
-      const magHint=im.umPerPx>0?` (${(1/im.umPerPx).toFixed(0)}×)`:'';
-      s+=` Scale bar, ${_sbLabel(im)}${magHint}.`;
+      const calHint=im.umPerPx>0?` (${(+im.umPerPx.toPrecision(3))} µm per pixel)`:'';
+      s+=` Scale bar, ${_sbLabel(im)}${calHint}.`;
     }
     // Metadata note
     if(meta) s+=` ${meta}.`;
-    // Image adjustments note
-    if((im.blackPt||0)>0||(im.whitePt||255)<255){
-      s+=` (Levels adjusted ${im.blackPt||0}–${im.whitePt||255}.)`;
-    }
+    // Image adjustments — every one that was applied, not just the levels.
+    const adj=_captionAdjustments(im,{lut:lutInDesc, grayscale:grayInDesc});
+    if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
+      +` applied uniformly across the whole panel.)`;
     return s;
   });
   // Detect if fluorescence figure
@@ -9625,8 +9665,19 @@ function generateCaption(){
   let preamble='';
   if(hasLut) preamble='Fluorescence microscopy images. ';
   else if(hasGray) preamble='Grayscale images. ';
+  // Whether the adjustments were the same on every panel is itself a disclosure a
+  // journal asks for: identical settings are routine, per-panel settings are the case
+  // that needs stating rather than being left for a reader to infer from the numbers.
+  const shown=images.slice(0,n).filter(Boolean);
+  const anyAdj=shown.some(im=>_captionAdjustments(im).length>0);
+  let uniformity='';
+  if(anyAdj&&shown.length>1){
+    uniformity=shown.every(im=>_sameAdjustments(im,shown[0]))
+      ? ' The same adjustment settings were applied to every panel.'
+      : ' Adjustment settings differ between panels, as stated per panel above.';
+  }
   const title=gv('fig-title').trim();
-  const cap=(title?`Figure. ${title}. `:'')+preamble+parts.join(' ');
+  const cap=(title?`Figure. ${title}. `:'')+preamble+parts.join(' ')+uniformity;
   document.getElementById('caption-out').value=cap;
   logAction('generateCaption',{panels:n});
   toast('Caption generated — copy and paste!','ok');
