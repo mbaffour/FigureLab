@@ -235,9 +235,17 @@ test('freeform: aspect-locked corner resize + snap-to-object alignment guides', 
     render(); await wait(50);
     const iA = freeformElements.length - 1, A = freeformElements[iA];
     selectedElems.clear(); selectedElems.add(iA); drawFreeformOverlay();
-    const rect = annCanvas.getBoundingClientRect(), W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
-    const mk = (lx, ly, mod={}) => ({ clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H,
-      shiftKey: !!mod.shift, altKey: !!mod.alt });
+    // Read the canvas rect LIVE for every synthesised event. Clearing the selection
+    // removes the freeform context toolbar, which moves the canvas up by ~31 screen
+    // px; a cached rect then maps the final click ~0.35 logical px outside the target
+    // and the test fails (or passes) on the toolbar's font-dependent height.
+    // canvasCoords() re-reads the rect the same way, so this matches the app.
+    const W = canvasLogicalW || annCanvas.width, H = canvasLogicalH || annCanvas.height;
+    const mk = (lx, ly, mod={}) => {
+      const rect = annCanvas.getBoundingClientRect();
+      return { clientX: rect.left + lx*rect.width/W, clientY: rect.top + ly*rect.height/H,
+        shiftKey: !!mod.shift, altKey: !!mod.alt };
+    };
     freeformMousedown(mk(A.x + A.w, A.y + A.h));            // grab bottom-right corner
     freeformMousemove(mk(A.x + A.w + 100, A.y + A.h));      // widen by 100 → height auto-tracks
     freeformMouseup(mk(A.x + A.w + 100, A.y + A.h));
