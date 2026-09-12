@@ -261,14 +261,21 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Technical Notes
 
-- Everything runs in the browser — no data ever leaves your computer
-- Raster export (PNG/JPEG/WebP): the figure is re-rendered off-screen at the true target-DPI pixel count (supersampled, high-quality smoothing), so output is genuinely high-resolution — capped at ~60 megapixels to stay within browser memory
-- TIFF export: uncompressed RGB, scaled to target DPI (not just metadata — actual pixel count is correct)
-- PNG export: DPI and reproducibility metadata embedded; correct DPI in Photoshop / ImageJ
-- PDF export: JPEG-compressed raster at correct physical page size
-- SVG export: background PNG + native SVG shapes for vector annotations
+- Everything runs in the browser — no data ever leaves your computer, and the app
+  makes **zero network requests**: no fonts, scripts, stylesheets or icons are fetched
+  from anywhere. A test in the suite fails the build if that ever stops being true.
+- **Printed width is the anchor.** Choosing a journal column width (89 mm, 183 mm, …)
+  fixes the physical size; the DPI you pick then fixes the pixel count. Every format
+  below writes that physical size into the file, so a pre-flight check reads the size
+  you asked for. With no column width set, one logical pixel is 1/96", as before.
+- Raster export (PNG/JPEG/WebP): the figure is re-rendered off-screen at the true target-DPI pixel count (supersampled, high-quality smoothing), so output is genuinely high-resolution — capped at ~60 megapixels to stay within browser memory. If the cap reduces the resolution, the file is tagged with the DPI it actually has, not the one you asked for.
+- TIFF export: uncompressed RGB, scaled to target DPI (not just metadata — actual pixel count is correct), with XResolution/YResolution set to the resolution the pixels really carry
+- PNG export: a spec-correct `pHYs` chunk plus `sRGB`/`gAMA` and reproducibility metadata — the DPI reads correctly in Photoshop / ImageJ
+- PDF export: two modes — JPEG-compressed raster (`/DCTDecode`) and **lossless** Flate (`/FlateDecode`, the default in the submission package). Panel labels and scale-bar text are laid down as real, selectable PDF text over the raster; the `/MediaBox` is the true physical page size. Multi-page PDF uses the same supersampled canvas and the same page size.
+- SVG export: background PNG at the target scale + native SVG shapes and real `<text>` for every label; `width`/`height` carry the printed width while the `viewBox` stays in logical units
+- PDF text is not embedded — labels use the base-14 faces (Helvetica/Times/Courier) with WinAnsi encoding, and anything those cannot represent (Greek, ≥, ✓, CJK) is deliberately left in the raster rather than silently substituted. One known consequence: glyph advances are measured with the browser's own font, so a centred label can sit up to ~1 pt off centre. Left as-is: nothing is lost or mangled, and embedding a font would end the "no bundled binaries" property of the single file.
 - Gamma correction uses a 256-entry LUT computed once per render for speed
-- Fonts: JetBrains Mono, Instrument Serif (loaded from Google Fonts if online, falls back to system fonts offline)
+- Fonts: the interface prefers JetBrains Mono and Instrument Serif **if you already have them installed** and falls back to a system stack otherwise — nothing is downloaded. Figure labels have always used their own font control (default `system-ui`), so figure output is unaffected either way.
 
 ---
 

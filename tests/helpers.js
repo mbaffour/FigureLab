@@ -8,8 +8,9 @@ const APP_URL = 'file://' + path.resolve(__dirname, '..', 'figure_lab.html');
  */
 async function loadApp(page) {
   const errors = [];
-  // Ignore environmental network failures (e.g. Google Fonts CDN blocked in CI —
-  // the app has offline font fallbacks). Only collect real app JS errors.
+  // The app fetches nothing from the network (asserted by audit2026.spec.js), so this
+  // filter now only covers file:// noise a headless run produces on its own — a missing
+  // favicon, a cancelled load. Only collect real app JS errors.
   const envNoise = /Failed to load resource|net::ERR|ERR_CERT|favicon/i;
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => {

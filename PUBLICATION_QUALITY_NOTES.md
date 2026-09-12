@@ -90,3 +90,46 @@ to ~60 MP with a user-facing toast, so requesting 1200 dpi cannot crash — it j
   visual/canvas confirmation was deliberately left as a recommendation, not applied.
 - No raw `innerHTML` of user text was introduced; the pHYs change is pure typed-array byte
   manipulation and the DPI option is a static `<option>`.
+
+---
+
+## Status as of v3.13.1 (September 2026)
+
+These notes record a specific branch and are left as written. What follows is where
+each item stands now, after the September 2026 independent audit (`AUDIT-2026-09.md`).
+
+**Change 1 (`pHYs`) — correct, but it was fed a wrong number for a year.** The writer
+itself was right, and the offline byte-level verification above was sound. What the
+notes could not see without running the app is where the `dpi` argument came from:
+`renderExportCanvas` computed it as `Math.round(scale*96)`, which is the true
+resolution only when no printed width is chosen. With a journal column width set, the
+`pHYs` chunk carried a resolution unrelated to the figure — a 183 mm / 300 DPI export
+was tagged 210 dpi and claimed 261 mm. Fixed; the DPI is now derived from the physical
+width the canvas actually has. The lesson is the notes' own caveat made concrete: a
+byte-level writer can be perfect and still write a wrong value.
+
+**Change 2 (1200 dpi line art) — unchanged and working.**
+
+**Recommendation 1 (lossless PDF) — implemented.** A `/FlateDecode` branch exists, is
+exposed as a "PDF (lossless)" button, and is what the submission package ships. It was
+*not* honoured by the multi-page PDF writer, which also rendered the un-supersampled
+preview canvas; that path now uses the export canvas and the correct page size, but is
+still JPEG-only. Offering the Flate branch there as well remains open.
+
+**Recommendation 2 (ICC / colour profile) — partially, deliberately.** PNG carries
+`sRGB` + `gAMA`, the lightweight alternative this document itself proposed. PDF is
+still untagged `/DeviceRGB` and there is no CMYK path. Left as it is.
+
+**Recommendation 3 (colourblind-safe LUT defaults) — implemented.** Okabe–Ito palettes,
+magenta/green channel defaults, filename-based auto-channel assignment, and a CVD
+preview that a test confirms never touches the export buffer.
+
+**Recommendation 4 (font embedding) — not implemented, and now a documented decision.**
+PDF uses the base-14 faces with WinAnsi encoding and deliberately leaves glyphs it
+cannot represent (Greek, ≥, ✓, CJK) in the raster rather than substituting them, which
+is the right call for scientific labels. One consequence is recorded in the README:
+label advances are measured with the browser's own font, so a centred label can sit
+~1 pt off centre.
+
+**Recommendation 5 (remove dead `exportPNGwithDPI`) — implemented**, with a tombstone
+comment pointing at `exportPNGWithMeta`.
