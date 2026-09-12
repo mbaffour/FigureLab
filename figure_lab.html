@@ -6594,7 +6594,9 @@ function checkCompliance(){
   const panelsWithLabels=images.slice(0,cols*rows).filter(im=>im&&im.label).length;
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
   const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
-  const exportPx=W*H*Math.pow(Math.max(1,dpi/96),2);
+  // Megapixels at the scale the export ACTUALLY uses — _physFacts already resolved
+  // the printed-width target, and dpi/96 is only the right scale without one.
+  const exportPx=W*H*Math.pow(_pf.scale,2);
   const extreme=images.filter(im=>im&&((im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2)).length;
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
@@ -8457,20 +8459,37 @@ function _syncPhysReadout(){
     +(warn?' — below the ~5 pt most journals accept':'');
 }
 
+// The DPI a canvas of `px` pixels actually carries, given the printed-width target.
+// With a target width set, the physical width is fixed by the user's choice and the
+// resolution follows from the pixel count (px / inches). With no target, the figure
+// is one logical px = 1/96", so the resolution follows from the supersampling scale.
+// Everything that writes physical size into a file (PNG pHYs, TIFF XResolution,
+// PDF /MediaBox) must use this, not scale*96 — the two are only equal when no
+// printed width is chosen.
+function _effDpiForPixels(px, scale){
+  const mm=getTargetWidthMm();
+  if(mm>0) return Math.max(1, Math.round(px/(mm/25.4)));
+  return Math.max(1, Math.round(scale*96));
+}
+
 function renderExportCanvas(dpi, opts){
   let scale=_exportScaleFor(dpi);
   const lw=canvasLogicalW||1, lh=canvasLogicalH||1;
   const MAXPX=60e6; // ~60 megapixels — guard against runaway memory
   if(lw*lh*scale*scale > MAXPX){
     scale=Math.max(1, Math.sqrt(MAXPX/(lw*lh)));
-    toast(`Export capped to ~60MP (effective ${Math.round(scale*96)} DPI)`, 'warn');
+    const capDpi=getTargetWidthMm()>0
+      ? Math.round(lw*scale/(getTargetWidthMm()/25.4))
+      : Math.round(scale*96);
+    toast(`Export capped to ~60MP (effective ${capDpi} DPI)`, 'warn');
   }
   const off=document.createElement('canvas');
   render(off, scale, opts);
-  // Expose the ACTUAL scale so metadata writers embed the true physical size when
-  // the cap shrank the canvas below the requested DPI (else PDF/TIFF/PNG report a
-  // silently smaller physical size). effDpi = scale*96.
-  off._effDpi = Math.round(scale*96);
+  // Expose the ACTUAL scale and resolution so metadata writers embed the true
+  // physical size — both when the cap shrank the canvas below the requested DPI and
+  // when a printed width was chosen (where scale*96 is unrelated to the real DPI).
+  off._exportScale = scale;
+  off._effDpi = _effDpiForPixels(off.width||Math.round(lw*scale), scale);
   return off;
 }
 
