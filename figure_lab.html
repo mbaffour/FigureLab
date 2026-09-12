@@ -3611,6 +3611,9 @@ function _refreshPreflight(){
   if(!white) warns.push({t:'info',m:`Background is ${bg}; most journals require white.`});
   const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
   if(uncal) warns.push({t:'warn',m:`${uncal} panel(s) show a scale bar but aren't calibrated (⚠).`});
+  const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
+  if(notDrawn.length) warns.push({t:'warn',
+    m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}.`});
   const row=(k,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
     <span style="color:var(--muted)">${k}</span><span style="color:var(--text);text-align:right">${v}</span></div>`;
   const warnHtml = warns.length
@@ -3693,6 +3696,25 @@ function _sbLabel(im){
 }
 function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // pick a clean unit for a µm length
 
+// Panels/objects whose scale bar is switched on and calibrated but fell outside the
+// drawable range, so render() painted nothing. `_sbSkip` is set by the two renderers
+// and carries the reason; this is what turns a silent omission into a failed check.
+// Only panels inside the current grid are considered — panels beyond cols×rows are
+// not rendered, so their flag is stale.
+function _scaleBarsNotDrawn(){
+  const out=[];
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  images.slice(0,cols*rows).forEach(im=>{
+    if(im&&im._sbSkip) out.push({label:`panel ${im.label||'(unlabelled)'}`, why:im._sbSkip});
+  });
+  if(typeof freeformElements!=='undefined'){
+    freeformElements.forEach(el=>{
+      if(el&&el._sbSkip) out.push({label:`object ${el.label||'(unlabelled)'}`, why:el._sbSkip});
+    });
+  }
+  return out;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
@@ -3725,6 +3747,7 @@ function renderImgList(){
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:9px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
         ${im.sbOn && !im.umPerPx ? `<span style="font-size:9px;color:var(--warn);flex-shrink:0" title="Scale bar shown but µm/px not set">⚠</span>` : ''}
+        ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
         <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
@@ -5050,9 +5073,21 @@ function render(targetCanvas, exportScale, opts){
           }
         }
         // Scale bar
+        im._sbSkip=null;
         if(im.sbOn && im.umPerPx>0 && im.sbUm>0){
-          const barPx=Math.round((im.sbUm/im.umPerPx)*(dw/sw));
-          if(barPx>=4 && barPx<dw*.75){
+          // NOT rounded to an integer. Everything here is drawn in logical units and
+          // scaled once by S at the end, so rounding happened BEFORE supersampling —
+          // exporting at 600 or 1200 dpi did not shrink the error (1–2 % on a typical
+          // bar, ~9 % on a 2 µm one). Canvas fills sub-pixel rectangles correctly, and
+          // freeform already drew its bar unrounded, so the same calibration no longer
+          // yields two different bars depending on the layout mode.
+          const barPx=(im.sbUm/im.umPerPx)*(dw/sw);
+          // Out of range ⇒ the bar, its label and its drag handle are not drawn. Record
+          // WHY, so the compliance check can fail instead of reporting "all calibrated"
+          // on a figure that ships with no scale bar at all.
+          if(barPx<4) im._sbSkip='too short to draw (under 4 px) — check µm/px and the bar length';
+          else if(barPx>=dw*.75) im._sbSkip='longer than 75% of the panel — check µm/px and the bar length';
+          if(!im._sbSkip){
             const sp=Math.max(6,Math.round(dw*.04));
             const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
             ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
@@ -6594,6 +6629,7 @@ function checkCompliance(){
   const panelsWithLabels=images.slice(0,cols*rows).filter(im=>im&&im.label).length;
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
   const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
+  const _sbNotDrawn=_scaleBarsNotDrawn();
   // Megapixels at the scale the export ACTUALLY uses — _physFacts already resolved
   // the printed-width target, and dpi/96 is only the right scale without one.
   const exportPx=W*H*Math.pow(_pf.scale,2);
@@ -6612,6 +6648,13 @@ function checkCompliance(){
       note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
     {label:'Scale-bar calibration', ok:uncal===0, warn:false, note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:'All calibrated ✓',
       fix:uncal?{a:'calibrate',t:'Calibrate'}:null},
+    // A calibrated bar that falls outside the drawable range is simply not painted —
+    // no bar, no label, no handle. Calibration alone therefore cannot be the test:
+    // a mistyped µm/px used to ship a figure with no scale bar and a green report.
+    {label:'Scale bar drawn', ok:_sbNotDrawn.length===0, warn:false,
+      note:_sbNotDrawn.length
+        ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}`
+        : 'Every enabled scale bar is drawn ✓'},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
@@ -10974,10 +11017,15 @@ function renderFreeform(canvas, ctx, S, opts){
       // The displayed magnification is el.w / the CROPPED source width — using the full
       // natural width would draw the bar short by exactly the crop factor, so a reader
       // measuring against it would overestimate every structure in the panel.
+      el._sbSkip=null;
       if(el.sbOn&&el.umPerPx>0){
         const scale=el.w/(_ffSrcW(el)||el.w);
         const sbPxW=(el.sbUm||10)/el.umPerPx*scale;
-        if(sbPxW>4&&sbPxW<el.w*0.6){
+        // Same silent-drop guard as the grid: say why nothing was drawn rather than
+        // leaving the object looking calibrated with no bar on it.
+        if(sbPxW<=4) el._sbSkip='too short to draw (under 4 px) — check µm/px and the bar length';
+        else if(sbPxW>=el.w*0.6) el._sbSkip='longer than 60% of the object — check µm/px and the bar length';
+        if(!el._sbSkip){
           const sbH2=Math.max(1,gi('sb-h'));
           const pad=Math.max(6,Math.round(el.w*0.04));
           const sbX=el.x+el.w-pad-sbPxW, sbY=el.y+el.h-pad-sbH2;
