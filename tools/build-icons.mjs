@@ -68,6 +68,13 @@ function normalise(svg, { key = '#222222', mono = false } = {}) {
     .replace(/\s+(?!xmlns:)[a-zA-Z][\w-]*:[\w-]+="[^"]*"/g, '')
     .replace(/\s+xmlns:[\w-]+="[^"]*"/g, '')
     .replace(/\s+data-[\w-]+="[^"]*"/g, '')
+    // Remote @font-face rules. Some exports (Excalidraw-drawn icons especially) carry
+    // `@font-face{...src:url(https://…)}` inside a <style> block. Placing such an icon
+    // makes FigureLab — and any SVG export containing it — fetch a font from a third
+    // party at render time, which breaks the offline/no-network promise for a font the
+    // icon usually doesn't even use. Only the rule goes; the rest of the <style> block
+    // (the .cls-N colour rules the artwork depends on) stays.
+    .replace(/@font-face\s*\{[^}]*\}/g, '')
     .replace(/(\d+\.\d{3,})/g, m => (+m).toFixed(2))               // trim coordinate noise
     .replace(/>\s+</g, '><')
     .replace(/\s{2,}/g, ' ')
