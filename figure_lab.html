@@ -8670,19 +8670,27 @@ function _zipMake(files){
     u32(cd.length),u32(offset),u16(0)]);
   return _concatBytes([...parts,cd,eocd]);
 }
+// Artefacts the current multi-artefact export could not produce, with the reason.
+// A submission ZIP that is quietly missing its TIFF is discovered by the journal, not
+// by the author, so every skip a caller labels is recorded and reported.
+let _captureSkips=[];
 // Capture exactly what an existing exporter produces, without downloading it:
 // temporarily intercept dl()/toast(), run the exporter, fetch its blob bytes.
-async function _captureDownload(fn){
+// Pass `label` to have failures recorded in _captureSkips instead of vanishing.
+async function _captureDownload(fn, label){
   const origDl=dl, origToast=toast; let cap=null;
+  const skip=why=>{ if(label) _captureSkips.push({label, why}); };
   window.dl=(url,name)=>{ cap={url,name}; };
   window.toast=()=>{};
-  try{ await fn(); }catch(e){ /* skip this artifact */ }
-  window.dl=origDl; window.toast=origToast;
-  if(!cap) return null;
+  try{ await fn(); }
+  catch(e){ skip(e&&e.message||String(e)); }
+  finally{ window.dl=origDl; window.toast=origToast; }
+  if(!cap){ skip('the exporter finished without producing a file'); return null; }
   try{
     const data=new Uint8Array(await (await fetch(cap.url)).arrayBuffer());
+    if(!data.length){ skip('the generated file was empty'); return null; }
     return { name: String(cap.name).replace(/^.*[\\/]/,''), data };
-  }catch(e){ return null; }
+  }catch(e){ skip('the generated file could not be read — '+(e&&e.message||e)); return null; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -8847,15 +8855,21 @@ async function exportSubmissionPackage(){
   try{
     const rc=()=> renderExportCanvas(dpi);   // supersample grid AND freeform (true target DPI)
     const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
-    add(await _captureDownload(()=>exportPNGWithMeta(name,dpi,rc())));
-    add(await _captureDownload(()=>exportTIFF(name,dpi,rc(),true)));
-    add(await _captureDownload(()=>_exportPDFWithText(name,dpi,{lossless:true})));
-    add(await _captureDownload(()=>exportSVG(name,dpi,figc)));
-    add(await _captureDownload(()=>saveJSON()));
-    add(await _captureDownload(()=>exportCSV()));
-    add(await _captureDownload(()=>exportReproLog()));
-    add(await _captureDownload(()=>exportR()));
-    add(await _captureDownload(()=>exportPython()));
+    _captureSkips=[];   // every artefact that fails below is named in the report
+    // Pass each canvas's own effective DPI, exactly as doExport does, so the ZIP's
+    // PNG and TIFF carry the resolution the pixels actually have even when the
+    // ~60 MP cap reduced it.
+    const pngC=rc();
+    add(await _captureDownload(()=>exportPNGWithMeta(name,pngC._effDpi||dpi,pngC),'PNG'));
+    const tifC=rc();
+    add(await _captureDownload(()=>exportTIFF(name,tifC._effDpi||dpi,tifC,true),'TIFF'));
+    add(await _captureDownload(()=>_exportPDFWithText(name,dpi,{lossless:true}),'PDF (lossless)'));
+    add(await _captureDownload(()=>exportSVG(name,dpi,figc),'SVG'));
+    add(await _captureDownload(()=>saveJSON(),'session JSON'));
+    add(await _captureDownload(()=>exportCSV(),'panel metadata CSV'));
+    add(await _captureDownload(()=>exportReproLog(),'reproducibility log'));
+    add(await _captureDownload(()=>exportR(),'R script'));
+    add(await _captureDownload(()=>exportPython(),'Python script'));
     // caption + notes
     if(!gv('caption-out').trim()){ generateCaption(); }
     const cap=gv('caption-out').trim(); if(cap) files.push({name:name+'-caption.txt', data:cap});
@@ -8878,7 +8892,12 @@ async function exportSubmissionPackage(){
     }
     // individual panels (movable pieces for downstream editing)
     try{
-      const sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
+      // panelBounds are logical units; derive the crop scale from the canvas that was
+      // ACTUALLY rendered. renderExportCanvas uses _exportScaleFor(dpi), which is not
+      // dpi/96 once a printed width is chosen (or the 60 MP cap fires) — cropping with
+      // dpi/96 then reads the wrong region entirely.
+      const big=renderExportCanvas(dpi);
+      const sc=big._exportScale || big.width/(canvasLogicalW||big.width);
       for(const b of (panelBounds||[])){
         if(!images[b.idx]) continue;   // skip empty grid cells
         const pc=document.createElement('canvas');
@@ -8889,7 +8908,7 @@ async function exportSubmissionPackage(){
           const lbl=(images[b.idx]&&images[b.idx].label)||b.idx;
           files.push({name:`panels/panel_${lbl}.png`, data:buf}); }
       }
-    }catch(e){/* panels optional */}
+    }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
     // Per-chart Source Data CSVs — the exact user data behind each plotted chart
     // (a mandatory requirement at Nature/EMBO). Writes the retained rows verbatim.
     (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart&&e.chart.data&&(e.chart.data.rows||[]).length).forEach((el,ci)=>{
@@ -8904,15 +8923,36 @@ async function exportSubmissionPackage(){
     });
     // manifest
     const _prov=await _provenanceHash();
-    files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov)});
+    const skipped=_captureSkips.slice();
+    files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov,skipped)});
     const zip=_zipMake(files);
     dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), name+'-submission-package.zip');
-    logAction('submissionPackage',{files:files.length});
-    toast(`Submission package ready — ${files.length} files zipped`,'ok');
+    logAction('submissionPackage',{files:files.length, skipped:skipped.map(s=>s.label)});
+    // An incomplete package must say so. The toast used to report success whatever
+    // was missing, and a dropped TIFF is then found by the journal, not the author.
+    if(skipped.length){
+      toast(`Submission package built, but ${skipped.length} artefact(s) could not be generated`,'warn');
+      showInfoModal('⚠ Submission package is incomplete',
+        `<div style="font-size:11px;line-height:1.6">
+          <p style="margin-bottom:6px">${files.length} file(s) were zipped, but these could not be generated and are <b>not</b> in the package:</p>
+          <ul style="margin:0 0 8px 16px">${skipped.map(s=>`<li><b>${esc(s.label)}</b> — ${esc(s.why)}</li>`).join('')}</ul>
+          <p style="color:var(--muted)">A lower export DPI usually resolves size/memory failures. The same list is recorded in the package's README.txt.</p>
+        </div>`);
+    } else {
+      toast(`Submission package ready — ${files.length} files zipped`,'ok');
+    }
   }catch(e){ toast('Package failed: '+(e&&e.message||e),'err'); }
 }
-function _packageManifest(name,dpi,files,provHash){
+function _packageManifest(name,dpi,files,provHash,skipped){
   const list=files.map(f=>'  - '+f.name).join('\n');
+  // A missing artefact is stated here as well as in the UI, because the ZIP outlives
+  // the toast that announced it — a co-author opening this months later has to be
+  // able to see that the TIFF was never generated rather than assume it was lost.
+  const missing=(skipped&&skipped.length)
+    ? `\nNOT INCLUDED (could not be generated)\n------------------------------------\n`
+      +skipped.map(s=>`  - ${s.label}: ${s.why}`).join('\n')
+      +`\n  A lower export DPI usually resolves size/memory failures.\n`
+    : '';
   return `FigureLab submission package
 =============================
 Figure name : ${name}
@@ -8927,7 +8967,7 @@ Contents
 --------
 ${list}
   - README.txt (this file)
-
+${missing}
 Notes
 -----
 - Raster figures are rendered at the true target-DPI pixel count (supersampled).
@@ -9011,7 +9051,9 @@ async function exportPPTX(){
     const Lw=canvasLogicalW||document.getElementById('fig-canvas').width;
     const Lh=canvasLogicalH||document.getElementById('fig-canvas').height;
     const cx=Math.round(Lw*EMU), cy=Math.round(Lh*EMU);
-    const dpi=300, sc=Math.max(1,dpi/96), big=renderExportCanvas(dpi);
+    // Same crop-scale rule as the submission package: the render scale, not dpi/96.
+    const dpi=300, big=renderExportCanvas(dpi);
+    const sc=big._exportScale || big.width/(canvasLogicalW||big.width);
     const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const media=[], slideRels=[]; let pics='';
     slideRels.push(`<Relationship Id="rId1" Type="${R}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`);
