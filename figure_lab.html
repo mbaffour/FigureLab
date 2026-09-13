@@ -2136,7 +2136,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="modal-close" onclick="closeCropModal()">×</button>
     <h3 id="crop-modal-title">✂ Crop Editor</h3>
     <p id="crop-modal-desc" style="font-size:11px;color:var(--muted);margin-bottom:8px">
-      Drag to select the region to keep. Corners show at full resolution.
+      Drag to select the region to keep. A loupe shows the full-resolution pixels under the pointer while you drag.
     </p>
     <div id="crop-precrop-info" style="display:none;background:rgba(91,141,238,.12);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:11px">
       <span id="crop-precrop-name" style="font-weight:600"></span>
@@ -3047,7 +3047,7 @@ function skipPreCrop(){
 function _resetCropModalUI(){
   document.getElementById('crop-modal-title').textContent='✂ Crop Editor';
   document.getElementById('crop-modal-desc').textContent=
-    'Drag to select the region to keep. Corners show at full resolution.';
+    'Drag to select the region to keep. A loupe shows the full-resolution pixels under the pointer while you drag.';
   document.getElementById('crop-precrop-info').style.display='none';
   document.getElementById('crop-skip-btn').style.display='none';
   document.getElementById('crop-apply-btn').textContent='✓ Apply Crop';
@@ -5786,7 +5786,76 @@ function drawCropEd(){
   if(ai && document.activeElement!==ai) ai.value=(+cropEdState.ang||0).toFixed(1);
   _syncCropAngleNote();
   _ceDrawLevel(ctx);
+  _ceDrawLoupe(ctx,W,H);
   _ceSyncFields();
+}
+
+// ── Loupe ─────────────────────────────────────────────────────
+// The editor draws a ≤520 px thumbnail of an image that may be 4000 px wide, so a
+// crop edge placed "on" a cell wall is in truth placed within ±4 source pixels of it.
+// While a box is being drawn, moved, resized, tilted or levelled — and whenever the
+// pointer rests on a handle — a loupe in a corner of the canvas shows the source at
+// no less than 1 source pixel per screen pixel, unsmoothed, centred on the pointer,
+// with the box edges and a crosshair drawn through it. It sits in the corner farthest
+// from the pointer rather than under it, so it never hides what is being placed.
+function _ceLoupeActive(){
+  const s=cropEdState;
+  return !!(s.hoverPx && (s.dragging||s.resizing||s.batchMoving||s.rotating||s.leveling||s.hoverHandle));
+}
+// Where the loupe sits, as [x,y,size]; null when it should not show.
+function _ceLoupeRect(W,H){
+  if(!_ceLoupeActive()) return null;
+  const size=Math.max(96,Math.min(150,Math.round(Math.min(W,H)*0.42)));
+  const [hx,hy]=cropEdState.hoverPx;
+  const x=hx<W/2 ? W-size-8 : 8;
+  const y=hy<H/2 ? H-size-8 : 8;
+  return [x,y,size];
+}
+function _ceDrawLoupe(ctx,W,H){
+  const r=_ceLoupeRect(W,H); if(!r) return;
+  const [X,Y,S]=r, img=cropEdState.img; if(!img) return;
+  const [iw,ih]=_ceSrcDims();
+  const [hx,hy]=cropEdState.hoverPx;
+  const perCanvas=iw/W;                              // source px per canvas px
+  const m=Math.max(3, perCanvas);                    // magnification vs the thumbnail
+  const span=S/m;                                    // canvas px shown across the loupe
+  const sx=hx*perCanvas-span*perCanvas/2, sy=hy*(ih/H)-span*(ih/H)/2;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(X+S/2,Y+S/2,S/2,0,Math.PI*2); ctx.clip();
+  ctx.fillStyle='#000'; ctx.fillRect(X,Y,S,S);
+  ctx.imageSmoothingEnabled=false;                   // real pixels, not a blur
+  ctx.drawImage(img, sx, sy, span*perCanvas, span*(ih/H), X, Y, S, S);
+  // The box edges, through the same magnification, so an edge can be put ON a feature.
+  const q=_ceQuad();
+  const tx=x=>X+S/2+(x-hx)*m, ty=y=>Y+S/2+(y-hy)*m;
+  ctx.strokeStyle='#5b8dee'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(tx(q[0][0]),ty(q[0][1]));
+  for(let i=1;i<4;i++) ctx.lineTo(tx(q[i][0]),ty(q[i][1])); ctx.closePath(); ctx.stroke();
+  if(cropEdState.leveling&&cropEdState.levelPt1){
+    const [lx,ly]=cropEdState.levelPt1;
+    ctx.strokeStyle='#f5a623'; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(tx(lx),ty(ly)); ctx.lineTo(X+S/2,Y+S/2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // crosshair with an open centre
+  ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(X+S/2,Y+8); ctx.lineTo(X+S/2,Y+S/2-6); ctx.moveTo(X+S/2,Y+S/2+6); ctx.lineTo(X+S/2,Y+S-8);
+  ctx.moveTo(X+8,Y+S/2); ctx.lineTo(X+S/2-6,Y+S/2); ctx.moveTo(X+S/2+6,Y+S/2); ctx.lineTo(X+S-8,Y+S/2);
+  ctx.stroke();
+  ctx.restore();
+  // ring + source coordinates
+  ctx.save();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(X+S/2,Y+S/2,S/2,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(X+S/2,Y+S/2,S/2+1.5,0,Math.PI*2); ctx.stroke();
+  const label=`${Math.round(hx*perCanvas)}, ${Math.round(hy*(ih/H))} px · ${m>=1.05?m.toFixed(m<10?1:0)+'×':'1:1'}`;
+  ctx.font='10px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  const tw=ctx.measureText(label).width+8;
+  const lx=X+S/2, ly=(Y+S+4+14<=H)?Y+S+4:Y-16;
+  ctx.fillStyle='rgba(0,0,0,.65)'; ctx.fillRect(lx-tw/2,ly-1,tw,14);
+  ctx.fillStyle='#fff'; ctx.fillText(label,lx,ly);
+  ctx.restore();
 }
 // The level line while it is being placed: first point, then a rubber band to the
 // pointer, then the second point.
@@ -6894,11 +6963,8 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
   cc.addEventListener('mousemove',e=>{
     const p=_pt(e,true);
     const x=p.fx, y=p.fy;
-    if(cropEdState.leveling){
-      cropEdState.hoverPx=[p.px,p.py];
-      if(cropEdState.levelPt1) drawCropEd();
-      return;
-    }
+    cropEdState.hoverPx=[p.px,p.py];                  // the loupe follows the pointer
+    if(cropEdState.leveling){ drawCropEd(); return; }
     if(cropEdState.rotating){
       const ctr=cropEdState.rotCtr;
       const cur=Math.atan2(p.py-ctr[1],p.px-ctr[0]);
@@ -6960,6 +7026,10 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
       }
       drawCropEd(); return;
     }
+    // Resting on a handle or the grip shows the loupe too, so an edge can be checked
+    // before it is grabbed; leaving it hides the loupe again.
+    const onHandle=!!_handleAt(p.fx,p.fy)||_onGrip(p.px,p.py);
+    if(onHandle!==!!cropEdState.hoverHandle || onHandle){ cropEdState.hoverHandle=onHandle; drawCropEd(); }
     _updateCursor(p);
   });
 
@@ -6996,6 +7066,8 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
   cc.addEventListener('mouseleave',()=>{
     cropEdState.dragging=false; cropEdState.batchMoving=false; cropEdState.resizing=null;
     cropEdState.rotating=false;
+    cropEdState.hoverPx=null; cropEdState.hoverHandle=false;
+    drawCropEd();
   });
 })();
 

@@ -155,3 +155,80 @@ test('Reset all crops clears the tilt as well, and is one undo step', async ({ p
   expect(r.undone).toEqual([[10, 12], [3, -4]]);
   expect(errors).toEqual([]);
 });
+
+// ── Loupe ─────────────────────────────────────────────────────
+// The editor is a ≤520 px thumbnail of an image that may be 4000 px wide. While a box
+// is being placed, a loupe shows the source at no less than 1:1, centred on the
+// pointer, in the corner farthest from it.
+
+const CE_FIRE = `
+  window._ceFire = (type, px, py) => {
+    const c = document.getElementById('crop-ed-canvas');
+    const r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0,
+      clientX: r.left + px * r.width / c.width, clientY: r.top + py * r.height / c.height }));
+  };
+`;
+
+test('the loupe appears while dragging, away from the pointer, and shows the source pixels under it', async ({ page }) => {
+  const errors = await loadApp(page);
+  // 1600×1200 source: grey, with a magenta block whose centre is source (500, 400).
+  await seedPainted(page, 1600, 1200, `
+    ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ff0080'; ctx.fillRect(400, 300, 200, 200);
+  `);
+  await page.evaluate(CE_FIRE);
+  const r = await page.evaluate(async (tf) => {
+    const twoFrames = new Function('return ' + tf)();
+    openCropModal(0); await twoFrames();
+    const c = document.getElementById('crop-ed-canvas');
+    const W = c.width, H = c.height, k = W / 1600;             // canvas px per source px
+    const atRest = _ceLoupeRect(W, H);
+    // Start a box at source (200,150) and drag to source (500,400): the pointer is
+    // over the magenta block while the drag is live.
+    _ceFire('mousedown', 200 * k, 150 * k);
+    _ceFire('mousemove', 500 * k, 400 * k);
+    const live = _ceLoupeRect(W, H);
+    const ctx = c.getContext('2d');
+    const [X, Y, S] = live;
+    const px = ctx.getImageData(Math.round(X + S / 2) + 8, Math.round(Y + S / 2) + 8, 1, 1).data;   // just off the crosshair's open centre
+    const farFromPointer = !(500 * k >= X && 500 * k <= X + S && 400 * k >= Y && 400 * k <= Y + S);
+    _ceFire('mouseup', 500 * k, 400 * k);
+    const afterUp = _ceLoupeRect(W, H);
+    c.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+    const afterLeave = _ceLoupeRect(W, H);
+    return { atRest, live, px: [...px], farFromPointer, afterUp, afterLeave, hover: cropEdState.hoverPx };
+  }, twoFrames.toString());
+  expect(r.atRest).toBeNull();                       // nothing at rest
+  expect(r.live).not.toBeNull();                     // present during the drag
+  expect(r.live[2]).toBeGreaterThanOrEqual(96);      // big enough to read
+  expect(r.farFromPointer).toBe(true);               // never under the pointer
+  expect(r.px[0]).toBeGreaterThan(230); expect(r.px[1]).toBeLessThan(40); expect(r.px[2]).toBeGreaterThan(100);   // magenta: the source under the pointer
+  expect(r.afterUp).toBeNull();                      // gone when the drag ends
+  expect(r.afterLeave).toBeNull();
+  expect(r.hover).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('the loupe also shows while the pointer rests on a resize handle', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 800, 600, `ctx.fillStyle='#777'; ctx.fillRect(0,0,W,H);`);
+  await page.evaluate(CE_FIRE);
+  const r = await page.evaluate(async (tf) => {
+    const twoFrames = new Function('return ' + tf)();
+    openCropModal(0); await twoFrames();
+    const c = document.getElementById('crop-ed-canvas');
+    cropEdState.cx = 0.2; cropEdState.cy = 0.2; cropEdState.cw = 0.5; cropEdState.ch = 0.5; cropEdState.hasBox = true; drawCropEd();
+    _ceFire('mousemove', c.width * 0.5, c.height * 0.5);      // inside the box, not on a handle
+    const inside = _ceLoupeRect(c.width, c.height);
+    _ceFire('mousemove', c.width * 0.2, c.height * 0.2);      // on the NW corner handle
+    const onHandle = _ceLoupeRect(c.width, c.height);
+    _ceFire('mousemove', c.width * 0.5, c.height * 0.5);
+    const offAgain = _ceLoupeRect(c.width, c.height);
+    return { inside, onHandle, offAgain };
+  }, twoFrames.toString());
+  expect(r.inside).toBeNull();
+  expect(r.onHandle).not.toBeNull();
+  expect(r.offAgain).toBeNull();
+  expect(errors).toEqual([]);
+});
