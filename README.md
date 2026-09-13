@@ -281,6 +281,17 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### Unreleased — since v3.13.1
+
+- **Multi-page PDF is the same writer as the single-page PDF.** Lossless (Flate) by default, with a checkbox for JPEG; every page carries its labels as selectable text. Page 2 now shows rows 3–4's labels rather than rows 1–2's again, and exporting no longer discards the row labels past the first page.
+- **The label-format dropdown works.** A B C / a b c / 1 2 3 / i ii iii had matched nothing in the code since it was added. It is a display style for auto letters — on the figure, in the PDF/SVG text layer and in the generated caption — and never touches a typed name.
+- **Batch crop keeps the tilt.** It drew the grip and saved an upright crop; now one size for every image, a tilt per image, each starting upright. The freeform crop editor reopens a tilted crop at its tilt instead of at 0°.
+- **Two more ways to straighten a crop.** **📐 Level** — click two points along any edge that should be straight, horizontal or vertical. **✨ Auto** — a projection-profile search for the tilt at which the straight features inside the box line up, which declines rather than guess when nothing stands out.
+- **Ratio lock and exact pixels in the crop editor.** 1:1, 4:3, 3:2, 16:9 or the panel's own cell, enforced while drawing and resizing (ratios are of pixels, so 1:1 is square whatever the image's shape). X / Y / W / H fields in source pixels, live and writable.
+- **Crops are stored to 0.01 %.** Whole percents put every crop on a 1 %-of-the-image grid — 40 px on a 4000 px micrograph — which quantised every drag and would have made the pixel fields a fiction after Apply.
+- **▣ Trim borders**, in the editor and for all panels at once: strips the single-colour margin a saved plot or a scan arrives with, rounding outward so content is never cut, and leaves alone any image whose corners disagree.
+- **Reset all crops** now also clears the tilt, and can be undone.
+
 ### v3.13.1 — 12 September 2026
 **Focus: correctness, from an independent audit. No new features — but two of these reached files that go to journals, so re-export and re-read anything you made with a column width set.**
 
@@ -342,7 +353,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ### v3.9.5 — 11 August 2026
 **Focus: crops that aren't square to the camera, and multi-crop sessions you can correct without starting over.**
 
-- **A crop can be tilted.** Drag the round grip above the crop box, or type an angle — <kbd>Shift</kbd> snaps to 15°, <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°. The *region* turns and the panel comes out **upright**, so a plate photographed at an angle no longer forces a choice between a skewed panel and background wedges in the corners. This is different from rotating a panel, which turns the whole cropped picture inside its cell. Works in the single-panel editor, batch crop and multi-crop. Two more ways to get the angle right: **📐 Level** — click two points along any edge that should be straight, a plate rim or a gel edge, horizontal or vertical — and **✨ Auto**, which searches for the tilt at which the straight features inside the box line up with its rows and columns, and declines rather than guess when nothing stands out. The editor also has a **ratio lock** (1:1, 4:3, 3:2, 16:9, or the panel's own cell; ratios are of pixels, so 1:1 is square whatever the image's shape) and **pixel-exact X / Y / W / H** fields, so "every panel 512 px wide" is done to the sample rather than by eye.
+- **A crop can be tilted.** Drag the round grip above the crop box, or type an angle — <kbd>Shift</kbd> snaps to 15°, <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°. The *region* turns and the panel comes out **upright**, so a plate photographed at an angle no longer forces a choice between a skewed panel and background wedges in the corners. This is different from rotating a panel, which turns the whole cropped picture inside its cell. Works in the single-panel editor, batch crop and multi-crop.
 - **Tilt is per region in multi-crop.** Every region still shares one size, so the panels stay uniform, but each keeps its own angle — six plates photographed at six slightly different angles all straighten independently. Each image starts upright rather than inheriting the last one's tilt, which would be a guess.
 - **Banked multi-crop regions can be edited.** The session used to be forward-only: a region placed slightly wrong three back couldn't be reached, because Undo only removes the last one. Region chips are now controls — click one to reopen it in the editor, move, tilt or rename it, then **Update**; `×` drops it outright. Leaving the name blank on update keeps the name it already had, so repositioning never silently strips a label.
 - **What a tilt costs is stated, not buried.** Every other crop in FigureLab selects existing pixels; a tilted one has to resample them, so that panel's *displayed* pixels are interpolated. The editor says so while you turn it, the metadata CSV gained `CropAngle` and `Resampling` columns, the provenance hash covers it, and the deep audit names the tilted panels.

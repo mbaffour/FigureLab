@@ -490,14 +490,14 @@ test('the freeform crop editor reopens a tilted crop at its tilt, so Apply does 
     // The box reopens where it was saved (frame coordinates: the tilt re-solved
     // cx/cy so the box spun in place, which is what the element stored).
     const el = freeformElements[0];
-    const box = [cropEdState.cx, cropEdState.cy, cropEdState.cw, cropEdState.ch].map(v => Math.round(v * 100));
+    const box = [cropEdState.cx, cropEdState.cy, cropEdState.cw, cropEdState.ch].map(v => v * 100);
     const stored = [el.cropL, el.cropT, 100 - el.cropL - el.cropR, 100 - el.cropT - el.cropB];
     applyCropModal();                        // a second Apply must be a no-op on the tilt
     return { saved, reopened, box, stored, after: freeformElements[0].cropAngle };
   }, twoFrames.toString());
   expect(r.saved).toBeCloseTo(9, 5);
   expect(r.reopened).toBeCloseTo(9, 5);     // used to reopen at 0
-  expect(r.box).toEqual(r.stored);
+  r.box.forEach((v, i) => expect(v).toBeCloseTo(r.stored[i], 2));   // stored to 0.01 %
   expect(r.after).toBeCloseTo(9, 5);
   expect(errors).toEqual([]);
 });

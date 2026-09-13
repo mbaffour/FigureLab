@@ -695,7 +695,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-primary" onclick="cropSelectedPanel()" style="width:100%;justify-content:center" title="Drag a box on one panel to trim it — non-destructive and reversible">✂ Crop a panel…</button>
     <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of an image — each becomes its own panel">⊞ Multi-crop into panels…</button>
     <button class="btn" onclick="startBatchCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Draw one crop size on the first image, then move that same box across all images">▦ Batch crop all images…</button>
-    <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px" title="Clear the crop on every panel">↺ Reset all crops</button>
+    <button class="btn" onclick="trimBordersAll()" style="width:100%;justify-content:center;margin-top:4px" title="Strip the single-colour margin every panel arrived with — the white border around a saved plot, the black edge of a scan. Replaces each panel's crop with its content bounds; panels with no uniform border are left alone">▣ Trim borders on all panels</button>
+    <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px" title="Clear the crop and tilt on every panel">↺ Reset all crops</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Crop to match <span class="help-chip" tabindex="0" role="button" aria-label="About matching" data-tip="These crop your panels so they agree with each other — either showing the same physical area in µm, or the same pixel dimensions.">?</span></div>
@@ -1256,10 +1257,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px">Crop%:</span>
-      <label style="display:flex;align-items:center;gap:2px;font-size:10px">T<input type="number" id="ep-cropT" min="0" max="49" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropT',+this.value)"></label>
-      <label style="display:flex;align-items:center;gap:2px;font-size:10px">L<input type="number" id="ep-cropL" min="0" max="49" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropL',+this.value)"></label>
-      <label style="display:flex;align-items:center;gap:2px;font-size:10px">B<input type="number" id="ep-cropB" min="0" max="49" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropB',+this.value)"></label>
-      <label style="display:flex;align-items:center;gap:2px;font-size:10px">R<input type="number" id="ep-cropR" min="0" max="49" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropR',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">T<input type="number" id="ep-cropT" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropT',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">L<input type="number" id="ep-cropL" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropL',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">B<input type="number" id="ep-cropB" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropB',+this.value)"></label>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px">R<input type="number" id="ep-cropR" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropR',+this.value)"></label>
       <button class="btn" style="padding:2px 7px;font-size:10px" onclick="openFreeformCropEditor()" title="Visual crop editor">✂ Visual Crop</button>
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Brightness<input type="range" id="ep-br" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('brightness',+this.value)"></label>
@@ -2176,6 +2177,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <option value="cell">this panel's cell</option>
         </select>
       </label>
+      <button class="btn" onclick="trimCropBorders()" style="padding:1px 7px;font-size:10px" title="Set the box to the content: strip the single-colour margin a plot or scan arrives with. Clears any tilt, since a border is axis-aligned">▣ Trim borders</button>
       <span style="flex:1"></span>
       <span style="color:var(--muted)" title="The crop in source pixels (in the tilted frame when tilted)">px</span>
       <label style="display:flex;align-items:center;gap:2px">X<input type="number" id="crop-px-x" min="0" step="1" oninput="setCropPx('x',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
@@ -3418,6 +3420,7 @@ const CMD_REGISTRY=[
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
+  {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
   {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
@@ -3832,10 +3835,10 @@ function renderImgList(){
           <button class="btn cs-btn" data-cropshape="circle"  style="flex:1;justify-content:center;font-size:14px${im.cropShape==='circle' ?';border-color:var(--accent);color:var(--accent)':''}" title="Circle clip">◯</button>
         </div>
         <div class="inline-row" style="font-size:10px">
-          <span>T</span><input type="number" class="f-ct" value="${im.cropT}" min="0" max="49" step="1">
-          <span>L</span><input type="number" class="f-cl" value="${im.cropL}" min="0" max="49" step="1">
-          <span>B</span><input type="number" class="f-cb" value="${im.cropB}" min="0" max="49" step="1">
-          <span>R</span><input type="number" class="f-cr" value="${im.cropR}" min="0" max="49" step="1">
+          <span>T</span><input type="number" class="f-ct" value="${im.cropT}" min="0" max="49" step="0.1">
+          <span>L</span><input type="number" class="f-cl" value="${im.cropL}" min="0" max="49" step="0.1">
+          <span>B</span><input type="number" class="f-cb" value="${im.cropB}" min="0" max="49" step="0.1">
+          <span>R</span><input type="number" class="f-cr" value="${im.cropR}" min="0" max="49" step="0.1">
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Panel border (this image)</div>
@@ -4346,7 +4349,11 @@ function matchScalePixels(){
 }
 
 function resetScaleMatch(){
-  images.forEach(im=>{ if(im){ im.cropT=0;im.cropL=0;im.cropB=0;im.cropR=0; }});
+  if(!images.some(Boolean)){ toast('Add images first','warn'); return; }
+  pushUndo();
+  // The tilt is part of the crop: "Reset all crops" used to leave it behind.
+  images.forEach(im=>{ if(im){ im.cropT=0;im.cropL=0;im.cropB=0;im.cropR=0; im.cropAngle=0;
+    im._cropCache=undefined; im._cropKey=undefined; im._adjCache=undefined; im._adjKey=undefined; }});
   renderImgList(); scheduleRender();
   toast('Crops reset','ok');
 }
@@ -5809,6 +5816,11 @@ function _ceSyncFields(){
   ['crop-px-w','crop-px-h','crop-aspect'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=locked; });
 }
 
+// Crop percentages are stored to two decimals. Whole percents put every crop on a
+// 1 %-of-the-image grid — 40 px on a 4000 px micrograph — which made the editor's
+// pixel fields a fiction after Apply and quantised every drag to a coarse step.
+function _cropPct(frac){ return Math.max(0, Math.round((+frac||0)*10000)/100); }
+
 // Set the tilt while keeping the region over the same pixels. The frame turns about
 // the IMAGE centre, so changing the angle alone would swing the box across the image;
 // cx/cy are re-solved so the box spins in place, which is what grabbing a rotate grip
@@ -5882,10 +5894,10 @@ function applyCropModal(){
   // Freeform element crop
   if(cropEdState._fmIdx!==undefined&&cropEdState._fmIdx>=0){
     const el=freeformElements[cropEdState._fmIdx]; if(el){
-      el.cropT=Math.max(0,Math.round(cropEdState.cy*100));
-      el.cropL=Math.max(0,Math.round(cropEdState.cx*100));
-      el.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
-      el.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
+      el.cropT=_cropPct(cropEdState.cy);
+      el.cropL=_cropPct(cropEdState.cx);
+      el.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
+      el.cropR=_cropPct((1-cropEdState.cx-cropEdState.cw));
       el.cropAngle=+cropEdState.ang||0;
       el._cropCache=undefined; el._cropKey=undefined;
       el._adjCache=undefined; el._adjKey=undefined;
@@ -5897,10 +5909,10 @@ function applyCropModal(){
   // Grid image crop
   const idx=cropEdState.imgIdx; if(idx<0) return;
   const im=images[idx];
-  im.cropT=Math.max(0,Math.round(cropEdState.cy*100));
-  im.cropL=Math.max(0,Math.round(cropEdState.cx*100));
-  im.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
-  im.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
+  im.cropT=_cropPct(cropEdState.cy);
+  im.cropL=_cropPct(cropEdState.cx);
+  im.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
+  im.cropR=_cropPct((1-cropEdState.cx-cropEdState.cw));
   im.cropAngle=+cropEdState.ang||0;
   im._cropCache=undefined; im._cropKey=undefined;
   im._adjCache=undefined; im._adjKey=undefined;
@@ -6082,6 +6094,78 @@ function _ceConform(){
   cropEdState.cy=Math.max(0,Math.min(1-ch,my-ch/2));
 }
 
+// ── Trim uniform borders ──────────────────────────────────────
+// Plots saved from R or Python arrive with wide white margins; scans with black ones.
+// The border colour is whatever the four corners agree on (transparency counts as a
+// colour); a row or column is border while every sample sits within `tol` of it. The
+// content bounds come back as fractions of each side, rounded OUTWARD so a sliver of
+// margin may survive but content is never cut. null when the corners disagree — then
+// there is no single border to remove — or when the whole image is one colour.
+function _trimBounds(img, tol){
+  tol=tol==null?18:tol;
+  const iw=img&&(img.naturalWidth||img.width), ih=img&&(img.naturalHeight||img.height);
+  if(!iw||!ih) return null;
+  const sc=Math.min(1,600/Math.max(iw,ih));
+  const W=Math.max(2,Math.round(iw*sc)), H=Math.max(2,Math.round(ih*sc));
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,W,H);
+  const d=ctx.getImageData(0,0,W,H).data;
+  const px=(x,y)=>{ const i=(y*W+x)*4; return d[i+3]<8?null:[d[i],d[i+1],d[i+2]]; };
+  const same=(a,b)=>(!a&&!b)||!!(a&&b&&Math.abs(a[0]-b[0])<=tol&&Math.abs(a[1]-b[1])<=tol&&Math.abs(a[2]-b[2])<=tol);
+  const corners=[px(0,0),px(W-1,0),px(0,H-1),px(W-1,H-1)];
+  const ref=corners[0];
+  if(!corners.every(cn=>same(cn,ref))) return null;
+  const rowB=y=>{ for(let x=0;x<W;x++) if(!same(px(x,y),ref)) return false; return true; };
+  const colB=x=>{ for(let y=0;y<H;y++) if(!same(px(x,y),ref)) return false; return true; };
+  let t=0,b=H-1,l=0,r=W-1;
+  while(t<b&&rowB(t)) t++;
+  while(b>t&&rowB(b)) b--;
+  while(l<r&&colB(l)) l++;
+  while(r>l&&colB(r)) r--;
+  if(t===0&&l===0&&b===H-1&&r===W-1) return {l:0,t:0,r:0,b:0,none:true};
+  if(b-t<2||r-l<2) return null;                 // one colour edge to edge
+  const out=v=>Math.floor(v*10000)/10000;
+  return { l:out(l/W), t:out(t/H), r:out((W-1-r)/W), b:out((H-1-b)/H) };
+}
+function _trimTxt(tb){
+  const f=v=>`${(v*100).toFixed(1)}%`;
+  return `T ${f(tb.t)} · L ${f(tb.l)} · B ${f(tb.b)} · R ${f(tb.r)}`;
+}
+// In the editor: set the box to the content bounds.
+function trimCropBorders(){
+  const img=cropEdState.img; if(!img) return;
+  if(_ceSizeLocked()){ toast('The size is pinned in this mode — use "Trim borders on all panels" instead','warn'); return; }
+  const tb=_trimBounds(img);
+  if(!tb){ toast('No single-colour border found around this image','warn'); return; }
+  if(tb.none){ toast('Nothing to trim — the content reaches every edge','ok'); return; }
+  const wasTilted=!!(+cropEdState.ang);
+  cropEdState.ang=0;                            // a border is axis-aligned, so is its trim
+  cropEdState.cx=tb.l; cropEdState.cy=tb.t; cropEdState.cw=1-tb.l-tb.r; cropEdState.ch=1-tb.t-tb.b;
+  cropEdState.hasBox=true;
+  if(cropEdState.aspect) _ceConform();
+  drawCropEd();
+  toast(`Trimmed to the content — ${_trimTxt(tb)}${wasTilted?' · tilt cleared':''}`,'ok');
+}
+// On every panel: replace each crop with its image's content bounds.
+function trimBordersAll(){
+  const valid=images.filter(im=>im&&im.img);
+  if(!valid.length){ toast('Add images first','warn'); return; }
+  pushUndo(); let n=0, skipped=0;
+  valid.forEach(im=>{
+    const tb=_trimBounds(im.img);
+    if(!tb){ skipped++; return; }
+    if(tb.none) return;
+    im.cropL=_cropPct(tb.l); im.cropT=_cropPct(tb.t); im.cropR=_cropPct(tb.r); im.cropB=_cropPct(tb.b);
+    im.cropAngle=0;
+    im._cropCache=undefined; im._cropKey=undefined; im._adjCache=undefined; im._adjKey=undefined;
+    n++;
+  });
+  renderImgList(); scheduleRender(0);
+  logAction('trimBorders',{panels:n, skipped});
+  toast(n?`Trimmed the borders of ${n} panel${n>1?'s':''}${skipped?` · ${skipped} had no single-colour border`:''}`
+         :'No single-colour borders to trim','ok');
+}
+
 // ── Exact pixels ──────────────────────────────────────────────
 // The four fields are the crop in source pixels of the (possibly tilted) frame. Typing
 // a width of 512 gives a 512-pixel-wide crop, which is how "every panel the same
@@ -6112,8 +6196,8 @@ function _syncCropAngleNote(){
 // Copy the current crop rect to every panel (or every panel in the same group).
 function copyCropTo(scope){
   const cs=cropEdState; if(cs.imgIdx<0){ toast('Open a single panel crop first','warn'); return; }
-  const T=Math.max(0,Math.round(cs.cy*100)), L=Math.max(0,Math.round(cs.cx*100)),
-        B=Math.max(0,Math.round((1-cs.cy-cs.ch)*100)), Rr=Math.max(0,Math.round((1-cs.cx-cs.cw)*100));
+  const T=_cropPct(cs.cy), L=_cropPct(cs.cx),
+        B=_cropPct((1-cs.cy-cs.ch)), Rr=_cropPct((1-cs.cx-cs.cw));
   const grp=(images[cs.imgIdx]&&images[cs.imgIdx].group||'').trim();
   if(scope==='group' && !grp){ toast('Give this panel a Match group first','warn'); return; }
   pushUndo(); let n=0;
@@ -6195,10 +6279,10 @@ function _updateBatchUI(){
 function _applyBatchCropCurrent(){
   const idx=cropEdState.imgIdx; if(idx<0||!images[idx]) return;
   const im=images[idx];
-  im.cropT=Math.max(0,Math.round(cropEdState.cy*100));
-  im.cropL=Math.max(0,Math.round(cropEdState.cx*100));
-  im.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
-  im.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
+  im.cropT=_cropPct(cropEdState.cy);
+  im.cropL=_cropPct(cropEdState.cx);
+  im.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
+  im.cropR=_cropPct((1-cropEdState.cx-cropEdState.cw));
   im.cropAngle=+cropEdState.ang||0;
   im._cropCache=undefined; im._cropKey=undefined;
   im._adjCache=undefined; im._adjKey=undefined;
@@ -6253,10 +6337,10 @@ function applyBatchCropAll(){
   const remaining=cropEdState.batchQueue.length;
   cropEdState.batchQueue.forEach(i=>{
     const im=images[i]; if(!im) return;
-    im.cropT=Math.max(0,Math.round((1-ch)/2*100));
-    im.cropL=Math.max(0,Math.round((1-cw)/2*100));
-    im.cropB=Math.max(0,Math.round((1-ch)/2*100));
-    im.cropR=Math.max(0,Math.round((1-cw)/2*100));
+    im.cropT=_cropPct((1-ch)/2);
+    im.cropL=_cropPct((1-cw)/2);
+    im.cropB=_cropPct((1-ch)/2);
+    im.cropR=_cropPct((1-cw)/2);
     im.cropAngle=ang;
     im._cropCache=undefined; im._cropKey=undefined;
     im._adjCache=undefined; im._adjKey=undefined;
@@ -6355,10 +6439,10 @@ function _mcMakeElement(srcEl, rect, n, srcLabel){
   const nm=(rect&&rect.label)||'';
   if(nm) copy.label = srcLabel ? `${srcLabel} ${nm}` : nm;
   if(rect){
-    copy.cropT=Math.max(0,Math.round(rect.cy*100));
-    copy.cropL=Math.max(0,Math.round(rect.cx*100));
-    copy.cropB=Math.max(0,Math.round((1-rect.cy-rect.ch)*100));
-    copy.cropR=Math.max(0,Math.round((1-rect.cx-rect.cw)*100));
+    copy.cropT=_cropPct(rect.cy);
+    copy.cropL=_cropPct(rect.cx);
+    copy.cropB=_cropPct((1-rect.cy-rect.ch));
+    copy.cropR=_cropPct((1-rect.cx-rect.cw));
     copy.cropAngle=+rect.ang||0;
     // keep the on-canvas aspect honest: the box shrinks with the region
     const sw=(1-(copy.cropL+copy.cropR)/100), sh=(1-(copy.cropT+copy.cropB)/100);
@@ -6571,10 +6655,10 @@ function _mcMakePanel(srcPanel, rect, srcLabel){
     colSpan:1, rowSpan:1, lblDX:0, lblDY:0, sbDX:0, sbDY:0,
     _adjCache:undefined,_adjKey:undefined};
   if(rect){
-    p.cropT=Math.max(0,Math.round(rect.cy*100));
-    p.cropL=Math.max(0,Math.round(rect.cx*100));
-    p.cropB=Math.max(0,Math.round((1-rect.cy-rect.ch)*100));
-    p.cropR=Math.max(0,Math.round((1-rect.cx-rect.cw)*100));
+    p.cropT=_cropPct(rect.cy);
+    p.cropL=_cropPct(rect.cx);
+    p.cropB=_cropPct((1-rect.cy-rect.ch));
+    p.cropR=_cropPct((1-rect.cx-rect.cw));
     p.cropAngle=+rect.ang||0;
   } else {
     p.cropT=0;p.cropL=0;p.cropB=0;p.cropR=0;p.cropAngle=0;
