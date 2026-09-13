@@ -540,6 +540,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Panel height (px)</label>
       <input type="number" id="panel-h" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="inline-row" style="margin:3px 0 5px">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. Spanning panels are counted as one cell.">⊞ Fit grid to panels</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitPanelsToContent()" title="Match the panel shape to your images so they fill the cell — a 4:3 crop in a square cell leaves white bars above and below">⤢ Fit panels to images</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="tightenSpacing()" title="Close the gaps and margins around the panels">⇲ Tighten spacing</button>
     </div>
@@ -3419,6 +3420,7 @@ const CMD_REGISTRY=[
   {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
+  {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
   {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
@@ -4346,6 +4348,32 @@ function matchScalePixels(){
   });
   renderImgList(); scheduleRender();
   toast('Pixel sizes matched','ok');
+}
+
+// Rows × columns for N panels: the fewest empty cells, then the most compact, with a
+// landscape bias — 5 → 3×2 rather than 5×1, 8 → 4×2 rather than 3×3, 7 → 4×2 with one
+// empty cell. Pure, so it can be tested as a table.
+function _fitGrid(n){
+  if(n<=0) return {cols:1,rows:1};
+  const base=Math.ceil(Math.sqrt(n));
+  let best=null;
+  for(let cols=base;cols<=Math.min(n,Math.max(base*2,base+1));cols++){
+    const rows=Math.ceil(n/cols), waste=cols*rows-n;
+    const score=waste+0.4*Math.abs(cols-rows);
+    if(!best||score<best.score) best={cols,rows,score};
+  }
+  return {cols:best.cols,rows:best.rows};
+}
+function fitGridToPanels(){
+  if(layoutMode==='freeform'){ toast('The grid applies to grid mode','warn'); return; }
+  const n=images.filter(im=>im&&!im.excluded).length;
+  if(!n){ toast('Add images first','warn'); return; }
+  const {cols,rows}=_fitGrid(n);
+  if(cols===gi('cols')&&rows===gi('rows')){ toast(`Already ${cols} × ${rows} for ${n} panel${n>1?'s':''}`,'ok'); return; }
+  pushUndo();
+  sv('cols',cols); sv('rows',rows); onLayoutChange();
+  logAction('fitGrid',{panels:n,cols,rows});
+  toast(`${cols} × ${rows} for ${n} panel${n>1?'s':''}${cols*rows>n?` (${cols*rows-n} empty)`:''}`,'ok');
 }
 
 function resetScaleMatch(){
@@ -6299,6 +6327,10 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape' && cropEdState.leveling){
     e.preventDefault(); e.stopPropagation(); toggleCropLevel(false); return;
   }
+  // Escape leaves the editor (through the same path as ×, so multi-crop still asks
+  // before discarding regions and a pre-crop still adds its image); Enter is Apply.
+  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeCropModal(); return; }
+  if(e.key==='Enter' && !typing){ e.preventDefault(); e.stopPropagation(); applyCropModal(); return; }
   if((e.key==='['||e.key===']') && !typing){
     e.preventDefault(); e.stopPropagation();
     nudgeCropAngle(e.key==='[' ? -(e.shiftKey?5:1) : (e.shiftKey?5:1));

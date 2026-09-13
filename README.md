@@ -292,6 +292,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **▣ Trim borders**, in the editor and for all panels at once: strips the single-colour margin a saved plot or a scan arrives with, rounding outward so content is never cut, and leaves alone any image whose corners disagree.
 - **Reset all crops** now also clears the tilt, and can be undone.
 - **A loupe in the crop editor.** The editor is a thumbnail of an image that may be 4000 px wide, so an edge placed "on" a cell wall was within a few source pixels of it. While a box is drawn, moved, resized, tilted or levelled — or the pointer rests on a handle — a loupe in the corner farthest from the pointer shows the source at no less than 1:1, unsmoothed, with the box edges through it. The modal had promised "corners show at full resolution" for some time; now they do.
+- **⊞ Fit grid to panels** (Arrange, and ⌘K): rows × columns for the visible panels with the fewest empty cells, landscape and compact — 6 → 3 × 2, 8 → 4 × 2, 5 → 3 × 2 rather than a strip.
+- **Enter applies and Escape closes the crop editor.** Escape goes through the same path as ×, so multi-crop still asks before discarding regions.
 
 ### v3.13.1 — 12 September 2026
 **Focus: correctness, from an independent audit. No new features — but two of these reached files that go to journals, so re-export and re-read anything you made with a column width set.**

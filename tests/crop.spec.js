@@ -232,3 +232,61 @@ test('the loupe also shows while the pointer rests on a resize handle', async ({
   expect(r.offAgain).toBeNull();
   expect(errors).toEqual([]);
 });
+
+// ── Fit grid, and the editor's keys ───────────────────────────
+
+test('_fitGrid picks the fewest empty cells, then the most compact, with a landscape bias', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => Object.fromEntries([1,2,3,4,5,6,7,8,9,10,12,15,16].map(n => { const g = _fitGrid(n); return [n, `${g.cols}x${g.rows}`]; })));
+  expect(r).toEqual({ 1:'1x1', 2:'2x1', 3:'3x1', 4:'2x2', 5:'3x2', 6:'3x2', 7:'4x2', 8:'4x2', 9:'3x3', 10:'5x2', 12:'4x3', 15:'5x3', 16:'4x4' });
+});
+
+test('Fit grid to panels sets rows × columns for the visible panels, as one undo step', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '3'); onLayoutChange();
+    fitGridToPanels();
+    const six = [gv('cols'), gv('rows')];
+    images[5].excluded = true;                    // hide one → five visible
+    fitGridToPanels();
+    const five = [gv('cols'), gv('rows')];
+    undo();
+    const undone = [gv('cols'), gv('rows')];
+    return { six, five, undone, logged: reproLog.filter(e => e.action === 'fitGrid').length };
+  });
+  expect(r.six).toEqual(['3', '2']);
+  expect(r.five).toEqual(['3', '2']);             // 5 → 3×2 with one empty, not a strip
+  expect(r.undone).toEqual(['2', '3']);           // back to the layout before the first fit
+  expect(r.logged).toBe(1);                       // the no-op second call logs nothing
+  expect(errors).toEqual([]);
+});
+
+test('in the crop editor, Enter applies and Escape closes; typing in a field is left alone', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const key = (k, target) => `document.dispatchEvent(Object.assign(new KeyboardEvent('keydown', { key: '${k}', bubbles: true }), {}))`;
+  const r = await page.evaluate(async (tf) => {
+    const twoFrames = new Function('return ' + tf)();
+    const modal = document.getElementById('crop-modal');
+    const fire = (k, el) => (el || document).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    openCropModal(0); await twoFrames();
+    cropEdState.cx = 0.1; cropEdState.cy = 0.1; cropEdState.cw = 0.6; cropEdState.ch = 0.6; cropEdState.hasBox = true; drawCropEd();
+    // Enter inside the angle field must not apply (the field owns Enter).
+    const ang = document.getElementById('crop-angle'); ang.focus();
+    fire('Enter', ang);
+    const stillOpenAfterFieldEnter = modal.classList.contains('open');
+    ang.blur(); document.body.focus();
+    fire('Enter');
+    const appliedL = images[0].cropL, closedAfterEnter = !modal.classList.contains('open');
+    openCropModal(0); await twoFrames();
+    fire('Escape');
+    const closedAfterEscape = !modal.classList.contains('open');
+    return { stillOpenAfterFieldEnter, appliedL, closedAfterEnter, closedAfterEscape };
+  }, twoFrames.toString());
+  expect(r.stillOpenAfterFieldEnter).toBe(true);
+  expect(r.closedAfterEnter).toBe(true);
+  expect(r.appliedL).toBe(10);
+  expect(r.closedAfterEscape).toBe(true);
+  expect(errors).toEqual([]);
+});
