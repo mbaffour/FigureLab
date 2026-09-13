@@ -2158,9 +2158,32 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="nudgeCropAngle(-1)" style="padding:1px 7px;font-size:11px" title="Rotate 1° anticlockwise ( [ )">↺</button>
       <button class="btn" onclick="nudgeCropAngle(1)" style="padding:1px 7px;font-size:11px" title="Rotate 1° clockwise ( ] )">↻</button>
       <button class="btn" onclick="setCropAngle(0)" style="padding:1px 7px;font-size:10px" title="Back to upright">Straighten</button>
+      <button class="btn" id="crop-level-btn" onclick="toggleCropLevel()" style="padding:1px 7px;font-size:10px" title="Click two points along an edge that should be straight — a plate rim, a gel edge, a coverslip — and the crop tilts to make it so">📐 Level</button>
+      <button class="btn" onclick="autoCropAngle()" style="padding:1px 7px;font-size:10px" title="Find the tilt at which the straight features inside the box line up with its edges. A suggestion: Straighten undoes it">✨ Auto</button>
       <span id="crop-angle-note" style="color:var(--muted);font-size:10px"></span>
     </div>
-    <div style="font-size:10px;color:var(--muted);margin:-2px 0 6px;line-height:1.35">Drag inside the box to move it, or drag a corner/edge handle to resize — no need to redraw. Drag the round grip above the box to tilt it (Shift snaps to 15°); <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°.</div>
+    <!-- Ratio lock and exact pixels. Journals want uniform panels; a locked ratio draws
+         them, and the pixel fields make a crop reproducible to the sample. Ratios are
+         of pixels, so 1:1 is square on screen and in the panel whatever the image's shape. -->
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:0 0 6px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:4px" title="Lock the box to a ratio while you draw or resize it">▭ Ratio
+        <select id="crop-aspect" onchange="setCropAspect(this.value)" style="font-size:10px;padding:1px 3px">
+          <option value="free">free</option>
+          <option value="1:1">1:1</option>
+          <option value="4:3">4:3</option>
+          <option value="3:2">3:2</option>
+          <option value="16:9">16:9</option>
+          <option value="cell">this panel's cell</option>
+        </select>
+      </label>
+      <span style="flex:1"></span>
+      <span style="color:var(--muted)" title="The crop in source pixels (in the tilted frame when tilted)">px</span>
+      <label style="display:flex;align-items:center;gap:2px">X<input type="number" id="crop-px-x" min="0" step="1" oninput="setCropPx('x',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
+      <label style="display:flex;align-items:center;gap:2px">Y<input type="number" id="crop-px-y" min="0" step="1" oninput="setCropPx('y',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
+      <label style="display:flex;align-items:center;gap:2px">W<input type="number" id="crop-px-w" min="1" step="1" oninput="setCropPx('w',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
+      <label style="display:flex;align-items:center;gap:2px">H<input type="number" id="crop-px-h" min="1" step="1" oninput="setCropPx('h',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin:-2px 0 6px;line-height:1.35">Drag inside the box to move it, or drag a corner/edge handle to resize — no need to redraw. Drag the round grip above the box to tilt it (Shift snaps to 15°); <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°. <b>Level</b>: click two points along an edge that should be straight. <b>Auto</b>: let the editor find the angle.</div>
     <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;align-items:center;gap:8px;font-size:11px">
       <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent)">Image 1 / 1</span>
       <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
@@ -5755,6 +5778,35 @@ function drawCropEd(){
   const ai=document.getElementById('crop-angle');
   if(ai && document.activeElement!==ai) ai.value=(+cropEdState.ang||0).toFixed(1);
   _syncCropAngleNote();
+  _ceDrawLevel(ctx);
+  _ceSyncFields();
+}
+// The level line while it is being placed: first point, then a rubber band to the
+// pointer, then the second point.
+function _ceDrawLevel(ctx){
+  if(!cropEdState.leveling) return;
+  const p1=cropEdState.levelPt1, hv=cropEdState.hoverPx;
+  ctx.save();
+  ctx.strokeStyle='#f5a623'; ctx.fillStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+  if(p1){
+    ctx.beginPath(); ctx.arc(p1[0],p1[1],4,0,Math.PI*2); ctx.fill();
+    if(hv){ ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(hv[0],hv[1]); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+// Keep the ratio select and the pixel fields in step with the box, unless the user is
+// typing in one of them.
+function _ceSyncFields(){
+  const sel=document.getElementById('crop-aspect');
+  if(sel && document.activeElement!==sel) sel.value=cropEdState.aspectKey||'free';
+  const [iw,ih]=_ceSrcDims();
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el && document.activeElement!==el) el.value=String(Math.round(v)); };
+  const {cx,cy,cw,ch,hasBox}=cropEdState;
+  const box=hasBox||cw<0.97;
+  set('crop-px-x', box?cx*iw:0); set('crop-px-y', box?cy*ih:0);
+  set('crop-px-w', box?cw*iw:iw); set('crop-px-h', box?ch*ih:ih);
+  const locked=_ceSizeLocked();
+  ['crop-px-w','crop-px-h','crop-aspect'].forEach(id=>{ const el=document.getElementById(id); if(el) el.disabled=locked; });
 }
 
 // Set the tilt while keeping the region over the same pixels. The frame turns about
@@ -5856,6 +5908,7 @@ function applyCropModal(){
   toast(im.cropAngle?`Crop applied at ${im.cropAngle.toFixed(1)}°`:'Crop applied','ok');
 }
 function resetCropEd(){
+  if(cropEdState.leveling) toggleCropLevel(false);
   // Mid multi-crop the size is pinned — recentre the box instead of clearing it,
   // so Reset can't silently break the lock.
   if(cropEdState.mc&&mcSession.cropW){
@@ -5879,6 +5932,171 @@ function setCropAngle(v){
   drawCropEd();
 }
 function nudgeCropAngle(d){ setCropAngle((+cropEdState.ang||0)+d); }
+
+// Crop size is pinned (batch or multi-crop) → the box may move and tilt, not resize.
+function _ceSizeLocked(){
+  return !!((cropEdState.batch&&cropEdState.batchCropW>0)
+        || (cropEdState.mc&&mcSession.cropW>0));
+}
+function _ceSrcDims(){
+  const im=cropEdState.img;
+  return [ (im&&(im.naturalWidth||im.width))||1, (im&&(im.naturalHeight||im.height))||1 ];
+}
+
+// ── Straighten by reference ─────────────────────────────────────
+// Two clicks along anything that should be straight — a plate rim, a gel edge, a
+// coverslip — and the crop tilts to make it so. The line's canvas angle IS the crop
+// angle: a frame axis at canvas angle a is exactly what _ceFromFrame draws, so the
+// current tilt does not enter into it. A near-vertical line is read as a vertical
+// reference, so either kind of edge works. Result in (-45, 45].
+function _ceLevelAngle(x1,y1,x2,y2){
+  if(Math.hypot(x2-x1,y2-y1)<4) return null;           // too short to mean anything
+  let a=Math.atan2(y2-y1,x2-x1)*180/Math.PI;           // (-180, 180]
+  a=((a+90)%180+180)%180-90;                            // direction folded away: (-90, 90]
+  if(a>45) a-=90; else if(a<=-45) a+=90;                // to the nearest axis
+  return a;
+}
+function toggleCropLevel(on){
+  const want=on===undefined?!cropEdState.leveling:!!on;
+  cropEdState.leveling=want; cropEdState.levelPt1=null; cropEdState.hoverPx=null;
+  const b=document.getElementById('crop-level-btn'); if(b) b.classList.toggle('active',want);
+  const cc=document.getElementById('crop-ed-canvas'); if(cc) cc.style.cursor=want?'crosshair':'';
+  const d=document.getElementById('crop-modal-desc');
+  if(want&&d){ cropEdState._descBefore=d.textContent;
+    d.textContent='Click two points along an edge that should be straight — horizontal or vertical. Esc cancels.'; }
+  else if(d&&cropEdState._descBefore!=null){ d.textContent=cropEdState._descBefore; cropEdState._descBefore=null; }
+  drawCropEd();
+}
+function _ceLevelClick(px,py){
+  if(!cropEdState.levelPt1){ cropEdState.levelPt1=[px,py]; drawCropEd(); return; }
+  const [x1,y1]=cropEdState.levelPt1;
+  const a=_ceLevelAngle(x1,y1,px,py);
+  toggleCropLevel(false);
+  if(a==null){ toast('Click two points further apart','warn'); return; }
+  setCropAngle(+a.toFixed(1));
+  toast(`Levelled — crop tilted ${a.toFixed(1)}° so that edge comes out straight`,'ok');
+}
+
+// ── Auto-straighten ────────────────────────────────────────────
+// Projection-profile deskew. At the right angle the straight features inside the box
+// — lane edges, a plate rim, a coverslip — line up with the frame's rows and columns,
+// and the row and column means become as uneven as they can be. Search −20…20° in
+// half-degree steps, then refine to a tenth around the best. Works on the editor's
+// thumbnail: a tenth of a degree is all the precision a tilt needs. Only a suggestion,
+// applied through the ordinary tilt path so Straighten undoes it — and it declines
+// when no angle stands out, rather than turning a field of cells by a random amount.
+function _ceGray(){
+  const cc=document.getElementById('crop-ed-canvas'); const {img}=cropEdState;
+  if(!cc||!img||!cc.width||!cc.height) return null;
+  const W=cc.width,H=cc.height, key=`${W}x${H}`;
+  if(cropEdState._gray&&cropEdState._grayKey===key) return cropEdState._gray;
+  const oc=document.createElement('canvas'); oc.width=W; oc.height=H;
+  const ctx=oc.getContext('2d'); ctx.drawImage(img,0,0,W,H);
+  const d=ctx.getImageData(0,0,W,H).data;
+  const g=new Float32Array(W*H);
+  for(let i=0,j=0;i<d.length;i+=4,j++) g[j]=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
+  cropEdState._gray=g; cropEdState._grayKey=key; return g;
+}
+// Score one candidate angle over the box, the box's canvas centre held fixed (the same
+// re-solve _ceSetAngle does, so the region scored is the region that will be cropped).
+function _ceScoreAngle(g,W,H,a,ctr,cw,ch,N){
+  const cs=Math.cos(a*Math.PI/180), sn=Math.sin(a*Math.PI/180);
+  const ddx=ctr[0]-W/2, ddy=ctr[1]-H/2;
+  const fx0=(W/2+ddx*cs+ddy*sn)/W-cw/2, fy0=(H/2-ddx*sn+ddy*cs)/H-ch/2;
+  const rows=new Float64Array(N), cols=new Float64Array(N), rn=new Uint16Array(N), cn=new Uint16Array(N);
+  for(let r=0;r<N;r++){
+    const dy=(fy0+(r+0.5)/N*ch)*H-H/2;
+    for(let c=0;c<N;c++){
+      const dx=(fx0+(c+0.5)/N*cw)*W-W/2;
+      const x=Math.round(W/2+dx*cs-dy*sn), y=Math.round(H/2+dx*sn+dy*cs);
+      if(x<0||y<0||x>=W||y>=H) continue;
+      const v=g[y*W+x]; rows[r]+=v; rn[r]++; cols[c]+=v; cn[c]++;
+    }
+  }
+  const varOf=(sum,n)=>{ const vals=[]; let m=0;
+    for(let i=0;i<N;i++){ if(n[i]<N*0.5) continue; const v=sum[i]/n[i]; vals.push(v); m+=v; }
+    if(vals.length<4) return 0; m/=vals.length; let v2=0; for(const v of vals) v2+=(v-m)*(v-m); return v2/vals.length; };
+  return varOf(rows,rn)+varOf(cols,cn);
+}
+function _ceAutoAngle(){
+  const g=_ceGray(); if(!g) return null;
+  const [W,H]=_ceDims();
+  if(!cropEdState.hasBox||cropEdState.cw<0.05||cropEdState.ch<0.05){
+    // No box yet: work on the central 80 % and leave that as the box to refine.
+    cropEdState.cx=0.1; cropEdState.cy=0.1; cropEdState.cw=0.8; cropEdState.ch=0.8; cropEdState.hasBox=true;
+  }
+  const q=_ceQuad(); const ctr=[(q[0][0]+q[2][0])/2,(q[0][1]+q[2][1])/2];
+  const {cw,ch}=cropEdState, N=96;
+  let best=0, bestS=-1, sum=0, k=0;
+  for(let a=-20;a<=20.001;a+=0.5){
+    const sc=_ceScoreAngle(g,W,H,a,ctr,cw,ch,N); sum+=sc; k++;
+    if(sc>bestS){ bestS=sc; best=a; }
+  }
+  const coarse=best;
+  for(let a=coarse-0.5;a<=coarse+0.5001;a+=0.1){
+    const sc=_ceScoreAngle(g,W,H,a,ctr,cw,ch,N);
+    if(sc>bestS){ bestS=sc; best=a; }
+  }
+  best=+best.toFixed(1); if(Math.abs(best)<0.05) best=0;
+  // Confidence: the winning angle must stand clear of the run of the field. A blank
+  // or isotropic image scores about the same everywhere.
+  const confident = k>0 && bestS>(sum/k)*1.10;
+  return { angle:best, confident, score:bestS, mean:sum/k };
+}
+function autoCropAngle(){
+  const r=_ceAutoAngle();
+  if(!r){ toast('Nothing to analyse yet','warn'); return; }
+  if(!r.confident){
+    toast('No clear straight edge found — use 📐 Level to click along one','warn');
+    drawCropEd(); return;
+  }
+  setCropAngle(r.angle);
+  toast(r.angle?`Auto-straightened: crop tilted ${r.angle.toFixed(1)}°`:'Already straight — no tilt needed','ok');
+}
+
+// ── Aspect lock ───────────────────────────────────────────────
+// Ratios are of PIXELS, so a 1:1 box is square on screen and in the panel whatever
+// the image's own shape; in normalised units it would be the image's own aspect.
+function _ceCellAspect(){
+  if(cropEdState._fmIdx>=0){ const el=freeformElements[cropEdState._fmIdx]; return (el&&el.h)?el.w/el.h:1; }
+  const pb=(panelBounds||[]).find(b=>b.idx===cropEdState.imgIdx)||(panelBounds||[])[0];
+  return (pb&&pb.h)?pb.w/pb.h:1;
+}
+function setCropAspect(key){
+  const map={'free':0,'1:1':1,'4:3':4/3,'3:2':1.5,'16:9':16/9,'cell':_ceCellAspect()};
+  cropEdState.aspectKey=(key in map)?key:'free';
+  cropEdState.aspect=map[cropEdState.aspectKey]||0;
+  if(cropEdState.aspect&&cropEdState.hasBox&&!_ceSizeLocked()) _ceConform();
+  drawCropEd();
+}
+// Fit the current box to the locked ratio, keeping its centre and its width where the
+// image allows it.
+function _ceConform(){
+  const r=cropEdState.aspect; if(!r) return;
+  const [W,H]=_ceDims();
+  let cw=cropEdState.cw, ch=cw*W/(r*H);
+  if(ch>1){ ch=1; cw=ch*r*H/W; }
+  const mx=cropEdState.cx+cropEdState.cw/2, my=cropEdState.cy+cropEdState.ch/2;
+  cropEdState.cw=cw; cropEdState.ch=ch;
+  cropEdState.cx=Math.max(0,Math.min(1-cw,mx-cw/2));
+  cropEdState.cy=Math.max(0,Math.min(1-ch,my-ch/2));
+}
+
+// ── Exact pixels ──────────────────────────────────────────────
+// The four fields are the crop in source pixels of the (possibly tilted) frame. Typing
+// a width of 512 gives a 512-pixel-wide crop, which is how "every panel the same
+// size" is done to the sample rather than to the eye.
+function setCropPx(which,val){
+  const [iw,ih]=_ceSrcDims(); const v=parseFloat(val); if(!isFinite(v)) return;
+  const s=cropEdState, [W,H]=_ceDims(), locked=_ceSizeLocked();
+  if(which==='x') s.cx=Math.max(0,Math.min(1-s.cw,v/iw));
+  else if(which==='y') s.cy=Math.max(0,Math.min(1-s.ch,v/ih));
+  else if(which==='w'&&!locked){ s.cw=Math.max(0.01,Math.min(1-s.cx,v/iw)); if(s.aspect) s.ch=Math.min(1-s.cy,s.cw*W/(s.aspect*H)); }
+  else if(which==='h'&&!locked){ s.ch=Math.max(0.01,Math.min(1-s.cy,v/ih)); if(s.aspect) s.cw=Math.min(1-s.cx,s.ch*s.aspect*H/W); }
+  else return;
+  s.hasBox=s.cw>0.02&&s.ch>0.02;
+  drawCropEd();
+}
 
 // Say plainly what a tilt costs. Every other crop in this app selects existing pixels;
 // a tilted one has to resample them, so the panel is interpolated. That is a normal,
@@ -5915,6 +6133,9 @@ function copyCropTo(scope){
 document.addEventListener('keydown', e=>{
   const m=document.getElementById('crop-modal'); if(!m||!m.classList.contains('open')) return;
   const t=e.target, typing=t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT');
+  if(e.key==='Escape' && cropEdState.leveling){
+    e.preventDefault(); e.stopPropagation(); toggleCropLevel(false); return;
+  }
   if((e.key==='['||e.key===']') && !typing){
     e.preventDefault(); e.stopPropagation();
     nudgeCropAngle(e.key==='[' ? -(e.shiftKey?5:1) : (e.shiftKey?5:1));
@@ -5964,6 +6185,7 @@ function _updateBatchUI(){
   applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
   // Cursor hint: grab when box is moveable
   document.getElementById('crop-ed-canvas').style.cursor=sizeLocked?'grab':'crosshair';
+  _ceSyncFields();   // the size fields and the ratio lock follow the pin at once
 }
 
 // Batch crop keeps ONE size for every image but lets each image carry its own tilt,
@@ -5992,13 +6214,14 @@ function _advanceBatchCrop(){
   }
   const nextIdx=cropEdState.batchQueue.shift();
   const im=images[nextIdx]; if(!im) { _advanceBatchCrop(); return; }
-  // Preserve locked size, center the box on new image. The tilt carries over as a
-  // starting point (a stack of plates photographed on one bench usually shares an
-  // angle) and stays free to change per image; the size does not.
+  // Preserve locked size, center the box on new image. Each image starts upright,
+  // as in multi-crop: inheriting the last image's tilt would be a guess, and Level
+  // or Auto set the right one in two clicks.
   const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
   cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
   cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
   cropEdState.cw=cw; cropEdState.ch=ch;
+  cropEdState.ang=0; cropEdState._gray=null;
   cropEdState.hasBox=true;
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
@@ -6495,10 +6718,7 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
     return hasBox&&cw>0.02&&ch>0.02&&x>=cx&&x<=cx+cw&&y>=cy&&y<=cy+ch;
   }
   // Crop size is pinned (batch or multi-crop) → box may move but not resize
-  function _sizeLocked(){
-    return (cropEdState.batch&&cropEdState.batchCropW>0)
-        || (cropEdState.mc&&mcSession.cropW>0);
-  }
+  function _sizeLocked(){ return _ceSizeLocked(); }
   // Which resize handle (if any) is under the cursor. Returns nw/ne/sw/se/n/s/e/w.
   function _handleAt(x,y){
     const {cx,cy,cw,ch,hasBox}=cropEdState;
@@ -6547,6 +6767,8 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
 
   cc.addEventListener('mousedown',e=>{
     const p=_pt(e,false);
+    // Placing the level line: two clicks, nothing else moves.
+    if(cropEdState.leveling){ _ceLevelClick(p.px,p.py); e.preventDefault(); return; }
     // The rotate grip sits OUTSIDE the box, so it has to be tested before the
     // "clicked empty space → draw a new box" branch would swallow it.
     if(_onGrip(p.px,p.py)){
@@ -6588,6 +6810,11 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
   cc.addEventListener('mousemove',e=>{
     const p=_pt(e,true);
     const x=p.fx, y=p.fy;
+    if(cropEdState.leveling){
+      cropEdState.hoverPx=[p.px,p.py];
+      if(cropEdState.levelPt1) drawCropEd();
+      return;
+    }
     if(cropEdState.rotating){
       const ctr=cropEdState.rotCtr;
       const cur=Math.atan2(p.py-ctr[1],p.px-ctr[0]);
@@ -6608,16 +6835,45 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
       let L=cropEdState.fixedL,R=cropEdState.fixedR,T=cropEdState.fixedT,B=cropEdState.fixedB;
       if(h.includes('w')) L=x; if(h.includes('e')) R=x;
       if(h.includes('n')) T=y; if(h.includes('s')) B=y;
+      const r=cropEdState.aspect;
+      if(r){
+        // Locked ratio: the edge being dragged rules, the other dimension follows.
+        const [W,H]=_ceDims();
+        if(h==='n'||h==='s'){                       // height dragged → width about the centre
+          const hh=Math.abs(B-T), w=Math.min(1,hh*r*H/W), mid=(L+R)/2;
+          L=Math.max(0,Math.min(1-w,mid-w/2)); R=L+w;
+        } else {                                    // width dragged → height from the fixed edge
+          const w=Math.abs(R-L); let hh=w*W/(r*H);
+          const top=h.includes('n'), mid=(T+B)/2;
+          let nT= h==='e'||h==='w' ? mid-hh/2 : (top ? Math.max(T,B)-hh : Math.min(T,B));
+          if(nT<0) nT=0; if(nT+hh>1) hh=1-nT;
+          T=nT; B=nT+hh;
+          if(Math.abs(B-T)<hh-1e-9){ const w2=Math.abs(B-T)*r*H/W; if(h.includes('w')) L=R-w2; else R=L+w2; }
+        }
+      }
       cropEdState.cx=Math.min(L,R); cropEdState.cw=Math.max(0.03,Math.abs(R-L));
       cropEdState.cy=Math.min(T,B); cropEdState.ch=Math.max(0.03,Math.abs(B-T));
       cropEdState.hasBox=true;
       drawCropEd(); return;
     }
     if(cropEdState.dragging){
-      cropEdState.cx=Math.min(x,cropEdState.dx0);
-      cropEdState.cy=Math.min(y,cropEdState.dy0);
-      cropEdState.cw=Math.abs(x-cropEdState.dx0);
-      cropEdState.ch=Math.abs(y-cropEdState.dy0);
+      const r=cropEdState.aspect;
+      if(r){
+        // Locked ratio while drawing: the width you drag rules, the height follows,
+        // both clamped to the image so the box never leaves it.
+        const [W,H]=_ceDims(), x0=cropEdState.dx0, y0=cropEdState.dy0;
+        let w=Math.abs(x-x0), hh=w*W/(r*H);
+        const maxH=y<y0?y0:1-y0, maxW=x<x0?x0:1-x0;
+        if(hh>maxH){ hh=maxH; w=hh*r*H/W; }
+        if(w>maxW){ w=maxW; hh=w*W/(r*H); }
+        cropEdState.cx=x<x0?x0-w:x0; cropEdState.cy=y<y0?y0-hh:y0;
+        cropEdState.cw=w; cropEdState.ch=hh;
+      } else {
+        cropEdState.cx=Math.min(x,cropEdState.dx0);
+        cropEdState.cy=Math.min(y,cropEdState.dy0);
+        cropEdState.cw=Math.abs(x-cropEdState.dx0);
+        cropEdState.ch=Math.abs(y-cropEdState.dy0);
+      }
       drawCropEd(); return;
     }
     _updateCursor(p);

@@ -450,8 +450,8 @@ test('batch crop keeps one size for every image but lets each carry its own tilt
     cropEdState.cx = 0.3; cropEdState.cy = 0.35; cropEdState.cw = 0.4; cropEdState.ch = 0.3; cropEdState.hasBox = true;
     setCropAngle(12);
     applyCropModal();                        // locks the size, saves image 1, advances
-    const carried = +cropEdState.ang;        // the tilt carries over as a starting point…
-    setCropAngle(-7);                        // …and each image is free to differ
+    const carried = +cropEdState.ang;        // each image starts upright, as in multi-crop…
+    setCropAngle(-7);                        // …and each is free to have its own tilt
     applyCropModal();                        // image 2 saved, advance to image 3
     const startsAt = +cropEdState.ang;
     setCropAngle(3);
@@ -463,8 +463,8 @@ test('batch crop keeps one size for every image but lets each carry its own tilt
       open: document.getElementById('crop-modal').classList.contains('open'),
     };
   }, twoFrames.toString());
-  expect(r.carried).toBeCloseTo(12, 5);
-  expect(r.startsAt).toBeCloseTo(-7, 5);
+  expect(r.carried).toBe(0);                          // not inherited from image 1
+  expect(r.startsAt).toBe(0);                         // image 3 starts upright too
   expect(r.angles).toEqual([12, -7, 3, 3]);          // used to be [0, 0, 0, 0]
   for (const s of r.sizes) expect(s).toEqual([40, 30]);   // one size for all
   expect(r.open).toBe(false);
@@ -499,5 +499,214 @@ test('the freeform crop editor reopens a tilted crop at its tilt, so Apply does 
   expect(r.reopened).toBeCloseTo(9, 5);     // used to reopen at 0
   expect(r.box).toEqual(r.stored);
   expect(r.after).toBeCloseTo(9, 5);
+  expect(errors).toEqual([]);
+});
+
+// ── Straightening by reference, and by search ─────────────────
+// Turning a grip to eyeball a tilt is fine for a plate; a gel edge wants a number.
+// Level takes two clicks along an edge; Auto searches for the angle at which the
+// straight features in the box line up with its rows and columns.
+
+/** Fire a mousedown/mousemove on the crop editor canvas at canvas-pixel coords. */
+const CE_FIRE = `
+  window._ceFire = (type, px, py) => {
+    const c = document.getElementById('crop-ed-canvas');
+    const r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0,
+      clientX: r.left + px * r.width / c.width, clientY: r.top + py * r.height / c.height }));
+  };
+`;
+
+test('level angle: a line at any angle, in either direction, becomes a tilt in (-45, 45]', async ({ page }) => {
+  await loadApp(page);
+  const r = await page.evaluate(() => [
+    _ceLevelAngle(0, 0, 100, 10),      // gentle clockwise slope
+    _ceLevelAngle(100, 10, 0, 0),      // the same edge clicked the other way round
+    _ceLevelAngle(0, 0, 10, 100),      // a near-vertical edge leaning right going down
+    _ceLevelAngle(0, 0, 100, 0),       // already level
+    _ceLevelAngle(0, 0, 0, 100),       // already plumb
+    _ceLevelAngle(0, 0, 2, 1),         // too short to mean anything
+  ]);
+  expect(r[0]).toBeCloseTo(5.71, 1);
+  expect(r[1]).toBeCloseTo(5.71, 1);      // direction does not matter
+  expect(r[2]).toBeCloseTo(-5.71, 1);     // read as a vertical reference
+  expect(r[3]).toBeCloseTo(0, 5);
+  expect(r[4]).toBeCloseTo(0, 5);
+  expect(r[5]).toBeNull();
+});
+
+test('Level: two clicks along an edge tilt the crop so that edge comes out straight', async ({ page }) => {
+  const errors = await loadApp(page);
+  // A dark "plate rim": a thick line at 8° through the middle of a light field.
+  await seedPainted(page, 400, 300, `
+    ctx.fillStyle = '#e8e8e8'; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W/2, H/2); ctx.rotate(8 * Math.PI / 180);
+    ctx.fillStyle = '#202020'; ctx.fillRect(-160, -6, 320, 12); ctx.restore();
+  `);
+  await page.evaluate(CE_FIRE);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const c = document.getElementById('crop-ed-canvas');
+    cropEdState.cx = 0.1; cropEdState.cy = 0.1; cropEdState.cw = 0.8; cropEdState.ch = 0.8; cropEdState.hasBox = true;
+    drawCropEd();
+    toggleCropLevel();
+    const on = cropEdState.leveling;
+    // Click two points on the painted line: it passes through the centre at 8°.
+    const t = Math.tan(8 * Math.PI / 180);
+    _ceFire('mousedown', c.width * 0.25, c.height / 2 - (c.width * 0.25) * t);
+    const afterOne = { leveling: cropEdState.leveling, pt1: !!cropEdState.levelPt1 };
+    _ceFire('mousedown', c.width * 0.75, c.height / 2 + (c.width * 0.25) * t);
+    return { on, afterOne, ang: +cropEdState.ang, leveling: cropEdState.leveling,
+             desc: document.getElementById('crop-modal-desc').textContent,
+             btnActive: document.getElementById('crop-level-btn').classList.contains('active') };
+  });
+  expect(r.on).toBe(true);
+  expect(r.afterOne).toEqual({ leveling: true, pt1: true });   // one click down, waiting for the second
+  expect(r.ang).toBeCloseTo(8, 0);                              // 0.1° granularity
+  expect(r.leveling).toBe(false);                               // the mode ends itself
+  expect(r.btnActive).toBe(false);
+  expect(r.desc).not.toMatch(/two points/);                     // the prompt is gone
+  expect(errors).toEqual([]);
+});
+
+test('Level: Escape cancels a half-placed line and leaves the tilt alone', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  await page.evaluate(CE_FIRE);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    setCropAngle(3);
+    toggleCropLevel(true);
+    _ceFire('mousedown', 20, 20);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return { leveling: cropEdState.leveling, pt1: cropEdState.levelPt1, ang: +cropEdState.ang,
+             open: document.getElementById('crop-modal').classList.contains('open') };
+  });
+  expect(r.leveling).toBe(false);
+  expect(r.pt1).toBeNull();
+  expect(r.ang).toBeCloseTo(3, 5);
+  expect(r.open).toBe(true);                                    // Escape did not close the editor
+  expect(errors).toEqual([]);
+});
+
+test('Auto: finds the tilt of a rotated gel-like bar to within half a degree', async ({ page }) => {
+  const errors = await loadApp(page);
+  // Two dark bands and a light background, the whole thing turned by 7°.
+  await seedPainted(page, 480, 360, `
+    ctx.fillStyle = '#f0f0f0'; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W/2, H/2); ctx.rotate(7 * Math.PI / 180);
+    ctx.fillStyle = '#303030'; ctx.fillRect(-200, -60, 400, 18); ctx.fillRect(-200, 30, 400, 18);
+    ctx.restore();
+  `);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    cropEdState.cx = 0.15; cropEdState.cy = 0.15; cropEdState.cw = 0.7; cropEdState.ch = 0.7; cropEdState.hasBox = true;
+    drawCropEd();
+    const est = _ceAutoAngle();
+    autoCropAngle();
+    return { est, ang: +cropEdState.ang };
+  });
+  expect(r.est.confident).toBe(true);
+  expect(Math.abs(r.est.angle - 7)).toBeLessThanOrEqual(0.5);
+  expect(r.ang).toBeCloseTo(r.est.angle, 5);
+  expect(errors).toEqual([]);
+});
+
+test('Auto: declines on a featureless field instead of picking a random angle', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 400, 300, `
+    ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, W, H);
+  `);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    cropEdState.cx = 0.1; cropEdState.cy = 0.1; cropEdState.cw = 0.8; cropEdState.ch = 0.8; cropEdState.hasBox = true;
+    setCropAngle(4);
+    const est = _ceAutoAngle();
+    autoCropAngle();
+    return { confident: est.confident, ang: +cropEdState.ang };
+  });
+  expect(r.confident).toBe(false);
+  expect(r.ang).toBeCloseTo(4, 5);                              // untouched
+  expect(errors).toEqual([]);
+});
+
+// ── Ratio lock and exact pixels ───────────────────────────────
+
+test('ratio lock: a drawn box keeps the ratio in pixels, and the lock conforms an existing box', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 400, 200, `ctx.fillStyle='#888'; ctx.fillRect(0,0,W,H);`);   // 2:1 image
+  await page.evaluate(CE_FIRE);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const c = document.getElementById('crop-ed-canvas');
+    setCropAspect('1:1');
+    // Draw from (10%,10%) to (40%,90%): the width rules, the height follows.
+    _ceFire('mousedown', c.width * 0.10, c.height * 0.10);
+    _ceFire('mousemove', c.width * 0.40, c.height * 0.90);
+    _ceFire('mouseup',   c.width * 0.40, c.height * 0.90);
+    const drawn = { wPx: cropEdState.cw * c.width, hPx: cropEdState.ch * c.height, cw: cropEdState.cw, ch: cropEdState.ch };
+    // Now free it, make it deliberately non-square, then lock 4:3: the box conforms.
+    setCropAspect('free');
+    cropEdState.cx = 0.2; cropEdState.cy = 0.2; cropEdState.cw = 0.3; cropEdState.ch = 0.7; cropEdState.hasBox = true;
+    setCropAspect('4:3');
+    const conformed = { ratio: (cropEdState.cw * c.width) / (cropEdState.ch * c.height), key: cropEdState.aspectKey,
+                        sel: document.getElementById('crop-aspect').value };
+    return { drawn, conformed, W: c.width, H: c.height };
+  });
+  expect(r.drawn.wPx / r.drawn.hPx).toBeCloseTo(1, 2);          // square in pixels…
+  expect(r.drawn.cw / r.drawn.ch).toBeCloseTo(0.5, 2);          // …which on a 2:1 image is not square in normalised units
+  expect(r.drawn.cw).toBeCloseTo(0.3, 2);                       // the dragged width was kept
+  expect(r.conformed.ratio).toBeCloseTo(4 / 3, 2);
+  expect(r.conformed.key).toBe('4:3');
+  expect(r.conformed.sel).toBe('4:3');
+  expect(errors).toEqual([]);
+});
+
+test('exact pixels: the fields read the crop in source pixels and typing one moves the box', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 800, 600, `ctx.fillStyle='#888'; ctx.fillRect(0,0,W,H);`);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    cropEdState.cx = 0.25; cropEdState.cy = 0.5; cropEdState.cw = 0.5; cropEdState.ch = 0.25; cropEdState.hasBox = true;
+    drawCropEd();
+    const read = ['x', 'y', 'w', 'h'].map(k => document.getElementById('crop-px-' + k).value);
+    setCropPx('w', 400); setCropPx('h', 300); setCropPx('x', 100); setCropPx('y', 50);
+    const box = [cropEdState.cx, cropEdState.cy, cropEdState.cw, cropEdState.ch];
+    setCropPx('w', 5000);                                         // clamped to the image
+    const clampedW = cropEdState.cw;
+    return { read, box, clampedW };
+  });
+  expect(r.read).toEqual(['200', '300', '400', '150']);
+  expect(r.box.map(v => +v.toFixed(4))).toEqual([0.125, 0.0833, 0.5, 0.5]);
+  expect(r.clampedW).toBeCloseTo(1 - 0.125, 5);
+  expect(errors).toEqual([]);
+});
+
+test('ratio lock and the size fields are disabled while batch crop pins the size', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    startBatchCrop();
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const before = document.getElementById('crop-px-w').disabled;
+    cropEdState.cx = 0.3; cropEdState.cy = 0.3; cropEdState.cw = 0.4; cropEdState.ch = 0.4; cropEdState.hasBox = true;
+    applyCropModal();                                             // pins the size, advances
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const after = ['crop-px-w', 'crop-px-h', 'crop-aspect'].map(id => document.getElementById(id).disabled);
+    const cwBefore = cropEdState.cw;
+    setCropPx('w', 10);                                           // must be ignored
+    const cwAfter = cropEdState.cw;
+    closeCropModal();
+    return { before, after, cwBefore, cwAfter };
+  });
+  expect(r.before).toBe(false);
+  expect(r.after).toEqual([true, true, true]);
+  expect(r.cwAfter).toBe(r.cwBefore);
   expect(errors).toEqual([]);
 });
