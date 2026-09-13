@@ -6061,11 +6061,17 @@ function _ceLevelClick(px,py){
 // ── Auto-straighten ────────────────────────────────────────────
 // Projection-profile deskew. At the right angle the straight features inside the box
 // — lane edges, a plate rim, a coverslip — line up with the frame's rows and columns,
-// and the row and column means become as uneven as they can be. Search −20…20° in
-// half-degree steps, then refine to a tenth around the best. Works on the editor's
-// thumbnail: a tenth of a degree is all the precision a tilt needs. Only a suggestion,
-// applied through the ordinary tilt path so Straighten undoes it — and it declines
-// when no angle stands out, rather than turning a field of cells by a random amount.
+// and the row and column profiles change SHARPLY from one line to the next; at any
+// other angle the same edge is smeared across many lines into a ramp. The score is the
+// energy of the profile's first difference, Σ(pᵢ₊₁−pᵢ)², which a step of height h wins
+// by a factor of its ramp length — and which, unlike the variance of the means (the
+// first version), is not fooled by a box that straddles a large dark/light boundary
+// at some angle. Search −20…20° in half-degree steps, refine to a tenth around the
+// best. Works on the editor's thumbnail: a tenth of a degree is all the precision a
+// tilt needs. Only a suggestion, applied through the ordinary tilt path so Straighten
+// undoes it — and it declines when no angle stands clear of the field, or when the
+// best angle sits on the edge of the search (a trend, not a peak), rather than turning
+// a field of cells by a random amount.
 function _ceGray(){
   const cc=document.getElementById('crop-ed-canvas'); const {img}=cropEdState;
   if(!cc||!img||!cc.width||!cc.height) return null;
@@ -6094,10 +6100,12 @@ function _ceScoreAngle(g,W,H,a,ctr,cw,ch,N){
       const v=g[y*W+x]; rows[r]+=v; rn[r]++; cols[c]+=v; cn[c]++;
     }
   }
-  const varOf=(sum,n)=>{ const vals=[]; let m=0;
-    for(let i=0;i<N;i++){ if(n[i]<N*0.5) continue; const v=sum[i]/n[i]; vals.push(v); m+=v; }
-    if(vals.length<4) return 0; m/=vals.length; let v2=0; for(const v of vals) v2+=(v-m)*(v-m); return v2/vals.length; };
-  return varOf(rows,rn)+varOf(cols,cn);
+  const energy=(sum,n)=>{ const vals=[];
+    for(let i=0;i<N;i++){ if(n[i]<N*0.5) continue; vals.push(sum[i]/n[i]); }
+    if(vals.length<4) return 0; let e=0;
+    for(let i=1;i<vals.length;i++){ const d=vals[i]-vals[i-1]; e+=d*d; }
+    return e/(vals.length-1); };
+  return energy(rows,rn)+energy(cols,cn);
 }
 function _ceAutoAngle(){
   const g=_ceGray(); if(!g) return null;
@@ -6119,10 +6127,12 @@ function _ceAutoAngle(){
     if(sc>bestS){ bestS=sc; best=a; }
   }
   best=+best.toFixed(1); if(Math.abs(best)<0.05) best=0;
-  // Confidence: the winning angle must stand clear of the run of the field. A blank
-  // or isotropic image scores about the same everywhere.
-  const confident = k>0 && bestS>(sum/k)*1.10;
-  return { angle:best, confident, score:bestS, mean:sum/k };
+  // Confidence: the winning angle must stand clear of the run of the field (a blank or
+  // isotropic image scores about the same everywhere), and must be a peak inside the
+  // range, not the end of a slope.
+  const atEdge = Math.abs(coarse)>=20-1e-9;
+  const confident = k>0 && !atEdge && bestS>(sum/k)*1.25;
+  return { angle:best, confident, score:bestS, mean:sum/k, atEdge };
 }
 function autoCropAngle(){
   const r=_ceAutoAngle();

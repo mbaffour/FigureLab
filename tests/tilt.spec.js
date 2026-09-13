@@ -710,3 +710,31 @@ test('ratio lock and the size fields are disabled while batch crop pins the size
   expect(r.cwAfter).toBe(r.cwBefore);
   expect(errors).toEqual([]);
 });
+
+test('Auto: an off-centre box straddling a large dark/light edge still finds the true tilt', async ({ page }) => {
+  const errors = await loadApp(page);
+  // A whole gel turned by 6° on a light bench, with lanes and bands. The first
+  // scoring (variance of the profile means) was fooled by a box that straddled the
+  // gel's corner: the dark/light step grew with the angle and the search ran off the
+  // −20° end, confidently. The difference-energy score peaks at 6° for the same box.
+  await seedPainted(page, 2400, 1600, `
+    ctx.fillStyle = '#e9e4d8'; ctx.fillRect(0, 0, W, H);
+    ctx.save(); ctx.translate(W/2, H/2); ctx.rotate(6 * Math.PI / 180);
+    ctx.fillStyle = '#2a2622'; ctx.fillRect(-900, -500, 1800, 1000);
+    for (let i = 0; i < 8; i++) { ctx.fillStyle = '#4a4440'; ctx.fillRect(-820 + i * 220, -440, 160, 880); }
+    for (let i = 0; i < 8; i++) { ctx.fillStyle = '#d8d0c0'; ctx.fillRect(-820 + i * 220, -200 + (i % 3) * 90, 160, 26); }
+    ctx.restore();
+  `);
+  const r = await page.evaluate(async () => {
+    openCropModal(0);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    cropEdState.cx = 0.15; cropEdState.cy = 0.18; cropEdState.cw = 0.71; cropEdState.ch = 0.64; cropEdState.hasBox = true;
+    drawCropEd();
+    return _ceAutoAngle();
+  });
+  expect(r.confident).toBe(true);
+  expect(r.atEdge).toBe(false);
+  expect(Math.abs(r.angle - 6)).toBeLessThanOrEqual(0.5);      // was −20.5
+  expect(r.score).toBeGreaterThan(r.mean * 3);                 // a peak, not a shoulder
+  expect(errors).toEqual([]);
+});
