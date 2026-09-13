@@ -930,7 +930,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-primary" onclick="checkCompliance()" style="width:100%;justify-content:center">✓ Check journal compliance</button>
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center;margin-top:4px">🔍 Deep figure audit</button>
     <button class="btn" onclick="auditConsistency()" style="width:100%;justify-content:center;margin-top:4px" title="Find text sizes, fonts, stroke widths and line colours that differ across the figure, and collapse them to one value in a single undoable step">⚖ Homogenize styles</button>
-    <button class="btn" onclick="addLinkedInset()" style="width:100%;justify-content:center;margin-top:4px" title="Add a magnified daughter panel of the selected panel. It stays bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways.">⧉ Add linked inset</button>
+    <button class="btn" onclick="pickInsetRegion()" style="width:100%;justify-content:center;margin-top:4px" title="Draw the region of the selected panel to magnify. The inset is a new panel bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways.">⧉ Add linked inset…</button>
+    <div class="field" style="margin-top:4px"><label for="inset-frames" style="cursor:pointer" title="Draw each inset's region on its parent panel as an outlined box with the inset's letter — the convention readers expect">Outline inset regions on the parent</label>
+      <input type="checkbox" id="inset-frames" checked onchange="scheduleRender()"></div>
     <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Whole panels AND regions within/across panels — a cloned lane, a pasted patch, a hidden re-crop — including rotated and mirrored reuse. The check journals run (Proofig, ImageTwin), before they run it.">🧬 Duplication check</button>
 
     <div class="divider"></div>
@@ -2152,7 +2154,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
          a tissue section photographed at an angle needs the crop turned, not the whole
          image rotated and re-cropped. Typing an angle is here as well as the on-canvas
          grip because matching a known tilt across several panels is a number, not a drag. -->
-    <div style="display:flex;align-items:center;gap:6px;font-size:11px;margin:4px 0 6px;flex-wrap:wrap">
+    <div id="crop-tilt-row" style="display:flex;align-items:center;gap:6px;font-size:11px;margin:4px 0 6px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:4px" title="Tilt the crop region. The panel comes out upright.">⟲ Tilt
         <input type="number" id="crop-angle" value="0" step="0.5" min="-180" max="180"
                oninput="setCropAngle(this.value)"
@@ -2359,6 +2361,7 @@ let figTextItems = [];      // text drawn each render: for label drag hit-test +
 let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{} }; // drag offsets for shared labels
 let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
+let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h}
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
 let selectedPanel = -1;
@@ -3056,6 +3059,8 @@ function _resetCropModalUI(){
   const mbar=document.getElementById('mc-crop-bar'); if(mbar) mbar.style.display='none';
   const bbar=document.getElementById('batch-crop-bar'); if(bbar) bbar.style.display='none';
   const pdest=document.getElementById('paste-dest-bar'); if(pdest) pdest.style.display='none';
+  const tr=document.getElementById('crop-tilt-row'); if(tr) tr.style.display='';
+  ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display=''; });
 }
 
 function _commitImage(img,src,name,svgSource,calib,raw){
@@ -3400,7 +3405,8 @@ const CMD_REGISTRY=[
   {label:'AI: Revert last AI edit', keys:'ai revert undo edit restore', run:()=>revertAIEdit()},
   {label:'Show credits & attribution', keys:'credits attribution licence license icons cite', run:()=>showCredits()},
   {label:'Homogenize text & stroke styles', keys:'homogenize consistent font size stroke tidy uniform', run:()=>auditConsistency()},
-  {label:'Add linked inset (magnify this panel)', keys:'inset magnify zoom daughter linked region detail', run:()=>addLinkedInset()},
+  {label:'Add linked inset… (draw the region)', keys:'inset magnify zoom daughter linked region detail pick draw', run:()=>pickInsetRegion()},
+  {label:'Add linked inset of the middle third', keys:'inset magnify zoom daughter linked quick centre', run:()=>addLinkedInset()},
   {label:'Label panels from filename fields', keys:'label template tokens filename fields rename', run:()=>applyLabelTemplate()},
   {label:'Duplicate this row', keys:'duplicate row copy layout grid', run:()=>duplicateGridLine('row')},
   {label:'Duplicate this column', keys:'duplicate column copy layout grid', run:()=>duplicateGridLine('col')},
@@ -4936,7 +4942,7 @@ function render(targetCanvas, exportScale, opts){
   const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
   const skipLabels = !!_skipOpt;
   figTextItems = [];
-  if(!isExport){ panelBounds = []; _sbBars = []; }
+  if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; }
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
@@ -5160,6 +5166,8 @@ function render(targetCanvas, exportScale, opts){
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, -dw/2,-dh/2,dw,dh);
           }
+          // Inside the same transform, so the outline turns and flips with the picture.
+          _drawInsetFrames(ctx, im, imgIdx, -dw/2, -dh/2, dw, dh, lblSz, lblClr, isExport, true);
           ctx.restore();
         } else {
           if(srcImg){
@@ -5167,6 +5175,7 @@ function render(targetCanvas, exportScale, opts){
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, dx,dy,dw,dh);
           }
+          _drawInsetFrames(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, isExport, false);
         }
         // Restore after clip
         if(cshape!=='rect') ctx.restore();
@@ -5729,6 +5738,7 @@ function closeCropModal(){
     return;
   }
   if(cropEdState._preCrop){ skipPreCrop(); return; } // don't lose the image
+  if(cropEdState._insetOf!=null) cropEdState._insetOf=null;
   if(cropEdState.batch){ cropEdState.batch=false; cropEdState.batchQueue=[]; _updateBatchUI(); renderImgList(); scheduleRender(0); }
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
@@ -5980,6 +5990,7 @@ function _ceSetAngle(a, keepCtr){
 // outward normal, so it follows the box round as it turns.
 function _ceGrip(q){
   q=q||_ceQuad();
+  if(cropEdState._insetOf!=null) return null;        // an inset takes its parent's tilt
   if(!cropEdState.hasBox||cropEdState.cw<0.03||cropEdState.ch<0.03) return null;
   const midT=[(q[0][0]+q[1][0])/2,(q[0][1]+q[1][1])/2];
   const ctr =[(q[0][0]+q[2][0])/2,(q[0][1]+q[2][1])/2];
@@ -5991,6 +6002,15 @@ function applyCropModal(){
   // Multi-crop: the primary button banks a region. Must precede pushUndo() so
   // banking a region doesn't spend an undo slot.
   if(cropEdState.mc){ mcAddRegion(); return; }
+  // Inset region: hand the box to addLinkedInset, which keeps its own undo entry.
+  if(cropEdState._insetOf!=null){
+    const {cx,cy,cw,ch,_insetOf}=cropEdState;
+    if(!(cw>0.02&&ch>0.02)){ toast('Draw the region to magnify first','warn'); return; }
+    const parent=images[_insetOf];
+    cropEdState._insetOf=null; closeCropModal();
+    if(parent){ selectedPanel=_insetOf; addLinkedInset(cx,cy,cw,ch); }
+    return;
+  }
   pushUndo();
   // Batch crop mode
   if(cropEdState.batch){
@@ -7460,7 +7480,7 @@ const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
 const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color'];
+  'axis-bold','axis-italic','axis-auto-color','inset-frames'];
 function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
@@ -9299,6 +9319,38 @@ async function _captureDownload(fn, label){
 function _findPanelById(id){ return images.find(im=>im&&im.id===id)||null; }
 
 // Create an inset of the selected panel from a fractional region of it.
+// Choose the inset's region by drawing it, in the crop editor, over what the parent
+// panel actually shows — its visible crop, straightened if tilted — so the box you draw
+// is exactly the fraction insetRect stores. Until now the only region on offer was the
+// middle third.
+function pickInsetRegion(){
+  if(mcSession.active){ toast('Finish multi-crop first','warn'); return; }
+  const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  const src=images[idx];
+  if(!src||!src.img){ toast('Select a panel to magnify','warn'); return; }
+  if(src.insetOf){ toast('Pick the region on the parent panel, not on an inset','warn'); return; }
+  const cd=_cropDraw(src);
+  if(!(cd.sw>=2&&cd.sh>=2)){ toast('This panel shows too little to magnify','warn'); return; }
+  const view=document.createElement('canvas'); view.width=Math.round(cd.sw); view.height=Math.round(cd.sh);
+  view.getContext('2d').drawImage(cd.img, cd.sx,cd.sy,cd.sw,cd.sh, 0,0,view.width,view.height);
+  cropEdState={imgIdx:-1,_fmIdx:-1,_insetOf:idx,img:view,cx:1/3,cy:1/3,cw:1/3,ch:1/3,
+               dragging:false,dx0:0,dy0:0,hasBox:true,ang:0};
+  document.getElementById('crop-modal-title').textContent=`⧉ Inset of ${formatLabel(src.label)||'this panel'}`;
+  document.getElementById('crop-modal-desc').textContent=
+    'Draw the region to magnify. The inset becomes a new panel bound to this one; lock the ratio to "this panel\'s cell" to fill its cell.';
+  document.getElementById('crop-apply-btn').textContent='⧉ Add inset';
+  const tr=document.getElementById('crop-tilt-row'); if(tr) tr.style.display='none';   // an inset takes its parent's tilt
+  ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display='none'; });
+  document.getElementById('crop-modal').classList.add('open');
+  requestAnimationFrame(()=>{
+    const cc=document.getElementById('crop-ed-canvas');
+    const maxW=520, maxH=360;
+    const sc=Math.min(maxW/view.width, maxH/view.height, 1);
+    cc.width=Math.round(view.width*sc); cc.height=Math.round(view.height*sc);
+    drawCropEd();
+  });
+}
+
 function addLinkedInset(fx,fy,fw,fh){
   const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
   const src=images[idx];
@@ -9319,6 +9371,42 @@ function addLinkedInset(fx,fy,fw,fh){
   onLayoutChange(); renderImgList(); scheduleRender(0);
   logAction('linkedInset',{parent:src.label||'?', magnification:+(1/Math.max(fw,fh)).toFixed(2)});
   toast(`Inset linked to ${src.label||'the source panel'} — it follows that panel's adjustments`,'ok');
+}
+
+// Outline every inset's region on its parent, with the inset's letter — the convention
+// a reader expects, so the eye can go from the overview to the detail. insetRect is a
+// fraction of the parent's VISIBLE crop, and (x0,y0,dw,dh) is exactly where that crop
+// was just drawn, so the outline needs no other geometry. Recorded per render (like
+// _sbBars) for tests and for a future drag; not recorded inside a rotate/flip
+// transform, where the numbers would be in the transformed space.
+function _insetFramesOn(){ const el=document.getElementById('inset-frames'); return el?el.checked:true; }
+function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr, isExport, transformed){
+  if(!parent||!parent.id||!_insetFramesOn()) return;
+  for(let k=0;k<images.length;k++){
+    const o=images[k];
+    if(!o||o.insetOf!==parent.id||!o.insetRect||o.excluded) continue;
+    const r=o.insetRect;
+    const fx=x0+r.x*dw, fy=y0+r.y*dh, fw=r.w*dw, fh=r.h*dh;
+    if(fw<2||fh<2) continue;
+    if(!isExport&&!transformed) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh});
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=3.5; ctx.strokeRect(fx,fy,fw,fh);
+    ctx.strokeStyle=lblClr||'#fff';     ctx.lineWidth=1.5; ctx.strokeRect(fx,fy,fw,fh);
+    const letter=formatLabel(o.label);
+    if(letter){
+      const fs=Math.max(7,Math.round((lblSz||12)*0.75));
+      ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+      const tw=ctx.measureText(letter).width;
+      // inside the top-left corner when there is room, else just above the frame
+      const inside=fh>=fs+8&&fw>=tw+8;
+      const tx=fx+4, ty=inside?fy+4:fy-3;
+      ctx.textAlign='left'; ctx.textBaseline=inside?'top':'alphabetic';
+      ctx.lineJoin='round'; ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=3; ctx.strokeText(letter,tx,ty);
+      ctx.fillStyle=lblClr||'#fff'; ctx.fillText(letter,tx,ty);
+    }
+    ctx.restore();
+  }
 }
 
 // Re-derive an inset's crop and display settings from its parent. Called before every

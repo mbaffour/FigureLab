@@ -319,3 +319,80 @@ test('Crop to fill cells trims each panel to its cell shape about the crop centr
   expect(r.undone).toBe(10);
   expect(errors).toEqual([]);
 });
+
+// ── Linked insets: pick the region, outline it on the parent ──
+
+test('the inset picker opens the crop editor over the parent’s visible crop and adds an inset of the drawn box', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);                         // 100×100 panels
+  const r = await page.evaluate(async (tf) => {
+    const twoFrames = new Function('return ' + tf)();
+    images[0].cropL = 20; images[0].cropR = 20;      // the parent shows its middle 60 %
+    selectedPanel = 0; render();
+    pickInsetRegion(); await twoFrames();
+    const opened = {
+      of: cropEdState._insetOf,
+      view: [cropEdState.img.width, cropEdState.img.height],
+      tiltHidden: document.getElementById('crop-tilt-row').style.display === 'none',
+      grip: _ceGrip(),
+      copyHidden: ['crop-copy-group', 'crop-copy-all'].map(id => document.getElementById(id).style.display === 'none'),
+      button: document.getElementById('crop-apply-btn').textContent,
+    };
+    cropEdState.cx = 0.5; cropEdState.cy = 0; cropEdState.cw = 0.5; cropEdState.ch = 0.5; cropEdState.hasBox = true;
+    applyCropModal();
+    const inset = images[2];
+    const after = {
+      count: images.length, closed: !document.getElementById('crop-modal').classList.contains('open'),
+      rect: inset && inset.insetRect, of: inset && inset.insetOf === images[0].id,
+      crop: inset && [inset.cropL, inset.cropT, inset.cropR, inset.cropB],
+    };
+    openCropModal(0); await twoFrames();
+    const tiltBack = document.getElementById('crop-tilt-row').style.display !== 'none';
+    const copyBack = ['crop-copy-group', 'crop-copy-all'].every(id => document.getElementById(id).style.display !== 'none');
+    closeCropModal();
+    return { opened, after, tiltBack, copyBack };
+  }, twoFrames.toString());
+  expect(r.opened.of).toBe(0);
+  expect(r.opened.view).toEqual([60, 100]);          // the visible crop, not the whole image
+  expect(r.opened.tiltHidden).toBe(true);            // an inset takes its parent's tilt
+  expect(r.opened.grip).toBeNull();                  // …so there is no rotate grip either
+  expect(r.opened.copyHidden).toEqual([true, true]); // copy-to-group/all mean nothing here
+  expect(r.opened.button).toBe('⧉ Add inset');
+  expect(r.after.count).toBe(3);
+  expect(r.after.closed).toBe(true);
+  expect(r.after.of).toBe(true);
+  expect(r.after.rect).toEqual({ x: 0.5, y: 0, w: 0.5, h: 0.5 });
+  expect(r.after.crop).toEqual([50, 0, 20, 50]);     // 20 + 60·0.5 … as a fraction of the visible crop
+  expect(r.tiltBack).toBe(true);
+  expect(r.copyBack).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('each inset’s region is outlined on its parent where that crop was drawn, and the toggle removes it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '200'); onLayoutChange(); render();
+    selectedPanel = 0;
+    addLinkedInset(0.25, 0.5, 0.5, 0.25);
+    render();
+    const pb = panelBounds.find(b => b.idx === 0);
+    // The 100×100 parent is contain-fitted into the 300×200 cell: 200×200, centred.
+    const dw = Math.min(pb.w, pb.h), dx = pb.x + Math.round((pb.w - dw) / 2), dy = pb.y + Math.round((pb.h - dw) / 2);
+    const fr = _insetFrames.slice();
+    const before = fr.length;
+    document.getElementById('inset-frames').checked = false; render();
+    const offCount = _insetFrames.length;
+    document.getElementById('inset-frames').checked = true;
+    images[1].excluded = true; render();             // a hidden inset draws no frame
+    const hiddenCount = _insetFrames.length;
+    return { fr, before, expected: { x: dx + 0.25 * dw, y: dy + 0.5 * dw, w: 0.5 * dw, h: 0.25 * dw }, offCount, hiddenCount };
+  });
+  expect(r.before).toBe(1);
+  expect(r.fr[0].parentIdx).toBe(0);
+  expect(r.fr[0].insetIdx).toBe(1);
+  for (const k of ['x', 'y', 'w', 'h']) expect(r.fr[0][k]).toBeCloseTo(r.expected[k], 5);
+  expect(r.offCount).toBe(0);
+  expect(r.hiddenCount).toBe(0);
+  expect(errors).toEqual([]);
+});
