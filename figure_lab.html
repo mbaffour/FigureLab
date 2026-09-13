@@ -714,6 +714,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="largest">Largest panel</option>
       </select></div>
     <button class="btn" onclick="matchScalePixels()" style="width:100%;justify-content:center" title="Crop all images to the same pixel dimensions and aspect ratio">⬜ Crop to same pixel size</button>
+    <button class="btn" onclick="fillCellsAll()" style="width:100%;justify-content:center;margin-top:4px" title="Crop every panel to its cell's shape, symmetrically about the current crop, so the image fills the cell and the letterbox bars go. The cells keep their shape — 'Fit panels to images' is the converse">⛶ Crop to fill cells</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">On import</div>
@@ -3425,6 +3426,7 @@ const CMD_REGISTRY=[
   {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
   {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
+  {label:'Crop to fill cells',       keys:'crop fill cell aspect letterbox bars white space', run:()=>fillCellsAll()},
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
   {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
@@ -4374,6 +4376,48 @@ function fitGridToPanels(){
   sv('cols',cols); sv('rows',rows); onLayoutChange();
   logAction('fitGrid',{panels:n,cols,rows});
   toast(`${cols} × ${rows} for ${n} panel${n>1?'s':''}${cols*rows>n?` (${cols*rows-n} empty)`:''}`,'ok');
+}
+
+// Crop one panel so what it shows has the aspect `target` (w/h), trimming the long
+// dimension symmetrically about the current crop's centre. Works in the tilted frame
+// (percentages keep their meaning there) and after a 90° turn (which swaps which
+// source axis is the screen's width). Returns whether anything changed.
+function _cropToAspect(im, target){
+  if(!im||!im.img||!(target>0)) return false;
+  const g=_cropGeom(im);
+  if(!(g.sw>0&&g.sh>0)) return false;
+  const rot=(((im.rotate||0)%180)+180)%180!==0;
+  const visW=rot?g.sh:g.sw, visH=rot?g.sw:g.sh;      // as shown
+  const cur=visW/visH;
+  if(Math.abs(cur-target)/target<0.005) return false;
+  let f, srcX;                                        // fraction of the shown extent to remove, and along which SOURCE axis
+  if(cur>target){ f=(visW-visH*target)/visW; srcX=!rot; }
+  else          { f=(visH-visW/target)/visH; srcX=rot; }
+  const r2=v=>Math.max(0,Math.round(v*100)/100);
+  if(srcX){
+    const vis=100-(im.cropL||0)-(im.cropR||0), d=f/2*vis;
+    im.cropL=r2((im.cropL||0)+d); im.cropR=r2((im.cropR||0)+d);
+  } else {
+    const vis=100-(im.cropT||0)-(im.cropB||0), d=f/2*vis;
+    im.cropT=r2((im.cropT||0)+d); im.cropB=r2((im.cropB||0)+d);
+  }
+  im._cropCache=undefined; im._cropKey=undefined; im._adjCache=undefined; im._adjKey=undefined;
+  return true;
+}
+// Every panel fills its cell: the converse of fitPanelsToContent, which reshapes the
+// cells to the content. Spanning panels take their spanned cell's shape.
+function fillCellsAll(){
+  if(layoutMode==='freeform'){ toast('Cells apply to grid mode','warn'); return; }
+  if(!images.some(im=>im&&im.img)){ toast('Add images first','warn'); return; }
+  render();                                           // panelBounds for the current layout
+  const targets=new Map();
+  panelBounds.forEach(b=>{ if(b.idx>=0&&images[b.idx]&&b.h>0) targets.set(b.idx,b.w/b.h); });
+  if(!targets.size){ toast('No panels in the grid','warn'); return; }
+  pushUndo(); let n=0;
+  targets.forEach((asp,idx)=>{ if(_cropToAspect(images[idx],asp)) n++; });
+  renderImgList(); scheduleRender(0);
+  logAction('fillCells',{panels:n});
+  toast(n?`${n} panel${n>1?'s':''} cropped to fill ${n>1?'their cells':'its cell'}`:'Every panel already fills its cell','ok');
 }
 
 function resetScaleMatch(){

@@ -290,3 +290,32 @@ test('in the crop editor, Enter applies and Escape closes; typing in a field is 
   expect(r.closedAfterEscape).toBe(true);
   expect(errors).toEqual([]);
 });
+
+// ── Crop to fill cells ────────────────────────────────────────
+
+test('Crop to fill cells trims each panel to its cell shape about the crop centre, respecting a 90° turn', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 400, 200, `ctx.fillStyle='#888'; ctx.fillRect(0,0,W,H);`, 'wide.png');   // 2:1
+  await seedPainted(page, 400, 200, `ctx.fillStyle='#777'; ctx.fillRect(0,0,W,H);`, 'turned.png'); // 2:1, shown turned
+  await seedPainted(page, 300, 300, `ctx.fillStyle='#666'; ctx.fillRect(0,0,W,H);`, 'square.png'); // already fits
+  const r = await page.evaluate(() => {
+    sv('cols', '3'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    images[1].rotate = 90;
+    images[0].cropL = 10; images[0].cropR = 10;      // an existing crop: 80 % visible, 320×200 → 1.6:1
+    fillCellsAll();
+    const crops = images.map(im => [im.cropL, im.cropT, im.cropR, im.cropB]);
+    const shown = images.map(im => { const g = _cropGeom(im); const rot = (im.rotate || 0) % 180 !== 0; return +((rot ? g.sh / g.sw : g.sw / g.sh)).toFixed(3); });
+    const logged = reproLog.filter(e => e.action === 'fillCells').pop();
+    undo();
+    return { crops, shown, logged: logged && logged.panels, undone: images[0].cropL };
+  });
+  // Panel 0: 320 px visible of 400, needs 200 wide → remove 120 px = 30 % of the image, 15 % a side, on top of the 10 %.
+  expect(r.crops[0]).toEqual([25, 0, 25, 0]);
+  // Panel 1 is turned 90°: its shown height is the source width, so the SOURCE X axis is trimmed.
+  expect(r.crops[1]).toEqual([25, 0, 25, 0]);
+  expect(r.crops[2]).toEqual([0, 0, 0, 0]);          // already square: untouched
+  for (const a of r.shown) expect(a).toBeCloseTo(1, 2);   // everything now shows 1:1 in a square cell
+  expect(r.logged).toBe(2);
+  expect(r.undone).toBe(10);
+  expect(errors).toEqual([]);
+});
