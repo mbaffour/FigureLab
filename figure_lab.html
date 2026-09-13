@@ -2363,6 +2363,7 @@ let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSna
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
 let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h}
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
+let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
 let selectedPanel = -1;
 let zoom = 1;
@@ -7385,6 +7386,28 @@ function _sbResizeHitAt(x,y){
     if(x>=b.left-7 && x<=b.left+7 && y>=b.top-8 && y<=b.bottom+8) return b; }
   return null;
 }
+// Grab-band for an inset's outline on its parent: within 6 px of the frame's border,
+// so the inside of the frame still selects the panel like anywhere else on it.
+function _insetFrameHitAt(x,y){
+  for(let i=_insetFrames.length-1;i>=0;i--){ const f=_insetFrames[i];
+    const inOuter=x>=f.x-6&&x<=f.x+f.w+6&&y>=f.y-6&&y<=f.y+f.h+6;
+    const inInner=x>f.x+6&&x<f.x+f.w-6&&y>f.y+6&&y<f.y+f.h-6;
+    if(inOuter&&!inInner) return f; }
+  return null;
+}
+// Move the inset region by a drag on its outline. The frame is the parent's visible
+// crop drawn at (dw,dh) px, so a logical-pixel delta is Δ/dw of the region's unit
+// square; the region is clamped to stay inside the parent and keeps its size.
+function _insetDragApply(x,y){
+  const st=_insetDragState; if(!st) return;
+  const o=images[st.insetIdx]; if(!o||!o.insetRect) return;
+  const r0=st.r0;
+  const nx=Math.max(0,Math.min(1-r0.w, r0.x+(x-st.startX)/st.dw));
+  const ny=Math.max(0,Math.min(1-r0.h, r0.y+(y-st.startY)/st.dh));
+  if(Math.abs(nx-o.insetRect.x)>1e-6||Math.abs(ny-o.insetRect.y)>1e-6) st.moved=true;
+  o.insetRect={x:nx,y:ny,w:r0.w,h:r0.h};
+  scheduleRender(0);
+}
 // Snap a scale-bar length to a clean 1/1.5/2/2.5/3/4/5/7.5 × 10ⁿ value
 function _niceSnap(v){ if(!(v>0)) return 0; const mag=Math.pow(10,Math.floor(Math.log10(v))); const n=v/mag;
   const s=[1,1.5,2,2.5,3,4,5,7.5,10].reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return +(s*mag).toPrecision(3); }
@@ -8122,6 +8145,15 @@ annCanvas.addEventListener('mousedown', e=>{
       annCanvas.style.cursor='ew-resize'; return;
     }
   }
+  // Inset outline — drag it to move the inset's region on the parent
+  {
+    const f=_insetFrameHitAt(x,y);
+    if(f && images[f.insetIdx] && images[f.insetIdx].insetRect){
+      const r0={...images[f.insetIdx].insetRect};
+      _insetDragState={insetIdx:f.insetIdx, startX:x, startY:y, r0, dw:f.w/r0.w, dh:f.h/r0.h, preSnap:snapshotState(), moved:false};
+      annCanvas.style.cursor='move'; return;
+    }
+  }
   // Label drag — labels sit on top of panels, so claim the click first
   {
     const lb=labelAtPoint(x,y);
@@ -8162,6 +8194,7 @@ annCanvas.addEventListener('mousemove', e=>{
   }
   // Scale-bar resize — drag the bar's left end; snaps to clean lengths
   if(_sbResizeState){ _sbResizeApply(canvasCoords(annCanvas,e).x); return; }
+  if(_insetDragState){ const q=canvasCoords(annCanvas,e); _insetDragApply(q.x,q.y); return; }
   // Label drag — reposition a figure label live
   if(labelDragState){
     const {x,y}=canvasCoords(annCanvas,e);
@@ -8307,6 +8340,7 @@ annCanvas.addEventListener('mousemove', e=>{
     }
     if(spaceDown){ annCanvas.style.cursor='grab'; hidePanelTooltip(); return; }
     if(_sbResizeHitAt(x,y)){ annCanvas.style.cursor='ew-resize'; hidePanelTooltip(); return; }   // resize the scale bar
+    if(_insetFrameHitAt(x,y)){ annCanvas.style.cursor='move'; showPanelTooltip('drag to move the inset region', e.clientX, e.clientY); return; }
     if(annHit){ annCanvas.style.cursor='move'; hidePanelTooltip(); return; }
     // Show grab cursor and tooltip over filled panels
     let hoveredIm=null;
@@ -8333,6 +8367,16 @@ annCanvas.addEventListener('mouseup', e=>{
   if(_sbResizeState){
     if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
     _sbResizeState=null; annCanvas.style.cursor='default';
+    renderImgList(); scheduleRender(0); return;
+  }
+  // Inset outline drag commit
+  if(_insetDragState){
+    const st=_insetDragState; _insetDragState=null; annCanvas.style.cursor='default';
+    if(st.moved){
+      if(st.preSnap) _pushSnap(st.preSnap);
+      const o=images[st.insetIdx];
+      if(o&&o.insetRect) logAction('insetMove',{inset:o.label||'?', x:+o.insetRect.x.toFixed(3), y:+o.insetRect.y.toFixed(3)});
+    }
     renderImgList(); scheduleRender(0); return;
   }
   // Label drag commit

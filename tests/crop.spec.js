@@ -396,3 +396,45 @@ test('each inset’s region is outlined on its parent where that crop was drawn,
   expect(r.hiddenCount).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('dragging an inset’s outline on the parent moves the inset region, clamped to the parent, as one undo step', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    selectedPanel = 0;
+    addLinkedInset(0.25, 0.25, 0.5, 0.5);
+    render();
+    const f = _insetFrames[0];
+    const c = document.getElementById('ann-canvas');
+    const rect = c.getBoundingClientRect();
+    const lw = canvasLogicalW || c.width, lh = canvasLogicalH || c.height;
+    const fire = (t, x, y) => c.dispatchEvent(new MouseEvent(t, { bubbles: true, button: 0,
+      clientX: rect.left + x * rect.width / lw, clientY: rect.top + y * rect.height / lh }));
+    const dw = f.w / 0.5;                            // the parent's drawn width
+    // Grab the top edge of the outline and drag it 0.1 of the parent right and down.
+    fire('mousedown', f.x + f.w / 2, f.y);
+    fire('mousemove', f.x + f.w / 2 + 0.1 * dw, f.y + 0.1 * dw);
+    fire('mouseup',   f.x + f.w / 2 + 0.1 * dw, f.y + 0.1 * dw);
+    const moved = { ...images[1].insetRect };
+    // Drag far past the parent's edge: the region stops at the edge.
+    render();
+    const f2 = _insetFrames[0];
+    fire('mousedown', f2.x + f2.w / 2, f2.y);
+    fire('mousemove', f2.x + f2.w / 2 + 5 * dw, f2.y + 5 * dw);
+    fire('mouseup',   f2.x + f2.w / 2 + 5 * dw, f2.y + 5 * dw);
+    const clamped = { ...images[1].insetRect };
+    undo();
+    const undone = { ...images[1].insetRect };
+    undo();
+    const undone2 = { ...images[1].insetRect };
+    return { moved, clamped, undone, undone2, logged: reproLog.filter(e => e.action === 'insetMove').length };
+  });
+  expect(r.moved.x).toBeCloseTo(0.35, 3); expect(r.moved.y).toBeCloseTo(0.35, 3);
+  expect(r.moved.w).toBeCloseTo(0.5, 6);  expect(r.moved.h).toBeCloseTo(0.5, 6);   // size untouched
+  expect(r.clamped.x).toBeCloseTo(0.5, 6); expect(r.clamped.y).toBeCloseTo(0.5, 6);
+  expect(r.undone.x).toBeCloseTo(0.35, 3);
+  expect(r.undone2.x).toBeCloseTo(0.25, 6);
+  expect(r.logged).toBe(2);
+  expect(errors).toEqual([]);
+});
