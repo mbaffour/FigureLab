@@ -43,7 +43,28 @@ test('write exported PDFs to disk for external validation', async ({ page }) => 
   `, false);
   fs.writeFileSync(path.join(OUT, 'mixed.pdf'), Buffer.from(b));
 
+  // 3. The same four panels as a two-page lossless PDF with row labels: the second
+  //    page must continue the lettering (C, D) and carry the second row's label.
+  const c = await page.evaluate(async () => {
+    sv('show-labels', true); sv('label-format', 'ABC'); sv('cols', '2'); sv('rows', '2');
+    images[0].label = 'A'; images[1].label = 'B';      // step 2 renamed these
+    sv('show-row-labels', true); onLayoutChange();
+    const ins = [...document.querySelectorAll('#row-label-inputs input')];
+    ins[0].value = 'mock'; ins[1].value = 'treated';
+    document.getElementById('pdf-rows-per-page').value = '1';
+    render();
+    let cap = null;
+    const realDl = window.dl;
+    window.dl = (url) => { cap = url; };
+    try {
+      await exportMultiPagePDF();
+      return Array.from(new Uint8Array(await (await fetch(cap)).arrayBuffer()));
+    } finally { window.dl = realDl; }
+  });
+  fs.writeFileSync(path.join(OUT, 'multipage.pdf'), Buffer.from(c));
+
   expect(a.length).toBeGreaterThan(1000);
   expect(b.length).toBeGreaterThan(1000);
+  expect(c.length).toBeGreaterThan(1000);
   expect(errors).toEqual([]);
 });

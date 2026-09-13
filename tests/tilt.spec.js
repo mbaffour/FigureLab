@@ -7,7 +7,7 @@
 // failure modes are silent: a sheared box still looks like a box, and a resampled
 // measurement still looks like a number.
 const { test, expect } = require('@playwright/test');
-const { loadApp, seedPanels } = require('./helpers');
+const { loadApp, seedPanels, seedFreeform } = require('./helpers');
 
 /** Commit one panel with a known bitmap, drawn by `paint` on a w×h canvas. */
 async function seedPainted(page, w, h, paintBody) {
@@ -429,5 +429,75 @@ test('multi-crop carries each region tilt onto the panel it becomes', async ({ p
     return images.filter(Boolean).map(i => i.cropAngle);
   });
   expect(r).toEqual([0, 22]);
+  expect(errors).toEqual([]);
+});
+
+// ── Batch crop and the freeform editor ────────────────────────
+// The single, multi-crop and crop-on-import paths all carried the tilt. Batch crop
+// drew the grip and turned the box on screen, then saved an upright crop; the freeform
+// editor saved the tilt but reopened at 0°, so a second Apply straightened it.
+
+const twoFrames = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+test('batch crop keeps one size for every image but lets each carry its own tilt', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async (twoFramesSrc) => {
+    const twoFrames = new Function('return ' + twoFramesSrc)();
+    startBatchCrop();
+    await twoFrames();
+    // Draw the shared size on image 1 — a 40 % × 30 % box about the centre — and tilt it.
+    cropEdState.cx = 0.3; cropEdState.cy = 0.35; cropEdState.cw = 0.4; cropEdState.ch = 0.3; cropEdState.hasBox = true;
+    setCropAngle(12);
+    applyCropModal();                        // locks the size, saves image 1, advances
+    const carried = +cropEdState.ang;        // the tilt carries over as a starting point…
+    setCropAngle(-7);                        // …and each image is free to differ
+    applyCropModal();                        // image 2 saved, advance to image 3
+    const startsAt = +cropEdState.ang;
+    setCropAngle(3);
+    applyBatchCropAll();                     // image 3 and the remaining image 4, both at 3°
+    return {
+      carried, startsAt,
+      angles: images.map(im => im.cropAngle),
+      sizes: images.map(im => [100 - im.cropL - im.cropR, 100 - im.cropT - im.cropB]),
+      open: document.getElementById('crop-modal').classList.contains('open'),
+    };
+  }, twoFrames.toString());
+  expect(r.carried).toBeCloseTo(12, 5);
+  expect(r.startsAt).toBeCloseTo(-7, 5);
+  expect(r.angles).toEqual([12, -7, 3, 3]);          // used to be [0, 0, 0, 0]
+  for (const s of r.sizes) expect(s).toEqual([40, 30]);   // one size for all
+  expect(r.open).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('the freeform crop editor reopens a tilted crop at its tilt, so Apply does not straighten it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 200, h: 150, iw: 400, ih: 300, fill: '#4a4' }]);
+  const r = await page.evaluate(async (twoFramesSrc) => {
+    const twoFrames = new Function('return ' + twoFramesSrc)();
+    selectedElems.clear(); selectedElems.add(0);
+    openFreeformCropEditor();
+    await twoFrames();
+    cropEdState.cx = 0.2; cropEdState.cy = 0.2; cropEdState.cw = 0.5; cropEdState.ch = 0.5; cropEdState.hasBox = true;
+    setCropAngle(9);
+    applyCropModal();
+    const saved = freeformElements[0].cropAngle;
+    selectedElems.clear(); selectedElems.add(0);
+    openFreeformCropEditor();
+    await twoFrames();
+    const reopened = +cropEdState.ang;
+    // The box reopens where it was saved (frame coordinates: the tilt re-solved
+    // cx/cy so the box spun in place, which is what the element stored).
+    const el = freeformElements[0];
+    const box = [cropEdState.cx, cropEdState.cy, cropEdState.cw, cropEdState.ch].map(v => Math.round(v * 100));
+    const stored = [el.cropL, el.cropT, 100 - el.cropL - el.cropR, 100 - el.cropT - el.cropB];
+    applyCropModal();                        // a second Apply must be a no-op on the tilt
+    return { saved, reopened, box, stored, after: freeformElements[0].cropAngle };
+  }, twoFrames.toString());
+  expect(r.saved).toBeCloseTo(9, 5);
+  expect(r.reopened).toBeCloseTo(9, 5);     // used to reopen at 0
+  expect(r.box).toEqual(r.stored);
+  expect(r.after).toBeCloseTo(9, 5);
   expect(errors).toEqual([]);
 });

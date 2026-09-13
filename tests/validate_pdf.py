@@ -83,6 +83,27 @@ def main():
     check("α-tubulin" not in t2,
           "the Greek label is NOT in the text layer (left in the raster, not mangled)")
 
+    print("== multipage.pdf : two lossless pages, lettering continues, row labels follow ==")
+    r3 = PdfReader(os.path.join(OUT, "multipage.pdf"))
+    check(len(r3.pages) == 2, "the file has two pages")
+    w0 = float(r3.pages[0].mediabox.width)
+    for i, pg in enumerate(r3.pages):
+        res = pg.get("/Resources", {})
+        im = res["/XObject"]["/Im0"].get_object()
+        check(str(im.get("/Filter")) == "/FlateDecode",
+              "page %d image is Flate-compressed (lossless), not JPEG" % (i + 1))
+        check(abs(float(pg.mediabox.width) - w0) < 0.01, "page %d is the same width as page 1" % (i + 1))
+        fonts = {k: str(v.get_object().get("/BaseFont")) for k, v in res.get("/Font", {}).items()}
+        check(len(fonts) > 0 and all("Helvetica" in f or "Times" in f or "Courier" in f for f in fonts.values()),
+              "page %d has a base-14 font resource: %s" % (i + 1, fonts))
+    s1 = {t for t, _, _ in positions(r3.pages[0])}
+    s2 = {t for t, _, _ in positions(r3.pages[1])}
+    check({"A", "B"} <= s1 and "C" not in s1, "page 1 letters its panels A, B: %s" % sorted(s1))
+    check({"C", "D"} <= s2 and "A" not in s2, "page 2 continues with C, D: %s" % sorted(s2))
+    t1, t2 = r3.pages[0].extract_text(), r3.pages[1].extract_text()
+    check("mock" in t1 and "treated" not in t1, "page 1 carries the first row's label only")
+    check("treated" in t2 and "mock" not in t2, "page 2 carries the second row's label (used to repeat the first)")
+
     print()
     if FAILURES:
         print("%d check(s) failed" % len(FAILURES))

@@ -517,3 +517,159 @@ test('FL-13: freeform and grid draw the same bar for the same calibration', asyn
   expect(Math.abs(r.drawn - r.exact)).toBeLessThan(0.001);
   expect(errors).toEqual([]);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FL-5 follow-up — the multi-page PDF is the same writer as the single-page PDF
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Per-page content streams: object 5+3p is page p's /Contents, uncompressed text.
+const PAGE_OPS = `
+  window._pdfPageOps = (bytes) => {
+    const txt = new TextDecoder('latin1').decode(bytes);
+    const out = [];
+    for (let p = 0; ; p++) {
+      const re = new RegExp('\\\\n' + (5 + 3*p) + ' 0 obj\\\\n<< /Length \\\\d+ >>\\\\nstream\\\\n([\\\\s\\\\S]*?)\\\\nendstream');
+      const m = re.exec(txt);
+      if (!m) break;
+      const strs = [...m[1].matchAll(/\\(((?:\\\\.|[^\\\\)])*)\\) Tj/g)].map(x => x[1]);
+      out.push({ ops: m[1], strs, hasFont: /\\/F\\d+ [\\d.]+ Tf/.test(m[1]) });
+    }
+    return out;
+  };
+`;
+
+test('FL-5 follow-up: multi-page PDF is lossless by default, JPEG on request, with the text layer on every page', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await inject(page);
+  await page.evaluate(PAGE_OPS);
+
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '2'); sv('export-dpi', '300'); sv('export-width-mm', '183');
+    sv('show-labels', true); sv('label-format', 'ABC');
+    document.getElementById('pdf-rows-per-page').value = '1';
+    onLayoutChange(); render();
+    const count = (b, re) => (new TextDecoder('latin1').decode(b).match(re) || []).length;
+
+    const dflt = await _captureDownload(() => exportMultiPagePDF());            // follows the checkbox
+    const jpeg = await _captureDownload(() => exportMultiPagePDF({ lossless: false }));
+    document.getElementById('pdf-multi-lossless').checked = false;
+    const unticked = await _captureDownload(() => exportMultiPagePDF());
+    document.getElementById('pdf-multi-lossless').checked = true;
+
+    return {
+      defaultChecked: true,
+      pages: _pdfMediaBoxes(dflt.data).length,
+      d: { flate: count(dflt.data, /\/FlateDecode/g), dct: count(dflt.data, /\/DCTDecode/g), ops: _pdfPageOps(dflt.data) },
+      j: { flate: count(jpeg.data, /\/FlateDecode/g), dct: count(jpeg.data, /\/DCTDecode/g), ops: _pdfPageOps(jpeg.data) },
+      u: { flate: count(unticked.data, /\/FlateDecode/g), dct: count(unticked.data, /\/DCTDecode/g) },
+      widths: _pdfMediaBoxes(dflt.data).map(([w]) => w / 72 * 25.4),
+      fontObjs: count(dflt.data, /\/Type \/Font /g),
+    };
+  });
+
+  expect(r.pages).toBe(2);
+  // Lossless by default — one Flate image per page and no JPEG anywhere. This path
+  // was JPEG-only for a year after the single-page export gained its Flate branch.
+  expect(r.d.flate).toBe(2); expect(r.d.dct).toBe(0);
+  // …and JPEG when asked, by argument or by the checkbox.
+  expect(r.j.dct).toBe(2);   expect(r.j.flate).toBe(0);
+  expect(r.u.dct).toBe(2);   expect(r.u.flate).toBe(0);
+  // The vector text layer is on every page in both modes (a Tf operator = a font was
+  // selected = labels were typeset rather than left in the raster).
+  expect(r.d.ops.length).toBe(2);
+  for (const pg of r.d.ops) expect(pg.hasFont, 'lossless page has typeset text').toBe(true);
+  for (const pg of r.j.ops) expect(pg.hasFont, 'JPEG page has typeset text').toBe(true);
+  // One shared font object per face, not one per page.
+  expect(r.fontObjs).toBe(1);
+  for (const mm of r.widths) expect(Math.abs(mm - 183)).toBeLessThan(0.6);
+  expect(errors).toEqual([]);
+});
+
+test('multi-page PDF: lettering and row labels continue across pages, and the row-label inputs survive', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await inject(page);
+  await page.evaluate(PAGE_OPS);
+
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '2');
+    sv('show-labels', true); sv('label-format', 'ABC');
+    sv('show-row-labels', true); onLayoutChange();
+    const ins = () => [...document.querySelectorAll('#row-label-inputs input')];
+    ins()[0].value = 'mock'; ins()[1].value = 'treated';
+    document.getElementById('pdf-rows-per-page').value = '1';
+    render();
+    const before = ins().map(i => i.value);
+    const pdf = await _captureDownload(() => exportMultiPagePDF());
+    const ops = _pdfPageOps(pdf.data);
+    return {
+      before,
+      after: ins().map(i => i.value),
+      rows: gv('rows'),
+      panels: images.filter(Boolean).length,
+      p1: ops[0].strs, p2: ops[1].strs,
+      onScreen: figTextItems.filter(t => t.kind === 'panel').map(t => t.str),
+    };
+  });
+
+  expect(r.before).toEqual(['mock', 'treated']);
+  // Page 1 is A, B with the first row's label; page 2 is C, D with the SECOND row's
+  // label. The letters always carried over (they are the panels' stored labels); the
+  // row label used to be page 1's again, because render() indexed the inputs by the
+  // page-local row number.
+  expect(r.p1).toEqual(expect.arrayContaining(['A', 'B', 'mock']));
+  expect(r.p1).not.toContain('C'); expect(r.p1).not.toContain('treated');
+  expect(r.p2).toEqual(expect.arrayContaining(['C', 'D', 'treated']));
+  expect(r.p2).not.toContain('A'); expect(r.p2).not.toContain('mock');
+  // Swapping the row count to render each page used to rebuild the row-label inputs
+  // for the smaller count and drop every label past the page — permanently.
+  expect(r.after).toEqual(['mock', 'treated']);
+  expect(r.rows).toBe('2');
+  expect(r.panels).toBe(4);
+  // And the live figure is back to normal: four panels lettered from A.
+  expect(r.onScreen).toEqual(['A', 'B', 'C', 'D']);
+  expect(errors).toEqual([]);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Found while unifying the PDF writers — the label-format dropdown was a no-op
+// ═══════════════════════════════════════════════════════════════════════════════
+// Its option values are ABC / abc / 123 / roman; formatLabel() tested for A / a / 1 / i
+// and fell through to the stored label every time, so "1 2 3" showed A B C.
+
+test('label format: the dropdown styles auto letters on the figure, in the caption and in the vector text layer, and leaves typed names alone', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '2'); sv('show-labels', true);
+    images[3].label = 'GFP';                      // a typed name among the letters
+    const shown = () => figTextItems.filter(t => t.kind === 'panel').map(t => t.str);
+    const cap = () => { generateCaption(); return document.getElementById('caption-out').value; };
+    const out = {};
+    for (const fmt of ['ABC', 'abc', '123', 'roman']) {
+      sv('label-format', fmt); render();
+      out[fmt] = { figure: shown(), caption: cap().match(/\(([^)]{1,4})\)/g) };
+    }
+    // Auto-lettering stores canonical letters whatever the dropdown says…
+    sv('label-format', '123'); relabelPanels();
+    out.stored = images.map(im => im.label);
+    render(); out.afterRelabel = shown();
+    // …so switching back is reversible.
+    sv('label-format', 'ABC'); render(); out.back = shown();
+    return out;
+  });
+
+  expect(r.ABC.figure).toEqual(['A', 'B', 'C', 'GFP']);
+  expect(r.abc.figure).toEqual(['a', 'b', 'c', 'GFP']);
+  expect(r['123'].figure).toEqual(['1', '2', '3', 'GFP']);
+  expect(r.roman.figure).toEqual(['i', 'ii', 'iii', 'GFP']);
+  // The legend that goes to the journal uses the same style as the figure.
+  expect(r['123'].caption.slice(0, 4)).toEqual(['(1)', '(2)', '(3)', '(GFP)']);
+  expect(r.roman.caption.slice(0, 3)).toEqual(['(i)', '(ii)', '(iii)']);
+  expect(r.stored).toEqual(['A', 'B', 'C', 'D']);
+  expect(r.afterRelabel).toEqual(['1', '2', '3', '4']);
+  expect(r.back).toEqual(['A', 'B', 'C', 'D']);
+  expect(errors).toEqual([]);
+});

@@ -113,8 +113,9 @@ byte-level writer can be perfect and still write a wrong value.
 **Recommendation 1 (lossless PDF) — implemented.** A `/FlateDecode` branch exists, is
 exposed as a "PDF (lossless)" button, and is what the submission package ships. It was
 *not* honoured by the multi-page PDF writer, which also rendered the un-supersampled
-preview canvas; that path now uses the export canvas and the correct page size, but is
-still JPEG-only. Offering the Flate branch there as well remains open.
+preview canvas. That path now uses the export canvas and the correct page size, and —
+since the follow-up to v3.13.1 — the two writers are one: the multi-page export is
+Flate-compressed by default and carries the same selectable text layer on every page.
 
 **Recommendation 2 (ICC / colour profile) — partially, deliberately.** PNG carries
 `sRGB` + `gAMA`, the lightweight alternative this document itself proposed. PDF is

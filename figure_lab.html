@@ -997,7 +997,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Multi-page PDF</div>
     <div class="field"><label style="font-size:10px">Rows per page</label>
       <input type="number" id="pdf-rows-per-page" value="2" min="1" max="12" style="width:54px"></div>
-    <button class="btn" onclick="exportMultiPagePDF()" style="width:100%;justify-content:center" title="Split grid into pages of N rows each, export as multi-page PDF">📄 Multi-page PDF</button>
+    <div class="field"><label style="font-size:10px" for="pdf-multi-lossless">Lossless (Flate)</label>
+      <input type="checkbox" id="pdf-multi-lossless" checked title="Unticked, each page is a JPEG-compressed raster (smaller, lossy). Ticked, each page is Flate-compressed like PDF (lossless) — prefer this for line art, blots and sharp text."></div>
+    <button class="btn" onclick="exportMultiPagePDF()" style="width:100%;justify-content:center" title="Split grid into pages of N rows each and export one PDF. Labels are real selectable text on every page, as in the single-page PDF.">📄 Multi-page PDF</button>
     </div>
 
     <div class="divider"></div>
@@ -4224,18 +4226,26 @@ async function copyToClipboard(){
   },'image/png');
 }
 
-// Format panel label by idx using the label-format selector (A/a/1/i)
-function formatLabel(label, idx){
-  const fmt=gv('label-format')||'A';
-  if(fmt==='A') return String.fromCharCode(65+idx);
-  if(fmt==='a') return String.fromCharCode(97+idx);
-  if(fmt==='1') return String(idx+1);
-  if(fmt==='i'){
-    const roman=['i','ii','iii','iv','v','vi','vii','viii','ix','x',
-                 'xi','xii','xiii','xiv','xv','xvi','xvii','xviii','xix','xx'];
-    return roman[idx]||String(idx+1);
-  }
-  return label; // custom / keep stored label
+// The label-format dropdown is a DISPLAY STYLE for auto-assigned letters: a panel
+// whose stored label is "C" is shown as "C", "c", "3" or "iii". A typed name ("GFP",
+// "Plate 3 T7") is never touched, so this cannot overwrite anything a user wrote.
+// The dropdown's option values are ABC / abc / 123 / roman; the A / a / 1 / i
+// spellings are accepted too because the README and older code used them. For years
+// this function tested only the second set while the dropdown produced the first, so
+// every branch was dead and the control did nothing.
+const _ROMAN=['i','ii','iii','iv','v','vi','vii','viii','ix','x',
+              'xi','xii','xiii','xiv','xv','xvi','xvii','xviii','xix','xx',
+              'xxi','xxii','xxiii','xxiv','xxv','xxvi'];
+function formatLabel(label){
+  const raw=(typeof gv==='function'?gv('label-format'):'')||'ABC';
+  const fmt={ABC:'A',abc:'a','123':'1',roman:'i'}[raw]||raw;
+  const str=label==null?'':String(label);
+  const i=/^[A-Z]$/.test(str)?str.charCodeAt(0)-65 : /^[a-z]$/.test(str)?str.charCodeAt(0)-97 : -1;
+  if(i<0) return str;                       // a custom name: shown exactly as typed
+  if(fmt==='a') return String.fromCharCode(97+i);
+  if(fmt==='1') return String(i+1);
+  if(fmt==='i') return _ROMAN[i]||String(i+1);
+  return String.fromCharCode(65+i);         // 'A' and anything unrecognised
 }
 
 function matchScalePhysical(){
@@ -4913,12 +4923,14 @@ function render(targetCanvas, exportScale, opts){
   // Row labels
   if(showRows){
     const ins=[...document.querySelectorAll('#row-label-inputs input')];
+    const rowBase=_pageCtx?_pageCtx.rowOffset:0;      // see _pageCtx below
     for(let r=0;r<rows;r++){
+      const rr=r+rowBase;
       const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + ph/2;
       // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
       // whatever the margin happened to be and you could only close it by moving the
       // whole figure. Now anchored to the panel edge, axisGap away from it.
-      emitText('row',r, ins[r]?.value||`Row ${r+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
+      emitText('row',r, ins[rr]?.value||`Row ${rr+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
   }
@@ -4970,6 +4982,12 @@ function render(targetCanvas, exportScale, opts){
     // instead of leaving a hole. seq walks the cells; imgIdx stays the true index
     // into images[] that panelBounds, scale bars and every hit-test rely on.
     const _order=_gridOrder();
+    // A multi-page PDF renders one page-worth of rows at a time with images[] swapped
+    // for that page's panels. _pageCtx carries that page's cell and row offsets so the
+    // row labels and the empty-cell numbers continue from where the previous page
+    // stopped; without it page 2 re-used page 1's row labels. (Panel letters are the
+    // panels' own stored labels, so they always carried over.)
+    const seqBase=_pageCtx?_pageCtx.seqOffset:0;
     let seq=0, imgIdx=-1;
     for(let r=0;r<rows;r++){
       for(let c=0;c<cols;c++){
@@ -4994,7 +5012,7 @@ function render(targetCanvas, exportScale, opts){
           ctx.font=`bold ${Math.max(14,Math.round(Math.min(apw,aph)*0.18))}px system-ui,sans-serif`;
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
           ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(String(seq+1), px+apw/2, py+aph/2);
+          ctx.fillText(String(seq+seqBase+1), px+apw/2, py+aph/2);
           ctx.restore();
           seq++; continue;
         }
@@ -5053,7 +5071,7 @@ function render(targetCanvas, exportScale, opts){
         // Panel label
         if(showLbls){
           const lFmt=gv('label-format')||'custom';
-          const displayLbl=lFmt==="custom"?im.label:formatLabel(im.label,seq);
+          const displayLbl=lFmt==="custom"?im.label:formatLabel(im.label);
           if(displayLbl){
             const fs=Math.max(7,lblSz);
             const lFam=gv('label-font')||'system-ui,sans-serif';
@@ -5938,16 +5956,20 @@ function _updateBatchUI(){
   const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
   prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
   const sizeLocked=cropEdState.batchCropW>0;
-  hint.textContent=sizeLocked?'Drag box to reposition':'Draw to set crop size';
+  hint.textContent=sizeLocked?'Drag to reposition · grip tilts':'Draw to set crop size';
   title.textContent=`✂ Batch Crop (${done} / ${cropEdState.batchTotal})`;
   document.getElementById('crop-modal-desc').textContent=sizeLocked
-    ?'Crop size is locked. Drag the box to reposition, then Apply & Next.'
+    ?'Crop size is locked. Drag the box to reposition and turn the grip to tilt this image, then Apply & Next.'
     :'Draw a crop region to set the size. It will be reused for every image.';
   applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
   // Cursor hint: grab when box is moveable
   document.getElementById('crop-ed-canvas').style.cursor=sizeLocked?'grab':'crosshair';
 }
 
+// Batch crop keeps ONE size for every image but lets each image carry its own tilt,
+// exactly as multi-crop does per region: six plates photographed at six slightly
+// different angles share a panel size and straighten independently. The angle used to
+// be dropped here — the grip turned the box on screen and the saved crop was upright.
 function _applyBatchCropCurrent(){
   const idx=cropEdState.imgIdx; if(idx<0||!images[idx]) return;
   const im=images[idx];
@@ -5955,6 +5977,9 @@ function _applyBatchCropCurrent(){
   im.cropL=Math.max(0,Math.round(cropEdState.cx*100));
   im.cropB=Math.max(0,Math.round((1-cropEdState.cy-cropEdState.ch)*100));
   im.cropR=Math.max(0,Math.round((1-cropEdState.cx-cropEdState.cw)*100));
+  im.cropAngle=+cropEdState.ang||0;
+  im._cropCache=undefined; im._cropKey=undefined;
+  im._adjCache=undefined; im._adjKey=undefined;
 }
 
 function _advanceBatchCrop(){
@@ -5967,11 +5992,14 @@ function _advanceBatchCrop(){
   }
   const nextIdx=cropEdState.batchQueue.shift();
   const im=images[nextIdx]; if(!im) { _advanceBatchCrop(); return; }
-  // Preserve locked size, center the box on new image
+  // Preserve locked size, center the box on new image. The tilt carries over as a
+  // starting point (a stack of plates photographed on one bench usually shares an
+  // angle) and stays free to change per image; the size does not.
   const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
   cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
   cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
   cropEdState.cw=cw; cropEdState.ch=ch;
+  cropEdState.hasBox=true;
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -5996,17 +6024,22 @@ function applyBatchCropAll(){
   if(!cropEdState.batch) return;
   if(!cropEdState.batchCropW){ toast('Draw a crop first','warn'); return; }
   pushUndo();
-  // Apply centered crop to all remaining images
+  // Apply centered crop — at the current tilt — to all remaining images
   _applyBatchCropCurrent();
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
+  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH, ang=+cropEdState.ang||0;
+  const remaining=cropEdState.batchQueue.length;
   cropEdState.batchQueue.forEach(i=>{
-    if(!images[i]) return;
-    images[i].cropT=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropL=Math.max(0,Math.round((1-cw)/2*100));
-    images[i].cropB=Math.max(0,Math.round((1-ch)/2*100));
-    images[i].cropR=Math.max(0,Math.round((1-cw)/2*100));
+    const im=images[i]; if(!im) return;
+    im.cropT=Math.max(0,Math.round((1-ch)/2*100));
+    im.cropL=Math.max(0,Math.round((1-cw)/2*100));
+    im.cropB=Math.max(0,Math.round((1-ch)/2*100));
+    im.cropR=Math.max(0,Math.round((1-cw)/2*100));
+    im.cropAngle=ang;
+    im._cropCache=undefined; im._cropKey=undefined;
+    im._adjCache=undefined; im._adjKey=undefined;
   });
   cropEdState.batchQueue=[];
+  if(ang&&remaining) toast(`Same ${ang.toFixed(1)}° tilt applied to the remaining ${remaining} image${remaining>1?'s':''}`,'ok');
   _advanceBatchCrop(); // will close modal
 }
 
@@ -9482,21 +9515,18 @@ async function _exportPDFWithText(name, dpi, opts){
   }
 }
 
-async function exportPDF(name, dpi, canvas, opts){
-  opts = opts || {};
-  const W=canvas.width, H=canvas.height;
-  const wPt=(W*72/dpi).toFixed(3), hPt=(H*72/dpi).toFixed(3);
-  const enc=s=>new TextEncoder().encode(s);
-  const chunks=[]; const offs={};
-  const push=d=>chunks.push(typeof d==='string'?enc(d):d);
-  const sz=()=>chunks.reduce((s,c)=>s+c.length,0);
+// ── The PDF byte-writer, shared by the single-page and multi-page exports ──────
+// There used to be two of these, thirty lines apart: exportPDF grew the lossless
+// Flate branch and the vector text layer, exportMultiPagePDF kept its original
+// JPEG-only copy, and the two drifted for a year. One writer now; a single-page
+// PDF is a one-element page list.
 
-  // Build the image XObject bytes + filter depending on mode.
-  let imgBytes, filter, extra='';
-  if(opts.lossless){
-    // Raw RGB samples (composite over white — PDF DeviceRGB has no alpha), Flate-compressed (zlib).
-    const ctx=canvas.getContext('2d');
-    const data=ctx.getImageData(0,0,W,H).data;
+// The image XObject for one canvas. Lossless = raw RGB composited over white (PDF
+// DeviceRGB has no alpha) and Flate-compressed; otherwise the canvas's own JPEG.
+async function _pdfImageBytes(canvas, lossless){
+  const W=canvas.width, H=canvas.height;
+  if(lossless){
+    const data=canvas.getContext('2d').getImageData(0,0,W,H).data;
     const rgb=new Uint8Array(W*H*3);
     for(let i=0,j=0;i<data.length;i+=4,j+=3){
       const a=data[i+3]/255;
@@ -9507,41 +9537,61 @@ async function exportPDF(name, dpi, canvas, opts){
     // Deflate to zlib format for /FlateDecode.
     const cs=new CompressionStream('deflate');
     const writer=cs.writable.getWriter(); writer.write(rgb); writer.close();
-    imgBytes=new Uint8Array(await new Response(cs.readable).arrayBuffer());
-    filter='/FlateDecode';
-  } else {
-    const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.92));
-    imgBytes=new Uint8Array(await blob.arrayBuffer());
-    filter='/DCTDecode';
+    return { bytes:new Uint8Array(await new Response(cs.readable).arrayBuffer()), filter:'/FlateDecode' };
   }
+  const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',0.92));
+  return { bytes:new Uint8Array(await blob.arrayBuffer()), filter:'/DCTDecode' };
+}
 
-  // Vector text layer: the figure's labels laid over the image as real PDF text.
-  // opts.textItems comes from the same render that produced `canvas`, which was told
-  // to leave these strings OUT of the raster — so they appear exactly once.
-  const tl = (opts.textItems && opts.textItems.length)
-    ? _pdfTextOps(opts.textItems, +opts.ptPerUnit || (W*72/dpi)/(canvasLogicalW||W), +hPt)
+// One page: the image plus the vector text layer. opts.textItems must come from the
+// same render that produced `canvas`, which was told to leave those strings OUT of
+// the raster — so each label appears exactly once.
+async function _pdfPageFor(canvas, dpi, opts){
+  opts = opts || {};
+  const W=canvas.width, H=canvas.height;
+  const hPt=+(H*72/dpi).toFixed(3);          // same rounding as the /MediaBox below
+  const img=await _pdfImageBytes(canvas, !!opts.lossless);
+  const text=(opts.textItems && opts.textItems.length)
+    ? _pdfTextOps(opts.textItems, +opts.ptPerUnit || (W*72/dpi)/(canvasLogicalW||W), hPt)
     : {ops:'', fonts:new Map()};
-  const fontIds=new Map();                    // resource key → object number
-  let nextObj=6;
-  tl.fonts.forEach((key)=>{ fontIds.set(key, nextObj++); });
-  const fontRes = tl.fonts.size
-    ? ' /Font << '+[...tl.fonts].map(([,key])=>`/${key} ${fontIds.get(key)} 0 R`).join(' ')+' >>' : '';
-  const lastObj = nextObj-1;
+  return { W, H, dpi, img, text };
+}
+
+// Assemble pages into one PDF. Object layout: 1 Catalog, 2 Pages, then per page a
+// Page / Image / Contents triple, then one base-14 font object per face used
+// anywhere in the document (shared across pages, referenced from each page's own
+// /Font dictionary under that page's resource keys — _pdfTextOps numbers its keys
+// per call, so 'F1' can be a different face on different pages).
+function _pdfAssemble(pages){
+  const enc=s=>new TextEncoder().encode(s);
+  const chunks=[]; const offs={};
+  const push=d=>chunks.push(typeof d==='string'?enc(d):d);
+  const sz=()=>chunks.reduce((s,c)=>s+c.length,0);
+  const n=pages.length;
+  const pageId=p=>3+p*3, imId=p=>4+p*3, csId=p=>5+p*3;
+  const fontIdByBase=new Map(); let nextObj=3+n*3;
+  for(const pg of pages) pg.text.fonts.forEach((key,base)=>{ if(!fontIdByBase.has(base)) fontIdByBase.set(base, nextObj++); });
+  const lastObj=nextObj-1;
 
   push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
   offs[1]=sz(); push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-  offs[2]=sz(); push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
-  offs[3]=sz(); push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents 5 0 R /Resources << /XObject << /Im0 4 0 R >>${fontRes} >> >>\nendobj\n`);
-  offs[4]=sz();
-  push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${filter} /Length ${imgBytes.length} >>\nstream\n`);
-  push(imgBytes); push('\nendstream\nendobj\n');
-  const cs2=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`+tl.ops);
-  offs[5]=sz(); push(`5 0 obj\n<< /Length ${cs2.length} >>\nstream\n`); push(cs2); push('\nendstream\nendobj\n');
+  offs[2]=sz(); push(`2 0 obj\n<< /Type /Pages /Kids [${pages.map((_,p)=>pageId(p)+' 0 R').join(' ')}] /Count ${n} >>\nendobj\n`);
+  pages.forEach((pg,p)=>{
+    const wPt=(pg.W*72/pg.dpi).toFixed(3), hPt=(pg.H*72/pg.dpi).toFixed(3);
+    const fontRes = pg.text.fonts.size
+      ? ' /Font << '+[...pg.text.fonts].map(([base,key])=>`/${key} ${fontIdByBase.get(base)} 0 R`).join(' ')+' >>' : '';
+    offs[pageId(p)]=sz();
+    push(`${pageId(p)} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents ${csId(p)} 0 R /Resources << /XObject << /Im0 ${imId(p)} 0 R >>${fontRes} >> >>\nendobj\n`);
+    offs[imId(p)]=sz();
+    push(`${imId(p)} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pg.W} /Height ${pg.H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${pg.img.filter} /Length ${pg.img.bytes.length} >>\nstream\n`);
+    push(pg.img.bytes); push('\nendstream\nendobj\n');
+    const cs=enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im0 Do Q\n`+pg.text.ops);
+    offs[csId(p)]=sz(); push(`${csId(p)} 0 obj\n<< /Length ${cs.length} >>\nstream\n`); push(cs); push('\nendstream\nendobj\n');
+  });
   // Base-14 font objects — no font file is embedded, so nothing is bundled.
-  tl.fonts.forEach((key, base)=>{
-    const n=fontIds.get(key);
-    offs[n]=sz();
-    push(`${n} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
+  fontIdByBase.forEach((id,base)=>{
+    offs[id]=sz();
+    push(`${id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
   });
   const xp=sz();
   push(`xref\n0 ${lastObj+1}\n0000000000 65535 f\r\n`);
@@ -9550,6 +9600,11 @@ async function exportPDF(name, dpi, canvas, opts){
 
   const total=sz(); const out=new Uint8Array(total); let pos=0;
   for(const c of chunks){ out.set(c,pos); pos+=c.length; }
+  return out;
+}
+
+async function exportPDF(name, dpi, canvas, opts){
+  const out=_pdfAssemble([await _pdfPageFor(canvas, dpi, opts||{})]);
   dl(URL.createObjectURL(new Blob([out],{type:'application/pdf'})), name+'.pdf');
 }
 
@@ -9700,8 +9755,9 @@ function generateCaption(){
     // Grayscale hint
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
     else if(im.grayscale){ grayInDesc=true; }
-    if(!desc) desc=`Panel ${im.label}`;
-    let s=`(${im.label}) ${desc}.`;
+    const shown=formatLabel(im.label);        // the letter style the figure shows
+    if(!desc) desc=`Panel ${shown}`;
+    let s=`(${shown}) ${desc}.`;
     // Scale bar. FigureLab knows the sampling density (µm per pixel) and nothing about
     // the objective, so it reports exactly that. The old "(15×)" here was 1/(µm/px)
     // printed as a magnification — for a 100× objective on a 6.5 µm camera pixel it
@@ -11064,7 +11120,7 @@ function renderFreeform(canvas, ctx, S, opts){
         ctx.font=`${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`;
         ctx.fillStyle=gv('label-color')||'#fff';
         ctx.textBaseline='top';
-        ctx.fillText(el.label, el.x+6, el.y+5);
+        ctx.fillText(formatLabel(el.label), el.x+6, el.y+5);
       }
       // Add to panelBounds for annotation compatibility (preview only — render()
       // clears panelBounds when !isExport, so pushing during an export duplicates).
@@ -13606,15 +13662,11 @@ function _gmImportFile(input){
 }
 
 // ── Auto panel-lettering — relabel panels A, B, C… in reading order ──
+// Stores the canonical uppercase letter (numbers past Z), the same form nextLabel()
+// assigns on import. The label-format dropdown styles it at display time (see
+// formatLabel), so switching from "1 2 3" back to "A B C" is always reversible.
 function _letterLabel(i){
-  const fmt=(typeof gv==='function'?gv('label-format'):'A')||'A';
-  const U=i<26?String.fromCharCode(65+i):String(i+1);
-  const L=i<26?String.fromCharCode(97+i):String(i+1);
-  if(fmt==='a') return L;
-  if(fmt==='(a)') return '('+L+')';
-  if(fmt==='(A)') return '('+U+')';
-  if(fmt==='1') return String(i+1);
-  return U;
+  return i<26?String.fromCharCode(65+i):String(i+1);
 }
 // ── Killing white space ──────────────────────────────────────────────────
 // Panel cells are a fixed size and each image is CONTAIN-FIT inside its cell, so
@@ -16060,7 +16112,10 @@ function openFreeformCropEditor(){
   // Reuse grid crop modal with freeform element
   const l=(el.cropL||0)/100, t=(el.cropT||0)/100, r=(el.cropR||0)/100, b=(el.cropB||0)/100;
   const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
-  cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0, hasBox:hasCrop};
+  // ang: reopening a tilted crop used to show it upright, so pressing Apply again
+  // silently straightened the element.
+  cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0,
+               hasBox:hasCrop||!!el.cropAngle, ang:+el.cropAngle||0};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -16322,26 +16377,34 @@ async function exportPNGWithMeta(name, dpi, canvas){
 // ═══════════════════════════════════════════════════════════════
 // MULTI-PAGE PDF EXPORT
 // ═══════════════════════════════════════════════════════════════
-async function exportMultiPagePDF(){
+// Set only while exportMultiPagePDF renders one page: {rowOffset, seqOffset}. render()
+// adds these to its row index and cell sequence so page 2 shows rows 3–4's labels and
+// numbers its empty cells from where page 1 stopped, not rows 1–2's again. `var` on
+// purpose: render() runs at load, long before this line, and a `let` would be in its TDZ.
+var _pageCtx = null;
+
+async function exportMultiPagePDF(opts){
+  opts = opts || {};
   if(!images.length){ toast('Add images first','warn'); return; }
   const cols   = Math.max(1, gi('cols'));
   const rows   = Math.max(1, gi('rows'));
   const rpp    = Math.max(1, gi('pdf-rows-per-page') || 2);
   const dpi    = getExportDPI();
   const name   = gv('export-name').trim() || 'figure';
+  // Lossless (Flate) unless the caller or the checkbox says otherwise. This path was
+  // JPEG-only for a year after the single-page export gained its lossless branch —
+  // the same figure could be exported losslessly as one page and only lossily as
+  // several, and the multi-page file also lacked the selectable text layer.
+  const losslessEl = document.getElementById('pdf-multi-lossless');
+  const lossless = opts.lossless != null ? !!opts.lossless : (losslessEl ? losslessEl.checked : true);
 
   // Snapshot layout state
   const origRows = gi('rows');
-
-  // We'll render each page-worth of rows into its own canvas
   const totalPages = Math.ceil(rows / rpp);
-  const enc = s => new TextEncoder().encode(s);
-  const chunks = []; const offs = {};
-  const push = d => chunks.push(typeof d === 'string' ? enc(d) : d);
-  const sz   = () => chunks.reduce((s,c)=>s+c.length, 0);
 
-  // Collect per-page image blobs
-  const pageBlobs = [];
+  // Render each page-worth of rows into its own export canvas and turn it into a
+  // PDF page straight away, while its labels and layout are still current.
+  const pages = [];
   for(let page = 0; page < totalPages; page++){
     const pageRows = Math.min(rpp, rows - page * rpp);
     const pageImages = images.slice(page * rpp * cols, (page * rpp + pageRows) * cols);
@@ -16352,80 +16415,41 @@ async function exportMultiPagePDF(){
     // one page's slice and the user's other panels gone from the live session, with
     // no undo entry for the swap.
     const origImages = images.splice(0, images.length, ...pageImages);
+    _pageCtx = { rowOffset: page * rpp, seqOffset: page * rpp * cols };
     try{
       document.getElementById('rows').value = pageRows;
-      onLayoutChange(); render();
+      // render(), not onLayoutChange(): the latter rebuilds the row-label inputs for
+      // the swapped row count, which threw away the user's labels for every row past
+      // this page — permanently, since the restore then found nothing to restore.
+      render();
 
       // Each page goes through the same supersampled export path as every other
       // raster export — this used to grab the 1x on-screen preview canvas and then
       // divide its pixel width by the requested DPI, which made every page dpi/96x
       // too small (83 mm instead of 261 mm at 300 DPI) and ignored the printed-width
-      // target entirely.
-      const c = renderExportCanvas(dpi);
-      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
-      pageBlobs.push({ blob, W: c.width, H: c.height, dpi: c._effDpi || dpi });
+      // target entirely. Typesettable labels are held out of the raster and laid
+      // down as real text, exactly as _exportPDFWithText does for one page.
+      const c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
+      const items = figTextItems.slice();
+      // Page size from the resolution the page canvas ACTUALLY carries (the printed
+      // width when one is set, the 60 MP-capped DPI when the cap fired) — the same
+      // number the single-page PDF puts in its /MediaBox.
+      const eff = c._effDpi || dpi;
+      const ptPerUnit = (c.width*72/eff)/(canvasLogicalW||c.width);
+      pages.push(await _pdfPageFor(c, eff, { lossless, textItems: items, ptPerUnit }));
     } finally {
+      _pageCtx = null;
       images.splice(0, images.length, ...origImages);
       document.getElementById('rows').value = origRows;
-      onLayoutChange(); render();
+      render();
     }
   }
+  onLayoutChange();   // row count is back to the original, so the label inputs are kept
 
-  // Build multi-page PDF manually
-  push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
-
-  // Objects: 1=Catalog, 2=Pages, then per page: 3+p*3=Page, 4+p*3=Image, 5+p*3=Content
-  const pageObjBase = 3;
-  const pageCount   = pageBlobs.length;
-  const pageIds     = pageBlobs.map((_,p) => pageObjBase + p * 3);
-  const pageKids    = pageIds.map(id => `${id} 0 R`).join(' ');
-
-  offs[1] = sz(); push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
-  offs[2] = sz(); push(`2 0 obj\n<< /Type /Pages /Kids [${pageKids}] /Count ${pageCount} >>\nendobj\n`);
-
-  const imgBytesList = [];
-  for(let p = 0; p < pageCount; p++){
-    const { blob, W, H, dpi: pageDpi } = pageBlobs[p];
-    const jpgBytes = new Uint8Array(await blob.arrayBuffer());
-    imgBytesList.push(jpgBytes);
-
-    // Page size from the resolution the page canvas ACTUALLY carries (the printed
-    // width when one is set, the 60 MP-capped DPI when the cap fired) — the same
-    // number the single-page PDF puts in its /MediaBox.
-    const wPt = (W * 72 / (pageDpi || dpi)).toFixed(3);
-    const hPt = (H * 72 / (pageDpi || dpi)).toFixed(3);
-    const pgId  = pageObjBase + p * 3;       // Page object
-    const imId  = pageObjBase + p * 3 + 1;   // Image XObject
-    const csId  = pageObjBase + p * 3 + 2;   // Content stream
-    const cs    = enc(`q ${wPt} 0 0 ${hPt} 0 0 cm /Im${p} Do Q\n`);
-
-    offs[pgId] = sz();
-    push(`${pgId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents ${csId} 0 R /Resources << /XObject << /Im${p} ${imId} 0 R >> >> >>\nendobj\n`);
-
-    offs[imId] = sz();
-    push(`${imId} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpgBytes.length} >>\nstream\n`);
-    push(jpgBytes);
-    push('\nendstream\nendobj\n');
-
-    offs[csId] = sz();
-    push(`${csId} 0 obj\n<< /Length ${cs.length} >>\nstream\n`);
-    push(cs);
-    push('\nendstream\nendobj\n');
-  }
-
-  const totalObjs = 2 + pageCount * 3;
-  const xp = sz();
-  push(`xref\n0 ${totalObjs + 1}\n0000000000 65535 f\r\n`);
-  for(let i = 1; i <= totalObjs; i++){
-    push(`${String(offs[i] ?? 0).padStart(10,'0')} 00000 n\r\n`);
-  }
-  push(`trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xp}\n%%EOF\n`);
-
-  const total = sz(); const out = new Uint8Array(total); let pos = 0;
-  for(const c of chunks){ out.set(c, pos); pos += c.length; }
+  const out = _pdfAssemble(pages);
   dl(URL.createObjectURL(new Blob([out], {type:'application/pdf'})), name + '-multipage.pdf');
-  toast(`Exported ${pageCount}-page PDF`, 'ok');
-  logAction('exportMultiPagePDF', { pages: pageCount, rowsPerPage: rpp, dpi });
+  toast(`Exported ${pages.length}-page PDF${lossless ? ' (lossless)' : ''}`, 'ok');
+  logAction('exportMultiPagePDF', { pages: pages.length, rowsPerPage: rpp, dpi, lossless });
 }
 
 // ═══════════════════════════════════════════════════════════════
