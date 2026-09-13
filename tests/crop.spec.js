@@ -438,3 +438,30 @@ test('dragging an inset’s outline on the parent moves the inset region, clampe
   expect(r.logged).toBe(2);
   expect(errors).toEqual([]);
 });
+
+test('the caption says an inset is the magnified boxed region of its parent, with the relative magnification', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); onLayoutChange(); render();
+    selectedPanel = 0;
+    addLinkedInset(0.25, 0.25, 0.5, 0.5);            // 2× relative to A
+    images[0].gamma = 0.8; render();                 // an adjustment the inset inherits
+    generateCaption();
+    const withBox = document.getElementById('caption-out').value;
+    document.getElementById('inset-frames').checked = false;
+    generateCaption();
+    const noBox = document.getElementById('caption-out').value;
+    images[1].captionNote = 'Detail of the cell cluster';
+    generateCaption();
+    const noted = document.getElementById('caption-out').value;
+    return { withBox, noBox, noted };
+  });
+  expect(r.withBox).toContain('(B) Magnified view of the boxed region in (A), 2.0× relative to (A).');
+  expect(r.withBox).toContain('Displayed with the same settings as (A).');
+  expect(r.withBox.match(/Gamma/gi) || []).toHaveLength(1);        // stated once, on A, not repeated on B
+  expect(r.noBox).toContain('Magnified view of the region in (A)');
+  expect(r.noBox).not.toContain('boxed');
+  expect(r.noted).toContain('(B) Detail of the cell cluster. Magnified view of the region in (A), 2.0× relative to (A).');
+  expect(errors).toEqual([]);
+});

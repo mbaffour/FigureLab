@@ -10386,8 +10386,20 @@ function generateCaption(){
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
     else if(im.grayscale){ grayInDesc=true; }
     const shown=formatLabel(im.label);        // the letter style the figure shows
-    if(!desc) desc=`Panel ${shown}`;
+    // A linked inset says what it is: the boxed region of its parent, and how much it
+    // is enlarged RELATIVE to that parent — a ratio FigureLab genuinely knows, unlike an
+    // objective magnification, which it never states.
+    const parent=im.insetOf?_findPanelById(im.insetOf):null;
+    const pl=parent?(formatLabel(parent.label)||'the source panel'):'';
+    let insetSentence='';
+    if(parent){
+      const mag=_insetMag(im);
+      insetSentence=`Magnified view of the ${_insetFramesOn()?'boxed ':''}region in (${pl})`
+        +(mag?`, ${(+mag).toFixed(1)}× relative to (${pl})`:'');
+    }
+    if(!desc) desc=insetSentence||`Panel ${shown}`;
     let s=`(${shown}) ${desc}.`;
+    if(parent&&desc!==insetSentence) s+=` ${insetSentence}.`;
     // Scale bar. FigureLab knows the sampling density (µm per pixel) and nothing about
     // the objective, so it reports exactly that. The old "(15×)" here was 1/(µm/px)
     // printed as a magnification — for a 100× objective on a 6.5 µm camera pixel it
@@ -10399,9 +10411,11 @@ function generateCaption(){
     }
     // Metadata note
     if(meta) s+=` ${meta}.`;
-    // Image adjustments — every one that was applied, not just the levels.
+    // Image adjustments — every one that was applied, not just the levels. An inset
+    // inherits its parent's, so it says so instead of repeating the list.
     const adj=_captionAdjustments(im,{lut:lutInDesc, grayscale:grayInDesc});
-    if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
+    if(parent){ if(adj.length) s+=` Displayed with the same settings as (${pl}).`; }
+    else if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
       +` applied uniformly across the whole panel.)`;
     return s;
   });
