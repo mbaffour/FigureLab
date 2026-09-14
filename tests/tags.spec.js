@@ -107,3 +107,84 @@ test('tags and intensity bars survive a session round-trip', async ({ page }) =>
   expect(r.restored).toEqual([['10 min', false], ['', true]]);
   expect(errors).toEqual([]);
 });
+
+// ── Auto contrast, uniform scale bars ─────────────────────────
+
+async function seedPainted(page, w, h, paintBody, name = 'painted.png') {
+  await page.evaluate(async ({ w, h, paintBody, name }) => {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    new Function('ctx', 'W', 'H', paintBody)(c.getContext('2d'), w, h);
+    const src = c.toDataURL('image/png');
+    await new Promise((res, rej) => { const img = new Image(); img.onload = () => { _commitImage(img, src, name); res(); }; img.onerror = rej; img.src = src; });
+    render();
+  }, { w, h, paintBody, name });
+  await page.waitForFunction(() => images.every(im => !im || (im.img && im.img.naturalWidth > 0)));
+}
+
+test('auto contrast picks black ink on a bright panel and white on a dark one, for the letter, a typed tag and the scale bar', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 300, 300, `ctx.fillStyle='#f4f4f4'; ctx.fillRect(0,0,W,H);`, 'bright.png');   // a histology section
+  await seedPainted(page, 300, 300, `ctx.fillStyle='#101010'; ctx.fillRect(0,0,W,H);`, 'dark.png');     // a micrograph
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); onLayoutChange();
+    document.getElementById('label-bg').checked = false;
+    images.forEach(im => { im.umPerPx = 0.5; im.sbUm = 20; im.sbOn = true; im.tag = 'WT'; });
+    render();
+    const fills = kind => figTextItems.filter(t => t.kind === kind).map(t => t.fill);
+    const before = { panel: fills('panel'), sb: fills('sb'), tag: fills('tag') };
+    document.getElementById('label-auto-color').checked = true;
+    document.getElementById('sb-auto-color').checked = true;
+    render();
+    const after = { panel: fills('panel'), sb: fills('sb'), tag: fills('tag') };
+    document.getElementById('label-bg').checked = true; render();
+    const withChip = fills('panel');
+    return { before, after, withChip, lbl: gv('label-color'), sbc: gv('sb-color') };
+  });
+  expect(r.before.panel).toEqual([r.lbl, r.lbl]);
+  expect(r.before.sb).toEqual([r.sbc, r.sbc]);
+  expect(r.after.panel).toEqual(['#111111', '#ffffff']);         // black on bright, white on dark
+  expect(r.after.tag).toEqual(['#111111', '#ffffff']);
+  expect(r.after.sb).toEqual(['#111111', '#ffffff']);
+  expect(r.withChip).toEqual([r.lbl, r.lbl]);                     // a chip already guarantees contrast
+  expect(errors).toEqual([]);
+});
+
+test('Same bar on all calibrated: the selected panel’s bar, or a clean value from the median field of view', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(() => {
+    images[0].umPerPx = 0.5; images[0].sbUm = 10; images[0].sbOn = true;
+    images[1].umPerPx = 0.5; images[1].sbUm = 25; images[1].sbOn = false;
+    images[2].umPerPx = 0.25; images[2].sbUm = 5; images[2].sbOn = true;
+    images[3].umPerPx = 0;                                      // uncalibrated: left alone
+    selectedPanel = 1;
+    uniformScaleBars();
+    const fromSel = images.map((im, i) => i < 3 ? [im.sbUm, im.sbOn] : [im.sbUm]);   // the uncalibrated one: only its length matters
+    selectedPanel = -1; images[0].sbUm = 1; images[1].sbUm = 2; images[2].sbUm = 3;
+    uniformScaleBars();
+    const fromMedian = images.map(im => im.sbUm);
+    undo();
+    return { fromSel, fromMedian, undone: images.map(im => im.sbUm), logged: reproLog.filter(e => e.action === 'uniformScaleBars').length };
+  });
+  expect(r.fromSel).toEqual([[25, true], [25, true], [25, true], [10]]);       // the uncalibrated panel is left alone
+  // Fields of view: 0.5×100 = 50 µm, 50 µm, 0.25×100 = 25 µm → median 50 → 0.18 × 50 = 9 → nice 10.
+  expect(r.fromMedian.slice(0, 3)).toEqual([10, 10, 10]);
+  expect(r.undone.slice(0, 3)).toEqual([1, 2, 3]);
+  expect(r.logged).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test('splitting a multi-channel panel into a row switches channel names on', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(() => {
+    images[0].name = 'x_GFP.tif'; images[0].lut = 'green';
+    images[0].channels.push({ name: 'x_DAPI.tif', img: images[1].img, src: images[1].src, lut: 'blue', blackPt: 0, whitePt: 255 });
+    splitChannelRow(0);
+    render();
+    return { on: document.getElementById('tag-channels').checked, tags: figTextItems.filter(t => t.kind === 'tag').map(t => t.str) };
+  });
+  expect(r.on).toBe(true);
+  expect(r.tags.slice(0, 4)).toEqual(['GFP', 'DAPI', 'GFP', 'DAPI']);   // GFP panel, DAPI panel, then the merge naming both
+  expect(errors).toEqual([]);
+});

@@ -816,6 +816,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="label-size" value="18" min="6" max="72" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
       <input type="color" id="label-color" value="#ffffff" oninput="scheduleRender()"></div>
+    <div class="field"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag from the brightness of the image beneath — so a white letter never lands on a white histology section. Not needed when the label has a background chip.">Auto contrast</label>
+      <input type="checkbox" id="label-auto-color" onchange="scheduleRender()"></div>
     <div class="field"><label>Position</label>
       <select id="label-pos" onchange="scheduleRender()">
         <option value="tl">Top Left</option><option value="tr">Top Right</option>
@@ -860,8 +862,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
       <input type="color" id="sb-color" value="#ffffff" oninput="scheduleRender()"></div>
+    <div class="field"><label for="sb-auto-color" title="Per panel, white or black for the bar and its text from the brightness of the image beneath — a white bar on a bright-field image is invisible">Auto contrast</label>
+      <input type="checkbox" id="sb-auto-color" onchange="scheduleRender()"></div>
     <div class="field"><label>Show text</label>
       <input type="checkbox" id="sb-text" checked onchange="scheduleRender()"></div>
+    <button class="btn" onclick="uniformScaleBars()" style="width:100%;justify-content:center;font-size:11px;margin-top:2px" title="Give every calibrated panel the same bar length — the selected panel's, or a clean value about a fifth of the median field of view — and switch its bar on. Bars then read as one across the figure.">≡ Same bar on all calibrated</button>
 
     <div class="divider"></div>
     </div><!-- /look-grid-only -->
@@ -3470,6 +3475,7 @@ const CMD_REGISTRY=[
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
   {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
   {label:'Crop to fill cells',       keys:'crop fill cell aspect letterbox bars white space', run:()=>fillCellsAll()},
+  {label:'Same scale bar on all calibrated panels', keys:'scale bar uniform same length all calibrated', run:()=>uniformScaleBars()},
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
   {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
@@ -4377,6 +4383,27 @@ function matchScalePhysical(){
   else toast(`Physical scales matched · bar ${lbl}`,'ok');
 }
 
+// One bar length for every calibrated panel — the selected panel's, if it has one, or
+// a clean value about a fifth of the median field of view — and the bar switched on.
+// matchScalePhysical does this as a side effect of cropping; this does only the bars.
+function uniformScaleBars(){
+  const cal=images.filter(im=>im&&im.img&&im.umPerPx>0);
+  if(cal.length<2){ toast('Need two or more calibrated panels (set µm/px first)','warn'); return; }
+  const sel=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].umPerPx>0&&images[selectedPanel].sbUm>0)?images[selectedPanel]:null;
+  let um;
+  if(sel) um=sel.sbUm;
+  else {
+    const fovs=cal.map(im=>im.umPerPx*(im.img.naturalWidth||im.img.width)*(1-((im.cropL||0)+(im.cropR||0))/100)).sort((a,b)=>a-b);
+    um=_niceSnap(fovs[fovs.length>>1]*0.18);
+  }
+  if(!(um>0)){ toast('Could not choose a bar length','warn'); return; }
+  pushUndo();
+  cal.forEach(im=>{ im.sbUm=um; im.sbOn=true; if(sel&&sel.sbUnit) im.sbUnit=sel.sbUnit; });
+  renderImgList(); scheduleRender(0);
+  logAction('uniformScaleBars',{panels:cal.length,um,from:sel?formatLabel(sel.label):'median'});
+  toast(`Scale bar ${_sbLabel(cal[0])} on ${cal.length} calibrated panel${cal.length>1?'s':''}${sel?` (from ${formatLabel(sel.label)})`:''}`,'ok');
+}
+
 function matchScalePixels(){
   const valid=images.filter(im=>im&&im.img);
   if(valid.length<2){ toast('Need ≥2 images','warn'); return; }
@@ -4558,6 +4585,26 @@ function syncGroupToPanel(srcIdx){
 function _lutChannelName(lut){
   return {blue:'DAPI',green:'GFP',magenta:'RFP',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
 }
+// Auto-contrast ink: read what is already painted under a rectangle (logical units;
+// the context is scaled by S) and answer white or black. Used for the panel letter, a
+// typed tag, and the scale bar, so none of them can vanish into a bright-field image
+// or a white histology section. Falls back to the chosen colour if the pixels cannot
+// be read.
+function _autoInk(ctx,S,x,y,w,h,fallback){
+  try{
+    const c=ctx.canvas;
+    const X=Math.max(0,Math.round(x*S)), Y=Math.max(0,Math.round(y*S));
+    const W=Math.min(c.width-X,Math.max(1,Math.round(w*S))), H=Math.min(c.height-Y,Math.max(1,Math.round(h*S)));
+    if(W<1||H<1) return fallback;
+    const d=ctx.getImageData(X,Y,W,H).data;
+    let sum=0,n=0;
+    const step=Math.max(4,Math.floor(d.length/4/4000)*4);   // ≤ ~4000 samples
+    for(let i=0;i<d.length;i+=step){ sum+=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114; n++; }
+    if(!n) return fallback;
+    return (sum/n)>150 ? '#111111' : '#ffffff';
+  }catch(e){ return fallback; }
+}
+
 // ── Panel tags and intensity bars ─────────────────────────────
 // Swatches for naming a channel in its own colour: the LUT at full intensity, lifted
 // so it reads on a dark micrograph (pure blue text on black is unreadable).
@@ -4582,9 +4629,9 @@ function _panelTagParts(im, lblClr){
   chans.forEach(ch=>parts.push({str:_channelName(ch.name, ch.lut), color:_LUT_SWATCH[ch.lut]||lblClr}));
   return parts;
 }
-function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText){
+function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText, autoS){
   const show=document.getElementById('show-tags'); if(show&&!show.checked) return;
-  const parts=_panelTagParts(im, lblClr); if(!parts.length) return;
+  let parts=_panelTagParts(im, lblClr); if(!parts.length) return;
   const pos=gv('tag-pos')||'tr';
   const fs=Math.max(7,Math.round((lblSz||12)*0.8));
   const font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
@@ -4595,6 +4642,8 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText)
   const pad=6;
   let x=pos.endsWith('r') ? dx+dw-pad-total : dx+pad;
   const y=pos.startsWith('t') ? dy+pad+fs : dy+dh-pad;
+  // Auto contrast applies to text in the label colour; a channel keeps its own colour.
+  if(autoS){ const ink=_autoInk(ctx,autoS,x-2,y-fs,total+4,fs+4,lblClr); parts=parts.map(p=>p.color===lblClr?{...p,color:ink}:p); }
   parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0); x+=widths[i]+gap; });
 }
 // A number for the ends of an intensity bar: whole above 100, three figures below.
@@ -4662,9 +4711,11 @@ function splitChannelRow(srcIdx){
   parts.push(merge);
   images.splice(srcIdx,1,...parts);
   let i=0; images.forEach(p=>{ p.label = i<26?ALPHABET[i]:String(i+1); i++; });   // positional relabel
+  // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
+  const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
   renderImgList(); renderMiniGrid(); scheduleRender();
   logAction('splitChannels',{from:im.label,into:parts.length});
-  toast(`Split into ${parts.length} panels (channels + merge) — try ✨ Auto-arrange for a clean row`,'ok');
+  toast(`Split into ${parts.length} panels (channels + merge), named by channel — try ✨ Auto-arrange for a clean row`,'ok');
 }
 
 // Gel/blot splice marker — a visible lane-divider line (journal integrity
@@ -5101,6 +5152,7 @@ function render(targetCanvas, exportScale, opts){
   const mTop=gi('m-top'), mLeft=gi('m-left'), mBtm=gi('m-btm'), mRight=gi('m-right');
   const bgColor=gv('bg-color');
   const showLbls=gc('show-labels'), lblSz=gi('label-size'), lblClr=gv('label-color'), lblPos=gv('label-pos');
+  const lblAuto=gc('label-auto-color'), sbAuto=gc('sb-auto-color');
   const sbH=Math.max(1,gi('sb-h')), sbClr=gv('sb-color'), sbTxt=gc('sb-text');
   const axisFs=gi('axis-fs');
   const figTitle=gv('fig-title').trim();
@@ -5347,8 +5399,11 @@ function render(targetCanvas, exportScale, opts){
             lx+=(im.lblDX||0); ly+=(im.lblDY||0); // drag offset
             const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
             const hasBg=gc('label-bg');
+            // Auto contrast: read the image under the letter and pick white or black.
+            // A chip already guarantees contrast, so the setting only bites without one.
+            const inkClr=(lblAuto&&!hasBg)?_autoInk(ctx,S,bx,by,bw,bh,lblClr):lblClr;
             const _lblItem={kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
-              fill:lblClr,align:'left',baseline:'alphabetic',rot:0,
+              fill:inkClr,align:'left',baseline:'alphabetic',rot:0,
               bbox:{x:bx,y:by,w:bw,h:bh},
               bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null};
             figTextItems.push(_lblItem);
@@ -5362,7 +5417,7 @@ function render(targetCanvas, exportScale, opts){
                 ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
                 ctx.closePath(); ctx.fill();
               }
-              ctx.fillStyle=lblClr; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
+              ctx.fillStyle=inkClr; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
             }
           }
         }
@@ -5384,20 +5439,24 @@ function render(targetCanvas, exportScale, opts){
           if(!im._sbSkip){
             const sp=Math.max(6,Math.round(dw*.04));
             const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
-            ctx.fillStyle=sbClr; ctx.fillRect(sbX,sbY,barPx,sbH);
+            // Auto contrast: a white bar on a bright-field image is invisible. Sample the
+            // bar and the text line above it together, so both come out the same ink.
+            const barInk=sbAuto?_autoInk(ctx,S,sbX,sbY-16,barPx,sbH+16,sbClr):sbClr;
+            ctx.fillStyle=barInk; ctx.fillRect(sbX,sbY,barPx,sbH);
             if(!isExport) _sbBars.push({idx:imgIdx, left:sbX, right:sbX+barPx, top:sbY, bottom:sbY+sbH, scale:(dw/sw)});
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*dw/300));
               const lbl=_sbLabel(im);
-              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, sbClr, 'center','alphabetic',0);
+              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, barInk, 'center','alphabetic',0);
               ctx.textAlign='left';
             }
           }
         }
         // Panel tag (a condition, a time point, or the channel names in their colours)
-        _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText);
+        _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText, lblAuto?S:0);
         // Intensity bar for pseudocoloured / grayscale panels
-        if(im.cbar) _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText);
+        if(im.cbar) _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh,
+          sbAuto?_autoInk(ctx,S,dx+dw*0.68,dy+dh*0.28,dw*0.32,dh*0.44,sbClr):sbClr, emitText);
         // Global panel border (with inset)
         const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
         if(panelBorderW>0){
@@ -7654,7 +7713,7 @@ const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
 const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color','inset-frames','show-tags','tag-channels'];
+  'axis-bold','axis-italic','axis-auto-color','inset-frames','show-tags','tag-channels','label-auto-color','sb-auto-color'];
 function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
