@@ -282,3 +282,34 @@ test('a spotlight dims everything but its region — across the figure, or withi
   expect(r.evenodd).toBe(true); expect(r.veil).toBe(true);
   expect(errors).toEqual([]);
 });
+
+// ── Orientation axes, and counters in the SVG ─────────────────
+
+test('an axes marker draws crossed arrows with four editable letters, hit-tests at its centre, and exports as vector with counters', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 300, 300, `ctx.fillStyle='#303030'; ctx.fillRect(0,0,W,H);`);
+  const r = await page.evaluate(async () => {
+    sv('cols', '1'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    const W = canvasLogicalW, H = canvasLogicalH, pb = panelBounds[0];
+    const cx = pb.ix + pb.iw * 0.5, cy = pb.iy + pb.ih * 0.5;
+    annotations.push({ type: 'axes', xf: cx / W, yf: cy / H, text: 'D V A P', color: '#ffffff', width: 2, fontSize: 12 });
+    annotations.push({ type: 'counter', xf: 0.2, yf: 0.2, n: 3, color: '#ff4444', width: 2 });
+    render();
+    const fx = document.getElementById('fig-canvas').getContext('2d');
+    const onArm = [...fx.getImageData(Math.round(cx), Math.round(cy - 12), 1, 1).data].slice(0, 3);   // on the vertical arm
+    const off = [...fx.getImageData(Math.round(cx + 12), Math.round(cy - 12), 1, 1).data].slice(0, 3);  // between the arms
+    const hit = hitAnnotation(annotations[0], cx + 5, cy - 5, W, H), miss = hitAnnotation(annotations[0], cx + 80, cy, W, H);
+    const svg1 = new TextDecoder().decode((await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')))).data);
+    annotations[0].text = 'R C M L';
+    const svg2 = new TextDecoder().decode((await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')))).data);
+    const letters = t => [...t.matchAll(/paint-order="stroke">([A-Z])<\/text>/g)].map(m => m[1]);
+    return { onArm, off, hit, miss, l1: letters(svg1), l2: letters(svg2), counter: /<circle [^>]*fill="#ff4444"/.test(svg1) && />3<\/text>/.test(svg1) };
+  });
+  expect(r.onArm).toEqual([255, 255, 255]);
+  expect(r.off).toEqual([48, 48, 48]);
+  expect(r.hit).toBe(true); expect(r.miss).toBe(false);
+  expect(r.l1).toEqual(['D', 'V', 'A', 'P']);
+  expect(r.l2).toEqual(['R', 'C', 'M', 'L']);              // the letters follow the text field
+  expect(r.counter).toBe(true);                             // counters used to be missing from the SVG
+  expect(errors).toEqual([]);
+});

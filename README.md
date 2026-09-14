@@ -285,6 +285,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 - **Inset outlines are vector in the SVG export.** The outline on the parent, its letter and the connector lines are held out of the raster and written as `<rect>`, `<text>` and `<line>`, so they stay editable and never pixelate — the same treatment the labels have always had.
 
+- **✛ Axes** annotation: an orientation marker for histology and embryo panels — two crossed arrows lettered D V A P by default; select it and type four letters (R C M L, S I A P…) to change them. Placed with a click, on a panel or the figure, exported as vector.
+- **Counter markers now reach the SVG export.** They were dropped entirely: the export empties the annotation list for the raster and re-emitted only the types it knew.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

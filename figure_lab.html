@@ -750,6 +750,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="arrow2" onclick="setTool('arrow2')">↔ Arrow2</button>
       <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')">⊢ Ruler</button>
       <button class="ann-tool" data-tool="counter" onclick="setTool('counter')">• Counter</button>
+      <button class="ann-tool" data-tool="axes" onclick="setTool('axes')" title="Click to place an orientation marker — two crossed arrows lettered D V A P by default (dorsal, ventral, anterior, posterior). Select it and type four letters to change them: R C M L, S I A P…">✛ Axes</button>
     </div>
     <div id="counter-display" style="font-size:10px;color:var(--muted);display:none">Count: <strong id="counter-n">0</strong></div>
     <button id="panel-ann-mode-btn" class="ann-tool" style="width:100%;margin-top:2px" onclick="togglePanelAnnMode()">📌 Panel mode (annotations follow panels)</button>
@@ -3507,6 +3508,7 @@ const CMD_REGISTRY=[
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
+  {label:'Orientation axes marker (D/V, A/P…)', keys:'axes orientation anatomical dorsal ventral anterior posterior compass rostral caudal medial lateral', run:()=>setTool('axes')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
   {label:'Starter: 2×2 grid',        keys:'starter template 2x2 grid layout',   run:()=>applyStarter('grid2x2')},
@@ -5926,6 +5928,8 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im, opts){
       ctx.save(); ctx.beginPath(); ctx.rect(pbx,pby,pbw,pbh); ctx.clip();
       drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2, a);
       ctx.restore();
+    } else if(a.type==='axes'){
+      _drawAxes(ctx, x1, y1, a);
     } else {
       drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2, a);
     }
@@ -7792,6 +7796,9 @@ function hitAnnotation(a, x, y, W, H){
   if(a.type==='counter'){
     return Math.hypot(x-a.xf*W, y-a.yf*H) < 12;
   }
+  if(a.type==='axes'){
+    return Math.hypot(x-a.xf*W, y-a.yf*H) < (a.arm||24)+10;
+  }
   if(a.type==='rect'||a.type==='spotlight'){
     const rx=Math.min(a.xf,a.x2f)*W, ry=Math.min(a.yf,a.y2f)*H;
     const rw=Math.abs(a.x2f-a.xf)*W, rh=Math.abs(a.y2f-a.yf)*H;
@@ -7930,7 +7937,40 @@ document.addEventListener('change',e=>{
 },true);
 
 // ── Draw a single annotation onto any ctx ───────────────────
+// ── Orientation marker ────────────────────────────────────────
+// Two crossed double-headed arrows with a letter at each end: the anatomical axes a
+// histology or embryo panel needs (D/V, A/P; R/C, M/L; S/I…). The four letters live in
+// a.text as "up down left right", editable in the float toolbar like a text box.
+function _axesLetters(a){
+  const parts=String(a.text||'D V A P').trim().split(/[\s,\/]+/).filter(Boolean);
+  while(parts.length<4) parts.push('');
+  return parts.slice(0,4);
+}
+function _drawAxes(ctx, x, y, a){
+  const [up,down,left,right]=_axesLetters(a);
+  const L=a.arm||24, col=a.color||'#ffffff', lw=a.width||2, fs=a.fontSize||12, hl=6;
+  ctx.save();
+  ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(x,y-L); ctx.lineTo(x,y+L); ctx.moveTo(x-L,y); ctx.lineTo(x+L,y); ctx.stroke();
+  // arrowheads at the four ends
+  ctx.beginPath();
+  ctx.moveTo(x-hl,y-L+hl); ctx.lineTo(x,y-L); ctx.lineTo(x+hl,y-L+hl);
+  ctx.moveTo(x-hl,y+L-hl); ctx.lineTo(x,y+L); ctx.lineTo(x+hl,y+L-hl);
+  ctx.moveTo(x-L+hl,y-hl); ctx.lineTo(x-L,y); ctx.lineTo(x-L+hl,y+hl);
+  ctx.moveTo(x+L-hl,y-hl); ctx.lineTo(x+L,y); ctx.lineTo(x+L-hl,y+hl);
+  ctx.stroke();
+  ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+  ctx.fillStyle=col; ctx.strokeStyle='rgba(0,0,0,.7)'; ctx.lineWidth=3;
+  const put=(t,tx,ty,al,bl)=>{ if(!t) return; ctx.textAlign=al; ctx.textBaseline=bl; ctx.strokeText(t,tx,ty); ctx.fillText(t,tx,ty); };
+  put(up,   x,     y-L-3, 'center','alphabetic');
+  put(down, x,     y+L+3, 'center','top');
+  put(left, x-L-4, y,     'right', 'middle');
+  put(right,x+L+4, y,     'left',  'middle');
+  ctx.restore();
+}
+
 function drawAnnotationSingle(ctx, a, W, H){
+  if(a.type==='axes'){ _drawAxes(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='textbox'){
     const bx=Math.min(a.xf,a.x2f)*W, by=Math.min(a.yf,a.y2f)*H;
     const bw=Math.abs(a.x2f-a.xf)*W, bh=Math.abs(a.y2f-a.yf)*H;
@@ -8270,7 +8310,8 @@ function showAnnFloat(idx){
   document.getElementById('ann-float-fill-color').style.display=hasFill?'':'none';
   document.getElementById('ann-float-fill-opacity').style.display=hasFill?'':'none';
   const tbText=document.getElementById('ann-float-tb-text');
-  if(tbText){ tbText.style.display=isTb?'':'none'; if(isTb) tbText.value=a.text||''; }
+  const hasText=isTb||a.type==='axes';
+  if(tbText){ tbText.style.display=hasText?'':'none'; if(hasText) tbText.value=a.text||(a.type==='axes'?'D V A P':''); tbText.title=a.type==='axes'?'Four letters: up down left right':''; }
   const tbShape=document.getElementById('ann-float-tb-shape');
   if(tbShape){ tbShape.style.display=isTb?'':'none'; if(isTb) tbShape.value=a.shape||'rect'; }
   if(hasFill){
@@ -8376,6 +8417,11 @@ annCanvas.addEventListener('mousedown', e=>{
           inp.style.left=Math.max(4,Math.min(window.innerWidth-200,screenX))+'px';
           inp.style.top=Math.max(4,screenY-14)+'px';
           inp.style.display='block'; inp.value=''; inp.focus();
+        } else if(activeTool==='axes'){
+          pushUndo();
+          const im=images[pb.idx]; if(!im.panelAnns) im.panelAnns=[];
+          im.panelAnns.push({type:'axes', xf:(x-pb.x)/pb.w, yf:(y-pb.y)/pb.h, text:'D V A P', color:gv('ann-color'), width:gi('ann-width'), fontSize:12});
+          renderAnnotationList(); scheduleRender(0);
         } else {
           panelAnnDraw={imgIdx:pb.idx, pb, x0:x, y0:y};
         }
@@ -8424,6 +8470,12 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
     // Counter tool: place a numbered dot on click
+    if(activeTool==='axes'){
+      pushUndo();
+      annotations.push({type:'axes', xf:x/W, yf:y/H, text:'D V A P', color:gv('ann-color'), width:gi('ann-width'), fontSize:12});
+      renderAnnotationList(); scheduleRender(0);
+      return;
+    }
     if(activeTool==='counter'){
       counterN++;
       const cntDisp=document.getElementById('counter-display');
@@ -9018,7 +9070,8 @@ document.getElementById('ann-float-fill-opacity').addEventListener('input', e=>{
   drawAnnOverlay(); scheduleRender(0);
 });
 document.getElementById('ann-float-tb-text').addEventListener('input', e=>{
-  if(selectedAnnotation<0||annotations[selectedAnnotation]?.type!=='textbox') return;
+  const t=annotations[selectedAnnotation]?.type;
+  if(selectedAnnotation<0||(t!=='textbox'&&t!=='axes')) return;
   annotations[selectedAnnotation].text=e.target.value;
   scheduleRender(0);
 });
@@ -10309,6 +10362,25 @@ function exportSVG(name, dpi, canvas){
       const rx=Math.min(+x1,+x2), ry=Math.min(+y1,+y2);
       const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
       annSVG+=`<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
+    } else if(a.type==='counter'){
+      // Counters were missing from the SVG altogether: the export empties the
+      // annotation list for the raster and re-emits only the types it knows.
+      const r=8, n=a.n||1;
+      annSVG+=`<circle cx="${x1}" cy="${y1}" r="${r}" fill="${a.color||'#ff4444'}" stroke="#ffffff" stroke-width="1.5"/>`
+             +`<text x="${x1}" y="${y1}" style="font:bold ${Math.max(8,r*1.2)}px system-ui,sans-serif" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${n}</text>`;
+    } else if(a.type==='axes'){
+      const [up,down,left,right]=_axesLetters(a);
+      const cx=+x1, cy=+y1, L=a.arm||24, fs=a.fontSize||12, hl=6;
+      const f2=v=>v.toFixed(2);
+      const font=`bold ${fs}px ${fam}`;
+      annSVG+=`<path d="M${f2(cx)} ${f2(cy-L)}V${f2(cy+L)}M${f2(cx-L)} ${f2(cy)}H${f2(cx+L)}`
+             +`M${f2(cx-hl)} ${f2(cy-L+hl)}L${f2(cx)} ${f2(cy-L)}L${f2(cx+hl)} ${f2(cy-L+hl)}`
+             +`M${f2(cx-hl)} ${f2(cy+L-hl)}L${f2(cx)} ${f2(cy+L)}L${f2(cx+hl)} ${f2(cy+L-hl)}`
+             +`M${f2(cx-L+hl)} ${f2(cy-hl)}L${f2(cx-L)} ${f2(cy)}L${f2(cx-L+hl)} ${f2(cy+hl)}`
+             +`M${f2(cx+L-hl)} ${f2(cy-hl)}L${f2(cx+L)} ${f2(cy)}L${f2(cx+L-hl)} ${f2(cy+hl)}" stroke="${col}" stroke-width="${lw}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+      const put=(t,tx,ty,anchor,base)=>{ if(t) annSVG+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${font}" fill="${col}" text-anchor="${anchor}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(t)}</text>`; };
+      put(up,cx,cy-L-3,'middle','alphabetic'); put(down,cx,cy+L+3,'middle','text-before-edge');
+      put(left,cx-L-4,cy,'end','central'); put(right,cx+L+4,cy,'start','central');
     } else if(a.type==='spotlight'){
       // The veil as one even-odd path over the whole figure with the region cut out,
       // then the region's outline — editable in Illustrator or Inkscape like the rest.
