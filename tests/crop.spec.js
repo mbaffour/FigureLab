@@ -523,3 +523,39 @@ test('the caption states each calibrated panel’s field of view from its crop, 
   expect(rows.map(l => l.split(',')[col])).toEqual(['"50 × 50 µm"', '"30 × 25 µm"', '"2 × 2 mm"']);
   expect(errors).toEqual([]);
 });
+
+// ── Inset outlines as vector in SVG ───────────────────────────
+
+test('the SVG export holds inset outlines out of the raster and re-emits them, their letters and connectors as vector', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 200, 200, `ctx.fillStyle='#606060'; ctx.fillRect(0,0,W,H);`);
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '1'); sv('panel-w', '200'); sv('panel-h', '200'); onLayoutChange(); render();
+    selectedPanel = 0;
+    addLinkedInset(0.25, 0.25, 0.5, 0.5);
+    document.getElementById('inset-connectors').checked = true;
+    render();
+    const f = _insetFrames[0];
+    // The export raster without the frames: the outline's top edge is plain picture.
+    const off = document.createElement('canvas');
+    render(off, 1, { skipLabels: true, skipCharts: true, skipInsetFrames: true });
+    const bare = [...off.getContext('2d').getImageData(Math.round(f.x + f.w / 2), Math.round(f.y), 1, 1).data].slice(0, 3);
+    const recorded = _lastFrames.length;
+    render();                                                     // on screen, frames painted
+    const painted = [...document.getElementById('fig-canvas').getContext('2d').getImageData(Math.round(f.x + f.w / 2), Math.round(f.y), 1, 1).data].slice(0, 3);
+    const svg = await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')));
+    const txt = new TextDecoder().decode(svg.data);
+    return { bare, painted, recorded, f,
+      rects: [...txt.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" stroke="([^"]+)" stroke-width="1.5" fill="none"\/>/g)].map(m => m.slice(1)),
+      letter: /<text[^>]*paint-order="stroke">B<\/text>/.test(txt),
+      lines: (txt.match(/<line [^>]*stroke-width="1"\/>/g) || []).length };
+  });
+  expect(r.bare).toEqual([96, 96, 96]);                     // #606060: no outline in the raster
+  expect(r.painted).not.toEqual([96, 96, 96]);              // …but it is on screen
+  expect(r.recorded).toBe(1);
+  expect(r.rects).toHaveLength(1);
+  expect(+r.rects[0][0]).toBeCloseTo(r.f.x, 1); expect(+r.rects[0][2]).toBeCloseTo(r.f.w, 1);
+  expect(r.letter).toBe(true);
+  expect(r.lines).toBe(2);                                  // two connector lines
+  expect(errors).toEqual([]);
+});

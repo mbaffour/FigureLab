@@ -281,6 +281,10 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### Unreleased — since v3.14.0
+
+- **Inset outlines are vector in the SVG export.** The outline on the parent, its letter and the connector lines are held out of the raster and written as `<rect>`, `<text>` and `<line>`, so they stay editable and never pixelate — the same treatment the labels have always had.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

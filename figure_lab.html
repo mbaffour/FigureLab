@@ -2415,6 +2415,9 @@ let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSna
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
 let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h} (on-screen only)
 let _frameSink = null;      // the same, for the render in progress (export included) — feeds the connector lines
+let _lastFrames = [];       // the frames of the most recent render, with ink and letter — the SVG export re-emits them as vector
+let _lastCells = null;      // idx → cell rect of the most recent render
+let _skipFrameDraw = false; // set by the SVG export: record the frames, do not paint them into the raster
 let _insetConnectors = [];  // per-render connector lines {insetIdx, from:[x,y], to:[x,y]} (on-screen only)
 let clipPreview = false;    // ▨ Clipped: mark saturated / zero pixels on the overlay (display only)
 let _renderStamp = 0;       // bumps on every on-screen render; caches keyed on it go stale with the picture
@@ -5234,6 +5237,7 @@ function render(targetCanvas, exportScale, opts){
   // typeset text its embedded font can represent, and anything else must stay in the
   // raster rather than be silently dropped or mangled.
   const _skipOpt = opts && opts.skipLabels;
+  _skipFrameDraw = !!(opts && opts.skipInsetFrames);   // SVG export re-emits inset outlines as vector
   const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
   const skipLabels = !!_skipOpt;
   figTextItems = [];
@@ -5590,21 +5594,11 @@ function render(targetCanvas, exportScale, opts){
   // corners of the outline that face the inset to the matching corners of its cell.
   // Only when the inset sits in another cell; an outline with no visible inset, or
   // one inside a rotated parent (not recorded), gets none.
-  if(gc('inset-connectors')&&_frameSink&&_frameSink.length){
+  if(gc('inset-connectors')&&_frameSink&&_frameSink.length&&!_skipFrameDraw){
     for(const f of _frameSink){
       const cell=_cellRects.get(f.insetIdx); if(!cell) continue;
-      const fc=[f.x+f.w/2,f.y+f.h/2], cc=[cell.x+cell.w/2,cell.y+cell.h/2];
-      const ddx=cc[0]-fc[0], ddy=cc[1]-fc[1];
-      let a,b,c,d;
-      if(Math.abs(ddx)>=Math.abs(ddy)){
-        if(ddx>0){ a=[f.x+f.w,f.y]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x,cell.y+cell.h]; }
-        else     { a=[f.x,f.y];     b=[f.x,f.y+f.h];     c=[cell.x+cell.w,cell.y]; d=[cell.x+cell.w,cell.y+cell.h]; }
-      } else {
-        if(ddy>0){ a=[f.x,f.y+f.h]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x+cell.w,cell.y]; }
-        else     { a=[f.x,f.y];     b=[f.x+f.w,f.y];     c=[cell.x,cell.y+cell.h]; d=[cell.x+cell.w,cell.y+cell.h]; }
-      }
       ctx.save(); ctx.setLineDash([]);
-      for(const [p1,p2] of [[a,c],[b,d]]){
+      for(const [p1,p2] of _insetConnectorLines(f,cell)){
         ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.stroke();
         ctx.strokeStyle=f.ink; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.stroke();
         if(!isExport) _insetConnectors.push({insetIdx:f.insetIdx, from:p1, to:p2});
@@ -5612,7 +5606,7 @@ function render(targetCanvas, exportScale, opts){
       ctx.restore();
     }
   }
-  _frameSink=null;
+  _lastFrames=_frameSink||[]; _lastCells=_cellRects; _frameSink=null; _skipFrameDraw=false;
 
   // Draw committed annotations (logical dims — ctx is scaled by S)
   drawAnnotations(ctx, totalW, totalH);
@@ -9806,14 +9800,15 @@ function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr,
     const fx=x0+r.x*dw, fy=y0+r.y*dh, fw=r.w*dw, fh=r.h*dh;
     if(fw<2||fh<2) continue;
     if(!isExport&&!transformed) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh});
-    if(_frameSink&&!transformed) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, ink:lblClr||'#fff'});
+    const letter=formatLabel(o.label);
+    const fs=Math.max(7,Math.round((lblSz||12)*0.75));
+    if(_frameSink&&!transformed) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, ink:lblClr||'#fff', letter, fs});
+    if(_skipFrameDraw) continue;                       // the SVG export draws these itself
     ctx.save();
     ctx.setLineDash([]);
     ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=3.5; ctx.strokeRect(fx,fy,fw,fh);
     ctx.strokeStyle=lblClr||'#fff';     ctx.lineWidth=1.5; ctx.strokeRect(fx,fy,fw,fh);
-    const letter=formatLabel(o.label);
     if(letter){
-      const fs=Math.max(7,Math.round((lblSz||12)*0.75));
       ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
       const tw=ctx.measureText(letter).width;
       // inside the top-left corner when there is room, else just above the frame
@@ -9825,6 +9820,22 @@ function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr,
     }
     ctx.restore();
   }
+}
+
+// The two connector lines from an outline to its inset's cell: the two corners of the
+// outline that face the cell, to the matching corners of the cell.
+function _insetConnectorLines(f, cell){
+  const fc=[f.x+f.w/2,f.y+f.h/2], cc=[cell.x+cell.w/2,cell.y+cell.h/2];
+  const ddx=cc[0]-fc[0], ddy=cc[1]-fc[1];
+  let a,b,c,d;
+  if(Math.abs(ddx)>=Math.abs(ddy)){
+    if(ddx>0){ a=[f.x+f.w,f.y]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x,cell.y+cell.h]; }
+    else     { a=[f.x,f.y];     b=[f.x,f.y+f.h];     c=[cell.x+cell.w,cell.y]; d=[cell.x+cell.w,cell.y+cell.h]; }
+  } else {
+    if(ddy>0){ a=[f.x,f.y+f.h]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x+cell.w,cell.y]; }
+    else     { a=[f.x,f.y];     b=[f.x+f.w,f.y];     c=[cell.x,cell.y+cell.h]; d=[cell.x+cell.w,cell.y+cell.h]; }
+  }
+  return [[a,c],[b,d]];
 }
 
 // Re-derive an inset's crop and display settings from its parent. Called before every
@@ -10232,9 +10243,12 @@ function exportSVG(name, dpi, canvas){
   const savedAnns=annotations; annotations=[];
   // skipCharts: charts are re-emitted as true vector below, so keep them off the raster
   // (otherwise the antialiased raster edges double up under the vector <g>).
-  render(off, S, {skipLabels:true, skipCharts:true});   // fills figTextItems (logical coords), no text on raster
+  // skipInsetFrames: inset outlines, their letters and connector lines are re-emitted
+  // as vector below, like the labels, so they stay editable and never pixelate.
+  render(off, S, {skipLabels:true, skipCharts:true, skipInsetFrames:true});   // fills figTextItems (logical coords), no text on raster
   annotations=savedAnns;
   const items=figTextItems.slice();
+  const frames=_lastFrames.slice(), cells=_lastCells, connectorsOn=gc('inset-connectors');
   const pngBg=off.toDataURL('image/png');
   scheduleRender(0); // restore on-screen state + figTextItems
 
@@ -10250,6 +10264,25 @@ function exportSVG(name, dpi, canvas){
     const base=it.baseline==='top'?'text-before-edge':it.baseline==='middle'?'central':'alphabetic';
     const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
     txtSVG+=`<text x="${it.x.toFixed(2)}" y="${it.y.toFixed(2)}" style="font:${it.font}" fill="${it.fill}" text-anchor="${anchor}" dominant-baseline="${base}"${rot}>${esc(it.str)}</text>`;
+  });
+
+  // Inset outlines on their parents, with letter and connector lines → vector
+  let frameSVG='';
+  const f2=v=>(+v).toFixed(2);
+  frames.forEach(f=>{
+    const font=`bold ${f.fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+    frameSVG+=`<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" stroke="rgba(0,0,0,0.55)" stroke-width="3.5" fill="none"/>`
+             +`<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" stroke="${f.ink}" stroke-width="1.5" fill="none"/>`;
+    if(f.letter){
+      const inside=f.h>=f.fs+8;
+      const tx=f.x+4, ty=inside?f.y+4:f.y-3, base=inside?'text-before-edge':'alphabetic';
+      frameSVG+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${font}" fill="${f.ink}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(f.letter)}</text>`;
+    }
+    const cell=connectorsOn&&cells?cells.get(f.insetIdx):null;
+    if(cell) for(const [p1,p2] of _insetConnectorLines(f,cell)){
+      frameSVG+=`<line x1="${f2(p1[0])}" y1="${f2(p1[1])}" x2="${f2(p2[0])}" y2="${f2(p2[1])}" stroke="rgba(0,0,0,0.45)" stroke-width="2.5"/>`
+               +`<line x1="${f2(p1[0])}" y1="${f2(p1[1])}" x2="${f2(p2[0])}" y2="${f2(p2[1])}" stroke="${f.ink}" stroke-width="1"/>`;
+    }
   });
 
   // Build SVG annotation elements (vector), in logical coords
@@ -10327,7 +10360,7 @@ function exportSVG(name, dpi, canvas){
       }
     });
   }
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
 }
 
