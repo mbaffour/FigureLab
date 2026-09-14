@@ -2432,7 +2432,7 @@ let undoStack = [];
 let redoStack = [];
 let panelBounds = [];       // [{idx, x, y, w, h}] populated on render
 let figTextItems = [];      // text drawn each render: for label drag hit-test + vector SVG export
-let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{} }; // drag offsets for shared labels
+let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{}, group:{} }; // drag offsets for shared labels
 let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
 let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h} (on-screen only)
@@ -7953,6 +7953,10 @@ function getLabelOff(kind,idx){
   if(kind==='title'){ return [labelOffsets.title.dx||0,labelOffsets.title.dy||0]; }
   if(kind==='col'){ const o=labelOffsets.col[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
   if(kind==='row'){ const o=labelOffsets.row[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
+  // Group band labels were the third dead drag, for the same reason as the tag and the
+  // intensity bar: emitted like every other label, found by the hit test, nowhere to
+  // put the offset.
+  if(kind==='group'){ const o=labelOffsets.group[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
   return [0,0];
 }
 function setLabelOff(kind,idx,dx,dy){
@@ -7963,6 +7967,7 @@ function setLabelOff(kind,idx,dx,dy){
   if(kind==='title'){ labelOffsets.title={dx,dy}; return; }
   if(kind==='col'){ labelOffsets.col[idx]={dx,dy}; return; }
   if(kind==='row'){ labelOffsets.row[idx]={dx,dy}; return; }
+  if(kind==='group'){ labelOffsets.group[idx]={dx,dy}; return; }
 }
 // Top-most label whose bounding box contains (x,y), in logical coords.
 function labelAtPoint(x,y){
@@ -8141,7 +8146,7 @@ function restoreState(s){
   _normalizeElemIds(freeformElements);   // snapshots already have string ids; safety for legacy stacks
   if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
   if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
-  if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
+  if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
   if('advancedSpacing' in s){ advancedSpacing=s.advancedSpacing;
     const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing; }
   if(s.layoutMode && s.layoutMode!==layoutMode){
@@ -11505,7 +11510,7 @@ function applySession(s,_opts){
       }
       if(Array.isArray(s.measurements)) measurements=s.measurements;
       if(s.labelOffsets&&typeof s.labelOffsets==='object'){
-        labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{} };
+        labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
       }
       scheduleRender(100);
       if(!(_opts&&_opts.silent)) toast('Session loaded','ok');

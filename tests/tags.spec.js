@@ -490,3 +490,33 @@ test('a tag sent to the same corner as the panel letter steps below it instead o
   expect(r.backUp).toBeCloseTo(r.noLetterY, 3);                 // no clash, no step
   expect(errors).toEqual([]);
 });
+
+test('a group band label can be dragged too, and the offset round-trips through a session', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '2'); onLayoutChange();
+    setFigGroups([{ axis: 'row', from: 1, to: 2, label: 'Untreated' }], false);
+    render();
+    const g = () => figTextItems.find(t => t.kind === 'group');
+    const g0 = g();
+    const c = document.getElementById('ann-canvas'), rect = c.getBoundingClientRect();
+    const fire = (type, x, y) => c.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0,
+      clientX: rect.left + x * rect.width / canvasLogicalW, clientY: rect.top + y * rect.height / canvasLogicalH }));
+    const gx = g0.bbox.x + g0.bbox.w / 2, gy = g0.bbox.y + g0.bbox.h / 2;
+    fire('mousedown', gx, gy); fire('mousemove', gx + 12, gy - 18); fire('mouseup', gx + 12, gy - 18);
+    render();
+    const off = labelOffsets.group[0];
+    const moved = [g().x - g0.x, g().y - g0.y];
+    const s = JSON.parse(JSON.stringify(serializeSession(true)));   // bundled: the panels come back too
+    labelOffsets.group = {};
+    applySession(s);
+    return { found: !!g0, off: off && [off.dx, off.dy], moved, restored: labelOffsets.group[0] };
+  });
+  expect(r.found).toBe(true);
+  expect(r.off).toEqual([12, -18]);                             // the third dead drag, now live
+  expect(r.moved[0]).toBeCloseTo(12, 3);
+  expect(r.moved[1]).toBeCloseTo(-18, 3);
+  expect(r.restored).toEqual({ dx: 12, dy: -18 });
+  expect(errors).toEqual([]);
+});
