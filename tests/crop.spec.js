@@ -465,3 +465,61 @@ test('the caption says an inset is the magnified boxed region of its parent, wit
   expect(r.noted).toContain('(B) Detail of the cell cluster. Magnified view of the region in (A), 2.0× relative to (A).');
   expect(errors).toEqual([]);
 });
+
+// ── Connector lines and the field of view ─────────────────────
+
+test('connector lines join the outline’s facing corners to the inset’s cell, on screen and in the export', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    selectedPanel = 0;
+    addLinkedInset(0.5, 0.25, 0.4, 0.4);              // inset B sits in the cell to the RIGHT of A
+    render();
+    const none = _insetConnectors.length;
+    document.getElementById('inset-connectors').checked = true; render();
+    const f = _insetFrames[0], cell = panelBounds.find(b => b.idx === 1);
+    const lines = _insetConnectors.map(l => ({ from: l.from, to: l.to }));
+    // In the export the lines are painted too: sample the midpoint of the first line.
+    const c = renderExportCanvas(150); const k = c.width / canvasLogicalW;
+    const m = [(lines[0].from[0] + lines[0].to[0]) / 2, (lines[0].from[1] + lines[0].to[1]) / 2];
+    const px = c.getContext('2d').getImageData(Math.round(m[0] * k), Math.round(m[1] * k), 1, 1).data;
+    return { none, f, cell, lines, px: [...px].slice(0, 3), bg: gv('bg-color') };
+  });
+  expect(r.none).toBe(0);                             // off by default
+  expect(r.lines).toHaveLength(2);
+  // The outline's right-hand corners → the cell's left-hand corners.
+  expect(r.lines[0].from).toEqual([r.f.x + r.f.w, r.f.y]);        expect(r.lines[0].to).toEqual([r.cell.x, r.cell.y]);
+  expect(r.lines[1].from).toEqual([r.f.x + r.f.w, r.f.y + r.f.h]); expect(r.lines[1].to).toEqual([r.cell.x, r.cell.y + r.cell.h]);
+  // The midpoint lies in the gutter, which is background: the line ink is not the background.
+  const bg = r.bg.toLowerCase();
+  const hex = '#' + r.px.map(v => v.toString(16).padStart(2, '0')).join('');
+  expect(hex).not.toBe(bg);
+  expect(errors).toEqual([]);
+});
+
+test('the caption states each calibrated panel’s field of view from its crop, in µm or mm', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);                          // 100×100 px
+  const r = await page.evaluate(() => {
+    images[0].umPerPx = 0.5;                                          // 50 × 50 µm
+    images[1].umPerPx = 0.5; images[1].cropL = 20; images[1].cropR = 20; images[1].cropT = 50;   // 30 × 25 µm shown
+    images[2].umPerPx = 20;                                           // 2000 µm → 2 × 2 mm
+    render(); generateCaption();
+    let csv = null; const realDl = window.dl; window.dl = (url) => { csv = url; };
+    try { exportCSV(); } finally { window.dl = realDl; }
+    return { cap: document.getElementById('caption-out').value, csvUrl: csv };
+  });
+  const segs = r.cap.split(/ (?=\([ABC]\) )/);            // one sentence group per panel
+  expect(segs).toHaveLength(3);
+  expect(segs[0]).toContain('(A) Panel A.'); expect(segs[0]).toContain('Field of view 50 × 50 µm.');
+  expect(segs[1]).toContain('(B) Panel B.'); expect(segs[1]).toContain('Field of view 30 × 25 µm.');
+  expect(segs[2]).toContain('(C) Panel C.'); expect(segs[2]).toContain('Field of view 2 × 2 mm.');
+  // …and the metadata CSV carries the same value in its own column.
+  const csv = await page.evaluate(async (u) => await (await fetch(u)).text(), r.csvUrl);
+  const [head, ...rows] = csv.trim().split('\n');
+  const col = head.split(',').indexOf('FieldOfView');
+  expect(col).toBeGreaterThan(0);
+  expect(rows.map(l => l.split(',')[col])).toEqual(['"50 × 50 µm"', '"30 × 25 µm"', '"2 × 2 mm"']);
+  expect(errors).toEqual([]);
+});

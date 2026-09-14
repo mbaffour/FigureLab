@@ -968,6 +968,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="pickInsetRegion()" style="width:100%;justify-content:center;margin-top:4px" title="Draw the region of the selected panel to magnify. The inset is a new panel bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways.">⧉ Add linked inset…</button>
     <div class="field" style="margin-top:4px"><label for="inset-frames" style="cursor:pointer" title="Draw each inset's region on its parent panel as an outlined box with the inset's letter — the convention readers expect">Outline inset regions on the parent</label>
       <input type="checkbox" id="inset-frames" checked onchange="scheduleRender()"></div>
+    <div class="field"><label for="inset-connectors" style="cursor:pointer" title="Draw two thin lines from the outlined region on the parent to the inset panel, the way zoom-ins are conventionally linked. Only when the inset sits in another cell of the same figure.">Connect outline to inset</label>
+      <input type="checkbox" id="inset-connectors" onchange="scheduleRender()"></div>
     <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Whole panels AND regions within/across panels — a cloned lane, a pasted patch, a hidden re-crop — including rotated and mirrored reuse. The check journals run (Proofig, ImageTwin), before they run it.">🧬 Duplication check</button>
 
     <div class="divider"></div>
@@ -2396,7 +2398,9 @@ let figTextItems = [];      // text drawn each render: for label drag hit-test +
 let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{} }; // drag offsets for shared labels
 let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
-let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h}
+let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h} (on-screen only)
+let _frameSink = null;      // the same, for the render in progress (export included) — feeds the connector lines
+let _insetConnectors = [];  // per-render connector lines {insetIdx, from:[x,y], to:[x,y]} (on-screen only)
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
@@ -4647,6 +4651,17 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0); x+=widths[i]+gap; });
 }
 // A number for the ends of an intensity bar: whole above 100, three figures below.
+// The shown region's physical size, "W × H µm" (mm above a millimetre), from the crop
+// geometry and the calibration; null when uncalibrated.
+function _fovText(im){
+  if(!im||!(im.umPerPx>0)||!im.img) return null;
+  const g=_cropGeom(im); if(!(g.sw>0&&g.sh>0)) return null;
+  const rot=((((im.rotate||0)%180)+180)%180)!==0;
+  let w=(rot?g.sh:g.sw)*im.umPerPx, h=(rot?g.sw:g.sh)*im.umPerPx, u='µm';
+  if(Math.max(w,h)>=1000){ w/=1000; h/=1000; u='mm'; }
+  const f=v=>String(+v.toPrecision(3));
+  return `${f(w)} × ${f(h)} ${u}`;
+}
 function _fmtBarVal(v){ return Math.abs(v)>=100 ? String(Math.round(v)) : String(+(+v).toPrecision(3)); }
 // A vertical intensity bar for a pseudocoloured or grayscale panel: the LUT from the
 // display black point to the white point, with those values at its ends — in the native
@@ -5012,7 +5027,7 @@ function exportCSV(){
   // CropAngle + Resampling are stated as their own columns rather than folded into a
   // note: a tilted crop is the one crop that changes pixel values, so a reader
   // checking the table should not have to infer it.
-  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,Caption,Meta';
+  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,Caption,Meta';
   const lines=[header];
   images.slice(0,cols*rows).forEach((im,i)=>{
     if(!im) return;
@@ -5025,6 +5040,8 @@ function exportCSV(){
       // states from memory; it is derived here rather than typed.
       (im.insetOf?(_findPanelById(im.insetOf)?.label||'?'):''),
       (im.insetOf?(_insetMag(im)+'×'):''),
+      // The physical size of the region shown, from the crop and the calibration.
+      `"${_fovText(im)||''}"`,
       `"${(im.captionNote||'').replace(/"/g,'""')}"`,
       `"${(im.metaNote||'').replace(/"/g,'""')}"`].join(','));
   });
@@ -5136,7 +5153,9 @@ function render(targetCanvas, exportScale, opts){
   const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
   const skipLabels = !!_skipOpt;
   figTextItems = [];
-  if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; }
+  if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
+  _frameSink = [];
+  const _cellRects = new Map();   // idx → the cell drawn this render, for the connector pass
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
@@ -5304,6 +5323,7 @@ function render(targetCanvas, exportScale, opts){
         const py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
         const apw=cs*pw+spanGapsW(c,cs,gH), aph=rs*ph+spanGapsH(r,rs,gV);
         if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
+        if(imgIdx>=0) _cellRects.set(imgIdx,{x:px,y:py,w:apw,h:aph});
         if(!im){
           // An empty cell is background in the figure. The tint, the dashed frame and
           // the cell number are editing aids — they used to be drawn into every export
@@ -5477,6 +5497,35 @@ function render(targetCanvas, exportScale, opts){
       }
     }
   }
+
+  // Connector lines from each inset's outline on the parent to the inset's own cell —
+  // the way a zoom-in is conventionally linked to its overview. Two lines join the two
+  // corners of the outline that face the inset to the matching corners of its cell.
+  // Only when the inset sits in another cell; an outline with no visible inset, or
+  // one inside a rotated parent (not recorded), gets none.
+  if(gc('inset-connectors')&&_frameSink&&_frameSink.length){
+    for(const f of _frameSink){
+      const cell=_cellRects.get(f.insetIdx); if(!cell) continue;
+      const fc=[f.x+f.w/2,f.y+f.h/2], cc=[cell.x+cell.w/2,cell.y+cell.h/2];
+      const ddx=cc[0]-fc[0], ddy=cc[1]-fc[1];
+      let a,b,c,d;
+      if(Math.abs(ddx)>=Math.abs(ddy)){
+        if(ddx>0){ a=[f.x+f.w,f.y]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x,cell.y+cell.h]; }
+        else     { a=[f.x,f.y];     b=[f.x,f.y+f.h];     c=[cell.x+cell.w,cell.y]; d=[cell.x+cell.w,cell.y+cell.h]; }
+      } else {
+        if(ddy>0){ a=[f.x,f.y+f.h]; b=[f.x+f.w,f.y+f.h]; c=[cell.x,cell.y]; d=[cell.x+cell.w,cell.y]; }
+        else     { a=[f.x,f.y];     b=[f.x+f.w,f.y];     c=[cell.x,cell.y+cell.h]; d=[cell.x+cell.w,cell.y+cell.h]; }
+      }
+      ctx.save(); ctx.setLineDash([]);
+      for(const [p1,p2] of [[a,c],[b,d]]){
+        ctx.strokeStyle='rgba(0,0,0,.45)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.stroke();
+        ctx.strokeStyle=f.ink; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); ctx.stroke();
+        if(!isExport) _insetConnectors.push({insetIdx:f.insetIdx, from:p1, to:p2});
+      }
+      ctx.restore();
+    }
+  }
+  _frameSink=null;
 
   // Draw committed annotations (logical dims — ctx is scaled by S)
   drawAnnotations(ctx, totalW, totalH);
@@ -7713,7 +7762,7 @@ const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
 const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color','inset-frames','show-tags','tag-channels','label-auto-color','sb-auto-color'];
+  'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color'];
 function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
@@ -9643,6 +9692,7 @@ function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr,
     const fx=x0+r.x*dw, fy=y0+r.y*dh, fw=r.w*dw, fh=r.h*dh;
     if(fw<2||fh<2) continue;
     if(!isExport&&!transformed) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh});
+    if(_frameSink&&!transformed) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, ink:lblClr||'#fff'});
     ctx.save();
     ctx.setLineDash([]);
     ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=3.5; ctx.strokeRect(fx,fy,fw,fh);
@@ -10619,6 +10669,9 @@ function generateCaption(){
       const calHint=im.umPerPx>0?` (${(+im.umPerPx.toPrecision(3))} µm per pixel)`:'';
       s+=` Scale bar, ${_sbLabel(im)}${calHint}.`;
     }
+    // The field of view actually shown — the cropped region in physical units — which a
+    // methods section needs and a reader cannot recover from a scale bar alone.
+    if(im.umPerPx>0&&!parent){ const fov=_fovText(im); if(fov) s+=` Field of view ${fov}.`; }
     // Metadata note
     if(meta) s+=` ${meta}.`;
     // Image adjustments — every one that was applied, not just the levels. An inset
