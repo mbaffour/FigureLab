@@ -494,6 +494,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showOnlySelectedPanels()" title="Keep only the ticked panels in the figure; hide the rest">☑ Show only ticked</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showAllPanels()" title="Bring every hidden panel back into the figure">👁 Show all</button>
     </div>
+    <div class="sec-lbl" style="margin-top:6px">Combine ticked panels <span class="help-chip" tabindex="0" role="button" aria-label="About projections" data-tip="Tick panels of the same pixel size — the pages of a z-stack, say — and collapse them into one new panel: the brightest value at each pixel (maximum intensity projection) or the average. Computed on the displayed 8-bit pixels; the source panels are kept.">?</span></div>
+    <div class="inline-row">
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="projectTickedPanels('max')" title="Maximum intensity projection of the ticked panels into a new panel">⬆ Max projection</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="projectTickedPanels('mean')" title="Pixelwise mean of the ticked panels into a new panel">≈ Mean</button>
+    </div>
     <button class="btn adv" style="width:100%;justify-content:center;font-size:11px;margin-top:4px;color:var(--danger)" onclick="deleteHiddenPanels()" title="Permanently remove the panels that are currently hidden">🗑 Delete hidden panels…</button>
 
     <div class="divider"></div>
@@ -539,6 +544,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
       <input type="number" id="panel-h" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
+    <button class="btn" style="width:100%;justify-content:center;font-size:11px;margin:3px 0 0" onclick="insertBlankCell()" title="Leave a grid position empty — after the selected panel, or at the end — to hold a place for a schematic added later or to align a ragged row. It is background in the export.">▭ Insert blank cell</button>
     <div class="inline-row" style="margin:3px 0 5px">
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. Spanning panels are counted as one cell.">⊞ Fit grid to panels</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitPanelsToContent()" title="Match the panel shape to your images so they fill the cell — a 4:3 crop in a square cell leaves white bars above and below">⤢ Fit panels to images</button>
@@ -3446,6 +3452,9 @@ const CMD_REGISTRY=[
   // Crop: every entry point is searchable. Previously only 2 of 12 were, so typing
   // "crop" in the palette returned a single result and taught the user nothing.
   {label:'Show only ticked panels',  keys:'subset show only selected hide panels some', run:()=>showOnlySelectedPanels()},
+  {label:'Max projection of ticked panels', keys:'mip maximum intensity projection z-stack combine collapse', run:()=>projectTickedPanels('max')},
+  {label:'Mean of ticked panels',    keys:'mean average projection combine frames', run:()=>projectTickedPanels('mean')},
+  {label:'Insert blank cell',        keys:'blank empty cell spacer gap placeholder grid', run:()=>insertBlankCell()},
   {label:'Show all panels',          keys:'show all unhide restore panels subset',      run:()=>showAllPanels()},
   {label:'Delete hidden panels…',    keys:'delete hidden excluded panels remove',       run:()=>deleteHiddenPanels()},
   {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape', run:()=>fitPanelsToContent()},
@@ -3811,7 +3820,20 @@ function renderImgList(){
   list.innerHTML = '';
   const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
   images.forEach((im, idx) => {
-    if(!im) return; // empty grid slot (ragged multi-crop / panel-drag padding)
+    if(!im){
+      // An empty grid slot — inserted on purpose as a spacer, or left by a ragged
+      // multi-crop or a panel drag. It used to be invisible here, so it could not be
+      // removed except by dragging a panel into it.
+      const row=document.createElement('div'); row.className='img-item blank-slot';
+      row.style.cssText='display:flex;align-items:center;gap:6px;opacity:.75';
+      row.innerHTML=`<span style="flex:1;color:var(--muted);font-size:11px">▭ blank cell (slot ${idx+1})</span>`
+        +`<button class="icon-btn del" aria-label="Remove this blank cell" title="Remove this blank cell" data-delblank="${idx}">×</button>`;
+      row.querySelector('[data-delblank]').addEventListener('click',()=>{
+        pushUndo(); images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
+      });
+      list.appendChild(row);
+      return;
+    }
     const item = document.createElement('div');
     item.className = 'img-item';
     item.draggable = true;
@@ -5231,6 +5253,11 @@ function render(targetCanvas, exportScale, opts){
         const apw=cs*pw+spanGapsW(c,cs,gH), aph=rs*ph+spanGapsH(r,rs,gV);
         if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
         if(!im){
+          // An empty cell is background in the figure. The tint, the dashed frame and
+          // the cell number are editing aids — they used to be drawn into every export
+          // that had a trailing empty cell (five panels in a 3 × 2 grid), so the
+          // journal got a faint dashed box with a "6" in it.
+          if(isExport){ seq++; continue; }
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.05)':'rgba(0,0,0,.04)';
           ctx.fillRect(px,py,apw,aph);
           ctx.save();
@@ -10492,7 +10519,7 @@ function generateCaption(){
   const cols=gi('cols'), rows=gi('rows');
   const n=Math.min(images.length,cols*rows);
   if(!n){ toast('No images to caption','warn'); return; }
-  const parts=images.slice(0,n).map(im=>{
+  const parts=images.slice(0,n).filter(Boolean).map(im=>{
     const note=im.captionNote?.trim();
     const meta=im.metaNote?.trim();
     // Build description
@@ -10544,8 +10571,8 @@ function generateCaption(){
     return s;
   });
   // Detect if fluorescence figure
-  const hasLut=images.slice(0,n).some(im=>im.lut&&im.lut!=='none');
-  const hasGray=images.slice(0,n).every(im=>im.grayscale);
+  const hasLut=images.slice(0,n).some(im=>im&&im.lut&&im.lut!=='none');
+  const hasGray=images.slice(0,n).filter(Boolean).every(im=>im.grayscale);
   let preamble='';
   if(hasLut) preamble='Fluorescence microscopy images. ';
   else if(hasGray) preamble='Grayscale images. ';
@@ -10690,7 +10717,8 @@ function serializeSession(bundleImages){
       axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
     exportDpi:gv('export-dpi'), exportWidthMm:gv('export-width-mm'), exportName:gv('export-name'),
-    images:images.map(im=>({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
+    // An empty slot is saved as null so a blank cell keeps its place in the grid.
+    images:images.map(im=>im?({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,sbUnit:im.sbUnit||'µm',brightness:im.brightness,contrast:im.contrast,
       cropT:im.cropT,cropL:im.cropL,cropB:im.cropB,cropR:im.cropR,cropShape:im.cropShape||'rect',
       cropAngle:im.cropAngle||0,
@@ -10707,7 +10735,7 @@ function serializeSession(bundleImages){
       src: _bundle ? im.src : undefined,
       svgSource: (_bundle && im.svgSource) ? im.svgSource : undefined,
       channels:(im.channels||[]).map(c=>({name:c.name, src:_bundle?c.src:undefined, lut:c.lut,blackPt:c.blackPt,whitePt:c.whitePt})),
-      panelAnns:im.panelAnns||[] })),
+      panelAnns:im.panelAnns||[] }):null),
     annotations,
     measurements,
     notes:document.getElementById('fig-notes')?.value||'',
@@ -10819,6 +10847,7 @@ function applySession(s,_opts){
       if(Array.isArray(s.images)){
         let legacy=0;
         images=s.images.reduce((arr,d)=>{
+          if(d===null){ arr.push(null); return arr; }   // a blank cell keeps its place
           if(!d.src){ legacy++; return arr; } // session saved before pixel data was embedded
           const im={...d};
           im.channels=Array.isArray(d.channels)?d.channels.map(c=>({...c})):[];
@@ -11004,7 +11033,7 @@ ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height =
 // ═══════════════════════════════════════════════════════════════
 function exportR(){
   const cols=gi('cols'),rows=gi('rows');
-  const cfg=images.map(im=>`  list(label="${im.label}",sb_on=${im.sbOn},um_per_px=${im.umPerPx||0},sb_um=${im.sbUm},brightness=${im.brightness},contrast=${im.contrast},crop=c(${im.cropT},${im.cropL},${im.cropB},${im.cropR}))`).join(',\n');
+  const cfg=images.filter(Boolean).map(im=>`  list(label="${im.label}",sb_on=${im.sbOn},um_per_px=${im.umPerPx||0},sb_um=${im.sbUm},brightness=${im.brightness},contrast=${im.contrast},crop=c(${im.cropT},${im.cropL},${im.cropB},${im.cropR}))`).join(',\n');
   const cLbls=[...document.querySelectorAll('#col-label-inputs input')].map(i=>`"${i.value}"`).join(',');
   const rLbls=[...document.querySelectorAll('#row-label-inputs input')].map(i=>`"${i.value}"`).join(',');
   const script=`# FigureLab R Script — generated ${new Date().toISOString().slice(0,10)}
@@ -11058,7 +11087,7 @@ cat("Saved:",output_file,"\\n")`;
 // ═══════════════════════════════════════════════════════════════
 function exportPython(){
   const cols=gi('cols'),rows=gi('rows');
-  const cfg=images.map(im=>`    {"label":"${im.label}","sb_on":${im.sbOn},"um_per_px":${im.umPerPx||0},"sb_um":${im.sbUm},"brightness":${im.brightness},"contrast":${im.contrast},"crop":[${im.cropT},${im.cropL},${im.cropB},${im.cropR}]},`).join('\n');
+  const cfg=images.filter(Boolean).map(im=>`    {"label":"${im.label}","sb_on":${im.sbOn},"um_per_px":${im.umPerPx||0},"sb_um":${im.sbUm},"brightness":${im.brightness},"contrast":${im.contrast},"crop":[${im.cropT},${im.cropL},${im.cropB},${im.cropR}]},`).join('\n');
   const cLbls=[...document.querySelectorAll('#col-label-inputs input')].map(i=>`"${i.value}"`).join(',');
   const rLbls=[...document.querySelectorAll('#row-label-inputs input')].map(i=>`"${i.value}"`).join(',');
   const script=`# FigureLab Python Script — generated ${new Date().toISOString().slice(0,10)}
@@ -11326,6 +11355,64 @@ function togglePanelExcluded(idx){
 }
 // Keep only what is currently selected in the list; everything else is hidden,
 // not deleted.
+// A deliberate empty grid position: after the selected panel, or at the end. The
+// renderer and the panel list already understood a null slot (a ragged multi-crop and
+// a panel drag both leave them); this makes one on purpose, and exports leave it as
+// background.
+function insertBlankCell(){
+  if(layoutMode==='freeform'){ toast('Blank cells apply to the grid','warn'); return; }
+  pushUndo();
+  const at=(selectedPanel>=0&&selectedPanel<images.length)?selectedPanel+1:images.length;
+  images.splice(at,0,null);
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  logAction('insertBlankCell',{slot:at+1});
+  toast(`Blank cell inserted at slot ${at+1} — remove it from the image list`,'ok');
+}
+
+// Collapse the ticked panels — the pages of a z-stack, the frames of a short series —
+// into one new panel: the brightest value at each pixel, or the mean. Computed on the
+// displayed 8-bit pixels, which the new panel's caption note says; the source panels
+// stay, so nothing is lost and the projection can be redone.
+function projectTickedPanels(mode){
+  mode=mode==='mean'?'mean':'max';
+  const sel=_listSelection().filter(i=>images[i]&&images[i].img);
+  if(sel.length<2){ toast('Tick two or more panels of the same pixel size first','warn'); return; }
+  const first=images[sel[0]].img, W=first.naturalWidth||first.width, H=first.naturalHeight||first.height;
+  if(!sel.every(i=>{ const g=images[i].img; return (g.naturalWidth||g.width)===W&&(g.naturalHeight||g.height)===H; })){
+    toast('The ticked panels differ in pixel size — a projection needs matching frames','warn'); return; }
+  if(W*H>25e6){ toast('Too large to project in the browser (over 25 megapixels)','warn'); return; }
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d');
+  const acc=mode==='max'?new Uint8ClampedArray(W*H*4):new Float32Array(W*H*4);
+  for(const i of sel){
+    ctx.clearRect(0,0,W,H); ctx.drawImage(images[i].img,0,0,W,H);
+    const d=ctx.getImageData(0,0,W,H).data;
+    if(mode==='max'){ for(let j=0;j<d.length;j++) if(d[j]>acc[j]) acc[j]=d[j]; }
+    else { for(let j=0;j<d.length;j++) acc[j]+=d[j]; }
+  }
+  const out=ctx.createImageData(W,H);
+  if(mode==='max'){ out.data.set(acc); }
+  else { for(let j=0;j<acc.length;j++) out.data[j]=Math.round(acc[j]/sel.length); }
+  for(let j=3;j<out.data.length;j+=4) out.data[j]=255;
+  ctx.putImageData(out,0,0);
+  const src=c.toDataURL('image/png');
+  const src0=images[sel[0]];
+  const labels=sel.map(i=>formatLabel(images[i].label)||'?').join(', ');
+  const img=new Image();
+  img.onload=()=>{
+    pushUndo();
+    const p=_freshPanel(img, src, `${mode==='max'?'MIP':'mean'}_of_${sel.length}.png`, 'tmp');
+    for(const k of ['lut','grayscale','invert','blackPt','whitePt','gamma','umPerPx','sbUm','sbUnit','sbOn','group']) if(src0[k]!==undefined) p[k]=src0[k];
+    p.raw=null; p.channels=[]; p.label=nextLabel();
+    p.captionNote=`${mode==='max'?'Maximum':'Mean'} intensity projection of ${sel.length} panels (${labels}), on 8-bit display values`;
+    images.splice(sel[sel.length-1]+1,0,p);
+    renderImgList(); renderMiniGrid(); scheduleRender(0);
+    logAction('projectPanels',{mode,panels:sel.length,from:labels});
+    toast(`${mode==='max'?'Max':'Mean'} projection of ${sel.length} panels added as ${formatLabel(p.label)}`,'ok');
+  };
+  img.src=src;
+}
+
 function showOnlySelectedPanels(){
   const keep=new Set(_listSelection());
   if(!keep.size){ toast('Tick the panels you want to keep first','warn'); return; }
@@ -17269,7 +17356,7 @@ function shareSession(){
     exportDpi:gv('export-dpi'),
     annotations,
     // Panel labels/settings but NO src/img data
-    panelSettings: images.map(im=>({
+    panelSettings: images.map(im=>im?({
       label:im.label, sbOn:im.sbOn, umPerPx:im.umPerPx, sbUm:im.sbUm, sbUnit:im.sbUnit,
       brightness:im.brightness, contrast:im.contrast, gamma:im.gamma||1,
       blackPt:im.blackPt||0, whitePt:im.whitePt||255,
@@ -17278,7 +17365,7 @@ function shareSession(){
       cropAngle:im.cropAngle||0,
       cropShape:im.cropShape||'rect', captionNote:im.captionNote||'', metaNote:im.metaNote||'',
       tag:im.tag||'', cbar:!!im.cbar,
-    })),
+    }):null),
     layoutMode,
     _shared: true,
     _imageCount: images.length,
