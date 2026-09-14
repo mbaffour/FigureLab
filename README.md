@@ -1,4 +1,4 @@
-# FigureLab v3.13.1
+# FigureLab v3.14.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,7 +281,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
-### Unreleased — since v3.13.1
+### v3.14.0 — 14 September 2026
+
+A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.
 
 - **Multi-page PDF is the same writer as the single-page PDF.** Lossless (Flate) by default, with a checkbox for JPEG; every page carries its labels as selectable text. Page 2 now shows rows 3–4's labels rather than rows 1–2's again, and exporting no longer discards the row labels past the first page.
 - **The label-format dropdown works.** A B C / a b c / 1 2 3 / i ii iii had matched nothing in the code since it was added. It is a display style for auto letters — on the figure, in the PDF/SVG text layer and in the generated caption — and never touches a typed name.
@@ -589,7 +591,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.13.1) [Computer software].
+> publication-quality scientific figures* (Version 3.14.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -599,7 +601,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.13.1},
+  version   = {3.14.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}

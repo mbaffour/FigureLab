@@ -1758,7 +1758,18 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
-<h3 class="help-h">What's new in v3.13.1 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 12 September 2026</span></h3>
+<h3 class="help-h">What's new in v3.14.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 14 September 2026</span></h3>
+<p class="help-p">A feature release, two days after the audit. Most of it is cropping and what a reader needs to find their way round a figure; some of it came from looking at what QuickFigures, OMERO.figure and FigureJ do that FigureLab did not.</p>
+<ul class="help-ul">
+  <li><b>&#128207; Straighten a crop by reference or by search.</b> <span class="help-ui">&#128208; Level</span>: click two points along any edge that should be straight. <span class="help-ui">&#10024; Auto</span>: a search for the tilt at which the straight features in the box line up, which declines rather than guess. Batch crop keeps a tilt per image. A <b>ratio lock</b>, <b>pixel-exact X/Y/W/H</b>, <b>&#9635; Trim borders</b> for saved plots and scans, and a <b>loupe</b> showing full-resolution pixels under the pointer while you drag. Crops are stored to 0.01&nbsp;% instead of whole percents.</li>
+  <li><b>&#10696; Insets you can place.</b> Draw the inset region in the crop editor; the region is <b>outlined on the parent</b> with the inset's letter, optionally <b>connected by lines</b> to the inset, and the outline can be dragged to move the region. The caption says "Magnified view of the boxed region in (A), 2.0&times; relative to (A)".</li>
+  <li><b>&#127991; Panel tags.</b> A short text on each panel besides its letter &mdash; typed, generated as a series (0&nbsp;min, 5&nbsp;min&hellip;), or the <b>channel names each in its LUT colour</b> (DAPI in blue, GFP in green). Vector text in SVG and PDF. Plus a per-panel <b>intensity bar</b> in native units.</li>
+  <li><b>&#11014; Max and mean projections</b> of ticked panels; <b>blank cells</b> you can insert and remove; <b>&#10070; Fit grid to panels</b>; <b>&#9974; Crop to fill cells</b>; <b>&#8801; Same bar on all calibrated</b> panels.</li>
+  <li><b>&#9698; Spotlight</b> annotation that dims everything but a region, on a panel or the whole figure, exported as an editable SVG path. <b>Auto contrast</b> for letters, tags and scale bars. A <b>&#9640; clipped-pixel preview</b> (ImageJ's HiLo) on the canvas toolbar. <b>Field of view</b> in the caption and metadata CSV.</li>
+  <li><b>Fixed.</b> The multi-page PDF is now the same writer as the single-page one &mdash; lossless by default, labels as selectable text, page 2 with its own row labels. The label-format dropdown (A/a/1/i) had never done anything; it does. An empty grid cell broke the caption and the session save and was drawn into exports with its ghost number; all three fixed. "Reset all crops" also resets the tilt. Enter applies and Escape closes the crop editor.</li>
+  <li><b>425 Playwright tests</b> (up from 378).</li>
+</ul>
+<h3 class="help-h">v3.13.1 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; 12 September 2026</span></h3>
 <p class="help-p">A correctness release, from an independent audit. No new features &mdash; but if you have exported a figure at a journal column width, or pasted a generated caption into a manuscript, please read this.</p>
 <ul class="help-ul">
   <li><b>&#128207; "Printed width" now reaches the file.</b> Choosing a column width (for example <span class="help-ui">183 mm &mdash; double column</span>) at 300 DPI produced a PNG, TIFF and PDF tagged <b>210 dpi and 261 mm</b> &mdash; 43% oversize and below the 300 dpi bar this app's own compliance check had just told you it cleared. The on-screen readout said 183 mm the whole time. Every column preset was affected, and the error grew as the column got narrower. <b>Re-export any figure you made with a column width set.</b></li>
@@ -2368,7 +2379,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.13.1';  // single source of truth for the app version
+const APP_VERSION = '3.14.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
@@ -5473,6 +5484,8 @@ function render(targetCanvas, exportScale, opts){
         }
         // Restore after clip
         if(cshape!=='rect') ctx.restore();
+        // Spotlight veils go under the panel's furniture (letter, tag, scale bar)
+        drawPanelAnnotations(ctx, px, py, apw, aph, im, {only:'spotlight'});
         // Panel label
         if(showLbls){
           const lFmt=gv('label-format')||'custom';
@@ -5565,8 +5578,8 @@ function render(targetCanvas, exportScale, opts){
           ctx.strokeRect(px+bi+im.borderW/2,py+bi+im.borderW/2,apw-2*bi-im.borderW,aph-2*bi-im.borderW);
           ctx.restore();
         }
-        // Panel-bound annotations (follow image when reordered)
-        drawPanelAnnotations(ctx, px, py, apw, aph, im);
+        // Panel-bound annotations (follow image when reordered); the spotlight veil went first
+        drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight'});
         seq++;
       }
     }
@@ -5891,12 +5904,17 @@ function togglePanelAnnMode(){
 }
 
 // Draw panel-bound annotations for one panel cell (pbx,pby,pbw,pbh = cell rect)
-function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im){
+// opts.only / opts.skip select annotation types: the spotlight veil is drawn BEFORE the
+// panel's letter, tag and scale bar so it dims the picture and not the panel's
+// furniture; everything else is drawn after them, on top.
+function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im, opts){
   if(!im?.panelAnns?.length) return;
   const fam=gv('label-font')||'system-ui,sans-serif';
   const wt=gc('label-bold')?'bold':'normal';
   const st=gc('label-italic')?'italic':'normal';
   for(const a of im.panelAnns){
+    if(opts&&opts.only&&a.type!==opts.only) continue;
+    if(opts&&opts.skip&&a.type===opts.skip) continue;
     const x1=pbx+a.xf*pbw, y1=pby+a.yf*pbh;
     const x2=pbx+(a.x2f??a.xf)*pbw, y2=pby+(a.y2f??a.yf)*pbh;
     if(a.type==='text'){
