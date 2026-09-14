@@ -867,6 +867,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="text" id="tag-series-fmt" value="{v} {u}" style="width:62px" title="Pattern: {v} value · {u} unit · {n} panel number">
       <button class="btn" onclick="applySeriesTags()" style="padding:1px 7px;font-size:10px">Apply</button>
     </div>
+    <button class="btn" onclick="tagPanelsFromAcquisition()" style="width:100%;justify-content:center;font-size:11px;margin-top:3px" title="Read the acquisition time each panel arrived with — OME-TIFF DeltaT, an ImageJ frame interval, or the TIFF DateTime tag — and tag the panels with the time elapsed from the earliest of them. No guessing: panels whose file carried no time are left alone.">⏱ Tag from acquisition time</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Scale Bar (global defaults) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="A calibrated bar showing real-world size. Set µm/pixel per panel (Calibrate), then the bar appears. Uncalibrated bars show a ⚠ warning until you calibrate.">?</span></div>
@@ -2683,7 +2684,11 @@ async function decodeTIFF(input, page){
   if(planar!==1 && spp>1) throw new Error('Planar (separate-plane) TIFFs are not supported yet');
   if(fillOrder===2) throw new Error('Reversed fill order is not supported');
 
-  const _cal=_tiffCalibration(T, le);   // physical pixel size (µm/px) from metadata, if present
+  // Page 0's ImageDescription carries the OME XML (and the ImageJ header) for EVERY
+  // plane, so a later page needs it to find its own acquisition time. Parsing one more
+  // IFD reads a few dozen bytes; no pixel data is touched.
+  const T0 = page ? parseIFD(pageOffsets[0]) : T;
+  const _cal=_tiffCalibration(T, le, page, T0);   // physical pixel size (µm/px) and acquisition time, if present
 
   // JPEG-compressed TIFF: decode each block with the browser's JPEG decoder
   if(compression===6 || compression===7){
@@ -2707,7 +2712,8 @@ async function decodeTIFF(input, page){
       const rps=tag(T,278,height), offs=tagArr(T,273,[]), counts=tagArr(T,279,[]);
       for(let s=0;s<offs.length;s++) await blit(bytes.subarray(offs[s],offs[s]+counts[s]), 0, s*rps);
     }
-    return { width, height, rgba: out, pages: pageOffsets.length, note: note.concat('JPEG-compressed').join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource };
+    return { width, height, rgba: out, pages: pageOffsets.length, note: note.concat('JPEG-compressed').join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource,
+             deltaT:_cal.deltaT, acqTime:_cal.acqTime, timeSource:_cal.timeSource };
   }
 
   const bytesPerSampleRow=Math.ceil(width*spp*bitsPerSample/8);
@@ -2798,6 +2804,7 @@ async function decodeTIFF(input, page){
     }
   }
   return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource,
+           deltaT:_cal.deltaT, acqTime:_cal.acqTime, timeSource:_cal.timeSource,
            raw: rawArr ? { data:rawArr, w:width, h:height, bps:bitsPerSample, spp,
                            min:rawMin, max:rawMax, format:sampleFormat,
                            full: sampleFormat===3 ? rawMax : (Math.pow(2,bitsPerSample)-1) } : null };
@@ -2834,7 +2841,8 @@ async function decodeTIFF(input, page){
 // Derive physical pixel size (µm/px) from TIFF metadata, if present.
 // Priority: OME-TIFF → ImageJ → Zeiss LSM → cm-resolution. Inch resolution is
 // skipped (it's almost always print DPI, not a microscopy scale).
-function _tiffCalibration(T, le){
+function _tiffCalibration(T, le, page, T0){
+  page=page|0; T0=T0||T;
   const ascii=t=>{ if(!T[t]) return ''; try{ return new TextDecoder('utf-8').decode(Uint8Array.from(T[t].values)); }catch(e){ let s=''; for(const c of T[t].values){ if(c) s+=String.fromCharCode(c); } return s; } };
   const desc=ascii(270);
   const xres=T[282]?T[282].values[0]:0;
@@ -2853,7 +2861,69 @@ function _tiffCalibration(T, le){
     if(vx>0){ umPerPx=vx*1e6; src='ZeissLSM'; } }
   if(!umPerPx && xres>0 && resUnit===3){ umPerPx=1e4/xres; src='Resolution'; } // cm resolution
   if(!(umPerPx>1e-4 && umPerPx<1e4)){ umPerPx=0; src=''; }                    // sanity: microscopy range
-  return { umPerPx, calibSource:src };
+  return { umPerPx, calibSource:src, ..._tiffTime(T, T0, page, ascii) };
+}
+
+// When was this plane acquired? Two different answers, both useful and neither
+// derivable from the other:
+//   deltaT  — seconds since the start of ITS OWN series (OME Plane DeltaT, or an
+//             ImageJ frame interval times the page number). Exact, and the number a
+//             time-lapse figure wants.
+//   acqTime — absolute epoch ms (TIFF DateTime, or OME AcquisitionDate). Coarser
+//             (DateTime has one-second resolution) but comparable ACROSS files, which
+//             is what a figure built from separate captures needs.
+// Both are recorded when both are there; the tagger prefers deltaT and says which it used.
+const _OME_TIME_UNITS={s:1,sec:1,secs:1,second:1,seconds:1,ms:1e-3,millisecond:1e-3,milliseconds:1e-3,
+  us:1e-6,microsecond:1e-6,microseconds:1e-6,ns:1e-9,min:60,minute:60,minutes:60,h:3600,hr:3600,hour:3600,hours:3600,d:86400,day:86400,days:86400};
+function _omeSeconds(v,u){
+  if(!isFinite(v)) return null;
+  u=String(u||'s').trim().replace(/[µμ]/g,'u').toLowerCase();
+  const f=_OME_TIME_UNITS[u];
+  return f==null?null:v*f;
+}
+// "2026:09:14 10:23:45" (TIFF DateTime) or an ISO-8601 instant (OME AcquisitionDate).
+function _parseTiffDate(str){
+  const t=String(str||'').trim(); if(!t) return null;
+  const m=/^(\d{4})[:\-](\d{2})[:\-](\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(t);
+  if(m){
+    const ms=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
+    // A trailing Z or ±hh:mm means the string was already absolute; otherwise TIFF
+    // DateTime is local time with no zone, and treating it as UTC keeps DIFFERENCES
+    // between pages of one series exact, which is all the tagger uses.
+    const z=/(?:Z|[+-]\d{2}:?\d{2})$/.exec(t);
+    return z ? Date.parse(t) : ms;
+  }
+  const d=Date.parse(t);
+  return isFinite(d)?d:null;
+}
+function _tiffTime(T, T0, page, ascii){
+  const desc0=(function(){ if(!T0||!T0[270]) return '';
+    try{ return new TextDecoder('utf-8').decode(Uint8Array.from(T0[270].values)); }
+    catch(e){ let s=''; for(const c of T0[270].values){ if(c) s+=String.fromCharCode(c); } return s; } })();
+  let deltaT=null, acqTime=null, timeSource='';
+  // OME-TIFF: one <Plane> per image plane, in IFD order by the spec's default mapping.
+  const planes=desc0.match(/<Plane\b[^>]*>/g);
+  if(planes && planes[page]){
+    const m=/DeltaT\s*=\s*"([\d.eE+-]+)"/.exec(planes[page]);
+    if(m){
+      const u=/DeltaTUnit\s*=\s*"([^"]+)"/.exec(planes[page]);
+      const v=_omeSeconds(parseFloat(m[1]), u?u[1]:'s');
+      if(v!=null){ deltaT=v; timeSource='OME Plane DeltaT'; }
+    }
+  }
+  // ImageJ: a frame interval in seconds, so plane p is p intervals in.
+  if(deltaT==null && /ImageJ=/.test(desc0)){
+    const fi=/(?:^|\n)finterval=([\d.eE+-]+)/.exec(desc0);
+    if(fi){ const v=parseFloat(fi[1]); if(isFinite(v)&&v>0){ deltaT=v*page; timeSource='ImageJ frame interval'; } }
+  }
+  // Absolute: this page's own DateTime, else the series' acquisition date.
+  acqTime=_parseTiffDate(ascii(306));
+  if(acqTime!=null && !timeSource) timeSource='TIFF DateTime';
+  if(acqTime==null){
+    const ad=/AcquisitionDate\s*>([^<]+)</.exec(desc0);
+    if(ad){ acqTime=_parseTiffDate(ad[1]); if(acqTime!=null && !timeSource) timeSource='OME AcquisitionDate'; }
+  }
+  return { deltaT, acqTime, timeSource };
 }
 function makeSampleReader(raster, rowBytes, bps, sampleFormat, le){
   if(bps===8) return (y,i)=>raster[y*rowBytes+i];
@@ -2945,7 +3015,8 @@ async function _loadTIFFFile(f, fail){
       const img=new Image(); const src=c.toDataURL('image/png');
       img.onload=()=>resolve({img,src,name:nm}); img.onerror=()=>resolve(null); img.src=src;
     });
-    const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||''});
+    const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
+                         deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||''});
     const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
     if(pages>1){
       for(let p=0;p<pages;p++){
@@ -3147,6 +3218,9 @@ function _resetCropModalUI(){
 function _commitImage(img,src,name,svgSource,calib,raw){
   const cu=(calib&&calib.umPerPx>0)?calib.umPerPx:0;      // µm/px auto-read from metadata
   const cs=(calib&&calib.source)||'';
+  const cdt=(calib&&calib.deltaT!=null)?calib.deltaT:null;   // seconds into its own series
+  const cat=(calib&&calib.acqTime!=null)?calib.acqTime:null; // absolute epoch ms
+  const cts=(calib&&calib.timeSource)||'';
   // only keep native samples that actually match the committed pixels
   if(raw && (raw.w!==img.naturalWidth || raw.h!==img.naturalHeight)) raw=null;
   if(layoutMode==='freeform'){
@@ -3160,11 +3234,13 @@ function _commitImage(img,src,name,svgSource,calib,raw){
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
       umPerPx:cu, sbUm:10, sbUnit:'µm', sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
+      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts,
       svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
       svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null,
       _metaUmPerPx:cu, _metaCalibSource:cs,
+      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts,
       label:nextLabel(),sbOn:true,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
@@ -3515,6 +3591,7 @@ const CMD_REGISTRY=[
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
   {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
   {label:'Apply series tags (0 min, 5 min…)', keys:'tag series time points timestamp label sequence', run:()=>applySeriesTags()},
+  {label:'Tag panels from acquisition time', keys:'tag acquisition time timestamp deltat ome tiff datetime elapsed time-lapse', run:()=>tagPanelsFromAcquisition()},
   {label:'Channel names on panels (toggle)', keys:'tag channel names coloured DAPI GFP merge label', run:()=>{ const el=document.getElementById('tag-channels'); if(el){ el.checked=!el.checked; scheduleRender(); toast(el.checked?'Empty tags show channel names':'Channel names off','ok'); } }},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
   {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
@@ -4861,6 +4938,46 @@ function _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText){
   emitText('cbar',imgIdx,hi, bx-3, by, font, sbClr, 'right','top',0);
   emitText('cbar',imgIdx,lo, bx-3, by+bh, font, sbClr, 'right','alphabetic',0);
 }
+// Elapsed seconds → a short label, in the largest unit that keeps the numbers small.
+function _elapsedLabel(sec, unit){
+  const v=unit==='h'?sec/3600:unit==='min'?sec/60:sec;
+  const r=Math.abs(v)<10?Math.round(v*100)/100:Math.round(v*10)/10;
+  return `${+r.toFixed(2)} ${unit}`;
+}
+// Tag the visible panels with the time elapsed since the earliest of them, from the
+// acquisition time their files carried. Prefers DeltaT (exact, relative to its own
+// series) and falls back to the absolute DateTime (one-second resolution, but the only
+// thing that relates separate captures). Never mixes the two: a figure whose panels
+// come half from one series and half from another has no single zero, and guessing one
+// would put a wrong number in a legend.
+function tagPanelsFromAcquisition(){
+  if(layoutMode==='freeform'){ toast('Tags apply to grid panels','warn'); return; }
+  const order=_gridOrder().filter(i=>images[i]);
+  if(!order.length){ toast('Add images first','warn'); return; }
+  const timed=order.filter(i=>images[i]._metaDeltaT!=null||images[i]._metaAcqTime!=null);
+  if(!timed.length){
+    toast('No panel carried an acquisition time — OME-TIFF, an ImageJ stack or a TIFF with a DateTime tag will have one','warn'); return;
+  }
+  const allDelta=timed.every(i=>images[i]._metaDeltaT!=null);
+  const allAbs=timed.every(i=>images[i]._metaAcqTime!=null);
+  if(!allDelta&&!allAbs){
+    toast('These panels record their times differently (some relative, some absolute) — no common zero, so nothing was tagged','warn'); return;
+  }
+  const secOf=allDelta ? (i=>images[i]._metaDeltaT) : (i=>images[i]._metaAcqTime/1000);
+  const base=Math.min(...timed.map(secOf));
+  const span=Math.max(...timed.map(secOf))-base;
+  const unit=span<90?'s':span<5400?'min':'h';
+  pushUndo();
+  const show=document.getElementById('show-tags'); if(show) show.checked=true;
+  timed.forEach(i=>{ images[i].tag=_elapsedLabel(secOf(i)-base, unit); });
+  renderImgList(); scheduleRender(0);
+  const srcs=[...new Set(timed.map(i=>images[i]._metaTimeSource).filter(Boolean))].join(', ');
+  const skipped=order.length-timed.length;
+  logAction('tagFromAcquisition',{panels:timed.length, unit, source:srcs, skipped});
+  toast(`Tagged ${timed.length} panel${timed.length>1?'s':''} ${images[timed[0]].tag} … ${images[timed[timed.length-1]].tag}`
+    +` (${srcs||'file metadata'})${skipped?` · ${skipped} carried no time`:''}`,'ok');
+}
+
 // Write a numbered series into the tag of every visible panel, in grid order.
 function applySeriesTags(){
   if(layoutMode==='freeform'){ toast('Tags apply to grid panels','warn'); return; }
@@ -5199,7 +5316,7 @@ function exportCSV(){
   // CropAngle + Resampling are stated as their own columns rather than folded into a
   // note: a tilted crop is the one crop that changes pixel values, so a reader
   // checking the table should not have to infer it.
-  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,Caption,Meta';
+  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta';
   const lines=[header];
   images.slice(0,cols*rows).forEach((im,i)=>{
     if(!im) return;
@@ -5214,6 +5331,8 @@ function exportCSV(){
       (im.insetOf?(_insetMag(im)+'×'):''),
       // The physical size of the region shown, from the crop and the calibration.
       `"${_fovText(im)||''}"`,
+      // Whatever acquisition time the file carried, as it was read — never inferred.
+      `"${im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():'')}"`,
       `"${(im.captionNote||'').replace(/"/g,'""')}"`,
       `"${(im.metaNote||'').replace(/"/g,'""')}"`].join(','));
   });

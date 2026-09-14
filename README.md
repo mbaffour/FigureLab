@@ -301,6 +301,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Accessibility:** `.field` labels are associated with their controls at startup (`for` derived, not hand-edited) — 40 inputs a screen reader announced as unlabelled now have names, and clicking the label focuses the control. Muted helper text has a 10 px floor.
 - **Fixed:** the footer carried its own hard-coded version string (v3.9.0) and had drifted behind the header badge; both now stamp from the one constant.
 
+- **⏱ Tag from acquisition time.** A time-lapse dropped in as a multi-page TIFF becomes a row of panels; this reads the time the microscope recorded for each — **OME-TIFF `Plane DeltaT`** (with its unit), an **ImageJ frame interval**, or the baseline **TIFF `DateTime`** tag — and tags the panels with the elapsed time from the earliest of them, in whichever of s / min / h keeps the numbers small. Panels whose file carried no time are left alone, and a figure mixing relative and absolute times is refused rather than given a made-up zero. The time as read also goes into the metadata CSV.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.
