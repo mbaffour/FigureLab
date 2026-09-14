@@ -343,3 +343,34 @@ test('sync levels by channel copies the reference panel’s ranges to every pane
   expect(r.logged).toBe(1);
   expect(errors).toEqual([]);
 });
+
+// ── Channel key ───────────────────────────────────────────────
+
+test('a channel key lists every channel the visible panels show, once, with its swatch, follows the panels, and exports as vector', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    const [A, B, C, D] = images;
+    A.name = 'a_DAPI.tif'; A.lut = 'blue';
+    B.name = 'b_GFP.tif'; B.lut = 'green';
+    C.name = 'c_merge.tif'; C.lut = 'blue'; C.channels.push({ name: 'c_GFP.tif', img: B.img, src: B.src, lut: 'green', blackPt: 0, whitePt: 255 });
+    D.name = 'd_BF.tif';
+    sv('cols', '4'); sv('rows', '1'); onLayoutChange(); render();
+    const rows1 = _figureChannels();
+    annotations.push({ type: 'legend', xf: 0.02, yf: 0.02, color: '#ffffff', width: 1, fontSize: 12, fill: true, fillColor: '#000000', fillOpacity: 0.6 });
+    render();
+    const a = annotations[0];
+    const hit = hitAnnotation(a, 0.02 * canvasLogicalW + 10, 0.02 * canvasLogicalH + 10, canvasLogicalW, canvasLogicalH);
+    const svg = new TextDecoder().decode((await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')))).data);
+    D.excluded = true; render();                              // hide the brightfield panel → the key drops BF
+    const rows2 = _figureChannels();
+    return { rows1, hit, size: [a._w > 40, a._h > 20], svgNames: [...svg.matchAll(/dominant-baseline="central">([A-Za-z]+)<\/text>/g)].map(m => m[1]), swatches: (svg.match(/<rect [^>]*fill="#4ee04e"/g) || []).length, rows2 };
+  });
+  expect(r.rows1).toEqual([{ name: 'DAPI', color: '#6a9cff' }, { name: 'GFP', color: '#4ee04e' }, { name: 'BF', color: null }]);
+  expect(r.hit).toBe(true);
+  expect(r.size).toEqual([true, true]);
+  expect(r.svgNames).toEqual(['DAPI', 'GFP', 'BF']);
+  expect(r.swatches).toBe(1);
+  expect(r.rows2.map(x => x.name)).toEqual(['DAPI', 'GFP']);
+  expect(errors).toEqual([]);
+});

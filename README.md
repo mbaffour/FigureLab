@@ -290,6 +290,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 - **Sync display range by channel** (a panel's settings, and ⌘K): the reference panel's black/white points and gamma go to every other panel and extra channel that shows the *same channel* — DAPI levels to every DAPI, GFP to every GFP — and nothing else changes, not the LUT and not a panel showing a different channel. What QuickFigures and OMERO.figure call synchronising the rendering settings, and what "identical display settings" in a legend has to mean. One undo step.
 
+- **▤ Key** annotation: a channel key for the figure — every channel the visible panels show, once, each with its colour swatch, derived at draw time so it cannot fall out of step with the panels; placed with a click, background and text editable, exported as vector.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

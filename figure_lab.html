@@ -750,6 +750,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="arrow2" onclick="setTool('arrow2')">↔ Arrow2</button>
       <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')">⊢ Ruler</button>
       <button class="ann-tool" data-tool="counter" onclick="setTool('counter')">• Counter</button>
+      <button class="ann-tool" data-tool="legend" onclick="setTool('legend')" title="Click to place a channel key: every channel the visible panels show, each with its colour swatch, kept in step with the panels as they change. Text and background are editable.">▤ Key</button>
       <button class="ann-tool" data-tool="axes" onclick="setTool('axes')" title="Click to place an orientation marker — two crossed arrows lettered D V A P by default (dorsal, ventral, anterior, posterior). Select it and type four letters to change them: R C M L, S I A P…">✛ Axes</button>
     </div>
     <div id="counter-display" style="font-size:10px;color:var(--muted);display:none">Count: <strong id="counter-n">0</strong></div>
@@ -3509,6 +3510,7 @@ const CMD_REGISTRY=[
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
+  {label:'Channel key (legend of channel colours)', keys:'legend key channel colours swatch DAPI GFP list', run:()=>setTool('legend')},
   {label:'Orientation axes marker (D/V, A/P…)', keys:'axes orientation anatomical dorsal ventral anterior posterior compass rostral caudal medial lateral', run:()=>setTool('axes')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
@@ -7839,6 +7841,10 @@ function hitAnnotation(a, x, y, W, H){
   if(a.type==='axes'){
     return Math.hypot(x-a.xf*W, y-a.yf*H) < (a.arm||24)+10;
   }
+  if(a.type==='legend'){
+    const lx=a.xf*W, ly=a.yf*H, lw=a._w||80, lh=a._h||30;
+    return x>=lx-T&&x<=lx+lw+T&&y>=ly-T&&y<=ly+lh+T;
+  }
   if(a.type==='rect'||a.type==='spotlight'){
     const rx=Math.min(a.xf,a.x2f)*W, ry=Math.min(a.yf,a.y2f)*H;
     const rw=Math.abs(a.x2f-a.xf)*W, rh=Math.abs(a.y2f-a.yf)*H;
@@ -8009,7 +8015,49 @@ function _drawAxes(ctx, x, y, a){
   ctx.restore();
 }
 
+// ── Channel key ───────────────────────────────────────────────
+// Every channel the visible grid panels show, once each, with its swatch — derived at
+// draw time so the key cannot fall out of step with the panels. A brightfield or plain
+// panel recognised from its name is listed without a swatch.
+function _figureChannels(){
+  const seen=new Map();
+  images.forEach(im=>{
+    if(!im||im.excluded) return;
+    const hasLut=!!(im.lut&&im.lut!=='none');
+    if(hasLut||(im.channels&&im.channels.length)){
+      const n=_channelName(im.name, im.lut); if(hasLut&&!seen.has(n)) seen.set(n,_LUT_SWATCH[im.lut]||null);
+    } else { const d=_detectChannel(im.name||''); if(d&&d.label&&d.label!=='Merge'&&!seen.has(d.label)) seen.set(d.label,null); }
+    (im.channels||[]).forEach(ch=>{ const n=_channelName(ch.name, ch.lut); if(!seen.has(n)) seen.set(n,_LUT_SWATCH[ch.lut]||null); });
+  });
+  return [...seen].map(([name,color])=>({name,color}));
+}
+function _legendLayout(ctx, a){
+  const fs=a.fontSize||12, pad=8, sw=fs*0.9, gap=6, lh=fs*1.45;
+  ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+  const rows=_figureChannels();
+  const textW=rows.reduce((m,r)=>Math.max(m,ctx.measureText(r.name).width),0);
+  const w=pad*2+sw+gap+textW, h=pad*2+Math.max(1,rows.length)*lh-(fs*0.45);
+  return {rows,fs,pad,sw,gap,lh,w,h};
+}
+function _drawLegend(ctx, x, y, a){
+  const L=_legendLayout(ctx,a); a._w=L.w; a._h=L.h;
+  ctx.save();
+  if(a.fill!==false){ ctx.globalAlpha=a.fillOpacity??0.6; ctx.fillStyle=a.fillColor||'#000000';
+    ctx.beginPath(); ctx.roundRect?ctx.roundRect(x,y,L.w,L.h,4):ctx.rect(x,y,L.w,L.h); ctx.fill(); ctx.globalAlpha=1; }
+  ctx.font=`bold ${L.fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  if(!L.rows.length){ ctx.fillStyle=a.color||'#fff'; ctx.fillText('no channels', x+L.pad, y+L.h/2); ctx.restore(); return; }
+  L.rows.forEach((r,i)=>{
+    const cy=y+L.pad+i*L.lh+L.fs*0.55;
+    if(r.color){ ctx.fillStyle=r.color; ctx.fillRect(x+L.pad, cy-L.sw/2, L.sw, L.sw); }
+    ctx.fillStyle=r.color||(a.color||'#ffffff');
+    ctx.fillText(r.name, x+L.pad+L.sw+L.gap, cy);
+  });
+  ctx.restore();
+}
+
 function drawAnnotationSingle(ctx, a, W, H){
+  if(a.type==='legend'){ _drawLegend(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='axes'){ _drawAxes(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='textbox'){
     const bx=Math.min(a.xf,a.x2f)*W, by=Math.min(a.yf,a.y2f)*H;
@@ -8335,7 +8383,7 @@ function showAnnFloat(idx){
   document.getElementById('ann-float-font').value=a.fontSize||16;
   const isTxt=a.type==='text'||a.type==='textbox';
   const isInset=a.type==='inset';
-  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox'||a.type==='spotlight';
+  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox'||a.type==='spotlight'||a.type==='legend';
   const isTb=a.type==='textbox';
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
@@ -8457,6 +8505,10 @@ annCanvas.addEventListener('mousedown', e=>{
           inp.style.left=Math.max(4,Math.min(window.innerWidth-200,screenX))+'px';
           inp.style.top=Math.max(4,screenY-14)+'px';
           inp.style.display='block'; inp.value=''; inp.focus();
+        } else if(activeTool==='legend'){
+          pushUndo();
+          annotations.push({type:'legend', xf:x/W, yf:y/H, color:gv('ann-color'), width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+          renderAnnotationList(); scheduleRender(0);
         } else if(activeTool==='axes'){
           pushUndo();
           const im=images[pb.idx]; if(!im.panelAnns) im.panelAnns=[];
@@ -8510,6 +8562,12 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
     // Counter tool: place a numbered dot on click
+    if(activeTool==='legend'){
+      pushUndo();
+      annotations.push({type:'legend', xf:x/W, yf:y/H, color:gv('ann-color'), width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+      renderAnnotationList(); scheduleRender(0);
+      return;
+    }
     if(activeTool==='axes'){
       pushUndo();
       annotations.push({type:'axes', xf:x/W, yf:y/H, text:'D V A P', color:gv('ann-color'), width:gi('ann-width'), fontSize:12});
@@ -10408,6 +10466,16 @@ function exportSVG(name, dpi, canvas){
       const r=8, n=a.n||1;
       annSVG+=`<circle cx="${x1}" cy="${y1}" r="${r}" fill="${a.color||'#ff4444'}" stroke="#ffffff" stroke-width="1.5"/>`
              +`<text x="${x1}" y="${y1}" style="font:bold ${Math.max(8,r*1.2)}px system-ui,sans-serif" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${n}</text>`;
+    } else if(a.type==='legend'){
+      const mc=document.createElement('canvas').getContext('2d');
+      const L=_legendLayout(mc,a); const lx=+x1, ly=+y1; const f2=v=>v.toFixed(2);
+      const font=`bold ${L.fs}px ${fam}`;
+      if(a.fill!==false) annSVG+=`<rect x="${f2(lx)}" y="${f2(ly)}" width="${f2(L.w)}" height="${f2(L.h)}" rx="4" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}"/>`;
+      L.rows.forEach((r,i)=>{
+        const cy=ly+L.pad+i*L.lh+L.fs*0.55;
+        if(r.color) annSVG+=`<rect x="${f2(lx+L.pad)}" y="${f2(cy-L.sw/2)}" width="${f2(L.sw)}" height="${f2(L.sw)}" fill="${r.color}"/>`;
+        annSVG+=`<text x="${f2(lx+L.pad+L.sw+L.gap)}" y="${f2(cy)}" style="font:${font}" fill="${r.color||col}" dominant-baseline="central">${esc(r.name)}</text>`;
+      });
     } else if(a.type==='axes'){
       const [up,down,left,right]=_axesLetters(a);
       const cx=+x1, cy=+y1, L=a.arm||24, fs=a.fontSize||12, hl=6;
