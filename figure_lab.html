@@ -823,6 +823,30 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="roman">i ii iii</option>
       </select>
     </div>
+    <!-- Panel tags: the short text a panel wears besides its letter — a condition, a
+         time point, or its channel names in their LUT colours (DAPI in blue, GFP in
+         green), which is how every fluorescence figure names its channels and what
+         QuickFigures and OMERO.figure generate from metadata. Per panel in the image
+         list; generated as a series here. -->
+    <div class="sec-lbl" style="margin-top:6px">Panel tags <span class="help-chip" tabindex="0" role="button" aria-label="About panel tags" data-tip="A short text on each panel besides its letter — a condition, a time point, or the channel names in their colours. Type one per panel in the image list, generate a numbered series here, or let empty tags fill with channel names.">?</span></div>
+    <div class="field"><label for="show-tags">Show tags</label>
+      <input type="checkbox" id="show-tags" checked onchange="scheduleRender()"></div>
+    <div class="field"><label for="tag-channels" title="Fill each empty tag with the panel's channel names, each in its LUT colour">Channel names</label>
+      <input type="checkbox" id="tag-channels" onchange="scheduleRender()"></div>
+    <div class="field"><label>Position</label>
+      <select id="tag-pos" onchange="scheduleRender()">
+        <option value="tr">Top Right</option><option value="tl">Top Left</option>
+        <option value="br">Bottom Right</option><option value="bl">Bottom Left</option>
+      </select></div>
+    <div style="display:flex;gap:4px;align-items:center;font-size:10px;flex-wrap:wrap;margin-top:2px" title="Write a numbered series into the tag of every visible panel, in grid order — 0 min, 5 min, 10 min…">
+      <span style="color:var(--muted)">Series</span>
+      <input type="number" id="tag-series-start" value="0" step="any" style="width:46px" title="First value">
+      <span style="color:var(--muted)">+</span>
+      <input type="number" id="tag-series-step" value="5" step="any" style="width:46px" title="Step between panels">
+      <input type="text" id="tag-series-unit" value="min" style="width:40px" title="Unit">
+      <input type="text" id="tag-series-fmt" value="{v} {u}" style="width:62px" title="Pattern: {v} value · {u} unit · {n} panel number">
+      <button class="btn" onclick="applySeriesTags()" style="padding:1px 7px;font-size:10px">Apply</button>
+    </div>
 
     <div class="divider"></div>
     <div class="sec-lbl">Scale Bar (global defaults) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="A calibrated bar showing real-world size. Set µm/pixel per panel (Calibrate), then the bar appears. Uncalibrated bars show a ⚠ warning until you calibrate.">?</span></div>
@@ -3126,7 +3150,8 @@ function _detectChannel(name){
     {re:/mcherry|rfp|dsred|tritc|cy3|555|594|texas/, label:'RFP', lut:'magenta', color:'#e5e'},
     {re:/cy5|alexa ?647|647|far.?red/,      label:'Cy5',  lut:'fire',    color:'#e80'},
     {re:/merge|composite|overlay/,          label:'Merge',lut:null,      color:'#aaa'},
-    {re:/phase|dic|bright.?field|\bbf\b/,   label:'BF',   lut:null,      color:'#999'},
+    // \b fails on "cells_BF.tif": an underscore is a word character. Use letter gaps.
+    {re:/phase|(^|[^a-z])dic([^a-z]|$)|bright.?field|(^|[^a-z])bf([^a-z]|$)/, label:'BF', lut:null, color:'#999'},
   ];
   for(const m of map){ if(m.re.test(n)) return m; }
   return null;
@@ -3429,6 +3454,8 @@ const CMD_REGISTRY=[
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
   {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
+  {label:'Apply series tags (0 min, 5 min…)', keys:'tag series time points timestamp label sequence', run:()=>applySeriesTags()},
+  {label:'Channel names on panels (toggle)', keys:'tag channel names coloured DAPI GFP merge label', run:()=>{ const el=document.getElementById('tag-channels'); if(el){ el.checked=!el.checked; scheduleRender(); toast(el.checked?'Empty tags show channel names':'Channel names off','ok'); } }},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
   {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
@@ -3935,6 +3962,10 @@ function renderImgList(){
         </label>
         <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
         <div class="divider"></div>
+        <div class="sec-lbl">Tag (shown on the panel)</div>
+        <input type="text" class="f-tag" value="${esc(im.tag||'')}" placeholder="e.g. 10 min, +ATc — blank: channel names if on" style="width:100%">
+        <div class="field" style="margin-top:4px"><label title="A vertical LUT bar with the display range at its ends — for pseudocoloured or grayscale intensity panels">Intensity bar</label>
+          <input type="checkbox" class="f-cbar" ${im.cbar?'checked':''}></div>
         <div class="sec-lbl">Caption note (not rendered)</div>
         <input type="text" class="f-cap" value="${esc(im.captionNote)}" placeholder="e.g. WT cells, 60×" style="width:100%">
         <div class="sec-lbl" style="margin-top:4px">Metadata note</div>
@@ -4087,6 +4118,8 @@ function renderImgList(){
     item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
     item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
+    item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
+    item.querySelector('.f-cbar').addEventListener('change', e=>{ pushUndo(); images[idx].cbar=e.target.checked; scheduleRender(); });
     item.querySelector('.f-meta').addEventListener('input', e=>{ images[idx].metaNote=e.target.value; });
 
     // Channels
@@ -4503,6 +4536,93 @@ function syncGroupToPanel(srcIdx){
 function _lutChannelName(lut){
   return {blue:'DAPI',green:'GFP',magenta:'RFP',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
 }
+// ── Panel tags and intensity bars ─────────────────────────────
+// Swatches for naming a channel in its own colour: the LUT at full intensity, lifted
+// so it reads on a dark micrograph (pure blue text on black is unreadable).
+const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',cyan:'#4fe3e3',yellow:'#f0e050',fire:'#ff9a3c'};
+function _channelName(name, lut){
+  const d=_detectChannel(name||'');
+  return (d&&d.label&&d.label!=='Merge')?d.label:_lutChannelName(lut);
+}
+// What a panel wears as its tag, as [{str,color}] parts. A typed tag wins, in the label
+// colour. Otherwise, with "Channel names" on, each channel is named in its LUT colour —
+// DAPI in blue, GFP in green — the convention every fluorescence figure uses and readers
+// decode without a legend; a brightfield or DIC panel recognised from its filename gets
+// that name in the label colour.
+function _panelTagParts(im, lblClr){
+  const custom=(im.tag||'').trim();
+  if(custom) return [{str:custom, color:lblClr}];
+  const el=document.getElementById('tag-channels');
+  if(!(el&&el.checked)) return [];
+  const parts=[], hasLut=!!(im.lut&&im.lut!=='none'), chans=im.channels||[];
+  if(hasLut||chans.length) parts.push({str:_channelName(im.name, im.lut), color:hasLut?(_LUT_SWATCH[im.lut]||lblClr):lblClr});
+  else { const d=_detectChannel(im.name||''); if(d&&d.label&&d.label!=='Merge') parts.push({str:d.label, color:lblClr}); }
+  chans.forEach(ch=>parts.push({str:_channelName(ch.name, ch.lut), color:_LUT_SWATCH[ch.lut]||lblClr}));
+  return parts;
+}
+function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText){
+  const show=document.getElementById('show-tags'); if(show&&!show.checked) return;
+  const parts=_panelTagParts(im, lblClr); if(!parts.length) return;
+  const pos=gv('tag-pos')||'tr';
+  const fs=Math.max(7,Math.round((lblSz||12)*0.8));
+  const font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+  ctx.font=font;
+  const gap=ctx.measureText(' ').width*1.5;
+  const widths=parts.map(p=>ctx.measureText(p.str).width);
+  const total=widths.reduce((a,b)=>a+b,0)+gap*(parts.length-1);
+  const pad=6;
+  let x=pos.endsWith('r') ? dx+dw-pad-total : dx+pad;
+  const y=pos.startsWith('t') ? dy+pad+fs : dy+dh-pad;
+  parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0); x+=widths[i]+gap; });
+}
+// A number for the ends of an intensity bar: whole above 100, three figures below.
+function _fmtBarVal(v){ return Math.abs(v)>=100 ? String(Math.round(v)) : String(+(+v).toPrecision(3)); }
+// A vertical intensity bar for a pseudocoloured or grayscale panel: the LUT from the
+// display black point to the white point, with those values at its ends — in the native
+// units when the raw samples are kept (display 0–255 is raw.min–raw.max), else in 8-bit
+// display units. An RGB photograph has no single intensity axis and gets none.
+function _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText){
+  const lut=(im.lut&&im.lut!=='none')?LUTS[im.lut]:null;
+  if(!lut&&!im.grayscale) return;
+  const bw=Math.max(4,Math.round(dw*0.03)), bh=Math.max(20,Math.round(dh*0.4));
+  const pad=Math.max(6,Math.round(dw*.04));
+  const bx=dx+dw-pad-bw, by=dy+Math.round((dh-bh)/2);
+  ctx.save();
+  for(let i=0;i<bh;i++){
+    let v=Math.round(255*(1-i/(bh-1))); if(im.invert) v=255-v;
+    const c=lut?lut(v):[v,v,v];
+    ctx.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`; ctx.fillRect(bx,by+i,bw,1);
+  }
+  ctx.strokeStyle='rgba(0,0,0,.6)'; ctx.lineWidth=1; ctx.strokeRect(bx-0.5,by-0.5,bw+1,bh+1);
+  ctx.restore();
+  const bp=im.blackPt||0, wp=(im.whitePt==null?255:im.whitePt);
+  const raw=im.raw, native=!!(raw&&raw.min!=null&&raw.max!=null&&raw.max>raw.min);
+  const toNative=v=>raw.min+(v/255)*(raw.max-raw.min);
+  const hi=_fmtBarVal(native?toNative(wp):wp), lo=_fmtBarVal(native?toNative(bp):bp);
+  const sfs=Math.max(7,Math.round(9*dw/300)), font=`${sfs}px system-ui,sans-serif`;
+  emitText('cbar',imgIdx,hi, bx-3, by, font, sbClr, 'right','top',0);
+  emitText('cbar',imgIdx,lo, bx-3, by+bh, font, sbClr, 'right','alphabetic',0);
+}
+// Write a numbered series into the tag of every visible panel, in grid order.
+function applySeriesTags(){
+  if(layoutMode==='freeform'){ toast('Tags apply to grid panels','warn'); return; }
+  const start=parseFloat(gv('tag-series-start')); const step=parseFloat(gv('tag-series-step'));
+  if(!isFinite(start)||!isFinite(step)){ toast('Give the series a start and a step','warn'); return; }
+  const unit=(gv('tag-series-unit')||'').trim(), fmt=gv('tag-series-fmt')||'{v} {u}';
+  const order=_gridOrder().filter(i=>images[i]);
+  if(!order.length){ toast('Add images first','warn'); return; }
+  pushUndo();
+  const show=document.getElementById('show-tags'); if(show) show.checked=true;
+  order.forEach((idx,k)=>{
+    const v=start+k*step;
+    const vs=String(+v.toFixed(6));
+    images[idx].tag=fmt.replace(/\{v\}/g,vs).replace(/\{u\}/g,unit).replace(/\{n\}/g,String(k+1)).replace(/\s+$/,'');
+  });
+  renderImgList(); scheduleRender(0);
+  logAction('seriesTags',{panels:order.length,start,step,unit});
+  toast(`Tagged ${order.length} panel${order.length>1?'s':''}: ${images[order[0]].tag} … ${images[order[order.length-1]].tag}`,'ok');
+}
+
 function splitChannelRow(srcIdx){
   const im=images[srcIdx]; if(!im) return;
   if(!im.channels || !im.channels.length){ toast('Add extra channels to this panel first — a split needs a merge to split','warn'); return; }
@@ -5247,6 +5367,10 @@ function render(targetCanvas, exportScale, opts){
             }
           }
         }
+        // Panel tag (a condition, a time point, or the channel names in their colours)
+        _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText);
+        // Intensity bar for pseudocoloured / grayscale panels
+        if(im.cbar) _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText);
         // Global panel border (with inset)
         const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
         if(panelBorderW>0){
@@ -7501,9 +7625,9 @@ function cloneElemForUndo(el){
 }
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
-  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h'];
+  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
 const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color','inset-frames'];
+  'axis-bold','axis-italic','axis-auto-color','inset-frames','show-tags','tag-channels'];
 function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
@@ -10571,6 +10695,7 @@ function serializeSession(bundleImages){
       cropT:im.cropT,cropL:im.cropL,cropB:im.cropB,cropR:im.cropR,cropShape:im.cropShape||'rect',
       cropAngle:im.cropAngle||0,
       captionNote:im.captionNote,metaNote:im.metaNote,grayscale:im.grayscale,invert:im.invert,
+      tag:im.tag||'', cbar:!!im.cbar,
       lut:im.lut||'none',blackPt:im.blackPt||0,whitePt:im.whitePt||255,
       gamma:im.gamma||1, rotate:im.rotate||0, flipH:im.flipH||false, flipV:im.flipV||false,
       locked:im.locked||false, excluded:im.excluded||false, group:im.group||'',
@@ -17152,6 +17277,7 @@ function shareSession(){
       cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0,
       cropAngle:im.cropAngle||0,
       cropShape:im.cropShape||'rect', captionNote:im.captionNote||'', metaNote:im.metaNote||'',
+      tag:im.tag||'', cbar:!!im.cbar,
     })),
     layoutMode,
     _shared: true,
