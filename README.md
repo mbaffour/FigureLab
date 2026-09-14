@@ -304,6 +304,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Connect outline to inset**: two thin lines from the outlined region on the parent to the inset's cell, joining the facing corners, the way a zoom-in is conventionally linked to its overview. Off by default.
 - **Field of view in the caption and the metadata CSV**: for every calibrated panel, the physical size of the region actually shown — "Field of view 30 × 25 µm" (mm above a millimetre) — from the crop and the calibration. A methods section needs it and a reader cannot recover it from a scale bar.
 - **▨ Clipped-pixel preview** (canvas toolbar, beside the CVD preview): ImageJ's HiLo view for the whole figure — pixels at the display maximum in red, at zero in blue, with the percentages — on every panel's picture, skipping scale bars and label chips. A saturated pixel carries no measurable intensity, and reviewers look for them. Display only; exports never see it.
+- **◪ Spotlight** annotation: dim everything but a region — within the panel you draw it on in panel mode, or across the whole figure — with an editable veil colour and opacity. The pixels inside are untouched: this is emphasis, not an adjustment. Exports to SVG as one even-odd path plus the outline, editable like the other shapes.
+- **The caption uses a panel's tag** as its description when there is no caption note, so a time series reads "(A) 0 min. (B) 10 min." rather than "Panel A. Panel B."
 - **Enter applies and Escape closes the crop editor.** Escape goes through the same path as ×, so multi-crop still asks before discarding regions.
 
 ### v3.13.1 — 12 September 2026

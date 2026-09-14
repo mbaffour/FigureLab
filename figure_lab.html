@@ -742,6 +742,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="arrow" onclick="setTool('arrow')">↗ Arrow</button>
       <button class="ann-tool" data-tool="rect"  onclick="setTool('rect')">□ Rect</button>
       <button class="ann-tool" data-tool="ellipse" onclick="setTool('ellipse')">○ Ellipse</button>
+      <button class="ann-tool" data-tool="spotlight" onclick="setTool('spotlight')" title="Dim everything but a region — on the panel you draw it on (panel mode), or across the whole figure. The pixels inside are untouched; the veil's colour and opacity are editable.">◪ Spotlight</button>
       <button class="ann-tool" data-tool="text"  onclick="setTool('text')">T Text</button>
       <button class="ann-tool" data-tool="textbox" onclick="setTool('textbox')">⬜ TextBox</button>
       <button class="ann-tool" data-tool="line"  onclick="setTool('line')">╱ Line</button>
@@ -3491,6 +3492,7 @@ const CMD_REGISTRY=[
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
+  {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
   {label:'Starter: 2×2 grid',        keys:'starter template 2x2 grid layout',   run:()=>applyStarter('grid2x2')},
@@ -5908,8 +5910,12 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im){
       }
       ctx.fillStyle=a.color||'#fff';
       ctx.fillText(a.text, x1, y1);
+    } else if(a.type==='spotlight'){
+      ctx.save(); ctx.beginPath(); ctx.rect(pbx,pby,pbw,pbh); ctx.clip();
+      drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2, a);
+      ctx.restore();
     } else {
-      drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2);
+      drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2, a);
     }
   }
 }
@@ -7774,7 +7780,7 @@ function hitAnnotation(a, x, y, W, H){
   if(a.type==='counter'){
     return Math.hypot(x-a.xf*W, y-a.yf*H) < 12;
   }
-  if(a.type==='rect'){
+  if(a.type==='rect'||a.type==='spotlight'){
     const rx=Math.min(a.xf,a.x2f)*W, ry=Math.min(a.yf,a.y2f)*H;
     const rw=Math.abs(a.x2f-a.xf)*W, rh=Math.abs(a.y2f-a.yf)*H;
     const inX=x>=rx-T && x<=rx+rw+T, inY=y>=ry-T && y<=ry+rh+T;
@@ -8237,7 +8243,7 @@ function showAnnFloat(idx){
   document.getElementById('ann-float-font').value=a.fontSize||16;
   const isTxt=a.type==='text'||a.type==='textbox';
   const isInset=a.type==='inset';
-  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox';
+  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox'||a.type==='spotlight';
   const isTb=a.type==='textbox';
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
@@ -8618,7 +8624,9 @@ annCanvas.addEventListener('mousemove', e=>{
     const {pb}=panelAnnDraw;
     const ctx=annCanvas.getContext('2d');
     ctx.clearRect(0,0,annCanvas.width,annCanvas.height);
+    if(activeTool==='spotlight'){ ctx.save(); ctx.beginPath(); ctx.rect(pb.x,pb.y,pb.w,pb.h); ctx.clip(); }
     drawShape(ctx,activeTool,panelAnnDraw.x0,panelAnnDraw.y0,x,y,gv('ann-color'),gi('ann-width'));
+    if(activeTool==='spotlight') ctx.restore();
     return;
   }
   // Drawing in progress
@@ -8627,7 +8635,7 @@ annCanvas.addEventListener('mousemove', e=>{
     // Shift key: snap to 45° angles (or square for rect/ellipse)
     if(e.shiftKey){
       const dx=x-annState.x0, dy=y-annState.y0;
-      if(activeTool==='rect'||activeTool==='ellipse'){
+      if(activeTool==='rect'||activeTool==='ellipse'||activeTool==='spotlight'){
         const s=Math.max(Math.abs(dx),Math.abs(dy));
         x=annState.x0+Math.sign(dx)*s; y=annState.y0+Math.sign(dy)*s;
       } else {
@@ -8771,6 +8779,7 @@ annCanvas.addEventListener('mouseup', e=>{
       xf:(x0-pb.x)/pb.w, yf:(y0-pb.y)/pb.h,
       x2f:(x -pb.x)/pb.w, y2f:(y -pb.y)/pb.h,
       color:gv('ann-color'), width:gi('ann-width'),
+      ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
     });
     annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
     renderAnnotationList(); scheduleRender(0); return;
@@ -8798,7 +8807,7 @@ annCanvas.addEventListener('mouseup', e=>{
   // Apply shift snap at commit too
   if(e.shiftKey){
     const ddx=x-annState.x0, ddy=y-annState.y0;
-    if(activeTool==='rect'||activeTool==='ellipse'){
+    if(activeTool==='rect'||activeTool==='ellipse'||activeTool==='spotlight'){
       const s=Math.max(Math.abs(ddx),Math.abs(ddy));
       x=annState.x0+Math.sign(ddx)*s; y=annState.y0+Math.sign(ddy)*s;
     } else {
@@ -8816,6 +8825,7 @@ annCanvas.addEventListener('mouseup', e=>{
     x2f:x/annCanvas.width,          y2f:y/annCanvas.height,
     color:gv('ann-color'), width:gi('ann-width'),
     ...(activeTool==='inset'?{insetCorner:'br'}:{}),
+    ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
     ...(activeTool==='ruler'?{rulerLabel:''}:{}),
     ...(activeTool==='textbox'?{text:'Label',fill:true,fillColor:'#000000',fillOpacity:0.6,shape:'rect',fontSize:16,fontFamily:'',bold:false,italic:false}:{}),
   });
@@ -9130,6 +9140,18 @@ function drawShape(ctx, type, x1,y1,x2,y2, color, width, annObj){
       ctx.fillStyle=annObj.fillColor||color; ctx.fillRect(rx,ry,rw,rh); ctx.restore();
     }
     ctx.strokeRect(rx,ry,rw,rh);
+  } else if(type==='spotlight'){
+    // Dim everything but the region: an oversized rect with the region punched out,
+    // filled even-odd. Callers that want the dim confined to a panel clip first. The
+    // pixels inside are untouched — this is emphasis, not an adjustment.
+    const rx=Math.min(x1,x2), ry=Math.min(y1,y2), rw=Math.abs(x2-x1), rh=Math.abs(y2-y1);
+    const W=canvasLogicalW||ctx.canvas.width, H=canvasLogicalH||ctx.canvas.height;
+    ctx.save();
+    ctx.globalAlpha=annObj?.fillOpacity??0.6;
+    ctx.fillStyle=annObj?.fillColor||'#000000';
+    ctx.beginPath(); ctx.rect(-W,-H,W*3,H*3); ctx.rect(rx,ry,rw,rh); ctx.fill('evenodd');
+    ctx.restore();
+    ctx.lineWidth=Math.max(0.5,width); ctx.strokeRect(rx,ry,rw,rh);
   } else if(type==='ellipse'){
     const cx=(x1+x2)/2, cy=(y1+y2)/2, rx=Math.abs(x2-x1)/2, ry=Math.abs(y2-y1)/2;
     ctx.beginPath(); ctx.ellipse(cx,cy,Math.max(1,rx),Math.max(1,ry),0,0,Math.PI*2);
@@ -10236,6 +10258,13 @@ function exportSVG(name, dpi, canvas){
       const rx=Math.min(+x1,+x2), ry=Math.min(+y1,+y2);
       const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
       annSVG+=`<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
+    } else if(a.type==='spotlight'){
+      // The veil as one even-odd path over the whole figure with the region cut out,
+      // then the region's outline — editable in Illustrator or Inkscape like the rest.
+      const rx=Math.min(+x1,+x2), ry=Math.min(+y1,+y2);
+      const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
+      annSVG+=`<path d="M0 0H${W}V${H}H0Z M${rx.toFixed(2)} ${ry.toFixed(2)}h${rw.toFixed(2)}v${rh.toFixed(2)}h${(-rw).toFixed(2)}Z" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}" fill-rule="evenodd"/>`;
+      annSVG+=`<rect x="${rx.toFixed(2)}" y="${ry.toFixed(2)}" width="${rw.toFixed(2)}" height="${rh.toFixed(2)}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
     } else if(a.type==='ellipse'){
       const cx=((+x1+(+x2))/2).toFixed(2), cy=((+y1+(+y2))/2).toFixed(2);
       const rx=(Math.abs(+x2-+x1)/2).toFixed(2), ry2=(Math.abs(+y2-+y1)/2).toFixed(2);
@@ -10705,8 +10734,9 @@ function generateCaption(){
   const parts=images.slice(0,n).filter(Boolean).map(im=>{
     const note=im.captionNote?.trim();
     const meta=im.metaNote?.trim();
-    // Build description
-    let desc=note||'';
+    // Build description: the caption note, else the tag the panel wears on the figure
+    // (a condition, a time point), so "(B) 10 min." rather than "(B) Panel B."
+    let desc=note||(im.tag||'').trim()||'';
     // LUT → channel hint
     const lutLabel=LUT_NAMES[im.lut||'none'];
     let lutInDesc=false, grayInDesc=false;

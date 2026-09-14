@@ -226,3 +226,59 @@ test('the clipped-pixel preview marks saturated pixels red and zero pixels blue 
   expect(r.checked).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('a typed tag becomes the caption description when there is no caption note', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(() => {
+    images[0].tag = '0 min'; images[1].tag = '10 min'; images[1].captionNote = 'Treated cells'; images[2].tag = '';
+    generateCaption();
+    return document.getElementById('caption-out').value;
+  });
+  expect(r).toContain('(A) 0 min.');
+  expect(r).toContain('(B) Treated cells.');            // a note still wins over the tag
+  expect(r).toContain('(C) Panel C.');
+  expect(errors).toEqual([]);
+});
+
+// ── Spotlight annotation ──────────────────────────────────────
+
+test('a spotlight dims everything but its region — across the figure, or within its panel — and exports as an even-odd path', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPainted(page, 200, 200, `ctx.fillStyle='#c8c8c8'; ctx.fillRect(0,0,W,H);`, 'a.png');
+  await seedPainted(page, 200, 200, `ctx.fillStyle='#c8c8c8'; ctx.fillRect(0,0,W,H);`, 'b.png');
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '1'); sv('panel-w', '200'); sv('panel-h', '200'); sv('bg-color', '#ffffff');
+    document.getElementById('show-labels').checked = false; images.forEach(im => im.sbOn = false);
+    onLayoutChange(); render();
+    const fc = document.getElementById('fig-canvas'), fx = fc.getContext('2d');
+    const W = canvasLogicalW, H = canvasLogicalH;
+    const A = panelBounds.find(b => b.idx === 0), B = panelBounds.find(b => b.idx === 1);
+    const at = (x, y) => [...fx.getImageData(Math.round(x), Math.round(y), 1, 1).data].slice(0, 3);
+    // 1. A panel-bound spotlight on A: the middle half of A is lit, the rest of A dimmed, B untouched.
+    images[0].panelAnns = [{ type: 'spotlight', xf: 0.25, yf: 0.25, x2f: 0.75, y2f: 0.75, color: '#ffffff', width: 1, fill: true, fillColor: '#000000', fillOpacity: 0.6 }];
+    render();
+    const panel = { inside: at(A.ix + A.iw * 0.5, A.iy + A.ih * 0.5), edgeA: at(A.ix + A.iw * 0.1, A.iy + A.ih * 0.1), inB: at(B.ix + B.iw * 0.5, B.iy + B.ih * 0.5), gutter: at((A.x + A.w + B.x) / 2, A.y + A.h / 2) };
+    // 2. A figure-wide spotlight: dims B and the gutter too.
+    images[0].panelAnns = [];
+    annotations.push({ type: 'spotlight', xf: (A.ix + A.iw * 0.25) / W, yf: (A.iy + A.ih * 0.25) / H, x2f: (A.ix + A.iw * 0.75) / W, y2f: (A.iy + A.ih * 0.75) / H, color: '#ffffff', width: 1, fill: true, fillColor: '#000000', fillOpacity: 0.6 });
+    render();
+    const global = { inside: at(A.ix + A.iw * 0.5, A.iy + A.ih * 0.5), inB: at(B.ix + B.iw * 0.5, B.iy + B.ih * 0.5), gutter: at((A.x + A.w + B.x) / 2, A.y + A.h / 2) };
+    const hit = hitAnnotation(annotations[0], A.ix + A.iw * 0.5, A.iy + A.ih * 0.5, W, H);
+    const miss = hitAnnotation(annotations[0], B.ix + B.iw * 0.5, B.iy + B.ih * 0.5, W, H);
+    const svg = await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')));
+    const txt = new TextDecoder().decode(svg.data);
+    return { panel, global, hit, miss, evenodd: /fill-rule="evenodd"/.test(txt), veil: /fill="#000000" fill-opacity="0.6"/.test(txt) };
+  });
+  const dim = c => c[0] < 100;                                   // #c8c8c8 (200) under a 60 % black veil ≈ 80
+  expect(dim(r.panel.inside)).toBe(false);  expect(r.panel.inside).toEqual([200, 200, 200]);
+  expect(dim(r.panel.edgeA)).toBe(true);
+  expect(r.panel.inB).toEqual([200, 200, 200]);                  // confined to its panel
+  expect(r.panel.gutter).toEqual([255, 255, 255]);
+  expect(r.global.inside).toEqual([200, 200, 200]);
+  expect(dim(r.global.inB)).toBe(true);                          // the whole figure this time
+  expect(r.global.gutter).not.toEqual([255, 255, 255]);
+  expect(r.hit).toBe(true); expect(r.miss).toBe(false);
+  expect(r.evenodd).toBe(true); expect(r.veil).toBe(true);
+  expect(errors).toEqual([]);
+});
