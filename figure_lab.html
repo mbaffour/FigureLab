@@ -3502,6 +3502,7 @@ const CMD_REGISTRY=[
   {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
   {label:'Crop to fill cells',       keys:'crop fill cell aspect letterbox bars white space', run:()=>fillCellsAll()},
   {label:'Same scale bar on all calibrated panels', keys:'scale bar uniform same length all calibrated', run:()=>uniformScaleBars()},
+  {label:'Sync display range by channel (from selected panel)', keys:'sync levels display range black white point channel DAPI GFP identical settings', run:()=>syncLevelsByChannel(selectedPanel>=0?selectedPanel:images.findIndex(Boolean))},
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
   {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
@@ -4058,6 +4059,7 @@ function renderImgList(){
         </div>
         <div style="display:flex;gap:4px;margin-top:4px">
           <button class="btn" style="flex:1;justify-content:center" data-applyall="${idx}">↔ Apply to all</button>
+          <button class="btn" style="flex:1;justify-content:center" data-synclevels="${idx}" title="Send this panel's black/white points and gamma to every other panel and extra channel that shows the same channel — DAPI to every DAPI, GFP to every GFP — and change nothing else">≡ Sync by channel</button>
           <button class="btn" style="flex:1;justify-content:center" data-matchall="${idx}" title="Copy LUT, brightness, contrast, gamma, black/white point from this panel to all others">≡ Match all to this</button>
         </div>
         <button class="btn adv" data-beforeafter="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Compare this panel's original and adjusted pixels with a drag slider — shows how much you changed the image">⇋ Before / after</button>
@@ -4181,6 +4183,7 @@ function renderImgList(){
 
     // Apply to all panels
     item.querySelector('[data-applyall]').addEventListener('click',()=>applySettingsToAll(idx));
+    item.querySelector('[data-synclevels]').addEventListener('click',()=>syncLevelsByChannel(idx));
     item.querySelector('[data-matchall]').addEventListener('click',()=>matchPanelToAll(idx));
     const _grp=item.querySelector('.f-group');
     if(_grp) _grp.addEventListener('change',e=>{ images[idx].group=e.target.value.trim(); renderImgList(); });
@@ -4634,7 +4637,7 @@ function applySettingsToAll(srcIdx){
   const n=images.filter((im,i)=>im&&i!==srcIdx).length;
   if(!n){ toast('No other panels to apply to','warn'); return; }
   showConfirmModal('Apply to all panels?',
-    `Brightness, contrast, gamma, LUT, and levels from panel ${src.label} will overwrite ${n} other panel(s). This can't be undone.`,
+    `Brightness, contrast, gamma, LUT, and levels from panel ${formatLabel(src.label)} will overwrite ${n} other panel(s). One undo step.`,
     ()=>{
       pushUndo();
       images.forEach((im,i)=>{
@@ -4646,6 +4649,43 @@ function applySettingsToAll(srcIdx){
       logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
       scheduleRender(0); toast(`Settings applied to ${n} panel(s)`,'ok');
     });
+}
+
+// The channel identity a panel or an extra channel shows, for matching display ranges
+// across panels: the detected channel name, else the LUT's usual channel, else
+// "plain" for an unpseudocoloured image.
+function _levelKey(name, lut, hasChannels){
+  if(lut&&lut!=='none') return _channelName(name, lut);
+  const d=_detectChannel(name||'');
+  return (d&&d.label&&d.label!=='Merge')?d.label:'plain';
+}
+// Sync display ranges BY CHANNEL: the reference panel's black/white points (and gamma)
+// go to every other panel and extra channel that shows the same channel — DAPI levels
+// to every DAPI, GFP to every GFP — and nothing else changes: not the LUT, not a
+// panel showing a different channel. This is what QuickFigures and OMERO.figure call
+// synchronising the rendering settings, and it is what "identical display settings"
+// in a legend has to mean when panels are compared. One undo step.
+function syncLevelsByChannel(srcIdx){
+  const src=images[srcIdx]; if(!src||!src.img){ toast('Select a panel to take the levels from','warn'); return; }
+  const ref=new Map();
+  const put=(key,bp,wp,gamma)=>{ if(!ref.has(key)) ref.set(key,{bp:bp||0, wp:(wp==null?255:wp), gamma}); };
+  put(_levelKey(src.name,src.lut), src.blackPt, src.whitePt, src.gamma||1);
+  (src.channels||[]).forEach(ch=>put(_levelKey(ch.name,ch.lut), ch.blackPt, ch.whitePt, null));
+  pushUndo();
+  let panels=0, chans=0; const touched=new Set();
+  images.forEach((im,i)=>{
+    if(!im||i===srcIdx||!im.img) return;
+    const r=ref.get(_levelKey(im.name,im.lut));
+    let hit=false;
+    if(r){ im.blackPt=r.bp; im.whitePt=r.wp; if(r.gamma!=null) im.gamma=r.gamma; hit=true; panels++; }
+    (im.channels||[]).forEach(ch=>{ const rc=ref.get(_levelKey(ch.name,ch.lut)); if(rc){ ch.blackPt=rc.bp; ch.whitePt=rc.wp; ch._cropCache=undefined; ch._cropKey=undefined; hit=true; chans++; } });
+    if(hit){ im._adjCache=undefined; im._adjKey=undefined; touched.add(formatLabel(im.label)||'?'); }
+  });
+  renderImgList(); scheduleRender(0);
+  const keys=[...ref.keys()].join(', ');
+  logAction('syncLevelsByChannel',{src:formatLabel(src.label), channels:keys, panels, extraChannels:chans});
+  if(!panels&&!chans) toast(`No other panel shows ${keys} — nothing to sync`,'warn');
+  else toast(`${keys} levels from ${formatLabel(src.label)} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})`,'ok');
 }
 
 // Linked / "matched" panels: sync adjustments across a named comparison group,

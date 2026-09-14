@@ -288,6 +288,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **✛ Axes** annotation: an orientation marker for histology and embryo panels — two crossed arrows lettered D V A P by default; select it and type four letters (R C M L, S I A P…) to change them. Placed with a click, on a panel or the figure, exported as vector.
 - **Counter markers now reach the SVG export.** They were dropped entirely: the export empties the annotation list for the raster and re-emitted only the types it knew.
 
+- **Sync display range by channel** (a panel's settings, and ⌘K): the reference panel's black/white points and gamma go to every other panel and extra channel that shows the *same channel* — DAPI levels to every DAPI, GFP to every GFP — and nothing else changes, not the LUT and not a panel showing a different channel. What QuickFigures and OMERO.figure call synchronising the rendering settings, and what "identical display settings" in a legend has to mean. One undo step.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

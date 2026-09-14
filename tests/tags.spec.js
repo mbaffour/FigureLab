@@ -313,3 +313,33 @@ test('an axes marker draws crossed arrows with four editable letters, hit-tests 
   expect(r.counter).toBe(true);                             // counters used to be missing from the SVG
   expect(errors).toEqual([]);
 });
+
+// ── Sync display range by channel ─────────────────────────────
+
+test('sync levels by channel copies the reference panel’s ranges to every panel and extra channel showing the same channel, and nothing else', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(() => {
+    const [A, B, C, D] = images;
+    A.name = 'a_GFP.tif'; A.lut = 'green'; A.blackPt = 10; A.whitePt = 200; A.gamma = 0.8;
+    A.channels.push({ name: 'a_DAPI.tif', img: B.img, src: B.src, lut: 'blue', blackPt: 5, whitePt: 150 });
+    B.name = 'b_GFP.tif'; B.lut = 'green'; B.blackPt = 0; B.whitePt = 255; B.gamma = 1;
+    B.channels.push({ name: 'b_DAPI.tif', img: A.img, src: A.src, lut: 'blue', blackPt: 0, whitePt: 255 });
+    C.name = 'c_DAPI.tif'; C.lut = 'blue'; C.blackPt = 0; C.whitePt = 255;        // DAPI as a base panel
+    D.name = 'd_RFP.tif'; D.lut = 'magenta'; D.blackPt = 3; D.whitePt = 250;      // a different channel
+    syncLevelsByChannel(0);
+    const after = {
+      B: [B.blackPt, B.whitePt, B.gamma, B.channels[0].blackPt, B.channels[0].whitePt, B.lut],
+      C: [C.blackPt, C.whitePt, C.lut],
+      D: [D.blackPt, D.whitePt, D.lut],
+    };
+    undo();
+    return { after, undone: [images[1].blackPt, images[1].channels[0].whitePt, images[2].whitePt], logged: reproLog.filter(e => e.action === 'syncLevelsByChannel').length };
+  });
+  expect(r.after.B).toEqual([10, 200, 0.8, 5, 150, 'green']);   // GFP base and DAPI channel both synced; LUT untouched
+  expect(r.after.C).toEqual([5, 150, 'blue']);                  // a DAPI base panel takes the DAPI channel's range
+  expect(r.after.D).toEqual([3, 250, 'magenta']);               // RFP: not in the reference, left alone
+  expect(r.undone).toEqual([0, 255, 255]);
+  expect(r.logged).toBe(1);
+  expect(errors).toEqual([]);
+});
