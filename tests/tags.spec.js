@@ -424,3 +424,69 @@ test('the compliance check warns when panels show the same channel at different 
   expect(r.after).toMatch(/Same range per channel/);
   expect(errors).toEqual([]);
 });
+
+// ── Dragging a tag, and the letter it must not sit on ─────────
+
+test('a tag can be dragged, the drag survives a session round-trip, and a double-click resets it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    sv('cols', '2'); sv('rows', '1'); onLayoutChange();
+    images[0].tag = 'WT';
+    render();
+    const tagOf = () => figTextItems.find(t => t.kind === 'tag');
+    const t0 = tagOf();
+    const c = document.getElementById('ann-canvas'), rect = c.getBoundingClientRect();
+    const lw = canvasLogicalW, lh = canvasLogicalH;
+    const fire = (type, x, y) => c.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0,
+      clientX: rect.left + x * rect.width / lw, clientY: rect.top + y * rect.height / lh }));
+    const gx = t0.bbox.x + t0.bbox.w / 2, gy = t0.bbox.y + t0.bbox.h / 2;
+    fire('mousedown', gx, gy);
+    fire('mousemove', gx - 30, gy + 20);
+    fire('mouseup', gx - 30, gy + 20);
+    render();
+    const moved = { off: [images[0].tagDX, images[0].tagDY], x: tagOf().x, y: tagOf().y };
+    const s = JSON.parse(JSON.stringify(serializeSession(true)));
+    const saved = [s.images[0].tagDX, s.images[0].tagDY];
+    c.dispatchEvent(new MouseEvent('dblclick', { bubbles: true,
+      clientX: rect.left + tagOf().bbox.x * rect.width / lw + 4, clientY: rect.top + (tagOf().bbox.y + 4) * rect.height / lh }));
+    render();
+    return { before: { x: t0.x, y: t0.y }, moved, saved, reset: [images[0].tagDX, images[0].tagDY], resetX: tagOf().x };
+  });
+  expect(r.moved.off).toEqual([-30, 20]);                       // the drag used to do nothing at all
+  expect(r.moved.x).toBeCloseTo(r.before.x - 30, 3);
+  expect(r.moved.y).toBeCloseTo(r.before.y + 20, 3);
+  expect(r.saved).toEqual([-30, 20]);
+  expect(r.reset).toEqual([0, 0]);                              // double-click resets it, like any label
+  expect(r.resetX).toBeCloseTo(r.before.x, 3);
+  expect(errors).toEqual([]);
+});
+
+test('a tag sent to the same corner as the panel letter steps below it instead of over it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300');
+    sv('label-size', '18'); sv('label-pos', 'tl'); sv('tag-pos', 'tr');
+    document.getElementById('show-labels').checked = true;
+    images[0].tag = 'WT'; onLayoutChange(); render();
+    const box = k => figTextItems.find(t => t.kind === k).bbox;
+    const overlap = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+    const apart = { letter: box('panel'), tag: box('tag') };
+    sv('tag-pos', 'tl'); render();                              // both in the same corner
+    const same = { letter: box('panel'), tag: box('tag') };
+    sv('label-pos', 'bl'); render();                            // letter moved away again
+    const moved = { letter: box('panel'), tag: box('tag') };
+    document.getElementById('show-labels').checked = false; sv('label-pos', 'tl'); render();
+    const noLetter = box('tag');
+    return { apartOverlap: overlap(apart.letter, apart.tag), sameOverlap: overlap(same.letter, same.tag),
+             stepped: same.tag.y > same.letter.y, movedOverlap: overlap(moved.letter, moved.tag),
+             backUp: moved.tag.y, noLetterY: noLetter.y };
+  });
+  expect(r.apartOverlap).toBe(false);
+  expect(r.sameOverlap).toBe(false);                            // the tag used to be drawn straight over the letter
+  expect(r.stepped).toBe(true);                                 // …and it steps DOWN, where a reader looks
+  expect(r.movedOverlap).toBe(false);
+  expect(r.backUp).toBeCloseTo(r.noLetterY, 3);                 // no clash, no step
+  expect(errors).toEqual([]);
+});

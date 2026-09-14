@@ -303,6 +303,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 - **⏱ Tag from acquisition time.** A time-lapse dropped in as a multi-page TIFF becomes a row of panels; this reads the time the microscope recorded for each — **OME-TIFF `Plane DeltaT`** (with its unit), an **ImageJ frame interval**, or the baseline **TIFF `DateTime`** tag — and tags the panels with the elapsed time from the earliest of them, in whichever of s / min / h keeps the numbers small. Panels whose file carried no time are left alone, and a figure mixing relative and absolute times is refused rather than given a made-up zero. The time as read also goes into the metadata CSV.
 
+- **Tags and intensity-bar numbers can be dragged**, like every other label, and double-clicked to reset. They were already in the draggable-text layer, so a drag started and the cursor changed — but there was nowhere to store the offset, so nothing moved.
+- **A tag no longer lands on top of the panel letter.** The letter and the tag are placed by two independent settings; sent to the same corner, the tag now steps below the letter.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

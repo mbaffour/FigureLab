@@ -4886,6 +4886,10 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   const show=document.getElementById('show-tags'); if(show&&!show.checked) return;
   let parts=_panelTagParts(im, lblClr); if(!parts.length) return;
   const pos=gv('tag-pos')||'tr';
+  // The letter and the tag are placed by two independent settings, so both can be sent
+  // to the same corner — where the tag used to be drawn straight over the letter. When
+  // they collide the tag steps down one line, which is where a reader expects it.
+  const clash=!!(gc('show-labels')&&(gv('label-pos')||'tl')===pos);
   const fs=Math.max(7,Math.round((lblSz||12)*0.8));
   const font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
   ctx.font=font;
@@ -4894,7 +4898,8 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   const total=widths.reduce((a,b)=>a+b,0)+gap*(parts.length-1);
   const pad=6;
   let x=pos.endsWith('r') ? dx+dw-pad-total : dx+pad;
-  const y=pos.startsWith('t') ? dy+pad+fs : dy+dh-pad;
+  const lblStep=clash ? Math.max(7,lblSz||12)+6 : 0;
+  const y=pos.startsWith('t') ? dy+pad+fs+lblStep : dy+dh-pad-lblStep;
   // Auto contrast applies to text in the label colour; a channel keeps its own colour.
   if(autoS){ const ink=_autoInk(ctx,autoS,x-2,y-fs,total+4,fs+4,lblClr); parts=parts.map(p=>p.color===lblClr?{...p,color:ink}:p); }
   parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0); x+=widths[i]+gap; });
@@ -7940,6 +7945,11 @@ function canvasCoords(canvas, e){
 function getLabelOff(kind,idx){
   if(kind==='panel'){ const im=images[idx]; return im?[im.lblDX||0,im.lblDY||0]:[0,0]; }
   if(kind==='sb'){ const im=images[idx]; return im?[im.sbDX||0,im.sbDY||0]:[0,0]; }
+  // A tag and an intensity bar's numbers are drawn through emitText like every other
+  // label, so labelAtPoint finds them and a drag starts — but neither had anywhere to
+  // put the offset, so the cursor said "grabbing" and nothing moved.
+  if(kind==='tag'){ const im=images[idx]; return im?[im.tagDX||0,im.tagDY||0]:[0,0]; }
+  if(kind==='cbar'){ const im=images[idx]; return im?[im.cbarDX||0,im.cbarDY||0]:[0,0]; }
   if(kind==='title'){ return [labelOffsets.title.dx||0,labelOffsets.title.dy||0]; }
   if(kind==='col'){ const o=labelOffsets.col[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
   if(kind==='row'){ const o=labelOffsets.row[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
@@ -7948,6 +7958,8 @@ function getLabelOff(kind,idx){
 function setLabelOff(kind,idx,dx,dy){
   if(kind==='panel'){ const im=images[idx]; if(im){ im.lblDX=dx; im.lblDY=dy; } return; }
   if(kind==='sb'){ const im=images[idx]; if(im){ im.sbDX=dx; im.sbDY=dy; } return; }
+  if(kind==='tag'){ const im=images[idx]; if(im){ im.tagDX=dx; im.tagDY=dy; } return; }
+  if(kind==='cbar'){ const im=images[idx]; if(im){ im.cbarDX=dx; im.cbarDY=dy; } return; }
   if(kind==='title'){ labelOffsets.title={dx,dy}; return; }
   if(kind==='col'){ labelOffsets.col[idx]={dx,dy}; return; }
   if(kind==='row'){ labelOffsets.row[idx]={dx,dy}; return; }
@@ -11361,6 +11373,7 @@ function serializeSession(bundleImages){
       borderW:im.borderW||0, borderC:im.borderC||'#ffffff', borderInset:im.borderInset||0,
       colSpan:im.colSpan||1, rowSpan:im.rowSpan||1,
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
+      tagDX:im.tagDX||0, tagDY:im.tagDY||0, cbarDX:im.cbarDX||0, cbarDY:im.cbarDY||0,
       isVector: im.isVector||false,
       // Pixel data (bundled mode only) so a saved session reloads without re-dropping files
       src: _bundle ? im.src : undefined,
