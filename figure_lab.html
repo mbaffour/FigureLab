@@ -1349,6 +1349,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="tritan">Tritanopia (blue-yellow)</option>
       </select>
     </label>
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Mark pixels at the display maximum (red — any channel at 255) and at zero (blue — every channel at 0) on every panel, ImageJ's HiLo view. A saturated pixel carries no measurable intensity, and reviewers look for them. Display only — never changes your exported pixels.">
+      <input type="checkbox" id="clip-preview" onchange="setClipPreview(this.checked)" style="margin:0"> ▨ Clipped
+    </label>
     <div class="toolbar-sep"></div>
     <span id="canvas-info" style="font-size:10px;color:var(--muted)">No figure rendered</span>
   </div>
@@ -2401,6 +2404,8 @@ let _sbBars = [];           // per-render scale-bar rects (logical coords) for d
 let _insetFrames = [];      // per-render inset-region outlines drawn on parents {parentIdx, insetIdx, x,y,w,h} (on-screen only)
 let _frameSink = null;      // the same, for the render in progress (export included) — feeds the connector lines
 let _insetConnectors = [];  // per-render connector lines {insetIdx, from:[x,y], to:[x,y]} (on-screen only)
+let clipPreview = false;    // ▨ Clipped: mark saturated / zero pixels on the overlay (display only)
+let _renderStamp = 0;       // bumps on every on-screen render; caches keyed on it go stale with the picture
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
@@ -3447,6 +3452,7 @@ const CMD_REGISTRY=[
   {label:'Show credits & attribution', keys:'credits attribution licence license icons cite', run:()=>showCredits()},
   {label:'Homogenize text & stroke styles', keys:'homogenize consistent font size stroke tidy uniform', run:()=>auditConsistency()},
   {label:'Add linked inset… (draw the region)', keys:'inset magnify zoom daughter linked region detail pick draw', run:()=>pickInsetRegion()},
+  {label:'Clipped-pixel preview (toggle)', keys:'clipped saturated saturation hilo zero pixels preview exposure', run:()=>setClipPreview(!clipPreview)},
   {label:'Add linked inset of the middle third', keys:'inset magnify zoom daughter linked quick centre', run:()=>addLinkedInset()},
   {label:'Label panels from filename fields', keys:'label template tokens filename fields rename', run:()=>applyLabelTemplate()},
   {label:'Duplicate this row', keys:'duplicate row copy layout grid', run:()=>duplicateGridLine('row')},
@@ -3558,6 +3564,71 @@ function _cmdpRun(){
 // Exports read the pixel buffers directly, so output is never affected.
 // ═══════════════════════════════════════════════════════════════
 let cvdMode='none';
+// ── Clipped-pixel preview (ImageJ's HiLo, for the whole figure) ────────────────
+// Reads the composed on-screen figure inside each panel's drawn picture — not the
+// cell's background — and marks pixels at the display maximum in red (any channel at
+// 255: saturated, no measurable intensity there) and at zero in blue (every channel
+// at 0). The scale bar and label chips are skipped, since they are white by design.
+// Drawn on the overlay canvas, so exports never see it; cached per render.
+let _clipCache=null;
+function setClipPreview(on){
+  clipPreview=!!on;
+  const cb=document.getElementById('clip-preview'); if(cb&&cb.checked!==clipPreview) cb.checked=clipPreview;
+  if(clipPreview) toast('Clipped-pixel preview on — red at maximum, blue at zero; display only','ok');
+  drawAnnOverlay();
+}
+function _clipMask(){
+  const fc=document.getElementById('fig-canvas'); if(!fc||!fc.width) return null;
+  const key=`${_renderStamp}|${fc.width}x${fc.height}`;
+  if(_clipCache&&_clipCache.key===key) return _clipCache;
+  const src=fc.getContext('2d');
+  const out=document.createElement('canvas'); out.width=fc.width; out.height=fc.height;
+  const octx=out.getContext('2d');
+  const skip=[];
+  for(const b of _sbBars) skip.push({x:b.left-2,y:b.top-14,w:b.right-b.left+4,h:b.bottom-b.top+16});
+  for(const t of figTextItems) if(t.bbox) skip.push({x:t.bbox.x-2,y:t.bbox.y-2,w:t.bbox.w+4,h:t.bbox.h+4});
+  let hi=0, lo=0, total=0;
+  for(const pb of panelBounds){
+    if(!(pb.iw>0&&pb.ih>0)||!images[pb.idx]) continue;
+    const X=Math.max(0,Math.round(pb.ix)), Y=Math.max(0,Math.round(pb.iy));
+    const Wd=Math.min(fc.width-X,Math.round(pb.iw)), Hd=Math.min(fc.height-Y,Math.round(pb.ih));
+    if(Wd<1||Hd<1) continue;
+    const d=src.getImageData(X,Y,Wd,Hd);
+    const m=octx.createImageData(Wd,Hd);
+    const px=d.data, mp=m.data;
+    const local=skip.filter(r=>r.x<X+Wd&&r.x+r.w>X&&r.y<Y+Hd&&r.y+r.h>Y);
+    for(let y=0;y<Hd;y++){
+      for(let x=0;x<Wd;x++){
+        const i=(y*Wd+x)*4;
+        const r=px[i],g=px[i+1],b=px[i+2];
+        let mark=0;
+        if(r>=255||g>=255||b>=255) mark=1; else if(r===0&&g===0&&b===0) mark=2;
+        if(!mark) { total++; continue; }
+        const ax=X+x, ay=Y+y;
+        let skipped=false;
+        for(const s of local){ if(ax>=s.x&&ax<s.x+s.w&&ay>=s.y&&ay<s.y+s.h){ skipped=true; break; } }
+        total++;
+        if(skipped) continue;
+        if(mark===1){ mp[i]=255; mp[i+1]=40; mp[i+2]=40; hi++; } else { mp[i]=40; mp[i+1]=120; mp[i+2]=255; lo++; }
+        mp[i+3]=230;
+      }
+    }
+    octx.putImageData(m,X,Y);
+  }
+  _clipCache={key, canvas:out, hi, lo, total};
+  return _clipCache;
+}
+function _drawClipOverlay(ctx){
+  const m=_clipMask(); if(!m) return;
+  ctx.drawImage(m.canvas,0,0);
+  const pct=v=>m.total?`${(100*v/m.total).toFixed(v&&100*v/m.total<0.1?2:1)} %`:'0 %';
+  const txt=`▨ clipped — red at maximum ${pct(m.hi)} · blue at zero ${pct(m.lo)} · preview only`;
+  ctx.save(); ctx.font='11px system-ui,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='top';
+  const w=ctx.measureText(txt).width+12;
+  ctx.fillStyle='rgba(0,0,0,.72)'; ctx.fillRect(6,6,w,18);
+  ctx.fillStyle='#fff'; ctx.fillText(txt,12,9); ctx.restore();
+}
+
 function setCvdMode(mode){
   cvdMode=mode||'none';
   const cont=document.getElementById('canvas-container');
@@ -5353,6 +5424,7 @@ function render(targetCanvas, exportScale, opts){
         const scale=Math.min(apw/sw, aph/sh);
         const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
         const dx=px+Math.round((apw-dw)/2), dy=py+Math.round((aph-dh)/2);
+        if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=dx; _pb.iy=dy; _pb.iw=dw; _pb.ih=dh; } }
         ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph);
         // Crop-to-shape clip
         const cshape=im.cropShape||'rect';
@@ -5535,6 +5607,7 @@ function render(targetCanvas, exportScale, opts){
   const rb=document.getElementById('render-btn'); if(rb) rb.classList.remove('stale');
   maybeShowHint();
   canvasLogicalW=totalW; canvasLogicalH=totalH;
+  _renderStamp++;
   // Physical size must come from the SAME scale the export uses (dpi/96, or the
   // target printed width when one is set). Dividing logical px by dpi assumes a
   // scale of 1 and under-reports the real size by ~3x at 300 DPI.
@@ -7960,6 +8033,7 @@ function drawAnnOverlay(){
   ctx.clearRect(0,0,annCanvas.width,annCanvas.height);
   const W=annCanvas.width, H=annCanvas.height;
   gutterChips=[]; labelToggleHit=null;
+  if(clipPreview) _drawClipOverlay(ctx);   // under every interaction mark
 
   // Panel drag: source dimmed, drop target highlighted
   if(panelDragState && panelDragState.moved){

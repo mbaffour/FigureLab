@@ -303,6 +303,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **≡ Same bar on all calibrated** (Scale Bar, and ⌘K): one bar length for every calibrated panel — the selected panel's, or a clean value about a fifth of the median field of view — and the bar switched on. *Split channels into a row* now also switches channel names on, so the row reads DAPI · GFP · merge.
 - **Connect outline to inset**: two thin lines from the outlined region on the parent to the inset's cell, joining the facing corners, the way a zoom-in is conventionally linked to its overview. Off by default.
 - **Field of view in the caption and the metadata CSV**: for every calibrated panel, the physical size of the region actually shown — "Field of view 30 × 25 µm" (mm above a millimetre) — from the crop and the calibration. A methods section needs it and a reader cannot recover it from a scale bar.
+- **▨ Clipped-pixel preview** (canvas toolbar, beside the CVD preview): ImageJ's HiLo view for the whole figure — pixels at the display maximum in red, at zero in blue, with the percentages — on every panel's picture, skipping scale bars and label chips. A saturated pixel carries no measurable intensity, and reviewers look for them. Display only; exports never see it.
 - **Enter applies and Escape closes the crop editor.** Escape goes through the same path as ×, so multi-crop still asks before discarding regions.
 
 ### v3.13.1 — 12 September 2026

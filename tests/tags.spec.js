@@ -188,3 +188,41 @@ test('splitting a multi-channel panel into a row switches channel names on', asy
   expect(r.tags.slice(0, 4)).toEqual(['GFP', 'DAPI', 'GFP', 'DAPI']);   // GFP panel, DAPI panel, then the merge naming both
   expect(errors).toEqual([]);
 });
+
+// ── Clipped-pixel preview ─────────────────────────────────────
+
+test('the clipped-pixel preview marks saturated pixels red and zero pixels blue on the overlay only, and leaves exports alone', async ({ page }) => {
+  const errors = await loadApp(page);
+  // Left half saturated white, right half true black, a mid-grey band between.
+  await seedPainted(page, 300, 300, `
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 120, H);
+    ctx.fillStyle = '#808080'; ctx.fillRect(120, 0, 60, H);
+    ctx.fillStyle = '#000000'; ctx.fillRect(180, 0, 120, H);
+  `);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); sv('bg-color', '#ffffff');
+    document.getElementById('show-labels').checked = false; images[0].sbOn = false;
+    onLayoutChange(); render();
+    const pb = panelBounds[0];
+    const octx = document.getElementById('ann-canvas').getContext('2d');
+    const at = (fx, fy) => [...octx.getImageData(Math.round(pb.ix + fx * pb.iw), Math.round(pb.iy + fy * pb.ih), 1, 1).data];
+    const before = at(0.2, 0.5);
+    setClipPreview(true);
+    const white = at(0.2, 0.5), grey = at(0.5, 0.5), black = at(0.8, 0.5);
+    const m = _clipMask();
+    const c = renderExportCanvas(150); const k = c.width / canvasLogicalW;
+    const ex = [...c.getContext('2d').getImageData(Math.round((pb.ix + 0.2 * pb.iw) * k), Math.round((pb.iy + 0.5 * pb.ih) * k), 1, 1).data].slice(0, 3);
+    setClipPreview(false);
+    const after = at(0.2, 0.5);
+    return { before, white, grey, black, hi: m.hi, lo: m.lo, total: m.total, ex, after, checked: document.getElementById('clip-preview').checked };
+  });
+  expect(r.before[3]).toBe(0);                                   // nothing on the overlay at rest
+  expect(r.white.slice(0, 3)).toEqual([255, 40, 40]);            // saturated → red
+  expect(r.black.slice(0, 3)).toEqual([40, 120, 255]);           // zero → blue
+  expect(r.grey[3]).toBe(0);                                     // mid-grey: unmarked
+  expect(r.hi / r.total).toBeCloseTo(0.4, 1); expect(r.lo / r.total).toBeCloseTo(0.4, 1);
+  expect(r.ex).toEqual([255, 255, 255]);                         // the export is the picture, not the preview
+  expect(r.after[3]).toBe(0);
+  expect(r.checked).toBe(false);
+  expect(errors).toEqual([]);
+});
