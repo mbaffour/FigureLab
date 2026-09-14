@@ -295,6 +295,12 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Black and white points for every extra channel**, as two small sliders under each channel in the panel's channel list. The values existed and were read by the composite and written by *Sync by channel*, but nothing in the interface could set them.
 - **Compliance: display ranges by channel.** A warning row when compared panels show the same channel at different black–white ranges — "GFP: A 10–200, B 0–255" — with *Sync by channel* one click away. Compared panels should share a range, or the legend should say why not.
 
+- **A quiet empty figure.** With no images loaded, the Images section showed a wall of inert panel tools — sort, channel detection, subsets, a red *Delete hidden panels* — on a figure that was still empty. They now appear once there is something for them to act on, and one line says so: the app's existing "hidden with the reason shown" rule applied to the empty case. The IA guard test probes it that way.
+- **Command palette input restored to full width.** The global `input[type=text]{width:76px}` rule outranks a bare class selector, so the palette box was 76 px wide and its placeholder read "Type a co…".
+- **Icon browser shows 12 per group with "Show all N"** instead of rendering every icon at startup (Annotate & Draw: 233 buttons → 108). Search still returns everything that matches. AI suggestion chips fold away under the prompt.
+- **Accessibility:** `.field` labels are associated with their controls at startup (`for` derived, not hand-edited) — 40 inputs a screen reader announced as unlabelled now have names, and clicking the label focuses the control. Muted helper text has a 10 px floor.
+- **Fixed:** the footer carried its own hard-coded version string (v3.9.0) and had drifted behind the header badge; both now stamp from the one constant.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.

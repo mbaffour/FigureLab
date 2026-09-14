@@ -29,8 +29,22 @@ test('no tool is hidden from a default user', async ({ page }) => {
     return {
       simpleClass: document.body.classList.contains('simple-mode'),
       toggleGone: !document.getElementById('mode-toggle'),
-      // one probe from each formerly-gated group
-      filenameParser: vis('fname-pattern'),      // Images
+      // one probe from each formerly-gated group.
+      // The Images tools are CONTEXTUAL since v3.13.1: on an empty figure they are
+      // replaced by one line saying they appear once images are added — the same
+      // "hidden with the reason shown" rule as #count-threshold below, not a mode gate.
+      // So the probe checks the reason is shown when empty, and the tool once not.
+      emptyHintShown: vis('img-empty-hint'),
+      filenameParser: (() => {
+        const c = document.createElement('canvas'); c.width = c.height = 8;
+        const img = new Image(); img.src = c.toDataURL();
+        images.push({ id: 1, img, src: img.src, name: 'p.png', label: 'A', cropT: 0, cropL: 0, cropB: 0, cropR: 0,
+                      brightness: 1, contrast: 1, gamma: 1, blackPt: 0, whitePt: 255, channels: [], panelAnns: [] });
+        renderImgList();
+        const shown = vis('fname-pattern');
+        images.length = 0; renderImgList();
+        return shown;
+      })(),                                      // Images
       themes: vis('theme-presets'),              // Look
       scripts: vis('export-dpi'),                // Export
       // the ROI tool button — NOT #count-threshold, which is legitimately hidden
@@ -42,6 +56,7 @@ test('no tool is hidden from a default user', async ({ page }) => {
   });
   expect(r.simpleClass).toBe(false);
   expect(r.toggleGone).toBe(true);
+  expect(r.emptyHintShown).toBe(true);
   expect(r.filenameParser).toBe(true);
   expect(r.themes).toBe(true);
   expect(r.scripts).toBe(true);

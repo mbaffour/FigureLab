@@ -178,7 +178,9 @@ test('the landing page and .zenodo.json keep step with the app version', () => {
   // feature set behind CITATION.cff's abstract.
   const zen = JSON.parse(read('.zenodo.json').toString('utf8'));
   const cff = read('CITATION.cff').toString('utf8');
-  const abstract = (cff.match(/^abstract: >-\n((?:  .*\n)+)/m)[1] || '')
+  // \r?\n: with core.autocrlf=true the working copy is CRLF, and a regex that demands
+  // a bare \n after ">-" reads the abstract as absent on every Windows checkout.
+  const abstract = (cff.match(/^abstract: >-\r?\n((?:  .*\r?\n)+)/m)[1] || '')
     .split('\n').map(l => l.trim()).filter(Boolean).join(' ');
   const desc = zen.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   expect(desc).toBe(abstract.replace(/\s+/g, ' ').trim());

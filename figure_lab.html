@@ -259,7 +259,10 @@ details[open]>.faq-q::before{content:'▾'}
 /* ── Command palette ────────────────────────────────────────── */
 #cmd-palette{align-items:flex-start}
 #cmd-palette>.modal{max-width:540px;padding:0;margin-top:12vh;overflow:hidden}
-.cmdp-input{width:100%;border:none;border-bottom:1px solid var(--border);background:transparent;
+/* `input.` prefix on purpose: the global input[type=text]{width:76px} rule has higher
+   specificity than a bare class, and was shrinking the palette box to 76px — the
+   placeholder read "Type a co…" and the thing looked broken. */
+input.cmdp-input{width:100%;border:none;border-bottom:1px solid var(--border);background:transparent;
   color:var(--text);font-family:var(--mono);font-size:14px;padding:14px 16px;outline:none;box-sizing:border-box}
 .cmdp-list{list-style:none;max-height:52vh;overflow-y:auto;margin:0;padding:6px}
 .cmdp-item{display:flex;justify-content:space-between;align-items:center;gap:10px;
@@ -471,6 +474,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg,.csv,.tsv" style="display:none">
     <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
+    <!-- Everything below acts on panels. With none loaded it is a wall of inert controls —
+         including a red Delete button — on a figure that is still empty. Hidden until
+         there is something for it to act on; one line says why. -->
+    <div id="img-empty-hint" style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Sorting, channel detection, subsets and brightness matching appear here once you add images.</div>
+    <div id="img-tools" style="display:none">
     <div style="display:flex;gap:4px;margin-top:5px">
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="sortImagesByName()" title="Sort panels by filename in natural order (file2 before file10), then relabel A, B, C…">↕ Sort by name</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="autoDetectChannels()" title="Detect DAPI / GFP / RFP / Cy5 / phase from filenames and assign colourblind-safe LUTs">🎨 Auto-channels</button>
@@ -511,6 +519,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="C">Panel C</option>
       </select></div>
     <button class="btn" onclick="normalizeHistograms()" style="width:100%;justify-content:center" title="Stretch every panel's histogram to match the reference, so brightness is comparable across the figure">📊 Normalize histograms</button>
+    </div>
     <div class="img-list" id="img-list"></div>
   </div>
 </details>
@@ -1059,7 +1068,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
       <input type="checkbox" id="autosave-toggle" checked onchange="setAutosaveEnabled(this.checked)">
       <label for="autosave-toggle" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Keep a local snapshot so you can recover after an accidental close or crash. Stays on your machine.">Autosave &amp; crash recovery</label>
-      <span id="autosave-status" style="margin-left:auto;font-size:9px;color:var(--muted)"></span>
+      <span id="autosave-status" style="margin-left:auto;font-size:10px;color:var(--muted)"></span>
     </div>
 
     <div class="divider"></div>
@@ -1101,8 +1110,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
              fabricated data however it is tagged; a figure tool must not offer it. -->
         <option value="dramatic scientific cover art, journal cover style">Cover art</option>
       </select></div>
-    <div class="sec-lbl" style="margin-top:6px">Quick subjects</div>
-    <div id="ai-quick-prompts" style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px"></div>
+    <!-- 24 suggestion chips were the tallest thing in the section and sat between the
+         prompt and the Generate button — the two things a user is actually looking for. -->
+    <details style="margin-top:6px">
+      <summary class="sec-lbl" style="cursor:pointer">Suggested subjects</summary>
+      <div id="ai-quick-prompts" style="display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 6px"></div>
+    </details>
     <div class="field"><label style="font-size:10px">Remove white bg</label>
       <input type="checkbox" id="ai-remove-bg" title="Key out the white background non-destructively on insert — adjustable (tolerance/feather) and reversible in the element's properties"></div>
 
@@ -1114,7 +1127,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
          Google actively suspends accounts for. The bridge is the honest maximum. -->
     <button class="btn btn-primary" id="ai-bridge-btn" onclick="startGeminiBridge()" style="width:100%;justify-content:center;margin-top:4px">🎨 Generate with your Gemini account</button>
     <button class="btn" onclick="aiGenerateWithReference()" style="width:100%;justify-content:center;margin-top:4px" title="Send the selected schematic object(s) as a style reference along with the prompt (API mode — the reference image is sent to Google)">⧉ Use selection as style reference (API)</button>
-    <div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.4">Free with your Google account. Copies the prompt and opens gemini.google.com — paste it there, then copy the image and paste it back here. FigureLab never sees your login and sends nothing itself.</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.4">Free with your Google account. Copies the prompt and opens gemini.google.com — paste it there, then copy the image and paste it back here. FigureLab never sees your login and sends nothing itself.</div>
     <div id="ai-bridge-wait" style="display:none;background:rgba(91,141,238,.10);border:1px solid rgba(91,141,238,.35);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:11px;line-height:1.5">
       <b>Waiting for your image…</b><br>
       1. In the Gemini tab: paste the prompt (<kbd>Ctrl</kbd>+<kbd>V</kbd>) and generate.<br>
@@ -1143,8 +1156,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <input type="password" id="gemini-api-key" placeholder="AIza…" style="flex:1" oninput="setGeminiKey(document.getElementById('ai-key-session-only').checked?'':this.value)">
           <button class="btn" id="ai-connect-btn" onclick="connectGemini()" style="padding:2px 10px" title="Validate the key with a free models call — proves the key works, not that billing is linked">Connect</button>
         </div>
-        <div id="ai-key-status" style="font-size:9px;color:var(--muted);margin-top:2px">Key from aistudio.google.com (free to create) · stored only on this machine · generating images additionally needs billing linked to that account</div>
-        <label style="display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);margin-top:2px;cursor:pointer">
+        <div id="ai-key-status" style="font-size:10px;color:var(--muted);margin-top:2px">Key from aistudio.google.com (free to create) · stored only on this machine · generating images additionally needs billing linked to that account</div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);margin-top:2px;cursor:pointer">
           <input type="checkbox" id="ai-key-session-only" onchange="if(this.checked){setGeminiKey('');}else{setGeminiKey(document.getElementById('gemini-api-key').value);}"> Don't save the key (this session only)
         </label>
         <div class="field" style="margin-top:6px"><label>Model</label>
@@ -1159,11 +1172,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div id="sd-settings" style="display:none">
         <div class="sec-lbl" style="margin-top:6px">Local endpoint</div>
         <input type="text" id="sd-endpoint" value="http://127.0.0.1:7860" style="width:100%" oninput="localStorage.setItem('sd-endpoint',this.value)">
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">Automatic1111 WebUI · must be running locally</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Automatic1111 WebUI · must be running locally</div>
         <div id="ai-sd-mixed-warn" style="display:none;font-size:9px;color:var(--warn);margin-top:2px">Browsers block http://127.0.0.1 calls from an https page (mixed content). Use the downloaded file:// copy of FigureLab for local Stable Diffusion.</div>
       </div>
       <button class="btn btn-primary" id="ai-gen-btn" onclick="generateAIImage()" style="width:100%;justify-content:center;margin-top:6px">✦ Generate via API</button>
-      <div style="font-size:9px;color:var(--muted);margin-top:2px">Clicking sends your prompt to Google's servers. Nothing else ever leaves this machine.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">Clicking sends your prompt to Google's servers. Nothing else ever leaves this machine.</div>
     </details>
 
     <div class="ai-preview" id="ai-preview">Preview will appear here</div>
@@ -1760,6 +1773,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
+<h3 class="help-h">Unreleased <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; in this build, since v3.14.0</span></h3>
+<ul class="help-ul">
+  <li><b>A quiet empty figure.</b> With no images loaded, the Images section used to show a wall of inert panel tools &mdash; including a red <i>Delete hidden panels</i> button. They now appear once there is something for them to act on; one line says so.</li>
+  <li><b>The command palette box is full width</b> &mdash; a global input rule had been shrinking it to 76&nbsp;px. <b>The icon browser shows a few per group with &ldquo;Show all&rdquo;</b>; search still shows everything that matches. Suggested AI prompts fold away under the prompt box.</li>
+  <li><b>Every labelled control is now a real label</b> &mdash; 40 inputs a screen reader announced as unlabelled are associated with the text beside them. Helper text no longer goes below 10&nbsp;px. <b>Fixed:</b> the footer had its own hard-coded version and had drifted behind the badge above it.</li>
+</ul>
 <h3 class="help-h">What's new in v3.14.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 14 September 2026</span></h3>
 <p class="help-p">A feature release, two days after the audit. Most of it is cropping and what a reader needs to find their way round a figure; some of it came from looking at what QuickFigures, OMERO.figure and FigureJ do that FigureLab did not.</p>
 <ul class="help-ul">
@@ -2295,7 +2314,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
       <button class="btn" id="crop-copy-group" onclick="copyCropTo('group')" title="Apply this exact crop to every panel in the same match group">⤳ To group</button>
       <button class="btn" id="crop-copy-all" onclick="copyCropTo('all')" title="Apply this exact crop to every panel">⤳ To all</button>
-      <span style="font-size:9px;color:var(--muted)">Arrow keys nudge · Shift = larger</span>
+      <span style="font-size:10px;color:var(--muted)">Arrow keys nudge · Shift = larger</span>
       <button id="crop-skip-btn" class="btn" onclick="skipPreCrop()" style="display:none">→ Skip &amp; Add</button>
       <button class="btn btn-primary" id="crop-apply-btn" onclick="applyCropModal()" style="margin-left:auto">✓ Apply Crop</button>
     </div>
@@ -3681,6 +3700,11 @@ function toggleUiMode(){ toast('All tools are always visible now — sections co
 (function stampVersion(){
   const b=document.getElementById('version-badge');
   if(b && typeof APP_VERSION!=='undefined') b.textContent='v'+APP_VERSION;
+  // The footer had its own hard-coded copy of the version and drifted four releases behind
+  // the badge above it. One source of truth, stamped in the same place.
+  const f=document.getElementById('version-footer');
+  if(f && typeof APP_VERSION!=='undefined') f.textContent='v'+APP_VERSION;
+  _labelControls();
 })();
 (function initCropPrefs(){
   const cb=document.getElementById('precrop-on-import'); if(cb) cb.checked=preCropOnImport();
@@ -3916,6 +3940,9 @@ function renderImgList(){
   {  // "6 of 18" while a subset is shown, so the hidden ones are never a surprise
     const tot=images.filter(Boolean).length, shown=_includedCount();
     document.getElementById('img-count').textContent = shown<tot ? `${shown} of ${tot}` : tot;
+    const tools=document.getElementById('img-tools'), hint=document.getElementById('img-empty-hint');
+    if(tools) tools.style.display=tot?'':'none';
+    if(hint) hint.style.display=tot?'none':'';
   }
   if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
@@ -3952,7 +3979,7 @@ function renderImgList(){
         <img class="img-thumb" src="${im.src}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
-        ${im.excluded?`<span style="font-size:9px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
+        ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
         ${im.sbOn && !im.umPerPx ? `<span style="font-size:9px;color:var(--warn);flex-shrink:0" title="Scale bar shown but µm/px not set">⚠</span>` : ''}
         ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
@@ -3961,7 +3988,7 @@ function renderImgList(){
         <button class="icon-btn gear" aria-label="Panel settings" title="Settings" data-gear="${idx}">⚙</button>
         <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
       </div>
-      <div class="img-meta" style="font-size:9px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+      <div class="img-meta" style="font-size:10px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
         ${_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
         ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
@@ -9424,7 +9451,7 @@ function renderAnnotationList(){
   images.forEach((im,imgIdx)=>{
     if(!im?.panelAnns?.length) return;
     const hdr=document.createElement('div');
-    hdr.style.cssText='font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:4px 0 2px;border-top:1px solid var(--border);margin-top:3px';
+    hdr.style.cssText='font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;padding:4px 0 2px;border-top:1px solid var(--border);margin-top:3px';
     hdr.textContent=`Panel ${im.label||imgIdx+1}`;
     list.appendChild(hdr);
     im.panelAnns.forEach((a,annIdx)=>{
@@ -13475,6 +13502,24 @@ function _iconMatch(ic, q){
   }
   return score;
 }
+// Associate every `.field > label` with the control beside it. The markup pairs them
+// visually but never with `for`, so screen readers announced 66 inputs as unlabelled
+// and clicking a label did nothing. Derived once at startup rather than hand-edited
+// into every row.
+function _labelControls(){
+  document.querySelectorAll('.field > label:not([for])').forEach(lab=>{
+    const c=lab.parentElement.querySelector('input,select,textarea');
+    if(c && c.id) lab.htmlFor=c.id;
+  });
+}
+
+// Browsing shows a few icons per group with a "show all" — 210 buttons rendered at
+// startup was the largest single block of DOM in the sidebar, and a wall of 34px
+// squares is not how anyone finds an icon; search is. Searching always shows everything
+// that matches.
+const _ICON_BROWSE_CAP=12;
+let _iconPaletteExpanded=false;
+function expandIconPalette(){ _iconPaletteExpanded=true; renderIconPalette(''); }
 function renderIconPalette(query){
   const el=document.getElementById('icon-palette'); if(!el) return;
   const q=(query==null?((document.getElementById('icon-search')||{}).value||''):query).trim();
@@ -13496,14 +13541,24 @@ function renderIconPalette(query){
     entries.forEach(([k,ic])=>el.appendChild(mk(k,ic)));
     return;
   }
+  let hidden=0;
   Object.keys(ICON_GROUPS).forEach(g=>{                 // browsing: grouped
     const inGroup=entries.filter(([,ic])=>ic.group===g);
     if(!inGroup.length) return;
     const h=document.createElement('div');
-    h.className='icon-group-lbl'; h.textContent=ICON_GROUPS[g];
+    h.className='icon-group-lbl'; h.textContent=ICON_GROUPS[g]+(_iconPaletteExpanded?'':` (${inGroup.length})`);
     el.appendChild(h);
-    inGroup.forEach(([k,ic])=>el.appendChild(mk(k,ic)));
+    const show=_iconPaletteExpanded?inGroup:inGroup.slice(0,_ICON_BROWSE_CAP);
+    hidden+=inGroup.length-show.length;
+    show.forEach(([k,ic])=>el.appendChild(mk(k,ic)));
   });
+  if(hidden>0){
+    const more=document.createElement('button');
+    more.className='btn'; more.style.cssText='flex:0 0 100%;justify-content:center;font-size:10px;margin-top:4px';
+    more.textContent=`Show all ${entries.length} icons`;
+    more.onclick=expandIconPalette;
+    el.appendChild(more);
+  }
 }
 renderIconPalette('');
 // Recolour a selected icon by rewriting its vector source and re-rasterising.
@@ -17054,7 +17109,7 @@ async function renderSessionLibrary(){
     row.innerHTML=`${r.thumb?`<img src="${r.thumb}" alt="" style="width:34px;height:26px;object-fit:cover;border-radius:3px;flex-shrink:0;background:#000">`:'<span style="width:34px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
-        <div style="font-size:9px;color:var(--muted)">${new Date(r.savedAt).toLocaleDateString()} ${new Date(r.savedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+        <div style="font-size:10px;color:var(--muted)">${new Date(r.savedAt).toLocaleDateString()} ${new Date(r.savedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
       </div>
       <button class="btn sess-load" style="padding:1px 8px;font-size:10px" title="Open this session">Open</button>
       <button class="icon-btn sess-ovr" title="Update with the current figure" style="font-size:11px">⟳</button>
