@@ -4271,6 +4271,20 @@ function renderImgList(){
           im2.channels.splice(ci,1); renderChList(); scheduleRender();
         });
         chList.appendChild(row);
+        // Each extra channel has had its own black and white points since channels
+        // arrived, read by the composite and written by Sync by channel — but nothing
+        // in the interface could set them. Two small sliders, like the base panel's.
+        const lv=document.createElement('div');
+        lv.className='ch-levels';
+        lv.style.cssText='display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);margin:0 0 3px 6px';
+        lv.innerHTML=`<span title="Black point of this channel">B</span><input type="range" class="ch-bpt" min="0" max="254" step="1" value="${ch.blackPt||0}" style="flex:1;min-width:40px"><code class="ch-bpt-v" style="width:22px;text-align:right">${ch.blackPt||0}</code>`
+          +`<span title="White point of this channel">W</span><input type="range" class="ch-wpt" min="1" max="255" step="1" value="${ch.whitePt==null?255:ch.whitePt}" style="flex:1;min-width:40px"><code class="ch-wpt-v" style="width:22px;text-align:right">${ch.whitePt==null?255:ch.whitePt}</code>`;
+        const _touch=()=>{ im2._adjCache=undefined; im2._adjKey=undefined; im2._compCache=undefined; im2._compKey=undefined; scheduleRender(); };
+        lv.querySelector('.ch-bpt').addEventListener('input',e=>{ const v=Math.min(+e.target.value,(im2.channels[ci].whitePt??255)-1); im2.channels[ci].blackPt=v; lv.querySelector('.ch-bpt-v').textContent=v; _touch(); });
+        lv.querySelector('.ch-wpt').addEventListener('input',e=>{ const v=Math.max(+e.target.value,(im2.channels[ci].blackPt||0)+1); im2.channels[ci].whitePt=v; lv.querySelector('.ch-wpt-v').textContent=v; _touch(); });
+        lv.querySelector('.ch-bpt').addEventListener('change',()=>pushUndo());
+        lv.querySelector('.ch-wpt').addEventListener('change',()=>pushUndo());
+        chList.appendChild(lv);
       });
     }
     renderChList();
@@ -7599,6 +7613,18 @@ function checkCompliance(){
   // the printed-width target, and dpi/96 is only the right scale without one.
   const exportPx=W*H*Math.pow(_pf.scale,2);
   const extreme=images.filter(im=>im&&((im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2)).length;
+  // Display range per channel: every visible panel and extra channel, grouped by the
+  // channel it shows; more than one distinct black–white range in a group is drift.
+  const _ranges=new Map();
+  images.slice(0,cols*rows).forEach(im=>{
+    if(!im||im.excluded||!im.img) return;
+    const lbl=formatLabel(im.label)||'?';
+    const add=(key,bp,wp,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=`${bp||0}–${wp==null?255:wp}`; if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
+    if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)) add(_levelKey(im.name,im.lut), im.blackPt, im.whitePt, lbl);
+    (im.channels||[]).forEach(ch=>add(_levelKey(ch.name,ch.lut), ch.blackPt, ch.whitePt, lbl));
+  });
+  const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
+  const _rangeKeys=[..._ranges.keys()].join(', ');
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
       fix:dpi<300?{a:'dpi300',t:'Set 300'}:null},
@@ -7621,6 +7647,14 @@ function checkCompliance(){
         ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}`
         : 'Every enabled scale bar is drawn ✓'},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
+    // Compared panels showing the same channel at different display ranges is the
+    // classic silent unfairness: the reader assumes GFP in A and GFP in B were shown the
+    // same way. A warning, not a failure — sometimes it is deliberate, and the caption
+    // says so — with the fix one click away.
+    {label:'Display ranges by channel', ok:_rangeDrift.length===0, warn:_rangeDrift.length>0,
+      note:_rangeDrift.length ? _rangeDrift.join('; ')+' — compared panels should share a range, or the legend should say why not'
+                              : (_rangeKeys ? `Same range per channel across panels ✓ (${_rangeKeys})` : 'No pseudocoloured panels'),
+      fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
     {label:'Min panel size',ok:gi('panel-w')>=80&&gi('panel-h')>=80, warn:false, note:`${gi('panel-w')}×${gi('panel-h')} px per panel`},
@@ -7661,6 +7695,10 @@ function _auditFix(action){
   if(action==='dpi300'){ sv('export-dpi','300'); }
   else if(action==='white'){ sv('bg-color','#ffffff'); scheduleRender(); }
   else if(action==='labels'){ sc('show-labels',true); scheduleRender(); }
+  else if(action==='synclevels'){
+    const src=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].img)?selectedPanel:images.findIndex(im=>im&&im.img&&((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)));
+    if(src>=0) syncLevelsByChannel(src);
+  }
   else if(action==='calibrate'){
     const idx=images.findIndex(im=>im&&im.sbOn&&!(im.umPerPx>0));
     if(idx>=0){ if(m) m.remove(); if(typeof openCalib==='function') openCalib(idx); return; }

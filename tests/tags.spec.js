@@ -374,3 +374,53 @@ test('a channel key lists every channel the visible panels show, once, with its 
   expect(r.rows2.map(x => x.name)).toEqual(['DAPI', 'GFP']);
   expect(errors).toEqual([]);
 });
+
+// ── Channel levels, and the display-range compliance row ──────
+
+test('each extra channel gets black/white sliders that change its range and redraw the composite', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(() => {
+    const [A, B] = images;
+    A.lut = 'green';
+    A.channels.push({ name: 'a_DAPI.tif', img: B.img, src: B.src, lut: 'blue', blackPt: 0, whitePt: 255 });
+    renderImgList();
+    const item = document.querySelectorAll('#img-list .img-item')[0];
+    const lv = item.querySelectorAll('.ch-levels');
+    const bpt = lv[0].querySelector('.ch-bpt'), wpt = lv[0].querySelector('.ch-wpt');
+    bpt.value = '40'; bpt.dispatchEvent(new Event('input', { bubbles: true }));
+    wpt.value = '30'; wpt.dispatchEvent(new Event('input', { bubbles: true }));   // below the black point → clamped above it
+    return { rows: lv.length, bp: A.channels[0].blackPt, wp: A.channels[0].whitePt, shown: lv[0].querySelector('.ch-wpt-v').textContent };
+  });
+  expect(r.rows).toBe(1);
+  expect(r.bp).toBe(40);
+  expect(r.wp).toBe(41);                                       // white point cannot cross the black point
+  expect(r.shown).toBe('41');
+  expect(errors).toEqual([]);
+});
+
+test('the compliance check warns when panels show the same channel at different ranges, and its fix syncs them', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(() => {
+    const [A, B, C] = images;
+    A.name = 'a_GFP.tif'; A.lut = 'green'; A.blackPt = 10; A.whitePt = 200;
+    B.name = 'b_GFP.tif'; B.lut = 'green'; B.blackPt = 0; B.whitePt = 255;
+    C.name = 'c_DAPI.tif'; C.lut = 'blue'; C.blackPt = 0; C.whitePt = 255;
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render();
+    const rowText = () => { checkCompliance(); const rows = [...document.querySelectorAll('.compliance-row')].map(e => e.textContent.replace(/\s+/g, ' ').trim()); return rows.find(t => /Display ranges by channel/.test(t)) || ''; };
+    const before = rowText();
+    selectedPanel = 0;
+    _auditFix('synclevels');
+    const after = rowText();
+    return { before, after, B: [B.blackPt, B.whitePt], C: [C.blackPt, C.whitePt] };
+  });
+  expect(r.before).toMatch(/⚠/);
+  expect(r.before).toMatch(/GFP: A 10–200, B 0–255/);
+  expect(r.before).toMatch(/Sync by channel/);
+  expect(r.B).toEqual([10, 200]);
+  expect(r.C).toEqual([0, 255]);                               // DAPI was consistent and is untouched
+  expect(r.after).toMatch(/✓/);
+  expect(r.after).toMatch(/Same range per channel/);
+  expect(errors).toEqual([]);
+});

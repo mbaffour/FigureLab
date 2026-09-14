@@ -292,6 +292,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 - **▤ Key** annotation: a channel key for the figure — every channel the visible panels show, once, each with its colour swatch, derived at draw time so it cannot fall out of step with the panels; placed with a click, background and text editable, exported as vector.
 
+- **Black and white points for every extra channel**, as two small sliders under each channel in the panel's channel list. The values existed and were read by the composite and written by *Sync by channel*, but nothing in the interface could set them.
+- **Compliance: display ranges by channel.** A warning row when compared panels show the same channel at different black–white ranges — "GFP: A 10–200, B 0–255" — with *Sync by channel* one click away. Compared panels should share a range, or the legend should say why not.
+
 ### v3.14.0 — 14 September 2026
 
 A feature release, two days after the audit: cropping, insets, panel tags, and a handful of things QuickFigures, OMERO.figure and FigureJ had that FigureLab did not.
