@@ -8085,6 +8085,40 @@ function canvasCoords(canvas, e){
   };
 }
 
+// Canvas drags are started on the canvas but can end anywhere, so every one of these
+// needs an ending that does not depend on where the pointer was released.
+function _dragStranded(){
+  return !!(gutterDragState||panelRotState||labelDragState||_sbResizeState);
+}
+function _endStrandedDrags(){
+  let dirty=false;
+  if(gutterDragState){
+    if(gutterDragState.moved && gutterDragState.preSnap) _pushSnap(gutterDragState.preSnap);
+    gutterDragState=null; hoverGutter=null; dirty=true;
+  }
+  if(panelRotState){
+    if(panelRotState.moved && panelRotState.preSnap) _pushSnap(panelRotState.preSnap);
+    panelRotState=null; dirty=true;
+  }
+  if(labelDragState){
+    if(labelDragState.moved && labelDragState.preSnap) _pushSnap(labelDragState.preSnap);
+    labelDragState=null; dirty=true;
+  }
+  if(_sbResizeState){
+    if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
+    _sbResizeState=null; dirty=true;
+  }
+  if(dirty){
+    annCanvas.style.cursor='default'; hidePanelTooltip();
+    renderImgList(); scheduleRender(0); drawAnnOverlay();
+  }
+  return dirty;
+}
+// The canvas's own mouseup runs first when the release lands on it and clears these,
+// so by the time this fires there is nothing left to do. It only bites when the
+// release happened somewhere else.
+window.addEventListener('mouseup', ()=>{ _endStrandedDrags(); });
+
 // ── Movable label offsets (drag-to-position) ──────────────────
 function getLabelOff(kind,idx){
   if(kind==='panel'){ const im=images[idx]; return im?[im.lblDX||0,im.lblDY||0]:[0,0]; }
@@ -9075,6 +9109,12 @@ annCanvas.addEventListener('mousemove', e=>{
       Math.round(labelDragState.oy+(y-labelDragState.startY)));
     scheduleRender(0); return;
   }
+  // No button held means no drag can be in progress. A mouseup delivered to anything
+  // other than the canvas — the surrounding page, browser chrome, another window —
+  // never reached our handler, which used to leave the drag live: moving the pointer
+  // back over the canvas then kept rewriting the gap with no button down, so the
+  // spacing ran away and only a click stopped it.
+  if(!e.buttons && _dragStranded()){ _endStrandedDrags(); return; }
   // Gutter drag — space panels apart live
   if(gutterDragState){
     const rect=annCanvas.getBoundingClientRect();
@@ -9204,6 +9244,16 @@ annCanvas.addEventListener('mousemove', e=>{
     if(!spaceDown){
       const g=gutterAtPoint(x,y);
       const prev=hoverGutter;
+      // The − / + chips are drawn ~25 px either side of the divider, but the divider's
+      // own hover band is only max(6, gap/2+6) wide. Reaching for a chip therefore left
+      // that band, cleared hoverGutter, and drawAnnOverlay() wiped the chips before the
+      // click could land — so at any gap under about 41 px, including the default 6,
+      // both chips were unclickable. Staying inside a chip keeps them on screen.
+      if(!g && prev && gutterChips.some(ch=>x>=ch.x&&x<=ch.x+ch.w&&y>=ch.y&&y<=ch.y+ch.h)){
+        annCanvas.style.cursor='pointer';
+        hidePanelTooltip();
+        return;
+      }
       hoverGutter=g;
       if(g){
         annCanvas.style.cursor=g.axis==='col'?'col-resize':'row-resize';

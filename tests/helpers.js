@@ -124,11 +124,14 @@ async function gesture(page, type, pts) {
     const r = c.getBoundingClientRect();
     const lw = canvasLogicalW || c.width, lh = canvasLogicalH || c.height;
     const toC = ([x, y]) => ({ clientX: r.left + x * r.width / lw, clientY: r.top + y * r.height / lh });
-    const fire = (t, p) => c.dispatchEvent(new MouseEvent(t, { bubbles: true, clientX: p.clientX, clientY: p.clientY, button: 0 }));
+    // `buttons` matters: a real browser reports 1 on every mousedown/mousemove of a
+    // held drag and 0 on the release, and the app now uses that to notice a drag whose
+    // release it never saw. Sending 0 throughout simulated a gesture no mouse can make.
+    const fire = (t, p, buttons) => c.dispatchEvent(new MouseEvent(t, { bubbles: true, clientX: p.clientX, clientY: p.clientY, button: 0, buttons: buttons === undefined ? 0 : buttons }));
     if (type === 'drag') {
-      fire('mousedown', toC(pts[0]));
-      for (let i = 1; i < pts.length; i++) fire('mousemove', toC(pts[i]));
-      fire('mouseup', toC(pts[pts.length - 1]));
+      fire('mousedown', toC(pts[0]), 1);
+      for (let i = 1; i < pts.length; i++) fire('mousemove', toC(pts[i]), 1);
+      fire('mouseup', toC(pts[pts.length - 1]), 0);
     } else if (type === 'dblclick') {
       fire('dblclick', toC(pts[0]));
     } else {
