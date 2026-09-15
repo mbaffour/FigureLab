@@ -1729,7 +1729,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h3 class="help-h">Core workflow, step by step</h3>
 
 <h4 class="help-sub">1. Add and arrange panels</h4>
-<p class="help-p">Drop images to add panels. To reorder them, drag the <span class="help-ui">⠿</span> handle in the image list. Locked panels cannot be moved — toggle <b>Lock panel</b> to protect one from accidental drag-reorder. Use <span class="help-ui">⎘</span> (Duplicate) to reuse a panel's settings on a similar image.</p>
+<p class="help-p">Drop images to add panels. To reorder them, drag the <span class="help-ui">⠿</span> handle in the image list. <b>To turn a photo, click it on the canvas and drag the round grip above it</b> — any angle, <kbd>Shift</kbd> snaps to 15&deg;, <kbd>[</kbd> and <kbd>]</kbd> nudge by 1&deg;, and the panel's own controls take an exact angle. Locked panels cannot be moved — toggle <b>Lock panel</b> to protect one from accidental drag-reorder. Use <span class="help-ui">⎘</span> (Duplicate) to reuse a panel's settings on a similar image.</p>
 
 <h4 class="help-sub">2. Adjust each panel</h4>
 <p class="help-p">Open a panel's settings to fine-tune it with live preview: <b>Brightness</b>, <b>Contrast</b>, and <b>Gamma</b> sliders (gamma is great for dim fluorescence), plus grayscale/invert, black/white points, fluorescence LUTs, rotate, and flip. <span class="help-ui">Apply to all</span> copies brightness, contrast, gamma, LUT, and B/W points to every panel at once.</p>
@@ -2454,6 +2454,7 @@ let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar res
 let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
 let selectedPanel = -1;
+let panelRotState = null;   // {idx, cx, cy, start, a0, preSnap, moved} — dragging the rotate grip
 let zoom = 1;
 let spaceDown = false;
 let panState = null;        // {startX, startY, scrollLeft, scrollTop}
@@ -3612,6 +3613,9 @@ const CMD_REGISTRY=[
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
+  {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation', run:()=>rotateSelectedPanel(90)},
+  {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation', run:()=>rotateSelectedPanel(-90)},
+  {label:'Straighten selected panel (0°)',  keys:'straighten reset rotation panel photo upright', run:()=>{ if(selectedPanel>=0&&images[selectedPanel]){ pushUndo(); setPanelAngle(selectedPanel,0); toast('Panel upright','ok'); } else toast('Click a panel first','warn'); }},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
   {label:'Channel key (legend of channel colours)', keys:'legend key channel colours swatch DAPI GFP list', run:()=>setTool('legend')},
   {label:'Orientation axes marker (D/V, A/P…)', keys:'axes orientation anatomical dorsal ventral anterior posterior compass rostral caudal medial lateral', run:()=>setTool('axes')},
@@ -4136,6 +4140,9 @@ function renderImgList(){
           <button class="btn" data-rot="ccw" style="flex:1;justify-content:center" title="Rotate 90° CCW">↺ 90°</button>
           <button class="btn" data-rot="cw"  style="flex:1;justify-content:center" title="Rotate 90° CW">↻ 90°</button>
           <button class="btn" data-rot="180" style="flex:1;justify-content:center">↔ 180°</button>
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;flex:1;justify-content:center" title="Any angle, not just quarter turns — or drag the round grip above the panel on the canvas">
+            <input type="number" class="f-rotdeg" value="${+(+(im.rotate||0)).toFixed(1)}" min="-360" max="360" step="1" style="width:52px">°
+          </label>
           <button class="btn" data-fliph style="flex:1;justify-content:center" title="Flip horizontal">⇄ H</button>
           <button class="btn" data-flipv style="flex:1;justify-content:center" title="Flip vertical">⇅ V</button>
         </div>
@@ -4309,6 +4316,9 @@ function renderImgList(){
     item.querySelector('[data-rot="ccw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)-90+360)%360; scheduleRender(); });
     item.querySelector('[data-rot="cw"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)+90)%360; scheduleRender(); });
     item.querySelector('[data-rot="180"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)+180)%360; scheduleRender(); });
+    { const rd=item.querySelector('.f-rotdeg');
+      rd.addEventListener('input', e=>{ setPanelAngle(idx, e.target.value, {quiet:true}); scheduleRender(0); });
+      rd.addEventListener('change', ()=>pushUndo()); }
     item.querySelector('[data-fliph]').addEventListener('click',()=>{ pushUndo(); images[idx].flipH=!images[idx].flipH; scheduleRender(); });
     item.querySelector('[data-flipv]').addEventListener('click',()=>{ pushUndo(); images[idx].flipV=!images[idx].flipV; scheduleRender(); });
 
@@ -4757,6 +4767,63 @@ function autoScaleBar(idx){
   im.sbUm=best; im.sbOn=true; im.sbUnit=_sbUnitFor(best);   // pick a clean unit for the length
   renderImgList(); scheduleRender(0);
   toast(`Auto scale bar: ${_sbLabel(im)}`,'ok');
+}
+
+// ── Rotating a panel from the canvas ──────────────────────────────────────────
+// Rotation lived only in a panel's settings drawer, as three quarter-turn buttons, so
+// the obvious move — click the picture and turn it — did nothing. The selected panel
+// now carries a grip, like the crop editor's, and the angle is free.
+const _panelAngle=idx=>{ const im=images[idx]; return im?(+im.rotate||0):0; };
+function setPanelAngle(idx, deg, opts){
+  const im=images[idx]; if(!im) return;
+  let a=parseFloat(deg); if(!isFinite(a)) a=0;
+  a=((a%360)+360)%360;
+  if(Math.abs(a-360)<1e-9) a=0;
+  im.rotate=+a.toFixed(1);
+  im._adjCache=undefined; im._adjKey=undefined;
+  if(!(opts&&opts.quiet)){ renderImgList(); scheduleRender(0); }
+}
+function rotateSelectedPanel(delta){
+  const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:-1;
+  if(idx<0){ toast('Click a panel first, then rotate it','warn'); return; }
+  pushUndo();
+  setPanelAngle(idx, _panelAngle(idx)+delta);
+  toast(`${formatLabel(images[idx].label)||'Panel'} at ${_panelAngle(idx)}\u00b0`,'ok');
+}
+// Where the rotate grip sits: 22 px clear of the middle of the picture's top edge, or
+// below it when the picture is against the top of the canvas. Returns [x,y,bounds].
+function _panelGrip(){
+  if(layoutMode==='freeform'||activeTool!=='none') return null;
+  if(selectedPanel<0||!images[selectedPanel]) return null;
+  const b=(panelBounds||[]).find(z=>z.idx===selectedPanel);
+  if(!b||!(b.iw>0)||!(b.ih>0)) return null;
+  const x=b.ix+b.iw/2;
+  const above=b.iy-22;
+  return [x, above>=12 ? above : b.iy+b.ih+22, b];
+}
+function _drawPanelGrip(ctx){
+  const g=_panelGrip(); if(!g) return;
+  const [gx,gy,b]=g;
+  const edgeY=gy<b.iy ? b.iy : b.iy+b.ih;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.strokeStyle='#5b8dee'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(gx,edgeY); ctx.lineTo(gx,gy); ctx.stroke();
+  ctx.beginPath(); ctx.arc(gx,gy,6,0,Math.PI*2);
+  ctx.fillStyle='#fff'; ctx.fill();
+  ctx.strokeStyle='#5b8dee'; ctx.lineWidth=2; ctx.stroke();
+  // the turned picture's own outline, so what is being rotated is unmistakable
+  ctx.strokeStyle='rgba(91,141,238,.85)'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]);
+  ctx.strokeRect(b.ix,b.iy,b.iw,b.ih);
+  const a=_panelAngle(selectedPanel);
+  if(a){
+    const t=`${a}\u00b0`;
+    ctx.setLineDash([]); ctx.font='11px system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const w=ctx.measureText(t).width+10;
+    ctx.fillStyle='rgba(0,0,0,.72)'; ctx.fillRect(gx-w/2, gy-24, w, 16);
+    ctx.fillStyle='#fff'; ctx.fillText(t, gx, gy-16);
+  }
+  ctx.restore();
 }
 
 function applySettingsToAll(srcIdx){
@@ -5658,8 +5725,15 @@ function render(targetCanvas, exportScale, opts){
         // into a matching 1:2 cell was fitted as though it were still lying the other
         // way, drawn at HALF the size it should be and letterboxed in a cell it exactly
         // fits. Rotating a panel looked broken because the fit never knew about it.
-        const qt=((((im.rotate||0)%180)+180)%180)!==0;
-        const scale=qt ? Math.min(apw/sh, aph/sw) : Math.min(apw/sw, aph/sh);
+        // |cos| and |sin| of the turn give the picture's on-screen extent at ANY angle,
+        // not only quarter turns: a w x h rectangle turned by t covers
+        // (w|cos t| + h|sin t|) x (w|sin t| + h|cos t|). At 0 deg that is w x h and at
+        // 90 deg it is h x w, so the two cases the buttons produce are unchanged, and a
+        // freely rotated panel is contained by its cell instead of overflowing it.
+        const _rad=((im.rotate||0))*Math.PI/180;
+        let _ca=Math.abs(Math.cos(_rad)), _sa=Math.abs(Math.sin(_rad));
+        if(_ca<1e-9) _ca=0; if(_sa<1e-9) _sa=0;        // cos(90 deg) is 6e-17, not 0
+        const scale=Math.min(apw/(sw*_ca+sh*_sa), aph/(sw*_sa+sh*_ca));
         // dw/dh is the box the picture is drawn into BEFORE the turn — only the
         // drawImage transform and the inset outlines inside it use these.
         const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
@@ -5667,7 +5741,7 @@ function render(targetCanvas, exportScale, opts){
         // ow/oh is the box it occupies ON SCREEN once turned, which is what the labels,
         // the scale bar, the tag, the clip shape and the hit-tests must follow. At 0°
         // and 180° the two boxes are identical, so nothing about an unturned panel moves.
-        const ow=qt?dh:dw, oh=qt?dw:dh;
+        const ow=Math.round(dw*_ca+dh*_sa), oh=Math.round(dw*_sa+dh*_ca);
         const ox=px+Math.round((apw-ow)/2), oy=py+Math.round((aph-oh)/2);
         if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=ox; _pb.iy=oy; _pb.iw=ow; _pb.ih=oh; } }
         ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph);
@@ -8422,13 +8496,14 @@ function drawAnnOverlay(){
     return;
   }
 
-  // Selected panel dashed border
+  // Selected panel dashed border, and the grip that turns it
   if(selectedPanel>=0){
     const b=panelBounds.find(p=>p.idx===selectedPanel);
     if(b){
       ctx.save(); ctx.strokeStyle='#5b8dee'; ctx.lineWidth=2;
       ctx.setLineDash([7,4]); ctx.strokeRect(b.x+1,b.y+1,b.w-2,b.h-2); ctx.restore();
     }
+    _drawPanelGrip(ctx);
   }
 
   // Hovered label — dashed highlight box to show it's draggable
@@ -8885,6 +8960,19 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
   }
+  // The rotate grip sits outside the picture, so it has to be tested before the
+  // "clicked a panel -> start dragging it" branch below would take the click.
+  {
+    const g=_panelGrip();
+    if(g && Math.hypot(x-g[0], y-g[1])<=11){
+      const b=g[2];
+      panelRotState={idx:selectedPanel, cx:b.ix+b.iw/2, cy:b.iy+b.ih/2,
+        start:Math.atan2(y-(b.iy+b.ih/2), x-(b.ix+b.iw/2)), a0:_panelAngle(selectedPanel),
+        preSnap:snapshotState(), moved:false};
+      annCanvas.style.cursor='grabbing';
+      e.preventDefault(); return;
+    }
+  }
   // Check panel hit — start panel drag if there's an image there
   let panelHit=-1;
   for(const b of panelBounds){
@@ -8917,6 +9005,17 @@ annCanvas.addEventListener('mousemove', e=>{
   if(_sbResizeState){ _sbResizeApply(canvasCoords(annCanvas,e).x); return; }
   if(_insetDragState){ const q=canvasCoords(annCanvas,e); _insetDragApply(q.x,q.y); return; }
   // Label drag — reposition a figure label live
+  if(panelRotState){
+    const {x,y}=canvasCoords(annCanvas,e);
+    const cur=Math.atan2(y-panelRotState.cy, x-panelRotState.cx);
+    let a=panelRotState.a0+(cur-panelRotState.start)*180/Math.PI;
+    if(e.shiftKey) a=Math.round(a/15)*15;              // Shift snaps to 15 deg
+    setPanelAngle(panelRotState.idx, a, {quiet:true});
+    panelRotState.moved=true;
+    render();                                          // live, like the gutter drag
+    showPanelTooltip(`${_panelAngle(panelRotState.idx)}\u00b0 \u00b7 Shift snaps to 15\u00b0`, e.clientX, e.clientY);
+    return;
+  }
   if(labelDragState){
     const {x,y}=canvasCoords(annCanvas,e);
     if(Math.abs(x-labelDragState.startX)>1||Math.abs(y-labelDragState.startY)>1) labelDragState.moved=true;
@@ -9035,6 +9134,11 @@ annCanvas.addEventListener('mousemove', e=>{
   if(activeTool==='none'){
     const {x,y}=canvasCoords(annCanvas,e);
     const W=annCanvas.width, H=annCanvas.height;
+    // Rotate grip hover
+    if(!spaceDown){
+      const g=_panelGrip();
+      if(g && Math.hypot(x-g[0], y-g[1])<=11){ annCanvas.style.cursor='grab'; hidePanelTooltip(); return; }
+    }
     // Label hover — show move cursor + highlight (labels take priority)
     if(!spaceDown){
       const lb=labelAtPoint(x,y);
@@ -9101,6 +9205,15 @@ annCanvas.addEventListener('mouseup', e=>{
       if(o&&o.insetRect) logAction('insetMove',{inset:o.label||'?', x:+o.insetRect.x.toFixed(3), y:+o.insetRect.y.toFixed(3)});
     }
     renderImgList(); scheduleRender(0); return;
+  }
+  // Rotation commit
+  if(panelRotState){
+    if(panelRotState.moved && panelRotState.preSnap) _pushSnap(panelRotState.preSnap);
+    const idx=panelRotState.idx;
+    panelRotState=null; annCanvas.style.cursor='default'; hidePanelTooltip();
+    renderImgList(); scheduleRender(0);
+    if(images[idx]) logAction('rotatePanel',{label:formatLabel(images[idx].label), deg:_panelAngle(idx)});
+    return;
   }
   // Label drag commit
   if(labelDragState){
@@ -11825,6 +11938,13 @@ document.addEventListener('keydown', e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
   // Tool shortcuts
   if(!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    // [ and ] turn the selected panel by 1 deg (5 with Shift), the same keys the crop
+    // editor uses for the same gesture.
+    if((e.key==='['||e.key===']') && selectedPanel>=0 && images[selectedPanel] && layoutMode!=='freeform'){
+      e.preventDefault();
+      rotateSelectedPanel((e.key==='[' ? -1 : 1) * (e.shiftKey?5:1));
+      return;
+    }
     if(e.key==='r'||e.key==='R'){ render(); return; }
     if(e.key==='v'||e.key==='V'){ setTool('none'); return; }
     if(e.key==='a'||e.key==='A'){ setTool('arrow'); return; }

@@ -34,6 +34,12 @@ const INK_BOX = `
     }
     return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
   };
+  window._inkArea = () => {
+    const fc = document.getElementById('fig-canvas'), d = fc.getContext('2d').getImageData(0, 0, fc.width, fc.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (!(d[i] > 250 && d[i+1] > 250 && d[i+2] > 250)) n++;
+    return n;
+  };
 `;
 
 test('a quarter-turned panel is fitted to the turned extent, so it fills a cell of the matching shape', async ({ page }) => {
@@ -120,5 +126,103 @@ test('a turned panel reports the field of view it actually shows, and Crop to fi
   expect(r.filled).toEqual([300, 300]);                         // fills the square cell after the crop
   expect(r.crop[0]).toBeCloseTo(25, 1); expect(r.crop[2]).toBeCloseTo(25, 1);   // trimmed along the source X, as a turn demands
   expect(r.crop[1]).toBe(0); expect(r.crop[3]).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// ── Rotating from the canvas ──────────────────────────────────
+// Rotation used to live only in a panel's settings drawer as three quarter-turn
+// buttons, so the obvious move — click the picture and turn it — did nothing at all.
+
+test('clicking a panel puts a rotate grip on it, and dragging the grip turns it to any angle', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedSized(page, 400, 200);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); onLayoutChange(); render();
+    const c = document.getElementById('ann-canvas'), rect = c.getBoundingClientRect();
+    const fire = (type, x, y, shift) => c.dispatchEvent(new MouseEvent(type, { bubbles: true, button: 0, shiftKey: !!shift,
+      clientX: rect.left + x * rect.width / canvasLogicalW, clientY: rect.top + y * rect.height / canvasLogicalH }));
+    const pb0 = panelBounds[0];
+    const noSelection = _panelGrip();
+    fire('mousedown', pb0.ix + pb0.iw / 2, pb0.iy + pb0.ih / 2);      // click the picture
+    fire('mouseup', pb0.ix + pb0.iw / 2, pb0.iy + pb0.ih / 2);
+    const selected = selectedPanel;
+    const g = _panelGrip();
+    const pb = panelBounds[0];
+    // Grab the grip and swing a quarter turn clockwise about the picture centre.
+    const cx = pb.ix + pb.iw / 2, cy = pb.iy + pb.ih / 2;
+    fire('mousedown', g[0], g[1]);
+    const dragging = !!panelRotState;
+    fire('mousemove', cx + 120, cy);                                  // from straight up to straight right = +90
+    const free = images[0].rotate;
+    fire('mousemove', cx + 120, cy + 8, true);                        // shift snaps
+    const snapped = images[0].rotate;
+    fire('mouseup', cx + 120, cy + 8, true);
+    const after = { angle: images[0].rotate, state: panelRotState };
+    undo();
+    return { noSelection, selected, gripAt: [Math.round(g[0]), Math.round(g[1])],
+             expectGrip: [Math.round(pb.ix + pb.iw / 2), Math.round(pb.iy - 22)],
+             dragging, free, snapped, after: after.angle, stateCleared: after.state === null,
+             undone: images[0].rotate };
+  });
+  expect(r.noSelection).toBeNull();                                   // no selection, no grip
+  expect(r.selected).toBe(0);
+  expect(r.gripAt).toEqual(r.expectGrip);                             // clear of the picture's top edge
+  expect(r.dragging).toBe(true);
+  expect(r.free).toBeCloseTo(90, 0);                                  // free angle, from the drag itself
+  expect(r.snapped % 15).toBe(0);                                     // Shift snaps to 15°
+  expect(r.stateCleared).toBe(true);
+  expect(r.undone).toBe(0);                                           // the whole turn is one undo step
+  expect(errors).toEqual([]);
+});
+
+test('a panel turned to an odd angle is contained by its cell instead of overflowing it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedSized(page, 400, 200);
+  await page.evaluate(INK_BOX);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '1'); sv('panel-w', '300'); sv('panel-h', '300'); sv('bg-color', '#ffffff');
+    document.getElementById('show-labels').checked = false; images[0].sbOn = false;
+    onLayoutChange();
+    const at = (deg) => { images[0].rotate = deg; render(); const b = _inkBox(); const pb = panelBounds[0];
+      return { fits: b.x >= pb.x - 1 && b.y >= pb.y - 1 && b.x + b.w <= pb.x + pb.w + 1 && b.y + b.h <= pb.y + pb.h + 1,
+               box: [b.w, b.h], cell: [pb.w, pb.h], area: _inkArea() }; };
+    return { d0: at(0), d30: at(30), d45: at(45), d137: at(137) };
+  });
+  for (const k of ['d0', 'd30', 'd45', 'd137']) {
+    expect(r[k].fits, `${k} spills out of its cell: ${JSON.stringify(r[k])}`).toBe(true);
+    expect(r[k].box[0]).toBeLessThanOrEqual(r[k].cell[0] + 1);
+    expect(r[k].box[1]).toBeLessThanOrEqual(r[k].cell[1] + 1);
+  }
+  // A 45° turn needs the most room for the same picture, so the picture itself is drawn
+  // smaller — its bounding box still fills the cell, which is why the AREA is the test.
+  expect(r.d45.area).toBeLessThan(r.d0.area * 0.95);
+  expect(r.d45.area).toBeGreaterThan(r.d0.area * 0.7);
+  expect(errors).toEqual([]);
+});
+
+test('[ and ] nudge the selected panel, and the angle field sets an exact one', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedSized(page, 400, 200);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '1'); onLayoutChange(); render();
+    selectedPanel = 0;
+    const key = (k, shift) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, shiftKey: !!shift }));
+    key(']'); key(']');
+    const twice = images[0].rotate;
+    key('[', true);
+    const back = images[0].rotate;
+    // …and the field in the panel's own controls
+    renderImgList();
+    const fld = document.querySelector('#img-list .f-rotdeg');
+    fld.value = '12.5'; fld.dispatchEvent(new Event('input', { bubbles: true }));
+    const typed = images[0].rotate;
+    // a negative angle normalises into 0–360 rather than being stored as −20
+    fld.value = '-20'; fld.dispatchEvent(new Event('input', { bubbles: true }));
+    return { twice, back, typed, negative: images[0].rotate, fieldShown: fld.value };
+  });
+  expect(r.twice).toBe(2);
+  expect(r.back).toBe(357);                                           // 2 − 5 = −3, normalised into 0–360
+  expect(r.typed).toBe(12.5);
+  expect(r.negative).toBe(340);
   expect(errors).toEqual([]);
 });
