@@ -281,6 +281,11 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### Unreleased — since v3.16.0
+
+- **Splitting a merge now produces the row it promises.** `splitChannelRow` is named for a row, and its button offers "a row of separate single-channel panels plus a merge" — but it never touched the grid, so a 2×2 figure stayed 2×2, and its toast recommended *Auto-arrange*, which lays 3 panels out as 2×2 and so could not produce that row either. When the split parts are the whole figure it now sets one row; when other panels are present it leaves their layout alone and says so instead of giving advice that does not work.
+- **The merge control is reachable.** Both halves of making a two-colour merge sit at the bottom of a 1400 px per-panel drawer, past fifty other controls. ⌘K → *Merge channels* now opens that panel's drawer and scrolls **+ Add channel** into view, and that button — the only one in the drawer with no tooltip — explains what it does.
+
 ### v3.16.0 — 15 September 2026
 
 Three things people went looking for and could not find, and several places the interface said something that was not true.

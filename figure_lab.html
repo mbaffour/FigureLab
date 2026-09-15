@@ -3559,7 +3559,7 @@ const CMD_REGISTRY=[
   {label:'Draw an ellipse / circle',keys:'ellipse circle oval round outline draw',     hint:'E', run:()=>setTool('ellipse')},
   {label:'Select tool (stop drawing)', keys:'select pointer arrow cursor stop drawing escape none', hint:'V', run:()=>setTool('none')},
   // Channels — "merge" appeared in no reachable label.
-  {label:'Merge channels (add a second colour channel)', keys:'merge channel channels multichannel overlay composite dapi gfp rfp colocalis colocaliz two colour', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:0; if(!images[i]){ toast('Add an image first','warn'); return; } _cmdpGoto('img-list','Open a panel\'s ⚙, then “+ Add channel” at the bottom of the drawer'); }},
+  {label:'Merge channels (add a second colour channel)', keys:'merge channel channels multichannel multi-channel overlay composite dapi gfp rfp colocalis colocaliz two colour two color dual second channel screen blend combine', run:()=>_cmdpAddChannel()},
   {label:'Split a merge into a row of channels', keys:'split channels separate row merge unmix individual panels', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:0; if(images[i]) splitChannelRow(i); else toast('Add a multi-channel panel first','warn'); }},
   // Save / load — the palette could not load a session.
   {label:'Load a saved session',    keys:'load open session restore reopen previous work file json resume', run:()=>esLoadSession()},
@@ -3709,6 +3709,23 @@ function _cmdpGoto(id, note){
   el.classList.add('cmdp-flash');
   setTimeout(()=>el.classList.remove('cmdp-flash'), 1400);
   if(note) toast(note,'ok');
+}
+
+// Both halves of a merge live at the bottom of a 1400 px per-panel drawer, past fifty
+// other controls and 875 px below the fold even once the drawer is open. The palette
+// opens the right panel's drawer and scrolls the control into view.
+function _cmdpAddChannel(){
+  const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  if(i<0){ toast('Add an image first','warn'); return; }
+  renderImgList();
+  const d=document.getElementById('settings-'+i);
+  if(!d){ toast('Could not open that panel’s settings','warn'); return; }
+  d.classList.add('open');
+  const btn=d.querySelector('.f-add-ch-btn');
+  if(!btn){ toast('Open the panel’s ⚙ and use “+ Add channel”','warn'); return; }
+  try{ btn.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ btn.scrollIntoView(); }catch(e2){} }
+  btn.classList.add('cmdp-flash'); setTimeout(()=>btn.classList.remove('cmdp-flash'),1400);
+  toast(`Pick the second channel for panel ${formatLabel(images[i].label)||''} — it overlays with its own colour`,'ok');
 }
 
 function openCmdPalette(){
@@ -4325,7 +4342,7 @@ function renderImgList(){
         <div class="divider"></div>
         <div class="sec-lbl">Channels (screen blend) <span class="ch-count"></span></div>
         <div class="ch-list"></div>
-        <label class="btn" style="width:100%;justify-content:center;cursor:pointer">
+        <label class="btn f-add-ch-btn" style="width:100%;justify-content:center;cursor:pointer" title="Pick a second image file for this panel — a different fluorescence channel of the same field. It is laid over the first with a screen blend and its own colour, which is how a two-colour merge is made.">
           + Add channel<input type="file" class="f-add-ch" accept="image/*" style="display:none">
         </label>
         <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
@@ -5261,9 +5278,20 @@ function splitChannelRow(srcIdx){
   let i=0; images.forEach(p=>{ p.label = i<26?ALPHABET[i]:String(i+1); i++; });   // positional relabel
   // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
   const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
+  // It is called splitChannelRow and its button promises "a row of separate
+  // single-channel panels plus a merge" — and it never touched the grid. A 2x2 figure
+  // stayed 2x2, and the toast sent you to Auto-arrange, which lays 3 panels out as 2x2,
+  // so the advice could not produce the row it named either. When the split parts ARE
+  // the whole figure, which is the case this tool exists for, lay them out as one row.
+  // When other panels are present, leave their layout alone and say so instead.
+  const visible=images.filter(im2=>im2&&!im2.excluded);
+  const madeRow = visible.length===parts.length;
+  if(madeRow){ sv('cols',parts.length); sv('rows',1); onLayoutChange(); }
   renderImgList(); renderMiniGrid(); scheduleRender();
-  logAction('splitChannels',{from:im.label,into:parts.length});
-  toast(`Split into ${parts.length} panels (channels + merge), named by channel — try ✨ Auto-arrange for a clean row`,'ok');
+  logAction('splitChannels',{from:im.label,into:parts.length,row:madeRow});
+  toast(madeRow
+    ? `Split into a row of ${parts.length}: each channel, then the merge`
+    : `Split into ${parts.length} panels (channels + merge), named by channel — the other panels kept their places, so the grid was left as it is`,'ok');
 }
 
 // Gel/blot splice marker — a visible lane-divider line (journal integrity
