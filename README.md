@@ -1,4 +1,4 @@
-# FigureLab v3.15.0
+# FigureLab v3.16.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,7 +281,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
-### Unreleased — since v3.15.0
+### v3.16.0 — 15 September 2026
+
+Three things people went looking for and could not find, and several places the interface said something that was not true.
 
 - **Rotate a photo from the canvas.** Click a panel and a round grip appears above it: drag to turn the picture to **any angle** (Shift snaps to 15°), or nudge with <kbd>[</kbd> and <kbd>]</kbd>, or type an exact angle beside the quarter-turn buttons. Rotation had existed only as three quarter-turn buttons inside a panel's settings drawer, which is not where anyone looks for it.
 - **Fixed: the Save dialog reported the wrong size with a column width set.** It computed its own physical size from `dpi/96`, which is the scale only when *no* printed width is chosen. With 89 mm at 300 DPI it announced 2131 × 2069 px / 180 × 175 mm for a file that is really 1051 × 1020 px / 89 × 86 mm — 2.03× out, on the last screen you see before the file is written. It now uses the same two helpers the canvas readout and the compliance check already used.
@@ -639,7 +641,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.15.0) [Computer software].
+> publication-quality scientific figures* (Version 3.16.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -649,7 +651,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.15.0},
+  version   = {3.16.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
