@@ -281,6 +281,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
+### Unreleased — since v3.15.0
+
 - **Rotate a photo from the canvas.** Click a panel and a round grip appears above it: drag to turn the picture to **any angle** (Shift snaps to 15°), or nudge with <kbd>[</kbd> and <kbd>]</kbd>, or type an exact angle beside the quarter-turn buttons. Rotation had existed only as three quarter-turn buttons inside a panel's settings drawer, which is not where anyone looks for it.
 - **Fixed: the Save dialog reported the wrong size with a column width set.** It computed its own physical size from `dpi/96`, which is the scale only when *no* printed width is chosen. With 89 mm at 300 DPI it announced 2131 × 2069 px / 180 × 175 mm for a file that is really 1051 × 1020 px / 89 × 86 mm — 2.03× out, on the last screen you see before the file is written. It now uses the same two helpers the canvas readout and the compliance check already used.
 - **Fixed: the compliance report named the wrong journal.** It said "Checked against Nature/Science/Cell" even with the PLOS, eLife, EMBO or PNAS preset applied, and never named the one you chose. It now says which preset is applied and that you should check its own spec.
