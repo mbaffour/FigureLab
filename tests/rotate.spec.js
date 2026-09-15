@@ -226,3 +226,35 @@ test('[ and ] nudge the selected panel, and the angle field sets an exact one', 
   expect(r.negative).toBe(340);
   expect(errors).toEqual([]);
 });
+
+// ── Turning everything at once, from the toolbar ──────────────
+
+test('the toolbar turns the selected photo, or every photo when none is selected', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedSized(page, 400, 200);
+  await seedSized(page, 300, 300);
+  await seedSized(page, 200, 400);
+  const r = await page.evaluate(() => {
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render();
+    images[2].excluded = true;                              // hidden panels are not the figure
+    selectedPanel = -1;
+    rotateFromToolbar(90);
+    const all = images.map(im => im.rotate);
+    selectedPanel = 1;
+    rotateFromToolbar(90);                                  // now only the selected one moves
+    const one = images.map(im => im.rotate);
+    selectedPanel = -1;
+    straightenFromToolbar();
+    const straight = images.map(im => im.rotate);
+    undo();
+    const undone = images.map(im => im.rotate);
+    return { all, one, straight, undone,
+             logged: reproLog.filter(e => e.action === 'rotateAllPanels' || e.action === 'straightenAllPanels').map(e => e.action) };
+  });
+  expect(r.all).toEqual([90, 90, 0]);                       // both visible photos; the hidden one untouched
+  expect(r.one).toEqual([90, 180, 0]);                      // only the selected one
+  expect(r.straight).toEqual([0, 0, 0]);
+  expect(r.undone).toEqual([90, 180, 0]);                   // straightening everything is one undo step
+  expect(r.logged).toEqual(['rotateAllPanels', 'straightenAllPanels']);
+  expect(errors).toEqual([]);
+});

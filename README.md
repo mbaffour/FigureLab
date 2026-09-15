@@ -282,6 +282,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ## Changelog
 
 - **Rotate a photo from the canvas.** Click a panel and a round grip appears above it: drag to turn the picture to **any angle** (Shift snaps to 15°), or nudge with <kbd>[</kbd> and <kbd>]</kbd>, or type an exact angle beside the quarter-turn buttons. Rotation had existed only as three quarter-turn buttons inside a panel's settings drawer, which is not where anyone looks for it.
+- **Rotate buttons in the canvas toolbar**, beside ⊞ Labels: ↺ ↻ turn the selected photo, or **every photo** when nothing is selected, and ⌐ sets them upright again. A folder of microscope captures that all arrived on their side is one click, not one click per panel. Also in ⌘K as *Rotate EVERY photo*.
 - **Fixed: a turned panel was drawn at the wrong size.** The contain-fit was computed from the *unturned* extent, so a 2:1 image turned 90° into a matching 1:2 cell came out at half the size in a cell it exactly fits, letterboxed — and the panel letter, tag and scale bar were placed against a box the picture no longer occupied, the letter landing beside it on the background. The fit now uses the turned extent at any angle, and the furniture follows the picture.
 
 ### v3.15.0 — 14 September 2026

@@ -1358,6 +1358,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="labels-toggle-btn" onclick="toggleAllLabels()" title="Show/hide row &amp; column labels in one click">⊞ Labels</button>
     <button class="btn" onclick="copyToClipboard()" title="Copy figure as PNG to clipboard">⎘ Copy</button>
     <div class="toolbar-sep"></div>
+    <span style="font-size:10px;color:var(--muted)">Rotate:</span>
+    <button class="btn" onclick="rotateFromToolbar(-90)" title="Turn the selected photo a quarter turn anticlockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↺</button>
+    <button class="btn" onclick="rotateFromToolbar(90)" title="Turn the selected photo a quarter turn clockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↻</button>
+    <button class="btn" onclick="straightenFromToolbar()" title="Set the selected photo back to upright — or every photo, if none is selected">⌐</button>
+    <div class="toolbar-sep"></div>
     <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 CVD
       <select id="cvd-mode" onchange="setCvdMode(this.value)" style="font-size:10px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
         <option value="none">Normal vision</option>
@@ -3614,6 +3619,9 @@ const CMD_REGISTRY=[
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation', run:()=>rotateSelectedPanel(90)},
+  {label:'Rotate EVERY photo 90° right',    keys:'rotate turn all every photo panel whole figure sideways batch right', run:()=>{ const n=rotateAllPanels(90); if(n) toast(`All ${n} photos turned clockwise`,'ok'); }},
+  {label:'Rotate EVERY photo 90° left',     keys:'rotate turn all every photo panel whole figure sideways batch left', run:()=>{ const n=rotateAllPanels(-90); if(n) toast(`All ${n} photos turned anticlockwise`,'ok'); }},
+  {label:'Straighten every photo (0°)',     keys:'straighten upright reset rotation all every photo panel', run:()=>straightenFromToolbar()},
   {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation', run:()=>rotateSelectedPanel(-90)},
   {label:'Straighten selected panel (0°)',  keys:'straighten reset rotation panel photo upright', run:()=>{ if(selectedPanel>=0&&images[selectedPanel]){ pushUndo(); setPanelAngle(selectedPanel,0); toast('Panel upright','ok'); } else toast('Click a panel first','warn'); }},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
@@ -4790,6 +4798,41 @@ function rotateSelectedPanel(delta){
   setPanelAngle(idx, _panelAngle(idx)+delta);
   toast(`${formatLabel(images[idx].label)||'Panel'} at ${_panelAngle(idx)}\u00b0`,'ok');
 }
+// Turn every panel that is in the figure. Importing a folder of microscope captures
+// that are all lying on their side is the ordinary case, and turning them one at a time
+// is the kind of work this tool exists to remove.
+function rotateAllPanels(delta){
+  const idx=images.map((im,i)=>({im,i})).filter(o=>o.im&&o.im.img&&!o.im.excluded).map(o=>o.i);
+  if(!idx.length){ toast('Add images first','warn'); return 0; }
+  pushUndo();
+  idx.forEach(i=>setPanelAngle(i, _panelAngle(i)+delta, {quiet:true}));
+  renderImgList(); scheduleRender(0);
+  logAction('rotateAllPanels',{panels:idx.length, deg:delta});
+  return idx.length;
+}
+// The toolbar buttons act on what you have selected, and on everything when you have
+// selected nothing — so they work before you have learned that panels are selectable.
+function rotateFromToolbar(delta){
+  if(layoutMode==='freeform'){ toast('In freeform, use the rotate handle on the selected object','warn'); return; }
+  if(selectedPanel>=0&&images[selectedPanel]){ rotateSelectedPanel(delta); return; }
+  const n=rotateAllPanels(delta);
+  if(n) toast(`All ${n} photo${n>1?'s':''} turned ${delta>0?'clockwise':'anticlockwise'} — click one first to turn just that one`,'ok');
+}
+function straightenFromToolbar(){
+  if(layoutMode==='freeform'){ toast('In freeform, use the rotate handle on the selected object','warn'); return; }
+  if(selectedPanel>=0&&images[selectedPanel]){
+    if(!_panelAngle(selectedPanel)){ toast('That photo is already upright','ok'); return; }
+    pushUndo(); setPanelAngle(selectedPanel,0); toast(`${formatLabel(images[selectedPanel].label)||'Panel'} upright`,'ok'); return;
+  }
+  const idx=images.map((im,i)=>({im,i})).filter(o=>o.im&&o.im.img&&!o.im.excluded&&_panelAngle(o.i)).map(o=>o.i);
+  if(!idx.length){ toast('Every photo is already upright','ok'); return; }
+  pushUndo();
+  idx.forEach(i=>setPanelAngle(i,0,{quiet:true}));
+  renderImgList(); scheduleRender(0);
+  logAction('straightenAllPanels',{panels:idx.length});
+  toast(`${idx.length} photo${idx.length>1?'s':''} set upright`,'ok');
+}
+
 // Where the rotate grip sits: 22 px clear of the middle of the picture's top edge, or
 // below it when the picture is against the top of the canvas. Returns [x,y,bounds].
 function _panelGrip(){
