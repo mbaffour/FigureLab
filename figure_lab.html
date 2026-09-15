@@ -5489,7 +5489,13 @@ function syncGapArrays(cols, rows){
 }
 // Gap that sits immediately before column c (1..cols-1); falls back to uniform gH.
 function gapBefore(c, gH){ return (advancedSpacing && colGaps && colGaps[c-1]!=null) ? colGaps[c-1] : gH; }
-function rGapBefore(r, gV){ return (advancedSpacing && rowGaps && rowGaps[r-1]!=null) ? rowGaps[r-1] : gV; }
+// A multi-page PDF renders one page-worth of rows at a time, so `r` here is the row's
+// position ON THE PAGE. The override belongs to the row's position in the whole figure,
+// so page 2 was drawn with page 1's gutters — its spacing silently mirrored page 1's.
+function rGapBefore(r, gV){
+  const R = r + (_pageCtx ? _pageCtx.rowOffset : 0);
+  return (advancedSpacing && rowGaps && rowGaps[R-1]!=null) ? rowGaps[R-1] : gV;
+}
 // Cumulative left edge of column c (relative to first panel's left). Reduces to c*(pw+gH) when uniform.
 function colOffset(c, pw, gH){ let o=0; for(let k=0;k<c;k++) o+=pw+gapBefore(k+1,gH); return o; }
 function rowOffset(r, ph, gV){ let o=0; for(let k=0;k<r;k++) o+=ph+rGapBefore(k+1,gV); return o; }
@@ -5499,6 +5505,24 @@ function totalGapsH(rows, gV){ let s=0; for(let r=1;r<rows;r++) s+=rGapBefore(r,
 function spanGapsW(c, cs, gH){ let s=0; for(let k=1;k<cs;k++) s+=gapBefore(c+k,gH); return s; }
 function spanGapsH(r, rs, gV){ let s=0; for(let k=1;k<rs;k++) s+=rGapBefore(r+k,gV); return s; }
 function setAdvancedSpacing(on){ advancedSpacing=on; render(); drawAnnOverlay(); }
+// How many gutters currently carry their own spacing.
+function _overrideCount(){
+  return (colGaps||[]).filter(v=>v!=null).length + (rowGaps||[]).filter(v=>v!=null).length;
+}
+// Set ONE gap for the whole figure. gapBefore()/rGapBefore() prefer a per-gutter
+// override over the uniform value whenever per-gutter spacing is on, so anything that
+// sets a uniform gap — Tighten spacing, a journal preset, a loaded template — used to
+// report success and change nothing at all for every overridden gutter. A uniform gap
+// is a request for one spacing everywhere, so the overrides go, and the user is told
+// rather than left to wonder why the figure did not move.
+function setUniformGaps(h, v, why){
+  if(h!=null) sv('gap-h', h);
+  if(v!=null) sv('gap-v', v);
+  const n=_overrideCount();
+  colGaps=null; rowGaps=null;
+  if(n) toast(`${why} — ${n} per-gutter override${n>1?'s':''} cleared so it applies everywhere`,'ok');
+  return n;
+}
 function resetGutters(){ pushUndo(); colGaps=null; rowGaps=null; hoverGutter=null; render(); drawAnnOverlay(); toast('Gutters reset to uniform','ok'); }
 
 // Geometry of the grid drawing region (logical coords), shared by hit-testing & overlay.
@@ -11343,10 +11367,14 @@ function applyCalib(){
 // ═══════════════════════════════════════════════════════════════
 function applyPreset(name){
   const p=PRESETS[name]; if(!p) return;
+  // A preset rewrites the panel size, the gaps, the fonts and the export width. Without
+  // an undo entry none of that could be taken back, so trying a journal's house style
+  // to see what it looked like was a one-way door.
+  pushUndo();
   // Remembered so the export-time AI policy gate knows which journal to check against.
   _lastPresetName=name; _aiPolicyAcked=false;
   sv('panel-w',p.panelW); sv('panel-h',p.panelH);
-  sv('gap-h',p.gapH);     sv('gap-v',p.gapV);
+  const _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`);
   sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
   sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
   sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
@@ -11354,7 +11382,8 @@ function applyPreset(name){
   // the journal's double-column width, so the export lands at a real physical size
   const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
   sv('export-width-mm', wmm||'0');
-  scheduleRender(); toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
+  scheduleRender();
+  if(!_gapsCleared) toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -15513,13 +15542,13 @@ function fitPanelsToContent(opts){
 // a title, or row/column headers — instead of clipping it.
 function tightenSpacing(){
   pushUndo();
-  sv('gap-h',2); sv('gap-v',2);
+  setUniformGaps(2,2,'Gaps and margins tightened');
   const hasTitle=!!(gv('fig-title')||'').trim();
   sv('m-top',  (hasTitle||gc('show-col-labels')) ? 26 : 6);
   sv('m-left', gc('show-row-labels') ? 34 : 6);
   sv('m-btm',6); sv('m-right',6);
   onLayoutChange();
-  toast('Gaps and margins tightened','ok');
+  if(!_overrideCount()) toast('Gaps and margins tightened','ok');
 }
 
 function relabelPanels(){
@@ -15800,6 +15829,9 @@ function saveTemplate(){
     cols:gi('cols'),rows:gi('rows'),panelW:gi('panel-w'),panelH:gi('panel-h'),
     gapH:gi('gap-h'),gapV:gi('gap-v'),mTop:gi('m-top'),mLeft:gi('m-left'),
     mBtm:gi('m-btm'),mRight:gi('m-right'),
+    // Per-gutter spacing is part of the layout; a template that dropped it loaded as a
+    // different figure, and left the OLD overrides in place so its gaps did nothing.
+    advancedSpacing, colGaps:colGaps?colGaps.slice():null, rowGaps:rowGaps?rowGaps.slice():null,
     fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
     fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
     // Strip transient render caches (live canvases, adjust/chart caches) before cloning.
@@ -15839,6 +15871,12 @@ function loadTemplate(t){
     sv('cols',t.cols);sv('rows',t.rows);sv('panel-w',t.panelW);sv('panel-h',t.panelH);
     sv('gap-h',t.gapH);sv('gap-v',t.gapV);sv('m-top',t.mTop);sv('m-left',t.mLeft);
     sv('m-btm',t.mBtm||16);sv('m-right',t.mRight||16);
+    // Always replace the live overrides — with the template's own, or with none at all.
+    // Leaving the previous figure's behind made a loaded template's gaps inert.
+    colGaps = Array.isArray(t.colGaps) ? t.colGaps.slice() : null;
+    rowGaps = Array.isArray(t.rowGaps) ? t.rowGaps.slice() : null;
+    advancedSpacing = !!t.advancedSpacing;
+    const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing;
     onLayoutChange();
   } else {
     sv('fm-canvas-w',t.fmW||1200); sv('fm-canvas-h',t.fmH||900);
@@ -18283,6 +18321,7 @@ function shareSession(){
     layout:{
       cols:gv('cols'), rows:gv('rows'), panelW:gv('panel-w'), panelH:gv('panel-h'),
       gapH:gv('gap-h'), gapV:gv('gap-v'),
+      advancedSpacing, colGaps:colGaps?colGaps.slice():null, rowGaps:rowGaps?rowGaps.slice():null,
       mTop:gv('m-top'), mLeft:gv('m-left'), mBtm:gv('m-btm'), mRight:gv('m-right'),
       figTitle:gv('fig-title'),
       showColLabels:gc('show-col-labels'), showRowLabels:gc('show-row-labels'),

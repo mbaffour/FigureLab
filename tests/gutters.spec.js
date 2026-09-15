@@ -34,8 +34,9 @@ test('Tighten spacing closes every gutter, including ones with their own spacing
     const overridden = _hGaps();
     tightenSpacing();
     const tightened = _hGaps();
+    const left = _overrideCount();          // before the undo puts them back
     undo();
-    return { overridden, tightened, undone: _hGaps(), left: _overrideCount() };
+    return { overridden, tightened, left, undone: _hGaps() };
   });
   expect(r.overridden).toEqual([60, 80]);
   expect(r.tightened).toEqual([2, 2]);        // used to stay [60, 80] while claiming success
@@ -106,18 +107,17 @@ test('a share link carries per-gutter spacing', async ({ page }) => {
   const r = await page.evaluate(async () => {
     setAdvancedSpacing(true); setGutter('col', 1, 55);
     let href = null;
-    const realPrompt = window.prompt; window.prompt = () => null;
-    const realClip = navigator.clipboard && navigator.clipboard.writeText;
-    try { if (realClip) navigator.clipboard.writeText = async (t) => { href = t; }; shareSession(); }
-    finally { window.prompt = realPrompt; if (realClip) navigator.clipboard.writeText = realClip; }
-    const box = document.getElementById('share-link-out');
-    const link = href || (box && box.value) || location.href;
-    const frag = link.slice(link.indexOf('#share=') + 7);
-    let payload = null;
-    try { payload = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(frag))))); } catch (e) {
-      try { payload = JSON.parse(atob(decodeURIComponent(frag))); } catch (e2) {}
-    }
-    return payload ? { adv: payload.layout.advancedSpacing, col: payload.layout.colGaps } : { unreadable: true, link: link.slice(0, 60) };
+    if (!navigator.clipboard) Object.defineProperty(navigator, 'clipboard', { value: {}, configurable: true });
+    const realWrite = navigator.clipboard.writeText;
+    try {
+      navigator.clipboard.writeText = async (t) => { href = t; };
+      shareSession();
+      await new Promise(r => setTimeout(r, 60));
+    } finally { if (realWrite) navigator.clipboard.writeText = realWrite; }
+    if (!href || href.indexOf('#share=') < 0) return { unreadable: true, link: String(href).slice(0, 60) };
+    // shareSession encodes with btoa(encodeURIComponent(json)).
+    const payload = JSON.parse(decodeURIComponent(atob(href.slice(href.indexOf('#share=') + 7))));
+    return { adv: payload.layout.advancedSpacing, col: payload.layout.colGaps };
   });
   expect(r.unreadable, `share payload unreadable: ${r.link || ''}`).toBeUndefined();
   expect(r.adv).toBe(true);
