@@ -1,4 +1,4 @@
-# FigureLab v3.14.0
+# FigureLab v3.15.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,7 +281,9 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
-### Unreleased — since v3.14.0
+### v3.15.0 — 14 September 2026
+
+Channels, time, and three labels that looked draggable and were not.
 
 - **Inset outlines are vector in the SVG export.** The outline on the parent, its letter and the connector lines are held out of the raster and written as `<rect>`, `<text>` and `<line>`, so they stay editable and never pixelate — the same treatment the labels have always had.
 
@@ -617,7 +619,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.14.0) [Computer software].
+> publication-quality scientific figures* (Version 3.15.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -627,7 +629,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.14.0},
+  version   = {3.15.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}

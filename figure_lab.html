@@ -1774,13 +1774,20 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
-<h3 class="help-h">Unreleased <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; in this build, since v3.14.0</span></h3>
+<h3 class="help-h">What's new in v3.15.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 14 September 2026</span></h3>
+<p class="help-p">Channels, time, and three labels that looked draggable and were not. If you build multi-channel or time-lapse figures, the first two items are the ones to read.</p>
 <ul class="help-ul">
+  <li><b>&#8801; Sync display range by channel.</b> Send one panel's black and white points to every other panel <i>and extra channel</i> showing the <b>same channel</b> &mdash; DAPI levels to every DAPI, GFP to every GFP &mdash; and change nothing else. The compliance check now warns when compared panels show one channel at different ranges ("GFP: A 10&ndash;200, B 0&ndash;255"), with this as its one-click fix. Each extra channel also gained its own black/white sliders: the values existed and were saved, but nothing in the interface could set them.</li>
+  <li><b>&#9201; Tag a time-lapse from the times already in the file.</b> Reads <b>OME-TIFF <code>DeltaT</code></b> (honouring its unit), an <b>ImageJ frame interval</b>, or the plain <b>TIFF <code>DateTime</code></b> tag, and tags the panels with the elapsed time from the earliest &mdash; in whichever of s / min / h keeps the numbers small. Panels whose file carried no time are left alone, and a figure mixing relative and absolute times is refused rather than given an invented zero.</li>
+  <li><b>&#9636; A channel key</b> for the figure: every channel the visible panels show, once, with its swatch, derived from the panels themselves so it cannot drift out of step. Plus <b>&#10011; Axes</b>, an orientation marker (D V A P by default, or any four letters you type) for histology and embryo panels.</li>
+  <li><b>Three labels that could not be dragged, now can.</b> Panel tags, the numbers on an intensity bar and group band headings were all found by the hit test and all had nowhere to store the offset &mdash; the cursor said "grabbing" and nothing moved. A tag sent to the same corner as the panel letter also steps below it now instead of sitting on top of it.</li>
+  <li><b>Vector where it was raster.</b> Inset outlines, their letters and connector lines are written into the SVG as shapes rather than baked into the picture &mdash; and <b>counter markers reach the SVG at all</b> for the first time; they had been dropped silently.</li>
   <li><b>A quiet empty figure.</b> With no images loaded, the Images section used to show a wall of inert panel tools &mdash; including a red <i>Delete hidden panels</i> button. They now appear once there is something for them to act on; one line says so.</li>
   <li><b>The command palette box is full width</b> &mdash; a global input rule had been shrinking it to 76&nbsp;px. <b>The icon browser shows a few per group with &ldquo;Show all&rdquo;</b>; search still shows everything that matches. Suggested AI prompts fold away under the prompt box.</li>
   <li><b>Every labelled control is now a real label</b> &mdash; 40 inputs a screen reader announced as unlabelled are associated with the text beside them. Helper text no longer goes below 10&nbsp;px. <b>Fixed:</b> the footer had its own hard-coded version and had drifted behind the badge above it.</li>
+  <li><b>440 Playwright tests</b>, up from 425 &mdash; the new ones read exported bytes and real TIFF metadata fixtures, which is what found the silently dropped counters and the dead drags.</li>
 </ul>
-<h3 class="help-h">What's new in v3.14.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 14 September 2026</span></h3>
+<h3 class="help-h">v3.14.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; 14 September 2026</span></h3>
 <p class="help-p">A feature release, two days after the audit. Most of it is cropping and what a reader needs to find their way round a figure; some of it came from looking at what QuickFigures, OMERO.figure and FigureJ do that FigureLab did not.</p>
 <ul class="help-ul">
   <li><b>&#128207; Straighten a crop by reference or by search.</b> <span class="help-ui">&#128208; Level</span>: click two points along any edge that should be straight. <span class="help-ui">&#10024; Auto</span>: a search for the tilt at which the straight features in the box line up, which declines rather than guess. Batch crop keeps a tilt per image. A <b>ratio lock</b>, <b>pixel-exact X/Y/W/H</b>, <b>&#9635; Trim borders</b> for saved plots and scans, and a <b>loupe</b> showing full-resolution pixels under the pointer while you drag. Crops are stored to 0.01&nbsp;% instead of whole percents.</li>
@@ -2401,7 +2408,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '3.14.0';  // single source of truth for the app version
+const APP_VERSION = '3.15.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const PRESETS = {
