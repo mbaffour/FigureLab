@@ -1199,9 +1199,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button onclick="alignElems('centerH')" title="Center horizontally">↔</button>
     <button onclick="alignElems('centerV')" title="Center vertically">↕</button>
     <div class="abar-sep"></div>
+    <span style="font-size:10px;color:var(--muted);margin-right:2px">Space:</span>
+    <input type="number" id="ff-space" value="12" min="0" max="600" step="1"
+      style="width:46px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px"
+      title="The gap to put between the selected objects, in pixels">
+    <button onclick="spaceElems('h')" title="Put exactly this many pixels between the selected objects, left to right — works with two or more">⇿</button>
+    <button onclick="spaceElems('v')" title="Put exactly this many pixels between the selected objects, top to bottom — works with two or more">⇕</button>
+    <div class="abar-sep"></div>
     <span style="font-size:10px;color:var(--muted);margin-right:2px">Distribute:</span>
-    <button onclick="distributeElems('h')" title="Distribute horizontally">←→</button>
-    <button onclick="distributeElems('v')" title="Distribute vertically">↑↓</button>
+    <button onclick="distributeElems('h')" title="Spread three or more objects evenly between the outermost two, keeping those two where they are">←→</button>
+    <button onclick="distributeElems('v')" title="Spread three or more objects evenly between the outermost two, keeping those two where they are">↑↓</button>
     <div class="abar-sep"></div>
     <span style="font-size:10px;color:var(--muted);margin-right:2px">Layer:</span>
     <button onclick="changeZOrder('front')"   title="Bring to front">⬆⬆</button>
@@ -3619,6 +3626,7 @@ const CMD_REGISTRY=[
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation', run:()=>rotateSelectedPanel(90)},
+  {label:'Space selected objects evenly (freeform)', keys:'space gap between objects panels freeform exact pixels distribute', run:()=>spaceElems('h')},
   {label:'Rotate EVERY photo 90° right',    keys:'rotate turn all every photo panel whole figure sideways batch right', run:()=>{ const n=rotateAllPanels(90); if(n) toast(`All ${n} photos turned clockwise`,'ok'); }},
   {label:'Rotate EVERY photo 90° left',     keys:'rotate turn all every photo panel whole figure sideways batch left', run:()=>{ const n=rotateAllPanels(-90); if(n) toast(`All ${n} photos turned anticlockwise`,'ok'); }},
   {label:'Straighten every photo (0°)',     keys:'straighten upright reset rotation all every photo panel', run:()=>straightenFromToolbar()},
@@ -13175,8 +13183,37 @@ function alignElems(dir){
   drawFreeformOverlay(); scheduleRender(0);
 }
 
+// Put an EXACT gap between the selected objects. Distribute could only spread three or
+// more between the two outermost ones, so with two objects selected it silently did
+// nothing, and at no count could you say "12 px between these" — the freeform editor had
+// no way to set the spacing between panels at all, only to drag them and hope.
+function spaceElems(dir){
+  const sel=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&el.type!=='connector');
+  if(sel.length<2){ toast('Select two or more objects to space them','warn'); return; }
+  const g=Math.max(0,Math.round(gi('ff-space')||0));
+  pushUndo();
+  if(dir==='h'){
+    sel.sort((a,b)=>a.x-b.x);
+    let c=sel[0].x;
+    sel.forEach(el=>{ el.x=Math.round(c); c+=el.w+g; });
+  } else {
+    sel.sort((a,b)=>a.y-b.y);
+    let c=sel[0].y;
+    sel.forEach(el=>{ el.y=Math.round(c); c+=el.h+g; });
+  }
+  drawFreeformOverlay(); scheduleRender(0);
+  logAction('spaceElems',{dir, gap:g, objects:sel.length});
+  toast(`${sel.length} objects, ${g} px apart`,'ok');
+}
+
 function distributeElems(dir){
-  if(selectedElems.size<3) return;
+  const _n=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&el.type!=='connector').length;
+  if(_n<3){
+    // It used to return in silence, which reads as a broken button.
+    toast(_n<2 ? 'Select three or more objects to distribute them'
+               : 'Distribute spreads three or more objects between the outermost two — for two objects, use Space to set an exact gap','warn');
+    return;
+  }
   const sel=[...selectedElems].map(i=>({idx:i,el:freeformElements[i]})).filter(o=>o.el&&o.el.type!=='connector');
   if(sel.length<3) return;
   if(dir==='h'){
