@@ -535,7 +535,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
       <button class="btn" onclick="applyQuickPreset('fluorescence')" style="flex:1;justify-content:center;font-size:10px" title="Dark background, white labels, LUT-friendly">🔬 Fluorescence</button>
       <button class="btn" onclick="applyQuickPreset('brightfield')" style="flex:1;justify-content:center;font-size:10px" title="White background, dark labels, no LUTs">🔭 Brightfield</button>
-      <button class="btn" onclick="applyQuickPreset('publication')" style="flex:1;justify-content:center;font-size:10px" title="Publication-ready margins, fonts, 300 DPI">📄 Publication</button>
+      <button class="btn" onclick="applyQuickPreset('publication')" style="flex:1;justify-content:center;font-size:10px" title="Publication-ready margins and fonts, and 600 DPI — the resolution journals ask for on submission. It does not set a printed column width; choose one under Export.">📄 Publication</button>
     </div>
     <div class="divider"></div>
     <div class="field"><label>Canvas mode</label>
@@ -624,7 +624,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="_grpFromTagsUI()" title="Build bands from the panels' match-group tags">⇉ From tags</button>
     </div>
     <div id="group-list" style="margin-top:3px"></div>
-    <div class="sec-lbl" style="margin-top:6px">Label style</div>
+    <div class="sec-lbl" style="margin-top:6px">Row / column header style</div>
     <div class="field"><label>Font</label>
       <select id="axis-font" onchange="scheduleRender()" style="width:130px">
         <option value="">Same as panel labels</option>
@@ -873,7 +873,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="tagPanelsFromAcquisition()" style="width:100%;justify-content:center;font-size:11px;margin-top:3px" title="Read the acquisition time each panel arrived with — OME-TIFF DeltaT, an ImageJ frame interval, or the TIFF DateTime tag — and tag the panels with the time elapsed from the earliest of them. No guessing: panels whose file carried no time are left alone.">⏱ Tag from acquisition time</button>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Scale Bar (global defaults) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="A calibrated bar showing real-world size. Set µm/pixel per panel (Calibrate), then the bar appears. Uncalibrated bars show a ⚠ warning until you calibrate.">?</span></div>
+    <div class="sec-lbl">Scale bar appearance (all panels) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="These control only how the bar LOOKS. A bar appears once a panel has a µm/px calibration: open that panel's ⚙ and press Calibrate, or click the ⚠ calibrate badge beside its name. The bar's length is per panel, in the same place.">?</span></div>
     <div class="field"><label>Bar height (px)</label>
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
@@ -1368,10 +1368,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="labels-toggle-btn" onclick="toggleAllLabels()" title="Show/hide row &amp; column labels in one click">⊞ Labels</button>
     <button class="btn" onclick="copyToClipboard()" title="Copy figure as PNG to clipboard">⎘ Copy</button>
     <div class="toolbar-sep"></div>
+    <span style="display:flex;align-items:center;gap:5px" role="group" aria-label="Rotate photos">
     <span style="font-size:10px;color:var(--muted)">Rotate:</span>
-    <button class="btn" onclick="rotateFromToolbar(-90)" title="Turn the selected photo a quarter turn anticlockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↺</button>
-    <button class="btn" onclick="rotateFromToolbar(90)" title="Turn the selected photo a quarter turn clockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↻</button>
-    <button class="btn" onclick="straightenFromToolbar()" title="Set the selected photo back to upright — or every photo, if none is selected">⌐</button>
+    <button class="btn" aria-label="Rotate 90 degrees anticlockwise" onclick="rotateFromToolbar(-90)" title="Turn the selected photo a quarter turn anticlockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↺</button>
+    <button class="btn" aria-label="Rotate 90 degrees clockwise" onclick="rotateFromToolbar(90)" title="Turn the selected photo a quarter turn clockwise — or every photo, if none is selected. Click a photo on the canvas and drag the round grip above it for any angle.">↻</button>
+    <button class="btn" aria-label="Straighten to upright" onclick="straightenFromToolbar()" title="Set the selected photo back to upright — or every photo, if none is selected">⌐</button>
+    </span>
     <div class="toolbar-sep"></div>
     <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 CVD
       <select id="cvd-mode" onchange="setCvdMode(this.value)" style="font-size:10px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
@@ -4008,11 +4010,17 @@ function _refreshPreflight(){
   document.getElementById('pf-ext').textContent='.'+_pfExt(fmt);
   const canvas=document.getElementById('fig-canvas');
   const W=canvas.width, H=canvas.height;
-  let scale=Math.max(1,dpi/96), capped=false;
+  // dpi/96 is the scale only when NO printed width is chosen. With one set, the scale
+  // comes from the target width, and this dialog — the last thing you see before the
+  // file is written — was reporting 2131x2069 px / 180x175 mm for an export that is
+  // really 1051x1020 px / 89x86 mm. Every other readout (the canvas info bar, the
+  // compliance check) already used these two helpers; this one did its own arithmetic.
+  const _pfF=_physFacts();
+  let scale=_exportScaleFor(dpi), capped=false;
   const MAXPX=60e6;
   if(W*H*scale*scale>MAXPX){ scale=Math.max(1,Math.sqrt(MAXPX/(W*H))); capped=true; }
   const fw=Math.round(W*scale), fh=Math.round(H*scale), px=fw*fh;
-  const mmW=(W/96*25.4), mmH=(H/96*25.4);
+  const mmW=_pfF.wMm, mmH=_pfF.hMm;
   const estMap={tiff:px*3,png:px*1.2,jpeg:px*0.22,webp:px*0.16,pdf:px*0.24,'pdf-lossless':px*1.4,svg:px*1.2};
   const est=estMap[fmt]||px;
   const vectorNote = fmt==='svg'
@@ -4176,7 +4184,7 @@ function renderImgList(){
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
-        ${im.sbOn && !im.umPerPx ? `<span style="font-size:9px;color:var(--warn);flex-shrink:0" title="Scale bar shown but µm/px not set">⚠</span>` : ''}
+        ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
         ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
@@ -4328,6 +4336,11 @@ function renderImgList(){
     const gear = item.querySelector('[data-gear]');
     const labelInput = item.querySelector('.img-label-input');
 
+    { const cw=item.querySelector('[data-calib]');
+      // The badge was a 5x14 px inert glyph: the only sign that a switched-on scale bar
+      // cannot be drawn, and it did nothing when clicked. It now opens the very dialog
+      // that fixes it — the same call the compliance check's one-click fix already makes.
+      if(cw) cw.addEventListener('click', e=>{ e.stopPropagation(); openCalib(+cw.dataset.calib); }); }
     item.querySelector('[data-del]').addEventListener('click', ()=>{
       pushUndo();
       images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
@@ -8099,7 +8112,9 @@ function checkCompliance(){
   }).join('');
   const pass=checks.filter(c=>c.ok).length, total=checks.length;
   showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
-    `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against Nature/Science/Cell guidelines</div>${html}`);
+    `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
+      _lastPresetName ? ` — you have the <b>${esc(_lastPresetName)}</b> preset applied, so check its own spec too` : ''
+    }</div>${html}`);
 }
 function _auditFix(action){
   const m=document.getElementById('info-modal-bg');
