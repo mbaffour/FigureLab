@@ -5653,11 +5653,23 @@ function render(targetCanvas, exportScale, opts){
         const _cd=_cropDraw(im);
         const sx=_cd.sx, sy=_cd.sy, sw=_cd.sw, sh=_cd.sh;
         if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); seq++; continue; }
-        // Contain-fit
-        const scale=Math.min(apw/sw, aph/sh);
+        // Contain-fit. A quarter turn swaps which way the picture lies, so the fit has
+        // to be computed against the TURNED extent. It was not: a 2:1 image turned 90°
+        // into a matching 1:2 cell was fitted as though it were still lying the other
+        // way, drawn at HALF the size it should be and letterboxed in a cell it exactly
+        // fits. Rotating a panel looked broken because the fit never knew about it.
+        const qt=((((im.rotate||0)%180)+180)%180)!==0;
+        const scale=qt ? Math.min(apw/sh, aph/sw) : Math.min(apw/sw, aph/sh);
+        // dw/dh is the box the picture is drawn into BEFORE the turn — only the
+        // drawImage transform and the inset outlines inside it use these.
         const dw=Math.round(sw*scale), dh=Math.round(sh*scale);
         const dx=px+Math.round((apw-dw)/2), dy=py+Math.round((aph-dh)/2);
-        if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=dx; _pb.iy=dy; _pb.iw=dw; _pb.ih=dh; } }
+        // ow/oh is the box it occupies ON SCREEN once turned, which is what the labels,
+        // the scale bar, the tag, the clip shape and the hit-tests must follow. At 0°
+        // and 180° the two boxes are identical, so nothing about an unturned panel moves.
+        const ow=qt?dh:dw, oh=qt?dw:dh;
+        const ox=px+Math.round((apw-ow)/2), oy=py+Math.round((aph-oh)/2);
+        if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=ox; _pb.iy=oy; _pb.iw=ow; _pb.ih=oh; } }
         ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph);
         // Crop-to-shape clip
         const cshape=im.cropShape||'rect';
@@ -5665,10 +5677,10 @@ function render(targetCanvas, exportScale, opts){
           ctx.save();
           ctx.beginPath();
           if(cshape==='circle'){
-            const cr=Math.min(dw,dh)/2;
-            ctx.arc(dx+dw/2, dy+dh/2, cr, 0, Math.PI*2);
+            const cr=Math.min(ow,oh)/2;
+            ctx.arc(ox+ow/2, oy+oh/2, cr, 0, Math.PI*2);
           } else {
-            ctx.ellipse(dx+dw/2, dy+dh/2, dw/2, dh/2, 0, 0, Math.PI*2);
+            ctx.ellipse(ox+ow/2, oy+oh/2, ow/2, oh/2, 0, 0, Math.PI*2);
           }
           ctx.clip();
         }
@@ -5719,10 +5731,10 @@ function render(targetCanvas, exportScale, opts){
             ctx.font=lfont;
             const tw=ctx.measureText(displayLbl).width;
             const pad=6;
-            let lx=dx+pad, ly=dy+pad+fs;
-            if(lblPos==='tr') lx=dx+dw-pad-tw;
-            if(lblPos==='bl') ly=dy+dh-pad;
-            if(lblPos==='br'){ lx=dx+dw-pad-tw; ly=dy+dh-pad; }
+            let lx=ox+pad, ly=oy+pad+fs;
+            if(lblPos==='tr') lx=ox+ow-pad-tw;
+            if(lblPos==='bl') ly=oy+oh-pad;
+            if(lblPos==='br'){ lx=ox+ow-pad-tw; ly=oy+oh-pad; }
             lx+=(im.lblDX||0); ly+=(im.lblDY||0); // drag offset
             const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
             const hasBg=gc('label-bg');
@@ -5762,17 +5774,17 @@ function render(targetCanvas, exportScale, opts){
           // WHY, so the compliance check can fail instead of reporting "all calibrated"
           // on a figure that ships with no scale bar at all.
           if(barPx<4) im._sbSkip='too short to draw (under 4 px) — check µm/px and the bar length';
-          else if(barPx>=dw*.75) im._sbSkip='longer than 75% of the panel — check µm/px and the bar length';
+          else if(barPx>=ow*.75) im._sbSkip='longer than 75% of the panel — check µm/px and the bar length';
           if(!im._sbSkip){
-            const sp=Math.max(6,Math.round(dw*.04));
-            const sbX=dx+dw-sp-barPx, sbY=dy+dh-sp-sbH;
+            const sp=Math.max(6,Math.round(ow*.04));
+            const sbX=ox+ow-sp-barPx, sbY=oy+oh-sp-sbH;
             // Auto contrast: a white bar on a bright-field image is invisible. Sample the
             // bar and the text line above it together, so both come out the same ink.
             const barInk=sbAuto?_autoInk(ctx,S,sbX,sbY-16,barPx,sbH+16,sbClr):sbClr;
             ctx.fillStyle=barInk; ctx.fillRect(sbX,sbY,barPx,sbH);
             if(!isExport) _sbBars.push({idx:imgIdx, left:sbX, right:sbX+barPx, top:sbY, bottom:sbY+sbH, scale:(dw/sw)});
             if(sbTxt){
-              const sfs=Math.max(7,Math.round(10*dw/300));
+              const sfs=Math.max(7,Math.round(10*ow/300));
               const lbl=_sbLabel(im);
               emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, barInk, 'center','alphabetic',0);
               ctx.textAlign='left';
@@ -5780,10 +5792,10 @@ function render(targetCanvas, exportScale, opts){
           }
         }
         // Panel tag (a condition, a time point, or the channel names in their colours)
-        _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText, lblAuto?S:0);
+        _drawPanelTag(ctx, im, imgIdx, ox, oy, ow, oh, lblSz, lblClr, emitText, lblAuto?S:0);
         // Intensity bar for pseudocoloured / grayscale panels
-        if(im.cbar) _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh,
-          sbAuto?_autoInk(ctx,S,dx+dw*0.68,dy+dh*0.28,dw*0.32,dh*0.44,sbClr):sbClr, emitText);
+        if(im.cbar) _drawIntensityBar(ctx, im, imgIdx, ox, oy, ow, oh,
+          sbAuto?_autoInk(ctx,S,ox+ow*0.68,oy+oh*0.28,ow*0.32,oh*0.44,sbClr):sbClr, emitText);
         // Global panel border (with inset)
         const panelBorderInset=Math.max(0,gi('panel-border-inset')||0);
         if(panelBorderW>0){
