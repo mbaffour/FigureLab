@@ -265,6 +265,9 @@ details[open]>.faq-q::before{content:'▾'}
 input.cmdp-input{width:100%;border:none;border-bottom:1px solid var(--border);background:transparent;
   color:var(--text);font-family:var(--mono);font-size:14px;padding:14px 16px;outline:none;box-sizing:border-box}
 .cmdp-list{list-style:none;max-height:52vh;overflow-y:auto;margin:0;padding:6px}
+.cmdp-flash{outline:2px solid var(--accent) !important;outline-offset:2px;
+  animation:cmdpflash 1.4s ease-out}
+@keyframes cmdpflash{0%,60%{box-shadow:0 0 0 4px rgba(91,141,238,.45)}100%{box-shadow:0 0 0 0 rgba(91,141,238,0)}}
 .cmdp-item{display:flex;justify-content:space-between;align-items:center;gap:10px;
   padding:9px 12px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text)}
 .cmdp-item.sel{background:var(--surf2)}
@@ -3517,6 +3520,40 @@ function autoArrange(){
 // COMMAND PALETTE (Ctrl/⌘-K) — a dispatcher over existing actions
 // ═══════════════════════════════════════════════════════════════
 const CMD_REGISTRY=[
+  // Recovery. There was no undo entry at all, so typing "undo" and pressing Enter ran
+  // "Reset all crops" — the top hit, because its keywords contain the word.
+  {label:'Undo last change',        keys:'undo mistake oops back revert step wrong take back ctrl z', hint:'Ctrl+Z', run:()=>undo()},
+  {label:'Redo',                    keys:'redo again forward reapply ctrl y',          hint:'Ctrl+Y', run:()=>redo()},
+  // Spacing — the task that prompted all of this, and the one the palette could not reach.
+  {label:'Space between panels (horizontal gap)', keys:'gap gutter space spacing between panels apart horizontal h gap white space margin tight', run:()=>_cmdpGoto('gap-h','Set the horizontal gap here — 0 makes panels touch')},
+  {label:'Space between panels (vertical gap)',   keys:'gap gutter space spacing between rows apart vertical v gap white space', run:()=>_cmdpGoto('gap-v','Set the vertical gap here — 0 makes panels touch')},
+  {label:'Per-gutter spacing (set each gap separately)', keys:'gutter per gutter individual gap spacing uneven different each', run:()=>_cmdpGoto('advanced-spacing','Tick this, then drag a divider on the canvas')},
+  // Size — "bigger"/"smaller"/"resize" returned pure noise.
+  {label:'Panel width (make panels bigger or smaller)',  keys:'panel size width bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-w','Panel width in pixels')},
+  {label:'Panel height (make panels bigger or smaller)', keys:'panel size height bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-h','Panel height in pixels')},
+  {label:'Rows and columns',        keys:'rows columns grid layout how many arrange cols', run:()=>_cmdpGoto('cols','Columns, then rows below')},
+  // Export — "dpi" and "resolution" reached nothing.
+  {label:'Export resolution (DPI)', keys:'dpi resolution 300 600 print quality export ppi dots per inch', run:()=>_cmdpGoto('export-dpi','300 DPI or more for journals')},
+  {label:'Printed width (journal column width)', keys:'width mm column single double journal printed physical size 183 89 page', run:()=>_cmdpGoto('export-width-mm','Pick your journal column width')},
+  // Scale bar — the palette had no way to add or calibrate one.
+  {label:'Calibrate a panel (µm per pixel)', keys:'calibrate scale bar micron um µm microns per pixel calibration size real world', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean); if(i>=0) openCalib(i); else toast('Add an image first','warn'); }},
+  {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
+  // Panel letters — every obvious phrasing returned nothing.
+  {label:'Labels: panel letters A, B, C', keys:'label labels letter a b c panel letters lettering caption tag name abc numbering', run:()=>_cmdpGoto('show-labels','Show, then size, colour and position below')},
+  {label:'Letter position on the panel', keys:'label position corner top left right bottom letter placement', run:()=>_cmdpGoto('label-pos','Which corner the letter sits in')},
+  // Annotation — the arrow tool was not in the palette at all.
+  {label:'Draw an arrow',           keys:'arrow point marker annotate draw indicate show pointer', hint:'A', run:()=>setTool('arrow')},
+  {label:'Draw a line',             keys:'line rule draw annotate',                    hint:'L', run:()=>setTool('line')},
+  {label:'Draw a box / rectangle',  keys:'rect rectangle box square outline highlight region draw', hint:'B', run:()=>setTool('rect')},
+  {label:'Draw an ellipse / circle',keys:'ellipse circle oval round outline draw',     hint:'E', run:()=>setTool('ellipse')},
+  {label:'Select tool (stop drawing)', keys:'select pointer arrow cursor stop drawing escape none', hint:'V', run:()=>setTool('none')},
+  // Channels — "merge" appeared in no reachable label.
+  {label:'Merge channels (add a second colour channel)', keys:'merge channel channels multichannel overlay composite dapi gfp rfp colocalis colocaliz two colour', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:0; if(!images[i]){ toast('Add an image first','warn'); return; } _cmdpGoto('img-list','Open a panel\'s ⚙, then “+ Add channel” at the bottom of the drawer'); }},
+  {label:'Split a merge into a row of channels', keys:'split channels separate row merge unmix individual panels', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:0; if(images[i]) splitChannelRow(i); else toast('Add a multi-channel panel first','warn'); }},
+  // Save / load — the palette could not load a session.
+  {label:'Load a saved session',    keys:'load open session restore reopen previous work file json resume', run:()=>esLoadSession()},
+  // Compliance, in the words a biologist uses.
+  {label:'Check it against journal requirements', keys:'journal check compliance submit submission requirements ready publish validate before sending', run:()=>checkCompliance()},
   {label:'Render figure',            keys:'render preview refresh',        run:()=>render(),                    hint:'R'},
   {label:'Export PNG',               keys:'export png image save',         run:()=>doExport('png'),             hint:'Ctrl+E'},
   {label:'Export PDF',               keys:'export pdf document',           run:()=>doExport('pdf')},
@@ -3606,7 +3643,7 @@ const CMD_REGISTRY=[
   {label:'Delete hidden panels…',    keys:'delete hidden excluded panels remove',       run:()=>deleteHiddenPanels()},
   {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape', run:()=>fitPanelsToContent()},
   {label:'Tighten spacing',          keys:'tight spacing gaps margins white space close', run:()=>tightenSpacing()},
-  {label:'Crop a panel…',            keys:'crop trim cut panel image editor',   run:()=>cropSelectedPanel()},
+  {label:'Crop a panel…',            keys:'crop trim cut panel image editor tighter zoom in region',   run:()=>cropSelectedPanel()},
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
   {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
@@ -3625,12 +3662,12 @@ const CMD_REGISTRY=[
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
-  {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation', run:()=>rotateSelectedPanel(90)},
+  {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation tilt flip sideways angle landscape portrait', run:()=>rotateSelectedPanel(90)},
   {label:'Space selected objects evenly (freeform)', keys:'space gap between objects panels freeform exact pixels distribute', run:()=>spaceElems('h')},
   {label:'Rotate EVERY photo 90° right',    keys:'rotate turn all every photo panel whole figure sideways batch right', run:()=>{ const n=rotateAllPanels(90); if(n) toast(`All ${n} photos turned clockwise`,'ok'); }},
   {label:'Rotate EVERY photo 90° left',     keys:'rotate turn all every photo panel whole figure sideways batch left', run:()=>{ const n=rotateAllPanels(-90); if(n) toast(`All ${n} photos turned anticlockwise`,'ok'); }},
   {label:'Straighten every photo (0°)',     keys:'straighten upright reset rotation all every photo panel', run:()=>straightenFromToolbar()},
-  {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation', run:()=>rotateSelectedPanel(-90)},
+  {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation tilt flip sideways angle landscape portrait', run:()=>rotateSelectedPanel(-90)},
   {label:'Straighten selected panel (0°)',  keys:'straighten reset rotation panel photo upright', run:()=>{ if(selectedPanel>=0&&images[selectedPanel]){ pushUndo(); setPanelAngle(selectedPanel,0); toast('Panel upright','ok'); } else toast('Click a panel first','warn'); }},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
   {label:'Channel key (legend of channel colours)', keys:'legend key channel colours swatch DAPI GFP list', run:()=>setTool('legend')},
@@ -3647,27 +3684,82 @@ const CMD_REGISTRY=[
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
 let _cmdpSel=0, _cmdpFiltered=[];
+// Take the user to a control instead of running something: open every section it is
+// nested in, scroll it into view, focus it and flash it. A palette that can only run
+// actions cannot answer "where do I set the gap between panels?", which is exactly what
+// it was asked and exactly what it could not do.
+function _cmdpGoto(id, note){
+  const el=document.getElementById(id);
+  if(!el || el.offsetParent===null && !el.closest('details')){ toast('That control is not available in this layout mode','warn'); return; }
+  let n=el;
+  while(n && n!==document.body){ if(n.tagName==='DETAILS') n.open=true; n=n.parentElement; }
+  try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ el.scrollIntoView(); }catch(e2){} }
+  setTimeout(()=>{ try{ el.focus({preventScroll:true}); if(el.select) el.select(); }catch(e){} }, 60);
+  el.classList.add('cmdp-flash');
+  setTimeout(()=>el.classList.remove('cmdp-flash'), 1400);
+  if(note) toast(note,'ok');
+}
+
 function openCmdPalette(){
   const el=document.getElementById('cmd-palette'); el.classList.add('open');
   const inp=document.getElementById('cmdp-input'); inp.value=''; _cmdpRender('');
   requestAnimationFrame(()=>inp.focus());
 }
 function closeCmdPalette(){ document.getElementById('cmd-palette').classList.remove('open'); }
+// Score one entry. The query is split into WORDS and every word has to land somewhere,
+// because the old matcher tested the whole query as one literal substring: "make panels
+// bigger" matched nothing, fell through to a letters-in-order fallback, and came back
+// with whatever happened to contain m-a-k-e-p-a-n... in order. A label hit outranks a
+// keyword hit, and an earlier hit outranks a later one.
 function _cmdpScore(item,q){
   if(!q) return 1;
-  const hay=(item.label+' '+item.keys).toLowerCase();
-  const idx=hay.indexOf(q); if(idx>=0) return 1000-idx;      // substring: earlier is better
-  let qi=0; for(let i=0;i<hay.length&&qi<q.length;i++){ if(hay[i]===q[qi]) qi++; }
-  return qi===q.length?1:0;                                   // fuzzy subsequence fallback
+  const label=(item.label||'').toLowerCase(), keys=(item.keys||'').toLowerCase();
+  const toks=q.split(/\s+/).filter(Boolean);
+  if(!toks.length) return 1;
+  // A word-boundary hit always outranks one buried inside a longer word, or "um" ranks
+  // "Rows and columns" above the scale bar, matching the "um" in col-UM-ns.
+  const at=(hay,t)=>{ let i=hay.indexOf(t), mid=-1;
+    while(i>=0){ if(i===0||!/[a-z0-9]/.test(hay[i-1])) return {i, whole:true}; if(mid<0) mid=i; i=hay.indexOf(t,i+1); }
+    return mid<0?null:{i:mid, whole:false}; };
+  let total=0;
+  for(const t of toks){
+    let best=0;
+    const L=at(label,t), K=at(keys,t);
+    if(L&&L.whole) best=L.i===0?1000:900-Math.min(L.i,200);  // the label, on a word boundary
+    if(K&&K.whole) best=Math.max(best, 700-Math.min(K.i,200));// a keyword, on a word boundary
+    if(!best&&L) best=400-Math.min(L.i,200);                 // buried inside a label word
+    if(!best&&K) best=200-Math.min(K.i,190);                 // buried inside a keyword
+    if(!best) return 0;                                      // this word landed nowhere: not a hit
+    total+=best;
+  }
+  return Math.round(total/toks.length);
+}
+// The old fallback, kept — but only ever shown as an explicit guess. A row that matched
+// nothing used to render identically to a real hit, so "dpi" returned 40% of the registry
+// led by "Render figure" and a miss was indistinguishable from an answer.
+function _cmdpLooseMatch(item,q){
+  const hay=((item.label||'')+' '+(item.keys||'')).toLowerCase();
+  const s=q.replace(/\s+/g,'');
+  let qi=0; for(let i=0;i<hay.length&&qi<s.length;i++){ if(hay[i]===s[qi]) qi++; }
+  return qi===s.length;
 }
 function _cmdpRender(q){
   q=(q||'').toLowerCase().trim();
-  _cmdpFiltered=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)})).filter(o=>o.s>0)
+  let list=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)})).filter(o=>o.s>0)
     .sort((a,b)=>b.s-a.s).map(o=>o.c);
+  // Nothing matched on words. Offer the letters-in-order guesses, but SAY they are
+  // guesses, so a miss can no longer pass for an answer.
+  let guessing=false;
+  if(q && !list.length){
+    list=CMD_REGISTRY.filter(c=>_cmdpLooseMatch(c,q)).slice(0,8);
+    guessing=list.length>0;
+  }
+  _cmdpFiltered=list;
   _cmdpSel=0;
   const ul=document.getElementById('cmdp-list');
   if(!_cmdpFiltered.length){ ul.innerHTML='<div class="cmdp-empty">No matching commands</div>'; return; }
-  ul.innerHTML=_cmdpFiltered.map((c,i)=>`<li class="cmdp-item${i===0?' sel':''}" data-i="${i}">
+  ul.innerHTML=(guessing?`<div class="cmdp-empty" style="padding:6px 12px;text-align:left">Nothing matches “${esc(q)}” — did you mean:</div>`:'')
+    +_cmdpFiltered.map((c,i)=>`<li class="cmdp-item${i===0?' sel':''}" data-i="${i}">
     <span>${c.label}</span>${c.hint?`<span class="cmdp-hint">${c.hint}</span>`:''}</li>`).join('');
   [...ul.querySelectorAll('.cmdp-item')].forEach(li=>{
     li.addEventListener('mousemove',()=>{ _cmdpSel=+li.dataset.i; _cmdpHighlight(); });
