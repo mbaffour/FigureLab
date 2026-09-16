@@ -344,13 +344,16 @@ test('an existing annotation can still be selected and moved in freeform', async
     annotations.push({ type: 'rect', xf: 0.2, yf: 0.2, x2f: 0.5, y2f: 0.5, color: '#fff', width: 2 });
     renderAnnotationList(); render();
     const cv = annCanvas, R = cv.getBoundingClientRect();
-    const at = (fx, fy) => ({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy,
-                              preventDefault(){}, button: 0, shiftKey: false });
+    // `buttons` matters: a browser reports 1 while the button is held and 0 on release,
+    // and the app uses that to notice a drag whose release it never saw. Sending 0
+    // throughout simulated a gesture no mouse can make.
+    const at = (fx, fy, buttons) => ({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy,
+                              preventDefault(){}, button: 0, buttons: buttons === undefined ? 1 : buttons, shiftKey: false });
     setTool('none');                       // Select — objects normally own this
     cv.dispatchEvent(new MouseEvent('mousedown', at(0.2, 0.2)));
     const picked = selectedAnnotation;
     cv.dispatchEvent(new MouseEvent('mousemove', at(0.3, 0.3)));
-    cv.dispatchEvent(new MouseEvent('mouseup',   at(0.3, 0.3)));
+    cv.dispatchEvent(new MouseEvent('mouseup',   at(0.3, 0.3, 0)));
     return { picked, movedTo: +annotations[0].xf.toFixed(2) };
   });
   expect(r.picked).toBe(0);               // the annotation won the click, not the canvas

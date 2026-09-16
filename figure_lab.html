@@ -6673,6 +6673,15 @@ function drawCropEd(){
     ctx.fillText('Click and drag to draw crop',W/2,H/2);
     _mcDrawGhosts(ctx,W,H);
     document.getElementById('crop-ed-vals').textContent='Draw a region to continue';
+    // This early return used to skip the readout sync, so a panel that had never been
+    // touched showed the PREVIOUS panel's tilt and pixel box — including the amber
+    // "resampled — panel pixels are interpolated" note on a panel that will not be
+    // resampled. An interpolation warning that is not true is the wrong kind of wrong
+    // on a tool whose job is figure integrity.
+    { const ai=document.getElementById('crop-angle');
+      if(ai && document.activeElement!==ai) ai.value=(+cropEdState.ang||0).toFixed(1); }
+    _syncCropAngleNote();
+    _ceSyncFields();
     return;
   }
   const q=_ceQuad();
@@ -6972,7 +6981,14 @@ function setCropAngle(v){
   let a=parseFloat(v); if(!isFinite(a)) a=0;
   a=Math.max(-180,Math.min(180,a));
   _ceSetAngle(a);
-  cropEdState.hasBox=cropEdState.hasBox||(cropEdState.cw>0.02&&cropEdState.ch>0.02);
+  // A panel arrives at the crop editor with cw=ch=1 — the whole frame, never drawn. This
+  // line counted that as "a box exists", so ONE press of Level, ✨ Auto, ↺ ↻ or the Tilt
+  // field flipped hasBox true, every later mousedown landed inside that full-frame box
+  // and was treated as a move (clamped to no movement) instead of starting a new box —
+  // and the crop could never be drawn at all. Straightening a specimen and then cropping
+  // it is the whole point of the tilt, so this blocked the feature's main use.
+  const _whole=cropEdState.cw>0.999&&cropEdState.ch>0.999;
+  cropEdState.hasBox=cropEdState.hasBox||(cropEdState.cw>0.02&&cropEdState.ch>0.02&&!_whole);
   _syncCropAngleNote();
   drawCropEd();
 }
@@ -8256,9 +8272,21 @@ function canvasCoords(canvas, e){
 // Canvas drags are started on the canvas but can end anywhere, so every one of these
 // needs an ending that does not depend on where the pointer was released.
 function _dragStranded(){
-  return !!(gutterDragState||panelRotState||labelDragState||_sbResizeState);
+  return !!(gutterDragState||panelRotState||labelDragState||_sbResizeState||annDragState||annResizeState);
 }
+// While an annotation is being dragged or resized, the floating toolbar must not eat the
+// pointer. It is positioned 54 px above the topmost endpoint and sits over the canvas, so
+// dragging an endpoint UP moved it under the toolbar — mousemove then went to a <span>
+// inside #ann-float instead of the canvas and the drag froze, with no keyboard route to
+// finish it. Grid-mode annotations have no arrow-key nudge, so the endpoint simply could
+// not be placed there at all.
+function _annFloatPassthrough(on){
+  const f=document.getElementById('ann-float');
+  if(f) f.style.pointerEvents = on ? 'none' : '';
+}
+
 function _endStrandedDrags(){
+  _annFloatPassthrough(false);
   let dirty=false;
   if(gutterDragState){
     if(gutterDragState.moved && gutterDragState.preSnap) _pushSnap(gutterDragState.preSnap);
@@ -8276,6 +8304,8 @@ function _endStrandedDrags(){
     if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
     _sbResizeState=null; dirty=true;
   }
+  if(annDragState){ if(annDragState.preDrag) _pushSnap(annDragState.preDrag); annDragState=null; dirty=true; }
+  if(annResizeState){ if(annResizeState.moved&&annResizeState.preDrag) _pushSnap(annResizeState.preDrag); annResizeState=null; dirty=true; }
   if(dirty){
     annCanvas.style.cursor='default'; hidePanelTooltip();
     renderImgList(); scheduleRender(0); drawAnnOverlay();
@@ -9140,6 +9170,7 @@ annCanvas.addEventListener('mousedown', e=>{
   if(selectedAnnotation>=0 && selectedAnnotation<annotations.length){
     const rh=hitAnnHandle(annotations[selectedAnnotation],x,y,W,H);
     if(rh){
+      _annFloatPassthrough(true);
       annResizeState={idx:selectedAnnotation,
         updateXF:rh.updateXF, updateYF:rh.updateYF,
         updateX2F:rh.updateX2F, updateY2F:rh.updateY2F,
@@ -9157,6 +9188,7 @@ annCanvas.addEventListener('mousedown', e=>{
   if(hit>=0){
     selectedAnnotation=hit;
     const a=annotations[hit];
+    _annFloatPassthrough(true);
     annDragState={idx:hit,ox0f:a.xf,oy0f:a.yf,ox2f:a.x2f,oy2f:a.y2f,mx:x,my:y,
       preDrag:snapshotState()};
     showAnnFloat(hit);
@@ -9550,6 +9582,7 @@ annCanvas.addEventListener('mouseup', e=>{
   }
   if(annResizeState){
     if(annResizeState.moved) _pushSnap(annResizeState.preDrag); // skip no-op resize
+    _annFloatPassthrough(false);
     annResizeState=null;
     annCanvas.style.cursor='default';
     if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
@@ -9559,6 +9592,7 @@ annCanvas.addEventListener('mouseup', e=>{
     const a=annotations[annDragState.idx];
     const moved=Math.abs(a.xf-annDragState.ox0f)>0.001||Math.abs(a.yf-annDragState.oy0f)>0.001;
     if(moved){ _pushSnap(annDragState.preDrag); }
+    _annFloatPassthrough(false);
     annDragState=null;
     annCanvas.style.cursor='move';
     if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
