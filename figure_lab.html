@@ -556,6 +556,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="panel-w" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label>Panel height (px)</label>
       <input type="number" id="panel-h" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
+    <div class="field"><label title="Every cell is the same height, so a wide short panel — a blot, a gel, a kymograph — floats in a tall cell with dead space above and below it, and closing the gaps does not help because the space is INSIDE the cell. With this on, each row shrinks to the tallest panel in it. Rows never grow past the panel height above; panel width and the figure's overall width do not move.">Rows hug their panels</label>
+      <input type="checkbox" id="auto-row-h" onchange="scheduleRender()"></div>
     <button class="btn" style="width:100%;justify-content:center;font-size:11px;margin:3px 0 0" onclick="insertBlankCell()" title="Leave a grid position empty — after the selected panel, or at the end — to hold a place for a schematic added later or to align a ragged row. It is background in the export.">▭ Insert blank cell</button>
     <div class="inline-row" style="margin:3px 0 5px">
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. Spanning panels are counted as one cell.">⊞ Fit grid to panels</button>
@@ -3557,6 +3559,10 @@ const CMD_REGISTRY=[
   // Size — "bigger"/"smaller"/"resize" returned pure noise.
   {label:'Panel width (make panels bigger or smaller)',  keys:'panel size width bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-w','Panel width in pixels')},
   {label:'Panel height (make panels bigger or smaller)', keys:'panel size height bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-h','Panel height in pixels')},
+  {label:'Rows hug their panels (remove dead space in wide short panels)', keys:'row height hug shrink tight blot gel kymograph stack register dead space letterbox white bars align lanes',
+   run:()=>{ pushUndo(); const on=!gc('auto-row-h'); sc('auto-row-h',on); scheduleRender();
+             toast(on?'Each row now shrinks to the tallest panel in it':'Every row is the panel height again','ok');
+             _cmdpGoto('auto-row-h'); }},
   {label:'Rows and columns',        keys:'rows columns grid layout how many arrange cols', run:()=>_cmdpGoto('cols','Columns, then rows below')},
   // Export — "dpi" and "resolution" reached nothing.
   {label:'Export resolution (DPI)', keys:'dpi resolution 300 600 print quality export ppi dots per inch', run:()=>_cmdpGoto('export-dpi','300 DPI or more for journals')},
@@ -5716,7 +5722,65 @@ function rGapBefore(r, gV){
 }
 // Cumulative left edge of column c (relative to first panel's left). Reduces to c*(pw+gH) when uniform.
 function colOffset(c, pw, gH){ let o=0; for(let k=0;k<c;k++) o+=pw+gapBefore(k+1,gH); return o; }
-function rowOffset(r, ph, gV){ let o=0; for(let k=0;k<r;k++) o+=ph+rGapBefore(k+1,gV); return o; }
+// Row heights are a scalar when every row is the same height and an array when
+// "Rows hug their panels" is on. These three read either shape, so the layout can
+// stop caring which it has.
+const _rh    = (PH,r)      => Array.isArray(PH) ? (PH[r]||0) : PH;
+const _rhSum = (PH,rows)   => { let s=0; for(let k=0;k<rows;k++) s+=_rh(PH,k); return s; };
+const _rhSpan= (PH,r,rs)   => { let s=0; for(let k=0;k<rs;k++) s+=_rh(PH,r+k); return s; };
+function rowOffset(r, ph, gV){ let o=0; for(let k=0;k<r;k++) o+=_rh(ph,k)+rGapBefore(k+1,gV); return o; }
+// The outer height a panel occupies when contain-fitted into apw x aphMax. A
+// quarter turn (or any tilt) swaps which way the picture lies, so this measures
+// the TURNED extent, exactly as the draw loop does.
+function _panelOuterH(im, apw, aphMax){
+  let sw=0, sh=0;
+  try{ const cd=_cropDraw(im); sw=cd.sw; sh=cd.sh; }catch(e){ return aphMax; }
+  if(!(sw>0&&sh>0)) return aphMax;
+  const rad=(im.rotate||0)*Math.PI/180;
+  let ca=Math.abs(Math.cos(rad)), sa=Math.abs(Math.sin(rad));
+  if(ca<1e-9) ca=0; if(sa<1e-9) sa=0;
+  const sc=Math.min(apw/(sw*ca+sh*sa), aphMax/(sw*sa+sh*ca));
+  return (sw*sc)*sa+(sh*sc)*ca;
+}
+// One height per row: the tallest panel in it, never more than the panel height
+// the user set. Shrinking only, so a row can never push the figure taller than
+// the uniform layout would — and a panel that was width-limited keeps exactly
+// the size it already had, which is why one pass is enough.
+function autoRowHeights(rows, cols, pw, ph, gH, gV){
+  const H=new Array(rows).fill(0);
+  const order=_gridOrder();
+  const occupied=new Set();
+  const spans=[];
+  let seq=0;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    if(occupied.has(`${r}_${c}`)) continue;
+    const imgIdx = seq<order.length ? order[seq] : -1;
+    const im = imgIdx>=0 ? images[imgIdx] : null;
+    const cs=Math.min((im&&im.colSpan)||1, cols-c), rs=Math.min((im&&im.rowSpan)||1, rows-r);
+    for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
+    seq++;
+    if(!im){ H[r]=Math.max(H[r], ph); continue; }   // a blank cell keeps its full height
+    const apw=cs*pw+spanGapsW(c,cs,gH);
+    const aph=rs*ph+spanGapsH(r,rs,gV);
+    const need=_panelOuterH(im, apw, aph);
+    if(rs>1){ spans.push({r,rs,need}); continue; }  // measured after the single rows settle
+    H[r]=Math.max(H[r], need);
+  }
+  for(let r=0;r<rows;r++) H[r]=Math.max(20, Math.min(ph, Math.round(H[r]||ph)));
+  // A panel spanning several rows must still fit across them; top up evenly if the
+  // shrunken rows no longer hold it.
+  for(const sp of spans){
+    let have=0; for(let k=0;k<sp.rs;k++) have+=H[sp.r+k];
+    have+=spanGapsH(sp.r, sp.rs, gV);
+    const short=sp.need-have;
+    if(short>0.5){ const add=Math.ceil(short/sp.rs); for(let k=0;k<sp.rs;k++) H[sp.r+k]=Math.min(ph, H[sp.r+k]+add); }
+  }
+  return H;
+}
+function rowHeights(rows, cols, pw, ph, gH, gV){
+  if(!gc('auto-row-h') || layoutMode==='freeform' || !images.some(Boolean)) return ph;
+  return autoRowHeights(rows, cols, pw, ph, gH, gV);
+}
 function totalGapsW(cols, gH){ let s=0; for(let c=1;c<cols;c++) s+=gapBefore(c,gH); return s; }
 function totalGapsH(rows, gV){ let s=0; for(let r=1;r<rows;r++) s+=rGapBefore(r,gV); return s; }
 // Interior gutters inside a span starting at col c covering cs columns.
@@ -5755,8 +5819,9 @@ function gridGeom(){
   const axisGap=_axisGap();
   const colLblH=(showCols?axisFs+axisGap:0)+_grpBand("col"), rowLblW=(showRows?axisFs+axisGap:0)+_grpBand("row");
   const x0=rowLblW+gi('m-left'), y0=titleH+gi('m-top')+colLblH;
-  const gridW=cols*pw+totalGapsW(cols,gH), gridH=rows*ph+totalGapsH(rows,gV);
-  return {cols,rows,pw,ph,gH,gV,x0,y0,gridW,gridH,titleH,colLblH,rowLblW};
+  const PH=rowHeights(rows, cols, pw, ph, gH, gV);
+  const gridW=cols*pw+totalGapsW(cols,gH), gridH=_rhSum(PH,rows)+totalGapsH(rows,gV);
+  return {cols,rows,pw,ph:PH,gH,gV,x0,y0,gridW,gridH,titleH,colLblH,rowLblW};
 }
 // Which gutter (if any) is under a logical point. Returns {axis,index,x,y,w,h,gapPx}.
 function gutterAtPoint(x,y){
@@ -5830,8 +5895,11 @@ function render(targetCanvas, exportScale, opts){
   if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
 
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
-  const pw=Math.max(20,gi('panel-w')), ph=Math.max(20,gi('panel-h'));
+  const pw=Math.max(20,gi('panel-w'));
   const gH=Math.max(0,gi('gap-h')), gV=Math.max(0,gi('gap-v'));
+  // Scalar when every row is the same height, one entry per row when the rows hug
+  // their panels. Everything below reads it through _rh / _rhSum / _rhSpan.
+  const ph=rowHeights(rows, cols, pw, Math.max(20,gi('panel-h')), gH, gV);
   const mTop=gi('m-top'), mLeft=gi('m-left'), mBtm=gi('m-btm'), mRight=gi('m-right');
   const bgColor=gv('bg-color');
   const showLbls=gc('show-labels'), lblSz=gi('label-size'), lblClr=gv('label-color'), lblPos=gv('label-pos');
@@ -5854,7 +5922,7 @@ function render(targetCanvas, exportScale, opts){
   syncGapArrays(cols, rows);
 
   const totalW = rowLblW+mLeft + cols*pw + totalGapsW(cols, gH) + mRight;
-  const totalH = titleH+mTop + colLblH + rows*ph + totalGapsH(rows, gV) + mBtm;
+  const totalH = titleH+mTop + colLblH + _rhSum(ph,rows) + totalGapsH(rows, gV) + mBtm;
 
   canvas.width=Math.round(totalW*S); canvas.height=Math.round(totalH*S);
   // All draw calls below use logical units; one outer transform scales to backing px.
@@ -5912,7 +5980,7 @@ function render(targetCanvas, exportScale, opts){
     const rowBase=_pageCtx?_pageCtx.rowOffset:0;      // see _pageCtx below
     for(let r=0;r<rows;r++){
       const rr=r+rowBase;
-      const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + ph/2;
+      const cy=titleH+mTop+colLblH + rowOffset(r,ph,gV) + _rh(ph,r)/2;
       // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
       // whatever the margin happened to be and you could only close it by moving the
       // whole figure. Now anchored to the panel edge, axisGap away from it.
@@ -5935,7 +6003,7 @@ function render(targetCanvas, exportScale, opts){
       let x1,y1,x2,y2,tx,ty;
       if(isRow){
         const top=titleH+mTop+colLblH+rowOffset(a-1,ph,gV);
-        const bot=titleH+mTop+colLblH+rowOffset(b-1,ph,gV)+ph;
+        const bot=titleH+mTop+colLblH+rowOffset(b-1,ph,gV)+_rh(ph,b-1);
         x1=x2=mLeft+_grpBand('row')-Math.round(_axisGap()/2)-bw;
         y1=top; y2=bot; tx=mLeft+axisFs/2; ty=(top+bot)/2;
       } else {
@@ -5985,7 +6053,7 @@ function render(targetCanvas, exportScale, opts){
         for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
         const px=rowLblW+mLeft + colOffset(c,pw,gH);
         const py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
-        const apw=cs*pw+spanGapsW(c,cs,gH), aph=rs*ph+spanGapsH(r,rs,gV);
+        const apw=cs*pw+spanGapsW(c,cs,gH), aph=_rhSpan(ph,r,rs)+spanGapsH(r,rs,gV);
         if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
         if(imgIdx>=0) _cellRects.set(imgIdx,{x:px,y:py,w:apw,h:aph});
         if(!im){
@@ -8558,7 +8626,7 @@ function cloneElemForUndo(el){
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
-const _layoutCheckIds=['show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
+const _layoutCheckIds=['auto-row-h','show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
   'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color'];
 function captureLayout(){
   const o={text:{},check:{}};

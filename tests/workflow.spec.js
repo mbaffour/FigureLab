@@ -332,3 +332,94 @@ test('blot furniture lands on the blot, not on the whole sheet', async ({ page }
   expect(r.line.yf).toBeGreaterThan(r.box.t - 0.01); expect(r.line.y2f).toBeLessThan(r.box.bt + 0.01);
   expect(errors).toEqual([]);
 });
+
+test('rows hug their panels, so a blot stack has no dead space', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    const blot = (w, h, name) => new Promise(res => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h);
+      x.fillStyle = '#000';
+      for (let i = 0; i < 4; i++) x.fillRect(w * (0.1 + i * 0.22), h * 0.3, w * 0.12, h * 0.3);
+      const src = c.toDataURL('image/png');
+      const img = new Image(); img.onload = () => { _commitImage(img, src, name); res(); }; img.src = src;
+    });
+    await blot(600, 180, 'target.png');          // the blot
+    await blot(600, 90, 'loading.png');          // the loading control, half as tall
+    sv('cols', 1); sv('rows', 2); sv('gap-v', 4); onLayoutChange(); render();
+
+    const box = () => panelBounds.map(p => ({ cell: [p.y, p.h], ink: [p.iy, p.ih] }));
+    const off = box();
+    const offH = canvasLogicalH || document.getElementById('fig-canvas').height;
+
+    sc('auto-row-h', true); render();
+    const on = box();
+    const onH = canvasLogicalH || document.getElementById('fig-canvas').height;
+    return { off, on, offH, onH, ink: panelBounds.map(p => [p.ix, p.iw]) };
+  });
+  // Uniform rows: 90 px and 45 px of ink floating in 300 px cells
+  expect(r.off[0].cell[1]).toBe(300);
+  expect(r.off[1].cell[1]).toBe(300);
+  expect(r.off[0].ink[1]).toBeLessThan(150);
+
+  // Hugging: each cell collapses onto its own panel, within a pixel of rounding
+  expect(Math.abs(r.on[0].cell[1] - r.on[0].ink[1])).toBeLessThanOrEqual(1);
+  expect(Math.abs(r.on[1].cell[1] - r.on[1].ink[1])).toBeLessThanOrEqual(1);
+  // the two rows are genuinely different heights now
+  expect(r.on[0].cell[1]).toBeGreaterThan(r.on[1].cell[1] + 20);
+  // the panels sit one above the other with only the v-gap between them
+  expect(r.on[1].cell[0] - (r.on[0].cell[0] + r.on[0].cell[1])).toBe(4);
+  // ink still registers horizontally, and the figure got shorter, not wider
+  expect(r.ink[0]).toEqual(r.ink[1]);
+  expect(r.onH).toBeLessThan(r.offH);
+  expect(errors).toEqual([]);
+});
+
+test('hugging rows keeps the headings, bands, gutters and export in step', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    // two panels of very different shape, so the two rows end up different heights
+    const reshape = (im, w, h) => new Promise(res => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d'); x.fillStyle = '#888'; x.fillRect(0, 0, w, h);
+      const src = c.toDataURL('image/png');
+      const img = new Image(); img.onload = () => { im.img = img; im.src = src; res(); }; img.src = src;
+    });
+    images.length = 2;
+    await reshape(images[0], 600, 150);
+    await reshape(images[1], 300, 300);
+    sv('cols', 1); sv('rows', 2); sv('gap-v', 10);
+    sc('show-row-labels', true); onLayoutChange();
+    setAxisLabels('row', ['anti-FLAG', 'anti-GAPDH']);
+    figGroups = [{ axis: 'row', from: 1, to: 2, label: 'lysate' }];
+    sc('auto-row-h', true); render();
+
+    const cells = panelBounds.map(p => ({ y: p.y, h: p.h }));
+    const rowLbls = figTextItems.filter(t => t.kind === 'row').map(t => ({ i: t.idx, y: t.y }));
+    const band = figTextItems.find(t => t.kind === 'group');
+    const G = gridGeom();
+    // the gutter between the two rows, probed where it actually sits now
+    const midY = cells[0].y + cells[0].h + 5;
+    const hit = gutterAtPoint(G.x0 + G.gridW / 2, midY);
+
+    // exporting must use the same geometry
+    const ex = renderExportCanvas(300);
+    const ratio = ex.height / (canvasLogicalH || document.getElementById('fig-canvas').height);
+    return { cells, rowLbls, band: band ? band.y : null, hit: hit && { axis: hit.axis, index: hit.index }, gridH: G.gridH, ratio };
+  });
+  expect(r.cells[0].h).not.toBe(r.cells[1].h);            // the rows really do differ
+  // each row heading sits inside its own row, not at the uniform-grid position
+  expect(r.rowLbls[0].y).toBeGreaterThan(r.cells[0].y);
+  expect(r.rowLbls[0].y).toBeLessThan(r.cells[0].y + r.cells[0].h);
+  expect(r.rowLbls[1].y).toBeGreaterThan(r.cells[1].y);
+  expect(r.rowLbls[1].y).toBeLessThan(r.cells[1].y + r.cells[1].h);
+  // the group band spans both rows, so it centres between them
+  expect(r.band).toBeGreaterThan(r.cells[0].y);
+  expect(r.band).toBeLessThan(r.cells[1].y + r.cells[1].h);
+  // the row gutter is findable where the shrunken rows put it
+  expect(r.hit).toEqual({ axis: 'row', index: 1 });
+  expect(r.gridH).toBeCloseTo(r.cells[0].h + 10 + r.cells[1].h, 0);
+  expect(r.ratio).toBeGreaterThan(1);                      // export scaled, not reshaped
+  expect(errors).toEqual([]);
+});
