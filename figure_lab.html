@@ -2503,6 +2503,7 @@ let gutterDragState = null;    // {axis:'col'|'row', index, startGap, startClien
 let hoverGutter = null;        // {axis, index, x, y, w, h, gapPx} for hover highlight
 let gutterChips = [];          // [{x,y,w,h,axis,index,delta}] clickable +/- chips (logical coords)
 let labelToggleHit = null;     // {x,y,w,h} on-canvas label toggle chip
+let labelChipHover = false;    // pointer is over it — light it up and say what it does
 
 // ── Freeform canvas state ───────────────────────────────────
 let layoutMode       = 'grid';
@@ -3072,43 +3073,57 @@ async function _loadTIFFFile(f, fail){
 
 // Load an SVG as TEXT so we can keep the original vector source (for crisp
 // display + vector SVG export), while also rasterising a high-res preview.
-function _loadSVGFile(f, fail){
+function _loadSVGFile(f, fail, done){
+  const fin = done || (()=>{});
   const reader=new FileReader();
   reader.onload=ev=>{
     const svgSource=ev.target.result;
     const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgSource);
     _rasterizeSVG(dataURL,(img,pngSrc)=>{
       _preCropQueue.push({img, src:pngSrc, name:f.name, svgSource});
-      _drainPreCrop();
-    }, ()=>fail());
+      _drainPreCrop(); fin();
+    }, ()=>{ fail(); fin(); });
   };
-  reader.onerror=()=>fail();
+  reader.onerror=()=>{ fail(); fin(); };
   reader.readAsText(f);
 }
 
-function addFiles(fileList){
-  Array.from(fileList).forEach(f=>{
+// Open the selected files ONE AT A TIME. Every loader below is asynchronous — a
+// FileReader, an Image decode, a TIFF decode — and firing them all at once
+// committed panels in decode-completion order, not the order you picked them:
+// a small PNG overtook a large TIFF, and a 12-panel drop landed shuffled. Panel
+// letters are handed out at commit, so B could end up sitting left of A. Serial
+// dispatch costs a little wall-clock on big drops and is worth it.
+async function addFiles(fileList){
+  for(const f of Array.from(fileList)){
+    try{ await _addOneFile(f); }catch(e){ /* each loader reports its own failure */ }
+  }
+}
+function _addOneFile(f){
+  return new Promise(done=>{
     const nameL=(f.name||'').toLowerCase();
     const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
     const isData=f.type==='text/csv'||f.type==='text/tab-separated-values'||nameL.endsWith('.csv')||nameL.endsWith('.tsv');
     const isSeq=/\.(gb|gbk|genbank|fasta|fa|fna)$/.test(nameL);
     const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
-    if(isSeq){ _loadGeneFile(f, fail); return; }    // a dropped GenBank/FASTA becomes a gene map
-    if(isData){ _loadDataFile(f, fail); return; }   // before image path: a dropped CSV becomes a chart, not a failed <img>
-    if(isTIFF){ _loadTIFFFile(f, fail); return; }
-    if(isSVG){ _loadSVGFile(f, fail); return; }
+    // Charts and gene maps do not become grid panels, so they keep the old
+    // fire-and-forget path.
+    if(isSeq){ _loadGeneFile(f, fail); done(); return; }
+    if(isData){ _loadDataFile(f, fail); done(); return; }
+    if(isTIFF){ _loadTIFFFile(f, fail).then(done, done); return; }
+    if(isSVG){ _loadSVGFile(f, fail, done); return; }
     const reader=new FileReader();
     reader.onload=ev=>{
       const img=new Image();
       img.onload=()=>{
         _preCropQueue.push({img, src:ev.target.result, name:f.name});
-        _drainPreCrop();
+        _drainPreCrop(); done();
       };
-      img.onerror=()=>fail();
+      img.onerror=()=>{ fail(); done(); };
       img.src=ev.target.result;
     };
-    reader.onerror=()=>fail();
+    reader.onerror=()=>{ fail(); done(); };
     reader.readAsDataURL(f);
   });
 }
@@ -4412,9 +4427,10 @@ function renderImgList(){
     const ctSlider = item.querySelector('.f-ctr'), ctVal = item.querySelector('.f-ct-v');
     ctSlider.addEventListener('input', e=>{ images[idx].contrast=parseFloat(e.target.value); ctVal.textContent=images[idx].contrast.toFixed(2); scheduleRender(0); });
 
-    item.querySelector('.f-gray').addEventListener('click', ()=>{ images[idx].grayscale=!images[idx].grayscale; scheduleRender(0); });
-    item.querySelector('.f-inv').addEventListener('click',  ()=>{ images[idx].invert=!images[idx].invert; scheduleRender(0); });
+    item.querySelector('.f-gray').addEventListener('click', ()=>{ pushUndo(); images[idx].grayscale=!images[idx].grayscale; scheduleRender(0); });
+    item.querySelector('.f-inv').addEventListener('click',  ()=>{ pushUndo(); images[idx].invert=!images[idx].invert; scheduleRender(0); });
     item.querySelector('.f-reset').addEventListener('click',()=>{
+      pushUndo();
       images[idx].brightness=1; images[idx].contrast=1; images[idx].grayscale=false;
       images[idx].invert=false; images[idx].lut='none'; images[idx].blackPt=0; images[idx].whitePt=255;
       images[idx].gamma=1;
@@ -4435,6 +4451,7 @@ function renderImgList(){
     // Crop shape buttons
     item.querySelectorAll('.cs-btn').forEach(btn=>{
       btn.addEventListener('click',()=>{
+        if(images[idx].cropShape!==btn.dataset.cropshape) pushUndo();
         images[idx].cropShape=btn.dataset.cropshape;
         item.querySelectorAll('.cs-btn').forEach(b=>{
           const active=b===btn;
@@ -4465,7 +4482,9 @@ function renderImgList(){
     item.querySelector('[data-rot="180"]').addEventListener('click',()=>{ pushUndo(); images[idx].rotate=((images[idx].rotate||0)+180)%360; scheduleRender(); });
     { const rd=item.querySelector('.f-rotdeg');
       rd.addEventListener('input', e=>{ setPanelAngle(idx, e.target.value, {quiet:true}); scheduleRender(0); });
-      rd.addEventListener('change', ()=>pushUndo()); }
+      /* no pushUndo here: the capture-before-edit handler above already records
+         one step for this field, and a second push after the edit made the first
+         undo press a no-op. */ }
     item.querySelector('[data-fliph]').addEventListener('click',()=>{ pushUndo(); images[idx].flipH=!images[idx].flipH; scheduleRender(); });
     item.querySelector('[data-flipv]').addEventListener('click',()=>{ pushUndo(); images[idx].flipV=!images[idx].flipV; scheduleRender(); });
 
@@ -4621,6 +4640,37 @@ function renderMiniGrid(){
 // ═══════════════════════════════════════════════════════════════
 // LAYOUT CHANGE
 // ═══════════════════════════════════════════════════════════════
+// Column and row headings live HERE, not only in the <input>s that show them.
+// Those inputs are destroyed and rebuilt every time the grid resizes or the
+// "show headings" box is ticked, so a heading that lived only in the DOM was
+// gone the moment either happened — and the rebuilt field read "Col 3", which
+// looks like a heading you wrote and renders into the export as one.
+let _colLabelText=[], _rowLabelText=[];
+// Copy whatever the visible fields hold into the store. Called before the
+// fields are torn down, so the store is always at least as current as the DOM.
+function _harvestAxisLabels(){
+  document.querySelectorAll('#col-label-inputs input').forEach((inp,i)=>{ _colLabelText[i]=inp.value; });
+  document.querySelectorAll('#row-label-inputs input').forEach((inp,i)=>{ _rowLabelText[i]=inp.value; });
+}
+// Read: the store, with any live field overriding it at that index. Longer than
+// the grid when the grid has shrunk — that is deliberate, so saving and undoing
+// keep headings for columns that are hidden right now.
+function axisLabelValues(which){
+  const out=(which==='col'?_colLabelText:_rowLabelText).slice();
+  document.querySelectorAll('#'+which+'-label-inputs input').forEach((inp,i)=>{ out[i]=inp.value; });
+  for(let i=0;i<out.length;i++) if(out[i]==null) out[i]='';
+  return out;
+}
+// Write: store first, fields second, so a restore lands even when the headings
+// are hidden and there are no fields to write to.
+function setAxisLabels(which, arr){
+  if(!Array.isArray(arr)) return;
+  const store=(which==='col'?_colLabelText:_rowLabelText);
+  arr.forEach((v,i)=>{ store[i]=v; });
+  const ins=[...document.querySelectorAll('#'+which+'-label-inputs input')];
+  arr.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
+}
+
 function onLayoutChange(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const showC=document.getElementById('show-col-labels').checked;
@@ -4628,19 +4678,18 @@ function onLayoutChange(){
 
   const colDiv=document.getElementById('col-label-inputs');
   const rowDiv=document.getElementById('row-label-inputs');
-  const prevC=[...colDiv.querySelectorAll('input')].map(i=>i.value);
-  const prevR=[...rowDiv.querySelectorAll('input')].map(i=>i.value);
+  _harvestAxisLabels();
 
   colDiv.innerHTML='';
   if(showC) for(let c=0;c<cols;c++){
     const r=document.createElement('div'); r.className='axis-row';
-    r.innerHTML=`<span>Col ${c+1}</span><input type="text" value="${esc(prevC[c]||`Col ${c+1}`)}" oninput="scheduleRender()">`;
+    r.innerHTML=`<span>Col ${c+1}</span><input type="text" value="${esc(_colLabelText[c]||`Col ${c+1}`)}" oninput="scheduleRender()">`;
     colDiv.appendChild(r);
   }
   rowDiv.innerHTML='';
   if(showR) for(let r=0;r<rows;r++){
     const d=document.createElement('div'); d.className='axis-row';
-    d.innerHTML=`<span>Row ${r+1}</span><input type="text" value="${esc(prevR[r]||`Row ${r+1}`)}" oninput="scheduleRender()">`;
+    d.innerHTML=`<span>Row ${r+1}</span><input type="text" value="${esc(_rowLabelText[r]||`Row ${r+1}`)}" oninput="scheduleRender()">`;
     rowDiv.appendChild(d);
   }
   const lblBtn=document.getElementById('labels-toggle-btn');
@@ -5821,18 +5870,18 @@ function render(targetCanvas, exportScale, opts){
   }
   // Col labels
   if(showCols){
-    const ins=[...document.querySelectorAll('#col-label-inputs input')];
+    const ins=axisLabelValues('col');
     for(let c=0;c<cols;c++){
       // Sit at the top of the reserved band, which leaves exactly axisGap
       // between the text and the panel below it.
-      emitText('col',c, ins[c]?.value||`Col ${c+1}`,
+      emitText('col',c, ins[c]||`Col ${c+1}`,
         rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+_grpBand('col')+axisFs/2,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',0);
     }
   }
   // Row labels
   if(showRows){
-    const ins=[...document.querySelectorAll('#row-label-inputs input')];
+    const ins=axisLabelValues('row');
     const rowBase=_pageCtx?_pageCtx.rowOffset:0;      // see _pageCtx below
     for(let r=0;r<rows;r++){
       const rr=r+rowBase;
@@ -5840,7 +5889,7 @@ function render(targetCanvas, exportScale, opts){
       // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
       // whatever the margin happened to be and you could only close it by moving the
       // whole figure. Now anchored to the panel edge, axisGap away from it.
-      emitText('row',r, ins[rr]?.value||`Row ${rr+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
+      emitText('row',r, ins[rr]||`Row ${rr+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
   }
@@ -8488,8 +8537,8 @@ function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
   _layoutCheckIds.forEach(id=>o.check[id]=gc(id));
-  o.colLabels=[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value);
-  o.rowLabels=[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value);
+  o.colLabels=axisLabelValues('col');
+  o.rowLabels=axisLabelValues('row');
   return o;
 }
 function applyLayoutSnapshot(o){
@@ -8497,10 +8546,8 @@ function applyLayoutSnapshot(o){
   _layoutTextIds.forEach(id=>{ if(o.text[id]!==undefined) sv(id,o.text[id]); });
   _layoutCheckIds.forEach(id=>{ if(o.check[id]!==undefined) sc(id,o.check[id]); });
   onLayoutChange(); // rebuild label inputs for the restored cols/rows
-  const ci=[...document.querySelectorAll('#col-label-inputs input')];
-  (o.colLabels||[]).forEach((v,i)=>{ if(ci[i]) ci[i].value=v; });
-  const ri=[...document.querySelectorAll('#row-label-inputs input')];
-  (o.rowLabels||[]).forEach((v,i)=>{ if(ri[i]) ri[i].value=v; });
+  setAxisLabels('col', o.colLabels);
+  setAxisLabels('row', o.rowLabels);
 }
 function snapshotState(){
   return {
@@ -8511,6 +8558,7 @@ function snapshotState(){
     colGaps: colGaps?colGaps.slice():null,
     rowGaps: rowGaps?rowGaps.slice():null,
     labelOffsets: JSON.parse(JSON.stringify(labelOffsets)),
+    figGroups: figGroups.map(g=>({...g})),
     advancedSpacing, layoutMode,
   };
 }
@@ -8523,6 +8571,7 @@ function restoreState(s){
   if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
   if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
   if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
+  if(s.figGroups){ figGroups=s.figGroups.map(g=>({...g})); if(typeof renderGroupList==='function') renderGroupList(); }
   if('advancedSpacing' in s){ advancedSpacing=s.advancedSpacing;
     const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing; }
   if(s.layoutMode && s.layoutMode!==layoutMode){
@@ -8931,19 +8980,22 @@ function drawSpacingOverlay(ctx){
   const active = gutterDragState ? {axis:gutterDragState.axis,index:gutterDragState.index} : hoverGutter;
   if(active) drawGutter(active.axis, active.index, false);
 
-  // On-canvas label toggle chip in the top-left label corner
+  // On-canvas heading toggle chip in the top-left corner. It used to wear a ×,
+  // which reads as "close this" or "delete this" and gave no hint that one click
+  // hides every row and column heading. It now carries the same ⊞ mark as the
+  // sidebar's "⊞ Labels" button, lights up under the pointer, and says so.
   const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
   if(showCols||showRows){
     const s=18, cx=4, cy=4;
     ctx.save();
     roundRectPath(ctx,cx,cy,s,s,4);
-    ctx.fillStyle='rgba(20,24,33,.85)'; ctx.fill();
-    ctx.strokeStyle=AC; ctx.lineWidth=1; ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='700 13px system-ui,sans-serif';
-    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('×',cx+s/2,cy+s/2+0.5);
+    ctx.fillStyle=labelChipHover?AC:'rgba(20,24,33,.85)'; ctx.fill();
+    ctx.strokeStyle=AC; ctx.lineWidth=labelChipHover?1.5:1; ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='700 12px system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('\u229e',cx+s/2,cy+s/2+0.5);
     ctx.restore();
     labelToggleHit={x:cx,y:cy,w:s,h:s};
-  }
+  } else { labelChipHover=false; }
 }
 function roundRectPath(ctx,x,y,w,h,r){
   ctx.beginPath();
@@ -9429,6 +9481,17 @@ annCanvas.addEventListener('mousemove', e=>{
     if(!spaceDown){
       const g=_panelGrip();
       if(g && Math.hypot(x-g[0], y-g[1])<=11){ annCanvas.style.cursor='grab'; hidePanelTooltip(); return; }
+    }
+    // Heading-toggle chip hover
+    {
+      const over = !!(labelToggleHit && x>=labelToggleHit.x && x<=labelToggleHit.x+labelToggleHit.w &&
+                      y>=labelToggleHit.y && y<=labelToggleHit.y+labelToggleHit.h);
+      if(over!==labelChipHover){ labelChipHover=over; drawAnnOverlay(); }
+      if(over){
+        annCanvas.style.cursor='pointer';
+        showPanelTooltip('hide the row & column headings', e.clientX, e.clientY);
+        return;
+      }
     }
     // Label hover — show move cursor + highlight (labels take priority)
     if(!spaceDown){
@@ -11795,8 +11858,8 @@ function serializeSession(bundleImages){
     layout:{ cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
       gapH:gv('gap-h'),gapV:gv('gap-v'),mTop:gv('m-top'),mLeft:gv('m-left'),mBtm:gv('m-btm'),mRight:gv('m-right'),
       figTitle:gv('fig-title'),showColLabels:gc('show-col-labels'),showRowLabels:gc('show-row-labels'),
-      colLabels:[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value),
-      rowLabels:[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value),
+      colLabels:axisLabelValues('col'),
+      rowLabels:axisLabelValues('row'),
       colGaps, rowGaps, advancedSpacing },
     style:{ bgColor:gv('bg-color'),showLabels:gc('show-labels'),labelSize:gv('label-size'),
       labelColor:gv('label-color'),labelPos:gv('label-pos'),sbH:gv('sb-h'),sbColor:gv('sb-color'),
@@ -11907,14 +11970,8 @@ function applySession(s,_opts){
       }
       if(s.labelFormat) sv('label-format',s.labelFormat);
       onLayoutChange();
-      if(Array.isArray(s.layout?.colLabels)){
-        const ins=[...document.querySelectorAll('#col-label-inputs input')];
-        s.layout.colLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }
-      if(Array.isArray(s.layout?.rowLabels)){
-        const ins=[...document.querySelectorAll('#row-label-inputs input')];
-        s.layout.rowLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }
+      setAxisLabels('col', s.layout?.colLabels);
+      setAxisLabels('row', s.layout?.rowLabels);
       if(s.layoutMode){
         document.getElementById('layout-mode').value=s.layoutMode;
         setLayoutMode(s.layoutMode);
@@ -12123,8 +12180,8 @@ ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height =
 function exportR(){
   const cols=gi('cols'),rows=gi('rows');
   const cfg=images.filter(Boolean).map(im=>`  list(label="${im.label}",sb_on=${im.sbOn},um_per_px=${im.umPerPx||0},sb_um=${im.sbUm},brightness=${im.brightness},contrast=${im.contrast},crop=c(${im.cropT},${im.cropL},${im.cropB},${im.cropR}))`).join(',\n');
-  const cLbls=[...document.querySelectorAll('#col-label-inputs input')].map(i=>`"${i.value}"`).join(',');
-  const rLbls=[...document.querySelectorAll('#row-label-inputs input')].map(i=>`"${i.value}"`).join(',');
+  const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
+  const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
   const script=`# FigureLab R Script — generated ${new Date().toISOString().slice(0,10)}
 # Requirements: install.packages("magick")
 library(magick)
@@ -12177,8 +12234,8 @@ cat("Saved:",output_file,"\\n")`;
 function exportPython(){
   const cols=gi('cols'),rows=gi('rows');
   const cfg=images.filter(Boolean).map(im=>`    {"label":"${im.label}","sb_on":${im.sbOn},"um_per_px":${im.umPerPx||0},"sb_um":${im.sbUm},"brightness":${im.brightness},"contrast":${im.contrast},"crop":[${im.cropT},${im.cropL},${im.cropB},${im.cropR}]},`).join('\n');
-  const cLbls=[...document.querySelectorAll('#col-label-inputs input')].map(i=>`"${i.value}"`).join(',');
-  const rLbls=[...document.querySelectorAll('#row-label-inputs input')].map(i=>`"${i.value}"`).join(',');
+  const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
+  const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
   const script=`# FigureLab Python Script — generated ${new Date().toISOString().slice(0,10)}
 # pip install Pillow matplotlib tifffile numpy
 from pathlib import Path
@@ -12387,6 +12444,16 @@ function groupsFromPanelTags(axis){
   }
   return out;
 }
+// Names you typed into a band survive a re-run of the generator that made it, as
+// long as the band still covers the same lines. Pressing "every N rows" twice is a
+// normal thing to do after changing N, and it used to blank every name.
+function _carryGroupNames(list){
+  return (list||[]).map(g=>{
+    if(String(g.label||'').trim()) return g;
+    const old=figGroups.find(o=>o.axis===g.axis && o.from===g.from && o.to===g.to && String(o.label||'').trim());
+    return old ? {...g, label:old.label} : g;
+  });
+}
 function setFigGroups(list, note){
   pushUndo();
   // Keep unlabelled bands — the generators create the ranges and you type the names
@@ -12403,7 +12470,7 @@ function addFigGroup(){
 }
 function _grpFromBlocksUI(){
   const axis=gv('group-axis')||'row', size=Math.max(1,gi('group-block')||3);
-  setFigGroups(groupsFromBlocks(axis,size));
+  setFigGroups(_carryGroupNames(groupsFromBlocks(axis,size)));
 }
 function _grpFromTagsUI(){
   const axis=gv('group-axis')||'row';
@@ -15740,9 +15807,14 @@ function relabelPanels(){
     if(!images.length){ toast('No panels to relabel','warn'); return; }
     pushUndo();
     // Letter the panels the reader will actually see, so a subset reads A, B, C…
-    // with no gaps. Hidden panels keep whatever label they had.
+    // with no gaps.
     let n=0;
     images.forEach(im=>{ if(im && !im.excluded) im.label=_letterLabel(n++); });
+    // Hidden panels used to keep the letter they already had — which the visible
+    // run has just re-used, so un-hiding one gave you two panels called B, and
+    // nextLabel() then skipped a letter for the next import. Letter them after
+    // the visible ones: still unique, still out of the reader's way.
+    images.forEach(im=>{ if(im && im.excluded) im.label=_letterLabel(n++); });
     renderImgList(); scheduleRender(0);
   }
   toast('Panels relabelled in order','ok');
@@ -18503,8 +18575,8 @@ function shareSession(){
       mTop:gv('m-top'), mLeft:gv('m-left'), mBtm:gv('m-btm'), mRight:gv('m-right'),
       figTitle:gv('fig-title'),
       showColLabels:gc('show-col-labels'), showRowLabels:gc('show-row-labels'),
-      colLabels:[...document.querySelectorAll('#col-label-inputs input')].map(i=>i.value),
-      rowLabels:[...document.querySelectorAll('#row-label-inputs input')].map(i=>i.value),
+      colLabels:axisLabelValues('col'),
+      rowLabels:axisLabelValues('row'),
     },
     style:{
       bgColor:gv('bg-color'), showLabels:gc('show-labels'), labelSize:gv('label-size'),
@@ -18597,18 +18669,8 @@ function shareSession(){
     // Store panel settings to apply when images are dropped
     if(Array.isArray(s.panelSettings)) window._sharedPanelSettings = s.panelSettings;
     onLayoutChange();
-    if(Array.isArray(s.layout?.colLabels)){
-      setTimeout(()=>{
-        const ins=[...document.querySelectorAll('#col-label-inputs input')];
-        s.layout.colLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }, 300);
-    }
-    if(Array.isArray(s.layout?.rowLabels)){
-      setTimeout(()=>{
-        const ins=[...document.querySelectorAll('#row-label-inputs input')];
-        s.layout.rowLabels.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
-      }, 300);
-    }
+    setAxisLabels('col', s.layout?.colLabels);
+    setAxisLabels('row', s.layout?.rowLabels);
     // Strip hash without navigation
     history.replaceState(null,'',location.pathname + location.search);
     // Show welcome banner

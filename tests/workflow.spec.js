@@ -84,3 +84,208 @@ test('the annotation toolbar stops eating the pointer while an endpoint is dragg
   expect(r.movedTo).toBeLessThan(0.2);             // the endpoint reached the top of the figure
   expect(errors).toEqual([]);
 });
+
+test('typed column and row headings survive a resize, a hide and an undo', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    const colVals = () => [...document.querySelectorAll('#col-label-inputs input')].map(i => i.value);
+    const rowVals = () => [...document.querySelectorAll('#row-label-inputs input')].map(i => i.value);
+    sv('cols', 3); sv('rows', 2);
+    sc('show-col-labels', true); sc('show-row-labels', true); onLayoutChange();
+    const type = (sel, vals) => [...document.querySelectorAll(sel)].forEach((inp, i) => { if (vals[i]) inp.value = vals[i]; });
+    type('#col-label-inputs input', ['0 h', '6 h', '24 h']);
+    type('#row-label-inputs input', ['WT', 'ΔfliC']);
+
+    // grow the grid: the new column is a placeholder, the three typed ones are not
+    sv('cols', 4); onLayoutChange();
+    const afterGrow = colVals();
+    // and shrink back
+    sv('cols', 3); onLayoutChange();
+    const afterShrink = colVals();
+
+    // hide the headings and show them again — the inputs are destroyed in between
+    toggleAllLabels(); const whileHidden = colVals().length;
+    toggleAllLabels();
+    const afterToggle = { col: colVals(), row: rowVals() };
+
+    // what an export would draw
+    const drawn = { col: axisLabelValues('col').slice(0, 3), row: axisLabelValues('row').slice(0, 2) };
+
+    // and an undo of something else must not take them with it
+    pushUndo(); sv('gap-h', 30); onLayoutChange(); undo();
+    const afterUndo = colVals();
+    return { afterGrow, afterShrink, whileHidden, afterToggle, drawn, afterUndo };
+  });
+  expect(r.afterGrow).toEqual(['0 h', '6 h', '24 h', 'Col 4']);
+  expect(r.afterShrink).toEqual(['0 h', '6 h', '24 h']);
+  expect(r.whileHidden).toBe(0);
+  expect(r.afterToggle.col).toEqual(['0 h', '6 h', '24 h']);
+  expect(r.afterToggle.row).toEqual(['WT', 'ΔfliC']);
+  expect(r.drawn.col).toEqual(['0 h', '6 h', '24 h']);
+  expect(r.drawn.row).toEqual(['WT', 'ΔfliC']);
+  expect(r.afterUndo).toEqual(['0 h', '6 h', '24 h']);
+  expect(errors).toEqual([]);
+});
+
+test('a saved session round-trips headings that are hidden at save time', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    sv('cols', 2); sv('rows', 2);
+    sc('show-col-labels', true); onLayoutChange();
+    [...document.querySelectorAll('#col-label-inputs input')].forEach((inp, i) => { inp.value = ['pH 5', 'pH 7'][i]; });
+    sc('show-col-labels', false); onLayoutChange();          // hidden — no inputs exist
+    const saved = captureLayout();
+    setAxisLabels('col', ['x', 'y']);                        // clobber, then restore
+    applyLayoutSnapshot(saved);
+    sc('show-col-labels', true); onLayoutChange();
+    return {
+      saved: saved.colLabels,
+      restored: [...document.querySelectorAll('#col-label-inputs input')].map(i => i.value),
+    };
+  });
+  expect(r.saved).toEqual(['pH 5', 'pH 7']);
+  expect(r.restored).toEqual(['pH 5', 'pH 7']);
+  expect(errors).toEqual([]);
+});
+
+test('the per-panel adjustment buttons are undoable', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    const open = () => {
+      const item = document.querySelectorAll('.img-item')[0];
+      item.querySelector('.gear-btn, [class*=gear]')?.click();
+      return item;
+    };
+    const item = open();
+    const im = () => images[0];
+    im().brightness = 1.6; im().contrast = 1.4; im().gamma = 0.7; im().lut = 'green';
+    const before = { br: im().brightness, ct: im().contrast, gm: im().gamma, lut: im().lut };
+
+    item.querySelector('.f-gray').click();
+    const greyOn = im().grayscale;
+    undo();
+    const greyUndone = images[0].grayscale;
+
+    item.querySelector('.f-inv').click();
+    const invOn = images[0].invert;
+    undo();
+    const invUndone = images[0].invert;
+
+    // Reset wipes seven settings at once — by far the most destructive of the three
+    document.querySelectorAll('.img-item')[0].querySelector('.f-reset').click();
+    const wiped = { br: images[0].brightness, lut: images[0].lut };
+    undo();
+    const restored = { br: images[0].brightness, ct: images[0].contrast, gm: images[0].gamma, lut: images[0].lut };
+    return { before, greyOn, greyUndone, invOn, invUndone, wiped, restored };
+  });
+  expect(r.greyOn).toBe(true);   expect(r.greyUndone).toBe(false);
+  expect(r.invOn).toBe(true);    expect(r.invUndone).toBe(false);
+  expect(r.wiped.br).toBe(1);    expect(r.wiped.lut).toBe('none');
+  expect(r.restored).toEqual(r.before);
+  expect(errors).toEqual([]);
+});
+
+test('one press of undo undoes a typed panel tilt', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    const item = document.querySelectorAll('.img-item')[0];
+    const rd = item.querySelector('.f-rotdeg');
+    rd.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));   // arms the snapshot
+    rd.value = '12';
+    rd.dispatchEvent(new Event('input', { bubbles: true }));
+    rd.dispatchEvent(new Event('change', { bubbles: true }));
+    const tilted = images[0].rotate;
+    undo();
+    return { tilted, afterOneUndo: images[0].rotate };
+  });
+  expect(r.tilted).toBe(12);
+  expect(r.afterOneUndo).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('a group band generator does not destroy the names you typed', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  const r = await page.evaluate(async () => {
+    sv('cols', 2); sv('rows', 3); onLayoutChange();
+    sv('group-axis', 'row'); sv('group-block', 1);
+    _grpFromBlocksUI();
+    figGroups.forEach((g, i) => { g.label = ['untreated', '+ATc', '+ATc +IPTG'][i]; });
+    renderGroupList();
+    const named = figGroups.map(g => g.label);
+
+    // re-running the generator with the same block size must keep those names
+    _grpFromBlocksUI();
+    const afterRerun = figGroups.map(g => g.label);
+
+    // and a generator that genuinely replaces them must be undoable
+    sv('group-block', 3); _grpFromBlocksUI();
+    const replaced = figGroups.map(g => g.label);
+    undo();
+    const afterUndo = figGroups.map(g => g.label);
+    const listRows = document.querySelectorAll('#group-list [data-glabel]').length;
+
+    return { named, afterRerun, replaced, afterUndo, listRows };
+  });
+  expect(r.named).toEqual(['untreated', '+ATc', '+ATc +IPTG']);
+  expect(r.afterRerun).toEqual(['untreated', '+ATc', '+ATc +IPTG']);
+  expect(r.replaced).toEqual(['']);                // one band over all three rows
+  expect(r.afterUndo).toEqual(['untreated', '+ATc', '+ATc +IPTG']);
+  expect(r.listRows).toBe(3);                      // the editor shows them again too
+  expect(errors).toEqual([]);
+});
+
+test('panels arrive in the order the files were picked, not the order they decode', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(async () => {
+    // A big noisy bitmap takes far longer to decode than a 2 px one. Picked first,
+    // it used to land last, and with it the panel letter A.
+    const mk = (side, seed) => new Promise(res => {
+      const c = document.createElement('canvas'); c.width = c.height = side;
+      const x = c.getContext('2d'), d = x.createImageData(side, side);
+      let s = seed;
+      for (let i = 0; i < d.data.length; i += 4) {
+        s = (s * 1103515245 + 12345) & 0x7fffffff;      // noise defeats PNG compression
+        d.data[i] = s & 255; d.data[i + 1] = (s >> 8) & 255; d.data[i + 2] = (s >> 16) & 255; d.data[i + 3] = 255;
+      }
+      x.putImageData(d, 0, 0);
+      c.toBlob(b => res(b), 'image/png');
+    });
+    const files = [
+      new File([await mk(900, 1)], 'first_big.png', { type: 'image/png' }),
+      new File([await mk(4, 2)], 'second.png', { type: 'image/png' }),
+      new File([await mk(4, 3)], 'third.png', { type: 'image/png' }),
+      new File([await mk(4, 4)], 'fourth.png', { type: 'image/png' }),
+    ];
+    await addFiles(files);
+    return {
+      names: images.map(im => im.name),
+      labels: images.map(im => im.label),
+    };
+  });
+  expect(r.names).toEqual(['first_big.png', 'second.png', 'third.png', 'fourth.png']);
+  expect(r.labels).toEqual(['A', 'B', 'C', 'D']);
+  expect(errors).toEqual([]);
+});
+
+test('relabelling with a panel hidden does not create two panels with the same letter', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    togglePanelExcluded(1);                 // hide B
+    relabelPanels();
+    const labels = images.map(im => im.label);
+    const visible = images.filter(im => !im.excluded).map(im => im.label);
+    togglePanelExcluded(1);                 // show it again
+    const shown = images.map(im => im.label);
+    return { labels, visible, dupes: labels.length - new Set(labels).size, shown };
+  });
+  expect(r.visible).toEqual(['A', 'B', 'C']);   // the reader sees no gaps
+  expect(r.dupes).toBe(0);                      // and nothing is lettered twice
+  expect(new Set(r.shown).size).toBe(4);
+  expect(errors).toEqual([]);
+});
