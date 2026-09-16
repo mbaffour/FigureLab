@@ -423,3 +423,122 @@ test('hugging rows keeps the headings, bands, gutters and export in step', async
   expect(r.ratio).toBeGreaterThan(1);                      // export scaled, not reshaped
   expect(errors).toEqual([]);
 });
+
+test('the caption, CSV, compliance and manifest describe the panels the figure draws', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  const r = await page.evaluate(async () => {
+    sv('cols', 3); sv('rows', 2); onLayoutChange();
+    images.forEach((im, i) => { im.captionNote = `note for ${im.name}`; });
+    togglePanelExcluded(1);                       // hide the second panel…
+    togglePanelExcluded(4);                       // …and the fifth
+    relabelPanels();
+
+    // capture the CSV instead of downloading it
+    let csv = '';
+    const realBlobUrl = window.blobUrl, realDl = window.dl;
+    window.blobUrl = t => { csv = t; return 'blob:stub'; };
+    window.dl = () => {};
+    exportCSV();
+    window.blobUrl = realBlobUrl; window.dl = realDl;
+
+    generateCaption();
+    const caption = document.getElementById('caption-out').value;
+
+    checkCompliance();
+    const report = (document.querySelector('#info-modal-bg') || document.body).textContent;
+    const labelLine = (report.match(/[^✓✗⚠]*panels? labelled[^✓✗⚠]*/i) || [''])[0].trim();
+    document.querySelector('#info-modal-bg')?.remove();
+
+    const shown = _figurePanels();
+    return {
+      shownNames: shown.map(im => im.name),
+      shownLabels: shown.map(im => im.label),
+      csvRows: csv.split('\n').slice(1).filter(Boolean).map(l => l.split(',')[0]),
+      csvNames: csv.split('\n').slice(1).filter(Boolean).map(l => l.split(',')[1]),
+      caption, labelLine,
+      manifestPanels: _packageManifest('fig', 300, [], 'hash', []).match(/Panels\s*:\s*(\d+)/)?.[1],
+    };
+  });
+  // the figure draws four panels: the two hidden ones are out, and panel 6 —
+  // which used to fall off the end of images.slice(0, cols*rows) — is back in
+  expect(r.shownNames).toEqual(['panel0.png', 'panel2.png', 'panel3.png', 'panel5.png']);
+  expect(r.shownLabels).toEqual(['A', 'B', 'C', 'D']);
+
+  // the CSV numbers them 1..4 with no gap, and names only those four
+  expect(r.csvRows).toEqual(['1', '2', '3', '4']);
+  expect(r.csvNames).toEqual(r.shownNames);
+
+  // the caption describes four panels and never mentions a hidden one
+  expect(r.caption).toContain('note for panel0.png');
+  expect(r.caption).toContain('note for panel5.png');
+  expect(r.caption).not.toContain('note for panel1.png');
+  expect(r.caption).not.toContain('note for panel4.png');
+
+  // and the compliance report counts what the reader will see
+  expect(r.labelLine).toMatch(/\b4\s*\/\s*4\b/);
+  expect(r.manifestPanels).toBe('4');
+  expect(errors).toEqual([]);
+});
+
+test('every plane of an OME-TIFF is calibrated, not just the first', async ({ page }) => {
+  const errors = await loadApp(page);
+  const bytes = Array.from(require('fs').readFileSync(
+    require('path').join(__dirname, 'fixtures', 'tiff', 'cal_ome_multi.ome.tif')));
+  const r = await page.evaluate(async (b) => {
+    // OME-TIFF carries PhysicalSizeX in PAGE 0's description only, and this file
+    // has no usable resolution tags — which is what tifffile and Bio-Formats emit.
+    await addFiles([new File([new Uint8Array(b)], 'series.ome.tif', { type: 'image/tiff' })]);
+    await new Promise(r => setTimeout(r, 400));
+    return images.filter(Boolean).map(im => ({
+      um: im.umPerPx, src: im._metaCalibSource, sbOn: im.sbOn, dt: im._metaDeltaT,
+    }));
+  }, bytes);
+  expect(r).toHaveLength(3);
+  for (const p of r) {
+    expect(p.um).toBeCloseTo(0.25, 6);          // every plane, not just plane 1
+    expect(p.src).toBe('OME-TIFF');             // and from the same reader, so no silent fallback
+  }
+  // the per-plane times are still per-plane — the page-0 fallback must not flatten them
+  expect(r.map(p => p.dt)).toEqual([0, 30, 60]);
+  expect(errors).toEqual([]);
+});
+
+test('in panel mode the channel key belongs to its panel, like every other tool', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(async () => {
+    sv('cols', 2); sv('rows', 2); sv('gap-h', 6); onLayoutChange(); render();
+    panelAnnMode = true;
+    const target = panelBounds.find(p => p.idx === 3);
+    const c = document.getElementById('ann-canvas'), rect = c.getBoundingClientRect();
+    const at = (x, y) => ({ clientX: rect.left + x * rect.width / c.width,
+                            clientY: rect.top + y * rect.height / c.height });
+    const click = (x, y) => {
+      const p = at(x, y);
+      c.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, buttons: 1, ...p }));
+      c.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, buttons: 0, ...p }));
+    };
+    const cx = target.x + target.w * 0.4, cy = target.y + target.h * 0.4;
+    activeTool = 'legend';
+    click(cx, cy);
+    const landed = { global: annotations.filter(a => a.type === 'legend').length,
+                     onPanel: (images[3].panelAnns || []).filter(a => a.type === 'legend').length };
+
+    // move the panel out from under where the key was dropped
+    activeTool = 'none';
+    sv('gap-h', 90); render();
+    const moved = panelBounds.find(p => p.idx === 3);
+    const key = (images[3].panelAnns || []).find(a => a.type === 'legend');
+    const drawnX = moved.x + (key ? key.xf : 0) * moved.w;
+    return { landed, movedX: moved.x, drawnX, keyXf: key ? key.xf : null,
+             w: key ? key._w : null };
+  });
+  expect(r.landed.global).toBe(0);              // not on the figure…
+  expect(r.landed.onPanel).toBe(1);             // …on the panel
+  expect(r.keyXf).toBeGreaterThan(0.3); expect(r.keyXf).toBeLessThan(0.5);
+  // after the panel moves, the key is still inside it
+  expect(r.drawnX).toBeGreaterThan(r.movedX);
+  expect(r.w).toBeGreaterThan(0);               // and it actually drew (sets its own box)
+  expect(errors).toEqual([]);
+});
