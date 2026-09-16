@@ -5345,35 +5345,62 @@ function splitChannelRow(srcIdx){
 
 // Gel/blot splice marker — a visible lane-divider line (journal integrity
 // requirement when blot lanes are cut and rejoined). Reuses line annotations.
+// Lane numbers, MW ladders and splice markers belong to ONE blot, but their
+// positions are stored as fractions of the whole figure. In a single-panel
+// figure the two coincide, which is why this went unnoticed; in a 2 x 3 figure
+// "MW ladder" laid its weights down the left edge of the entire sheet, nowhere
+// near the blot, and the splice marker cut the figure in half. These now measure
+// from the selected panel (or the only one), and say which panel they landed on.
+function _blotTarget(){
+  render();                                     // fills panelBounds for this frame
+  const b = panelBounds.find(p=>p.idx===selectedPanel && images[p.idx])
+         || panelBounds.find(p=>images[p.idx]);
+  if(!b) return null;
+  const W=annCanvas.width||1, H=annCanvas.height||1;
+  // ix/iy/iw/ih is the drawn image inside the cell when the two differ (a tilted
+  // or letterboxed panel); x/y/w/h is the cell itself.
+  const ix=b.ix!=null?b.ix:b.x, iy=b.iy!=null?b.iy:b.y;
+  const iw=b.iw!=null?b.iw:b.w, ih=b.ih!=null?b.ih:b.h;
+  return { idx:b.idx, W, H, ix, iy, iw, ih,
+           fx:u=>(ix+u*iw)/W, fy:v=>(iy+v*ih)/H,
+           name:(images[b.idx]&&(images[b.idx].label||images[b.idx].name))||'the panel' };
+}
 function addSpliceMarker(){
   if(!images.length){ toast('Add a blot or gel image first','warn'); return; }
-  render();
+  const t=_blotTarget(); if(!t){ toast('No panel on the canvas to mark','warn'); return; }
   pushUndo();
-  annotations.push({type:'line', xf:0.5, yf:0.12, x2f:0.5, y2f:0.88, color:'#ffffff', width:3});
+  annotations.push({type:'line', xf:t.fx(0.5), yf:t.fy(0.02), x2f:t.fx(0.5), y2f:t.fy(0.98), color:'#ffffff', width:3});
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
-  toast('Splice marker added — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.','ok');
+  toast(`Splice marker added across panel ${t.name} — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.`,'ok');
 }
 function addLaneLabels(){
   if(!images.length){ toast('Add a blot/gel image first','warn'); return; }
   const n=parseInt(prompt('How many lanes?','4'),10); if(!n||n<1) return;
-  render(); pushUndo();
+  const t=_blotTarget(); if(!t){ toast('No panel on the canvas to label','warn'); return; }
+  pushUndo();
+  const fs=16;
+  // Lane numbers sit above the blot when there is room in the margin, otherwise
+  // just inside its top edge — never off the sheet.
+  const yf = (t.iy>=fs+4 ? (t.iy-fs*0.6)/t.H : t.fy(0.04));
   for(let i=0;i<n;i++){
-    const xf=0.12+0.76*(n>1?i/(n-1):0.5);
-    annotations.push({type:'text', xf, yf:0.04, text:String(i+1), fontSize:16, color:'#000000', halo:false});
+    const u=(i+0.5)/n;                          // one per lane, centred in its share
+    annotations.push({type:'text', xf:t.fx(u), yf, text:String(i+1), fontSize:fs, color:'#000000', halo:false});
   }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
-  scheduleRender(0); toast(`Added ${n} lane labels — switch to ↖ Select to drag them onto your lanes`,'ok');
+  scheduleRender(0); toast(`Added ${n} lane labels over panel ${t.name} — switch to ↖ Select to drag them onto your lanes`,'ok');
 }
 function addLadderLabels(){
   if(!images.length){ toast('Add a blot/gel image first','warn'); return; }
   const s=prompt('Molecular weights (kDa), top → bottom, comma-separated:','250,130,100,70,55,35,25'); if(!s) return;
   const mw=s.split(',').map(x=>x.trim()).filter(Boolean); if(!mw.length) return;
-  render(); pushUndo();
-  mw.forEach((v,i)=>{ const yf=0.1+0.8*(mw.length>1?i/(mw.length-1):0.5);
-    annotations.push({type:'text', xf:0.02, yf, text:v, fontSize:13, color:'#000000', halo:false}); });
+  const t=_blotTarget(); if(!t){ toast('No panel on the canvas to label','warn'); return; }
+  pushUndo();
+  const xf = (t.ix>=34 ? (t.ix-30)/t.W : t.fx(0.02));   // in the margin beside the blot, if there is one
+  mw.forEach((v,i)=>{ const v01=mw.length>1?i/(mw.length-1):0.5;
+    annotations.push({type:'text', xf, yf:t.fy(0.1+0.8*v01), text:v, fontSize:13, color:'#000000', halo:false}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
-  scheduleRender(0); toast(`Added ${mw.length} MW labels — drag to align with the ladder`,'ok');
+  scheduleRender(0); toast(`Added ${mw.length} MW labels beside panel ${t.name} — drag to align with the ladder`,'ok');
 }
 function exportBlotMetadata(){
   if(!images.length){ toast('Add images first','warn'); return; }

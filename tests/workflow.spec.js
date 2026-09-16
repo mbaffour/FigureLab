@@ -289,3 +289,46 @@ test('relabelling with a panel hidden does not create two panels with the same l
   expect(new Set(r.shown).size).toBe(4);
   expect(errors).toEqual([]);
 });
+
+test('blot furniture lands on the blot, not on the whole sheet', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  const r = await page.evaluate(async () => {
+    sv('cols', 3); sv('rows', 2); onLayoutChange(); render();
+    selectedPanel = 4;                                     // bottom-middle panel
+    const b = panelBounds.find(p => p.idx === 4);
+    const W = annCanvas.width, H = annCanvas.height;
+    const box = { l: (b.ix != null ? b.ix : b.x) / W, t: (b.iy != null ? b.iy : b.y) / H,
+                  r: ((b.ix != null ? b.ix : b.x) + (b.iw != null ? b.iw : b.w)) / W,
+                  bt: ((b.iy != null ? b.iy : b.y) + (b.ih != null ? b.ih : b.h)) / H };
+
+    window.prompt = () => '4';
+    addLaneLabels();
+    const lanes = annotations.filter(a => a.type === 'text').map(a => ({ x: a.xf, y: a.yf }));
+
+    window.prompt = () => '250,100,25';
+    addLadderLabels();
+    const mw = annotations.filter(a => a.type === 'text').slice(4).map(a => ({ x: a.xf, y: a.yf }));
+
+    addSpliceMarker();
+    const line = annotations.find(a => a.type === 'line');
+    return { box, lanes, mw, line, panelCount: panelBounds.length };
+  });
+  // Lane numbers: spread across the panel's width, at or just above its top edge
+  for (const l of r.lanes) {
+    expect(l.x).toBeGreaterThan(r.box.l); expect(l.x).toBeLessThan(r.box.r);
+    expect(l.y).toBeGreaterThan(r.box.t - 0.08); expect(l.y).toBeLessThan(r.box.t + 0.1);
+  }
+  expect(r.lanes[0].x).toBeLessThan(r.lanes[3].x);
+  // MW weights: down the panel's own height, at or just left of its left edge
+  for (const m of r.mw) {
+    expect(m.x).toBeGreaterThan(r.box.l - 0.08); expect(m.x).toBeLessThan(r.box.l + 0.1);
+    expect(m.y).toBeGreaterThan(r.box.t); expect(m.y).toBeLessThan(r.box.bt);
+  }
+  expect(r.mw[0].y).toBeLessThan(r.mw[2].y);
+  // Splice marker: vertical, inside the panel, not bisecting the figure
+  expect(r.line.xf).toBe(r.line.x2f);
+  expect(r.line.xf).toBeGreaterThan(r.box.l); expect(r.line.xf).toBeLessThan(r.box.r);
+  expect(r.line.yf).toBeGreaterThan(r.box.t - 0.01); expect(r.line.y2f).toBeLessThan(r.box.bt + 0.01);
+  expect(errors).toEqual([]);
+});
