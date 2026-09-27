@@ -1026,7 +1026,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select></div>
     <div id="phys-readout" style="font-size:10px;color:var(--muted);line-height:1.5;margin:-2px 0 6px"></div>
 
-    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: uncompressed, most journals prefer it. PDF: figure labels are real embedded text (selectable, searchable, sharp at any zoom) over the image — lossless avoids artefacts for line art. SVG: everything vector, editable in Illustrator/Inkscape. JPEG/WebP: small but lossy.">?</span></div>
+    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: most journals prefer it; uncompressed, or LZW-compressed (lossless) when you tick Compress TIFF — PLOS asks for LZW. PDF: figure labels are real embedded text (selectable, searchable, sharp at any zoom) over the image — lossless avoids artefacts for line art. SVG: everything vector, editable in Illustrator/Inkscape. JPEG/WebP: small but lossy.">?</span></div>
     <div class="export-grid">
       <button class="btn btn-success" onclick="doExportPreflight('png')">PNG</button>
       <button class="btn" onclick="doExportPreflight('jpeg')">JPEG</button>
@@ -1037,6 +1037,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="doExportPreflight('svg')">SVG</button>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:3px">Opens a <b>Save dialog</b> — change the name, format &amp; DPI before it downloads.</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+      <input type="checkbox" id="export-tiff-lzw" onchange="_setTiffLzw(this.checked,true)">
+      <label for="export-tiff-lzw" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Write TIFFs LZW-compressed (lossless, horizontal differencing): the pixels come back bit for bit. PLOS asks for it, and the PLOS preset switches it on. Also used by the submission package.">Compress TIFF (LZW, lossless)</label>
+    </div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
     <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
     <button class="btn" id="pptx-btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
@@ -1087,8 +1091,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="divider"></div>
     <div class="sec-lbl">Figure caption helper <span class="help-chip" tabindex="0" role="button" aria-label="About caption help" data-tip="Builds a structured A/B/C legend from your panel notes and scale bars. The on-device AI polish uses Chrome's built-in Gemini Nano — 100% local, nothing is uploaded — and falls back to the built-in caption if your browser lacks it.">?</span></div>
     <button class="btn" onclick="generateCaption()" style="width:100%;justify-content:center">✦ Generate Caption</button>
+    <button class="btn" onclick="writeMethodsParagraph()" style="width:100%;justify-content:center;margin-top:4px" title="Write the image-processing paragraph for your Methods from what FigureLab knows: software and version, whether adjustments were uniform, gamma, pseudocolour, resampling, projections, calibration sources, splices and insets. The submission package includes it as -methods.txt.">✎ Write Methods paragraph</button>
     <button class="btn" id="ai-caption-btn" onclick="aiPolishCaption()" style="width:100%;justify-content:center;margin-top:4px" title="Polish the caption with Chrome's built-in on-device AI (Gemini Nano). 100% local — nothing is uploaded. Falls back to the built-in caption if unavailable.">🤖 Polish with on-device AI</button>
     <textarea id="caption-out" rows="4" placeholder="Caption will appear here…" style="margin-top:4px"></textarea>
+    <textarea id="methods-out" rows="5" placeholder="Methods paragraph will appear here…" style="margin-top:4px"></textarea>
 
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
     <textarea id="fig-notes" rows="3" placeholder="Antibody dilutions, conditions, reviewer comments…" style="width:100%;resize:vertical;padding:5px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:11px;font-family:var(--mono)"></textarea>
@@ -2081,7 +2087,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li>Apply a <span class="help-ui">Journal preset</span> (Nature, Science, Cell, or Poster) for one-click sizing that fits the target.</li>
   <li>Confirm a white background and that scale bars are calibrated — any <span class="help-ui">⚠</span> uncalibrated warning badge on a scale bar must be resolved first.</li>
   <li>Set a clear <span class="help-ui">file name</span> and choose <span class="help-ui">DPI</span> of 300–600. Check the info bar below the canvas for the physical size in mm at that DPI.</li>
-  <li>Export as <span class="help-ui">TIFF</span> (uncompressed, pixel count scaled to the true DPI) or <span class="help-ui">PDF (lossless)</span> — journals prefer these over JPEG.</li>
+  <li>Export as <span class="help-ui">TIFF</span> (uncompressed, or LZW-compressed and lossless when you tick <span class="help-ui">Compress TIFF</span>; pixel count scaled to the true DPI) or <span class="help-ui">PDF (lossless)</span> — journals prefer these over JPEG.</li>
   <li>Add a short note to each image in its settings, then click <span class="help-ui">✦ Generate Caption</span> to produce a structured A/B/C caption with scale-bar text.</li>
   <li>Click <span class="help-ui">⬇ CSV Metadata</span> to export every panel's settings (µm/px, scale bar, brightness, gamma, crop, notes) for your methods and lab records.</li>
   <li>Export an <span class="help-ui">R script</span> (magick) or <span class="help-ui">Python script</span> (Pillow + matplotlib) so anyone can recreate the figure from the original image files.</li>
@@ -2125,7 +2131,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 <h3 class="help-h">Images &amp; formats</h3>
 <details class="faq-item"><summary class="faq-q">What image formats can I import?</summary><div class="faq-a"><p class="help-p">Drag any common raster image the browser can decode onto the drop zone (or click to browse) — microscopy exports, western blots, histology, gels, or clinical photos. FigureLab automatically reads µm/px scale calibration from OME-TIFF, ImageJ, Zeiss LSM and cm-resolution TIFF metadata on import, so a calibrated scale bar is ready with no clicking (you can always override it).</p></div></details>
-<details class="faq-item"><summary class="faq-q">What can I export, and which format should I use?</summary><div class="faq-a"><p class="help-p">Pick the format that matches where the figure is going:</p><ul class="help-ul"><li><b>PNG</b> — lossless raster with true DPI embedded; a safe default for most submissions.</li><li><b>TIFF</b> — uncompressed RGB scaled to your target DPI; <b>preferred by most journals</b>.</li><li><b>PDF</b> / <b>PDF (lossless)</b> — embedded raster at the correct physical page size; use lossless for line art and blots.</li><li><b>SVG</b> — background raster plus your annotations as native vector elements (labels and scale bars stay razor-sharp).</li><li><b>JPEG</b> — smallest file, but lossy; fine for drafts and slides, not for line art.</li><li><b>WebP</b> — a good size/quality balance for the web.</li></ul></div></details>
+<details class="faq-item"><summary class="faq-q">What can I export, and which format should I use?</summary><div class="faq-a"><p class="help-p">Pick the format that matches where the figure is going:</p><ul class="help-ul"><li><b>PNG</b> — lossless raster with true DPI embedded; a safe default for most submissions.</li><li><b>TIFF</b> — RGB scaled to your target DPI, uncompressed or LZW-compressed (lossless; PLOS asks for LZW); <b>preferred by most journals</b>.</li><li><b>PDF</b> / <b>PDF (lossless)</b> — embedded raster at the correct physical page size; use lossless for line art and blots.</li><li><b>SVG</b> — background raster plus your annotations as native vector elements (labels and scale bars stay razor-sharp).</li><li><b>JPEG</b> — smallest file, but lossy; fine for drafts and slides, not for line art.</li><li><b>WebP</b> — a good size/quality balance for the web.</li></ul></div></details>
 <details class="faq-item"><summary class="faq-q">How do I make a multi-channel fluorescence merge?</summary><div class="faq-a"><p class="help-p">Open a panel's settings and use <span class="help-ui">Add channel</span> to layer extra images, each with its own fluorescence LUT (Fire, Green, Cyan, Magenta, Yellow, Blue); the channels are combined with a screen blend. New channels default to a colourblind-safe <b>magenta / green</b> pairing rather than red / green, so overlap reads white and the merge stays readable for viewers with red-green colour vision deficiency.</p></div></details>
 <details class="faq-item"><summary class="faq-q">My fluorescence image is too dim to see — what should I adjust?</summary><div class="faq-a"><p class="help-p">Use the per-panel <b>Gamma</b> slider for nonlinear brightening that lifts dim signal without blowing out bright areas, and set the <b>Black / White point</b> to clip and stretch the useful intensity range. Brightness and Contrast are also available with live preview. Use <span class="help-ui">Apply to all</span> to copy these settings to every panel for consistency.</p></div></details>
 
@@ -2148,7 +2154,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details class="faq-item"><summary class="faq-q">What DPI should I use for journal submission?</summary><div class="faq-a"><p class="help-p">Use <b>300 DPI</b> for photographic / greyscale images and <b>600–1200 DPI</b> for line art and combination figures (charts, blots with sharp text). The DPI selector offers 72 / 150 / 300 / 600 / 1200. FigureLab re-renders the figure at the true target-DPI pixel count (supersampled), so text, lines, and scale bars stay crisp — it is not merely tagging the DPI.</p><div class="help-callout help-tip"><b>Tip</b> The export health check warns you if you try to export below 300 DPI.</div></div></details>
 <details class="faq-item"><summary class="faq-q">What is the difference between PDF and PDF (lossless)?</summary><div class="faq-a"><p class="help-p">The standard PDF embeds the figure as a JPEG-compressed raster — small, but lossy, which can add ringing artefacts around sharp edges. A lossless PDF uses Flate (non-lossy) compression instead. Prefer lossless for <b>line art, western blots, and sharp text</b>, where JPEG artefacts are visible and some journals reject JPEG-in-PDF for line art. For photographic panels the standard PDF is usually fine.</p></div></details>
 <details class="faq-item"><summary class="faq-q">My exported PNG opens at the wrong size or DPI in Photoshop / ImageJ — why?</summary><div class="faq-a"><p class="help-p">This is fixed. FigureLab now writes a standard <b>pHYs</b> resolution chunk into the PNG, which is what Photoshop, GIMP, and ImageJ/FIJI actually read for physical resolution. Older versions embedded the DPI only as a text field, so editors reported the browser default (72 DPI) at a giant pixel size. Re-export and the true DPI will be reported correctly.</p></div></details>
-<details class="faq-item"><summary class="faq-q">The figure looks blurry when zoomed or after export — what do I do?</summary><div class="faq-a"><p class="help-p">Export at a higher DPI (300–600, or 1200 for line art): raster exports are re-rendered at the real pixel count, not upscaled, so more DPI means genuinely more detail. On screen, FigureLab keeps a separate high-resolution preview layer matched to your display (HiDPI/Retina) so labels and annotations stay sharp when you zoom in — the underlying measurement buffer is left untouched so quantification stays exact.</p><div class="help-callout help-tip"><b>Tip</b> Very large renders are capped at about 60 megapixels to stay within browser memory; if you hit the cap, a toast tells you and the export is scaled down rather than crashing.</div></div></details>
+<details class="faq-item"><summary class="faq-q">The figure looks blurry when zoomed or after export — what do I do?</summary><div class="faq-a"><p class="help-p">Export at a higher DPI (300–600, or 1200 for line art): raster exports are re-rendered at the real pixel count, not upscaled, so more DPI gives text, lines and scale bars genuinely more detail. An image panel cannot print more detail than its source pixels, though: a 512 px field stretched across a column is enlarged at any DPI. Each image-list row shows the ppi a panel actually prints at, and the Save dialog and the compliance check name any panel below 300 ppi. On screen, FigureLab keeps a separate high-resolution preview layer matched to your display (HiDPI/Retina) so labels and annotations stay sharp when you zoom in — the underlying measurement buffer is left untouched so quantification stays exact.</p><div class="help-callout help-tip"><b>Tip</b> Very large renders are capped at about 60 megapixels to stay within browser memory; if you hit the cap, a toast tells you and the export is scaled down rather than crashing.</div></div></details>
 <details class="faq-item"><summary class="faq-q">How do I get a clean white background for print?</summary><div class="faq-a"><p class="help-p">For journal submission, use TIFF at 300–600 DPI with a white background. You can also press <span class="help-ui">Ctrl + P</span> for a print-ready view that hides all the app chrome.</p></div></details>
 
 <h3 class="help-h">Saving &amp; reproducibility</h3>
@@ -2195,7 +2201,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="flex:1 1 46%;font-size:11px;color:var(--muted)">Format
         <select id="pf-format" onchange="_refreshPreflight()" style="width:100%;margin-top:3px">
           <option value="png">PNG — lossless raster</option>
-          <option value="tiff">TIFF — uncompressed (journals)</option>
+          <option value="tiff">TIFF — journals; LZW optional</option>
           <option value="pdf-lossless">PDF — lossless</option>
           <option value="pdf">PDF — compact (JPEG)</option>
           <option value="svg">SVG — vector labels</option>
@@ -2213,6 +2219,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         </select>
       </label>
     </div>
+    <label id="pf-lzw-wrap" style="display:none;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin:2px 0 4px" title="Lossless LZW compression with horizontal differencing: every pixel comes back bit for bit. PLOS asks for LZW-compressed TIFFs. How much smaller the file gets depends on the picture — flat backgrounds shrink a lot, photographs little.">
+      <input type="checkbox" id="pf-lzw" onchange="_setTiffLzw(this.checked); _refreshPreflight()"> Compress (LZW, lossless — PLOS asks for it)</label>
     <div id="preflight-body"></div>
     <div style="display:flex;gap:6px;margin-top:16px">
       <button class="btn btn-success" id="preflight-go" style="flex:1;justify-content:center">Save</button>
@@ -3029,6 +3037,39 @@ function lzwDecodeTIFF(data){
   }
   return Uint8Array.from(out);
 }
+// TIFF LZW encoder: the inverse of lzwDecodeTIFF above. MSB-first codes, Clear=256,
+// EOI=257, first free code 258, 9 bits widening to 12. The one subtle point is when the
+// width grows: it has to match the decoder, which adds no table entry for the first
+// code after a Clear and one per code after that, widening when its table reaches
+// 511/1023/2047 ("early change", as libtiff does). So the width is decided from the
+// encoder's `next` before it adds the entry for the code just written.
+function lzwEncodeTIFF(data){
+  const n=data.length;
+  let out=new Uint8Array(Math.max(4096,(n>>1)+64)), o=0, acc=0, nacc=0;
+  const byte=b=>{ if(o>=out.length){ const g=new Uint8Array(out.length*2); g.set(out); out=g; } out[o++]=b; };
+  const put=(code,len)=>{ acc=(acc<<len)|code; nacc+=len; while(nacc>=8){ nacc-=8; byte((acc>>>nacc)&0xff); } acc&=(1<<nacc)-1; };
+  // String table keyed (prefix code << 8 | next byte) in a flat array. A Clear bumps the
+  // generation instead of zeroing a million entries, which matters on a 60 MP export.
+  const tab=new Int32Array(4096*256), gen=new Uint32Array(4096*256); let g=1;
+  let next=258, codeLen=9, first=true;
+  const emit=c=>{ put(c,codeLen); if(first){ first=false; return; }
+    if(next===511) codeLen=10; else if(next===1023) codeLen=11; else if(next===2047) codeLen=12; };
+  put(256,9);
+  if(!n){ put(257,9); if(nacc) byte((acc<<(8-nacc))&0xff); return out.slice(0,o); }
+  let w=data[0];
+  for(let i=1;i<n;i++){
+    const c=data[i], k=(w<<8)|c;
+    if(gen[k]===g){ w=tab[k]; continue; }
+    emit(w);
+    tab[k]=next++; gen[k]=g;
+    if(next===4094){ put(256,codeLen); g++; next=258; codeLen=9; first=true; }
+    w=c;
+  }
+  emit(w);
+  put(257,codeLen);
+  if(nacc) byte((acc<<(8-nacc))&0xff);
+  return out.slice(0,o);
+}
 function _mergeJpeg(tables, strip){
   if(!tables || !tables.length) return strip;
   let tEnd=tables.length; if(tables[tEnd-2]===0xFF && tables[tEnd-1]===0xD9) tEnd-=2;   // drop trailing EOI
@@ -3611,6 +3652,8 @@ const CMD_REGISTRY=[
   // Save / load — the palette could not load a session.
   {label:'Load a saved session',    keys:'load open session restore reopen previous work file json resume', run:()=>esLoadSession()},
   // Compliance, in the words a biologist uses.
+  {label:'Compress TIFF exports (LZW, lossless)', keys:'lzw compress compressed compression tiff tif plos lossless shrink', run:()=>_cmdpGoto('export-tiff-lzw','Tick to write LZW-compressed TIFFs — lossless')},
+  {label:'Write the Methods paragraph (image processing)', keys:'methods paragraph image processing statement disclosure software citation methods section write describe adjustments', run:()=>writeMethodsParagraph()},
   {label:'Check it against journal requirements', keys:'journal check compliance submit submission requirements ready publish validate before sending', run:()=>checkCompliance()},
   {label:'Render figure',            keys:'render preview refresh',        run:()=>render(),                    hint:'R'},
   {label:'Export PNG',               keys:'export png image save',         run:()=>doExport('png'),             hint:'Ctrl+E'},
@@ -4059,6 +4102,15 @@ function _fmtBytes(b){
   if(b<1073741824) return (b/1048576).toFixed(1)+' MB';
   return (b/1073741824).toFixed(2)+' GB';
 }
+// TIFF compression lives in the Export panel's checkbox; the Save dialog's copy writes
+// through to it. The change is one undo step: the snapshot is taken with the old value.
+function _setTiffLzw(on, fromSidebar){
+  const el=document.getElementById('export-tiff-lzw'); if(!el) return;
+  on=!!on;
+  if(!fromSidebar && el.checked===on) return;
+  el.checked=!on; pushUndo(); el.checked=on;
+  const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=on;
+}
 function closePreflight(){ document.getElementById('preflight-modal').classList.remove('open'); _preflightFmt=null; }
 // map an export format to the file extension it produces
 function _pfExt(fmt){ return {png:'png',jpeg:'jpg',webp:'webp',tiff:'tiff',pdf:'pdf','pdf-lossless':'pdf',svg:'svg'}[fmt]||fmt; }
@@ -4071,6 +4123,7 @@ function doExportPreflight(fmt){
   nameEl.value=(gv('export-name').trim()||'figure');
   document.getElementById('pf-format').value=fmt||'png';
   document.getElementById('pf-dpi').value=String(getExportDPI());
+  { const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw'); }
   document.getElementById('preflight-modal').classList.add('open');
   _refreshPreflight();
   requestAnimationFrame(()=>{ try{ nameEl.focus(); nameEl.select(); }catch(e){} });
@@ -4096,18 +4149,28 @@ function _refreshPreflight(){
   const mmW=_pfF.wMm, mmH=_pfF.hMm;
   const estMap={tiff:px*3,png:px*1.2,jpeg:px*0.22,webp:px*0.16,pdf:px*0.24,'pdf-lossless':px*1.4,svg:px*1.2};
   const est=estMap[fmt]||px;
+  const lzw=fmt==='tiff'&&gc('export-tiff-lzw');
+  { const w=document.getElementById('pf-lzw-wrap'); if(w) w.style.display=fmt==='tiff'?'flex':'none'; }
+  // LZW's ratio depends on the picture — a white background shrinks to almost nothing,
+  // a photograph barely — so the dialog gives the uncompressed ceiling, not a guess.
+  const estTxt=lzw ? `≤ ${_fmtBytes(est)} uncompressed; LZW makes it smaller by an amount that depends on the picture` : '≈ '+_fmtBytes(est);
   const vectorNote = fmt==='svg'
     ? 'Labels, scale bars & annotations export as <b>vector</b> — sharp at any zoom.'
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
   if(capped) warns.push({t:'warn',m:'Export exceeds ~60 MP and will be scaled down to fit browser memory.'});
+  if(fmt==='tiff'&&!lzw&&_lastPresetName==='plos') warns.push({t:'warn',m:'PLOS asks for LZW-compressed TIFF — tick Compress (LZW) above.'});
   const bg=gv('bg-color'); const white=(bg.toLowerCase()==='#ffffff'||bg==='#fff');
   if(!white) warns.push({t:'info',m:`Background is ${bg}; most journals require white.`});
   // Counted over the panels the export draws, as the compliance check does: a hidden
   // panel's scale bar is never exported, so warning about it was noise.
   const uncal=_figurePanels().filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
   if(uncal) warns.push({t:'warn',m:`${uncal} panel(s) show a scale bar but aren't calibrated (⚠).`});
+  // The same panels the compliance check names, so the two never disagree.
+  const _lowPpi=_panelPpiList(dpi).filter(p=>p.ppi<PANEL_MIN_PPI);
+  if(_lowPpi.length) warns.push({t:'warn',
+    m:`${_lowPpi.length} panel(s) print below ${PANEL_MIN_PPI} ppi (${_lowPpi.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')}): they are enlarged beyond their source pixels, and a higher DPI does not add detail to them.`});
   const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
   if(notDrawn.length) warns.push({t:'warn',
     m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}.`});
@@ -4124,7 +4187,7 @@ function _refreshPreflight(){
     row('Resolution', dpi+' DPI')+
     row('Pixel dimensions', `${fw} × ${fh} px`+(capped?' (capped)':''))+
     row('Physical size', `${mmW.toFixed(1)} × ${mmH.toFixed(1)} mm  ·  ${(mmW/25.4).toFixed(2)} × ${(mmH/25.4).toFixed(2)} in`)+
-    row('Est. file size', '≈ '+_fmtBytes(est))+
+    row('Est. file size', estTxt)+
     `<div style="margin-top:10px;font-size:11.5px;color:var(--muted)">${vectorNote}</div>`+
     warnHtml;
   _preflightFmt=fmt;
@@ -4268,6 +4331,7 @@ function renderImgList(){
       </div>
       <div class="img-meta" style="font-size:10px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
         ${_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
+        <span class="f-ppi" data-ppi="${idx}" title="Pixels per inch this panel prints at: its source pixels across the crop divided by its printed width. Below ~300 ppi the export interpolates pixels the camera never recorded, and a higher export DPI does not change that."></span>
         ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
         ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
@@ -4650,6 +4714,9 @@ function renderImgList(){
     list.appendChild(item);
   });
   renderMiniGrid();
+  // Fill the ppi readouts from the last frame's geometry. Arithmetic only: this list is
+  // rebuilt on every mutation, so it must never render.
+  _syncPanelPpi();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5415,7 +5482,9 @@ function addSpliceMarker(){
   if(!images.length){ toast('Add a blot or gel image first','warn'); return; }
   const t=_blotTarget(); if(!t){ toast('No panel on the canvas to mark','warn'); return; }
   pushUndo();
-  annotations.push({type:'line', xf:t.fx(0.5), yf:t.fy(0.02), x2f:t.fx(0.5), y2f:t.fy(0.98), color:'#ffffff', width:3});
+  // Marked as a splice, not just a line, so the Methods paragraph can disclose it.
+  annotations.push({type:'line', xf:t.fx(0.5), yf:t.fy(0.02), x2f:t.fx(0.5), y2f:t.fy(0.98), color:'#ffffff', width:3,
+    splice:true, splicePanel:images[t.idx]&&images[t.idx].id});
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   toast(`Splice marker added across panel ${t.name} — use ↖ Select to drag it to the lane boundary. Always disclose splices in your methods.`,'ok');
@@ -5781,7 +5850,7 @@ function _panelOuterH(im, apw, aphMax){
   const rad=(im.rotate||0)*Math.PI/180;
   let ca=Math.abs(Math.cos(rad)), sa=Math.abs(Math.sin(rad));
   if(ca<1e-9) ca=0; if(sa<1e-9) sa=0;
-  const sc=Math.min(apw/(sw*ca+sh*sa), aphMax/(sw*sa+sh*ca));
+  const sc=Math.min(apw/(sw*ca+sh*sa), aphMax/(sw*sa+sh*ca));   // as _panelFitScale
   return (sw*sc)*sa+(sh*sc)*ca;
 }
 // One height per row: the tallest panel in it, never more than the panel height
@@ -6145,6 +6214,7 @@ function render(targetCanvas, exportScale, opts){
         const _rad=((im.rotate||0))*Math.PI/180;
         let _ca=Math.abs(Math.cos(_rad)), _sa=Math.abs(Math.sin(_rad));
         if(_ca<1e-9) _ca=0; if(_sa<1e-9) _sa=0;        // cos(90 deg) is 6e-17, not 0
+        // _panelFitScale is the same formula, used for each panel's printed ppi.
         const scale=Math.min(apw/(sw*_ca+sh*_sa), aph/(sw*_sa+sh*_ca));
         // dw/dh is the box the picture is drawn into BEFORE the turn — only the
         // drawImage transform and the inset outlines inside it use these.
@@ -8319,9 +8389,18 @@ function checkCompliance(){
   });
   const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
   const _rangeKeys=[..._ranges.keys()].join(', ');
+  const _ppis=_panelPpiList(dpi), _lowPpi=_ppis.filter(p=>p.ppi<PANEL_MIN_PPI);
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
       fix:dpi<300?{a:'dpi300',t:'Set 300'}:null},
+    // The DPI row is about the canvas; this one is about the pictures on it. A panel
+    // enlarged past its source pixels prints soft at any DPI. A warning, not a
+    // failure: a gel photo at 250 ppi may be all the camera recorded.
+    {label:'Panel resolution', ok:_lowPpi.length===0, warn:_lowPpi.length>0,
+      note:_lowPpi.length
+        ? `${_lowPpi.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')} — printed below ${PANEL_MIN_PPI} ppi, so their pixels are interpolated at this size; make them smaller or pick a narrower column`
+        : (_ppis.length ? `Every image panel prints at ≥${PANEL_MIN_PPI} ppi ✓ (lowest ${Math.round(Math.min(..._ppis.map(p=>p.ppi)))} ppi)` : 'No raster image panels'),
+      fix:_lowPpi.length?{a:'lowppi',t:'Select panel'}:null},
     {label:'Printed width', ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5,
       note:`${_pf.wMm.toFixed(0)} mm (${wIn.toFixed(2)}")${targetMm?' — matches the chosen column width':' · max double-column is ~183 mm'}`},
     {label:'Printed height',ok:hIn<=9.5, warn:false, note:`${_pf.hMm.toFixed(0)} mm (${hIn.toFixed(2)}")`},
@@ -8401,6 +8480,17 @@ function _auditFix(action){
   else if(action==='synclevels'){
     const src=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].img)?selectedPanel:images.findIndex(im=>im&&im.img&&((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)));
     if(src>=0) syncLevelsByChannel(src);
+  }
+  else if(action==='lowppi'){
+    const low=_panelPpiList(getExportDPI()).filter(p=>p.ppi<PANEL_MIN_PPI).sort((a,b)=>a.ppi-b.ppi)[0];
+    if(low){
+      if(m) m.remove();
+      if(layoutMode==='freeform'){ selectedElems.clear(); selectedElems.add(low.idx); if(typeof updateFreeformElemList==='function') updateFreeformElemList(); }
+      else selectedPanel=low.idx;
+      scheduleRender(0);
+      toast(`${low.label} prints at ${Math.round(low.ppi)} ppi — make it smaller, crop it less tightly, or pick a narrower printed width`,'warn');
+      return;
+    }
   }
   else if(action==='calibrate'){
     // The first uncalibrated panel the figure SHOWS: the report no longer counts
@@ -8729,7 +8819,8 @@ const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
   'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
 const _layoutCheckIds=['auto-row-h','show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color'];
+  'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color',
+  'export-tiff-lzw'];
 function captureLayout(){
   const o={text:{},check:{}};
   _layoutTextIds.forEach(id=>o.text[id]=gv(id));
@@ -8742,6 +8833,7 @@ function applyLayoutSnapshot(o){
   if(!o) return;
   _layoutTextIds.forEach(id=>{ if(o.text[id]!==undefined) sv(id,o.text[id]); });
   _layoutCheckIds.forEach(id=>{ if(o.check[id]!==undefined) sc(id,o.check[id]); });
+  { const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw'); }
   onLayoutChange(); // rebuild label inputs for the restored cols/rows
   setAxisLabels('col', o.colLabels);
   setAxisLabels('row', o.rowLabels);
@@ -10529,6 +10621,81 @@ function _physFacts(){
   const ptPerPx=72*scale/dpi;
   return {dpi, scale, wMm, hMm, ptPerPx, px:Math.round(lw*scale)};
 }
+// ── Effective resolution of each panel ─────────────────────────
+// Journals' 300 dpi rule is about each image at its printed size. The Export DPI is
+// about the canvas: a 512 px confocal field stretched across a column exports at
+// "300 DPI" while the panel itself carries 90 ppi of interpolated pixels, and the
+// DPI check said ✓. This is the number the rule is about: source pixels across the
+// visible crop over the printed inches they fill.
+const PANEL_MIN_PPI=300;
+// Contain-fit scale of an sw × sh picture turned by rotateDeg inside a cellW × cellH
+// cell: the formula the draw loop and _panelOuterH use. They keep their own copies
+// because they measure the straightened canvas from _cropDraw, whose size is rounded,
+// and routing them through this would move hugged rows by a fraction of a pixel.
+function _panelFitScale(sw, sh, rotateDeg, cellW, cellH){
+  if(!(sw>0&&sh>0)) return 0;
+  const rad=(rotateDeg||0)*Math.PI/180;
+  let ca=Math.abs(Math.cos(rad)), sa=Math.abs(Math.sin(rad));
+  if(ca<1e-9) ca=0; if(sa<1e-9) sa=0;
+  return Math.min(cellW/(sw*ca+sh*sa), cellH/(sw*sa+sh*ca));
+}
+// Printed inches per logical px. With a printed width chosen, the figure is that many
+// mm across canvasLogicalW; without one, a logical px is 1/96 in. Neither involves the
+// DPI, which is why raising the DPI cannot rescue an enlarged panel.
+function _inchPerLogicalPx(){
+  const mm=getTargetWidthMm();
+  return mm>0 ? (mm/25.4)/(canvasLogicalW||1) : 1/96;
+}
+// {ppi, enlarge, sw, sh} for panel idx — images[] in grid mode, freeformElements[] in
+// freeform — or null when it is not a drawn raster picture (hidden, blank, vector, or
+// beyond the grid). `enlarge` is export pixels per source pixel at `dpi`; above 1 the
+// export invents pixels. Reads the last preview frame's cells; renders nothing.
+function _panelEffPpi(idx, dpi){
+  let sw, sh, fit;
+  if(layoutMode==='freeform'){
+    const el=freeformElements[idx];
+    if(!el||el.type!=='image'||el.isVector||!(el.img||el._imgEl)) return null;
+    const g=_cropGeom(el); sw=g.sw; sh=g.sh;
+    if(!(sw>=1&&sh>=1)||!(el.w>0&&el.h>0)) return null;
+    // A freeform picture is stretched to its box, so the axes can differ: report the worse.
+    fit=Math.max(el.w/sw, el.h/sh);
+  } else {
+    const im=images[idx];
+    if(!im||!im.img||im.isVector) return null;
+    const b=panelBounds.find(p=>p.idx===idx);
+    if(!b) return null;
+    // _cropGeom, not _cropDraw: same sw/sh, without building the straightened canvas.
+    // An inset's own crop is the magnified region, so insets need no special case.
+    const g=_cropGeom(im); sw=g.sw; sh=g.sh;
+    if(!(sw>=1&&sh>=1)) return null;
+    fit=_panelFitScale(sw, sh, im.rotate, b.w, b.h);
+  }
+  if(!(fit>0)) return null;
+  return {ppi:1/(fit*_inchPerLogicalPx()), enlarge:fit*_exportScaleFor(dpi||getExportDPI()), sw, sh};
+}
+// Every drawn raster panel with its ppi, in figure order. The compliance check and the
+// Save dialog both read this, so they always name the same panels.
+function _panelPpiList(dpi){
+  const out=[];
+  if(layoutMode==='freeform'){
+    freeformElements.forEach((el,i)=>{ const r=_panelEffPpi(i,dpi);
+      if(r) out.push({idx:i, label:formatLabel(el.label)||`object ${i+1}`, ...r}); });
+  } else {
+    _figurePanels().forEach(im=>{ const i=images.indexOf(im), r=_panelEffPpi(i,dpi);
+      if(r) out.push({idx:i, label:formatLabel(im.label)||`panel ${i+1}`, ...r}); });
+  }
+  return out;
+}
+function _syncPanelPpi(){
+  const els=document.querySelectorAll('.f-ppi'); if(!els.length) return;
+  const dpi=getExportDPI();
+  els.forEach(el=>{
+    const r=layoutMode==='freeform'?null:_panelEffPpi(+el.dataset.ppi, dpi);
+    if(!r){ el.textContent=''; return; }
+    el.textContent=`${Math.round(r.ppi)} ppi`+(r.enlarge>1.05?` · enlarged ${r.enlarge.toFixed(1)}×`:'');
+    el.style.color=r.ppi<PANEL_MIN_PPI?'var(--warn)':'';
+  });
+}
 function _syncPhysReadout(){
   const el=document.getElementById('phys-readout'); if(!el) return;
   const f=_physFacts();
@@ -10538,6 +10705,9 @@ function _syncPhysReadout(){
   el.innerHTML=`Prints ${f.wMm.toFixed(0)} × ${f.hMm.toFixed(0)} mm at ${f.dpi} DPI (${f.px} px wide) · `
     +`panel labels ≈ <b style="color:${warn?'var(--danger)':'inherit'}">${labelPt.toFixed(1)} pt</b>`
     +(warn?' — below the ~5 pt most journals accept':'');
+  // Called at the end of every render and when the DPI or printed width changes — the
+  // two moments a panel's printed size can change.
+  _syncPanelPpi();
 }
 
 // The DPI a canvas of `px` pixels actually carries, given the printed-width target.
@@ -10704,7 +10874,7 @@ async function doExport(fmt){
     if(fmt==='webp') { dl(_safeDataURL(canvas,'image/webp',0.92), `${name}.webp`); }
     if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
     if(fmt==='tiff') {
-      const tc=renderExportCanvas(dpi); exportTIFF(name, tc._effDpi||dpi, tc, true);
+      const tc=renderExportCanvas(dpi); exportTIFF(name, tc._effDpi||dpi, tc, true, {lzw:gc('export-tiff-lzw')});
     }
     if(fmt==='pdf' || fmt==='pdf-lossless'){
       await _exportPDFWithText(name, dpi, {lossless: fmt==='pdf-lossless'});
@@ -10976,6 +11146,8 @@ function _panelHistory(im){
   if(im.channels&&im.channels.length) ops.push({op:'composite',
     channels:im.channels.map(c=>({file:c.name||'(channel)', lut:c.lut||'green'})),
     blend:'screen', note:'Each channel cropped by the same percentages as the base.'});
+  if(im._projection) ops.push({op:'projection', mode:im._projection.mode, sourcePanels:im._projection.n,
+    note:'Computed on 8-bit display values; the source panels are kept.'});
   if(im.bgKey&&im.bgKey.on) ops.push({op:'backgroundKey', mode:im.bgKey.mode, tolerance:im.bgKey.tol,
     feather:im.bgKey.feather||0, note:'Reversible; does not alter stored pixels.'});
   if(im.umPerPx>0) ops.push({op:'calibrate', umPerPx:im.umPerPx, scaleBarUm:im.sbUm||null});
@@ -11031,7 +11203,7 @@ async function exportSubmissionPackage(){
     const pngC=rc();
     add(await _captureDownload(()=>exportPNGWithMeta(name,pngC._effDpi||dpi,pngC),'PNG'));
     const tifC=rc();
-    add(await _captureDownload(()=>exportTIFF(name,tifC._effDpi||dpi,tifC,true),'TIFF'));
+    add(await _captureDownload(()=>exportTIFF(name,tifC._effDpi||dpi,tifC,true,{lzw:gc('export-tiff-lzw')}),'TIFF'));
     add(await _captureDownload(()=>_exportPDFWithText(name,dpi,{lossless:true}),'PDF (lossless)'));
     add(await _captureDownload(()=>exportSVG(name,dpi,figc),'SVG'));
     add(await _captureDownload(()=>saveJSON(),'session JSON'));
@@ -11042,6 +11214,9 @@ async function exportSubmissionPackage(){
     // caption + notes
     if(!gv('caption-out').trim()){ generateCaption(); }
     const cap=gv('caption-out').trim(); if(cap) files.push({name:name+'-caption.txt', data:cap});
+    // The Methods paragraph, as the caption: the author's edited text if there is one.
+    const meth=gv('methods-out').trim()||generateMethodsParagraph();
+    files.push({name:name+'-methods.txt', data:meth});
     const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
     if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
     // Attribution obligations ship with the figure, so a co-author assembling the
@@ -11140,7 +11315,7 @@ ${missing}
 Notes
 -----
 - Raster figures are rendered at the true target-DPI pixel count (supersampled).
-- TIFF is uncompressed RGB with the DPI tag set; PDF here is lossless (Flate).
+- TIFF is ${gc('export-tiff-lzw')?'LZW-compressed (lossless, horizontal differencing)':'uncompressed'} 8-bit RGB with the DPI tag set; PDF here is lossless (Flate).
 - session JSON embeds the images, so it reloads the whole figure in FigureLab.
 - The R / Python scripts and metadata CSV document how each panel was processed
   — paste the key values into your methods section for reproducibility.
@@ -11470,7 +11645,7 @@ function exportSVG(name, dpi, canvas){
   dl(blobUrl(svg), name+'.svg');
 }
 
-function exportTIFF(name, dpi, canvas, preScaled){
+function exportTIFF(name, dpi, canvas, preScaled, opts){
   // Exports arrive already re-rendered at the target DPI (crisp text, lines and
   // scale bars). The interpolating fallback remains for any caller that passes a
   // logical-size canvas.
@@ -11487,16 +11662,34 @@ function exportTIFF(name, dpi, canvas, preScaled){
   const raw=src.getContext('2d').getImageData(0,0,W,H).data;
   const rgb=new Uint8Array(W*H*3);
   for(let i=0;i<W*H;i++){ rgb[i*3]=raw[i*4]; rgb[i*3+1]=raw[i*4+1]; rgb[i*3+2]=raw[i*4+2]; }
-
-  // Minimal uncompressed TIFF (little-endian, RGB, custom DPI)
-  const nTags=13;
+  // Always 8 bits per sample: the export is read back from a canvas, so there is no
+  // 16-bit path whose byte order the predictor would have to respect.
+  const bytes=_tiffBytes(rgb, W, H, dpi, opts);
+  dl(URL.createObjectURL(new Blob([bytes],{type:'image/tiff'})), name+'.tiff');
+}
+// Minimal TIFF (little-endian, RGB, 8 bits per sample, custom DPI, one strip).
+// Uncompressed by default, byte for byte what it always was. With opts.lzw the strip is
+// LZW-compressed after horizontal differencing (Predictor 2) — lossless, and what PLOS
+// asks for. `rgb` is differenced in place in that case.
+function _tiffBytes(rgb, W, H, dpi, opts){
+  const lzw=!!(opts&&opts.lzw);
+  let strip=rgb;
+  if(lzw){
+    // Predictor 2 works per SAMPLE: each R, G and B minus the same channel one pixel to
+    // the left, mod 256, not minus the neighbouring byte. Right to left, so every
+    // subtraction reads an original value. Flat backgrounds become runs of zeros.
+    const rs=W*3;
+    for(let y=0;y<H;y++){ const b=y*rs; for(let x=rs-1;x>=3;x--) rgb[b+x]=(rgb[b+x]-rgb[b+x-3])&255; }
+    strip=lzwEncodeTIFF(rgb);
+  }
+  const nTags=lzw?14:13;
   const ifdOff=8, ifdSz=2+nTags*12+4;
   const valDataOff=ifdOff+ifdSz;
   const bpsOff=valDataOff;           // SHORT[3]: 6 bytes
   const xresOff=bpsOff+6;            // RATIONAL: 8 bytes
   const yresOff=xresOff+8;           // RATIONAL: 8 bytes
   const imgOff =yresOff+8;
-  const fileSize=imgOff+rgb.length;
+  const fileSize=imgOff+strip.length;
 
   const buf=new ArrayBuffer(fileSize);
   const v=new DataView(buf);
@@ -11509,17 +11702,17 @@ function exportTIFF(name, dpi, canvas, preScaled){
   u8(0x49);u8(0x49); u16(42); u32(ifdOff);    // header
   p=ifdOff; u16(nTags);
   tag(256,4,1,W); tag(257,4,1,H); tag(258,3,3,bpsOff);
-  tag(259,3,1,1); tag(262,3,1,2); tag(273,4,1,imgOff);
-  tag(277,3,1,3); tag(278,3,1,H); tag(279,4,1,rgb.length);
+  tag(259,3,1,lzw?5:1); tag(262,3,1,2); tag(273,4,1,imgOff);
+  tag(277,3,1,3); tag(278,3,1,H); tag(279,4,1,strip.length);
   tag(282,5,1,xresOff); tag(283,5,1,yresOff);
   tag(284,3,1,1); tag(296,3,1,2);
+  if(lzw) tag(317,3,1,2);            // Predictor: horizontal differencing (tags stay ascending)
   u32(0); // next IFD
   p=bpsOff; u16(8);u16(8);u16(8);
   p=xresOff; u32(dpi);u32(1);
   p=yresOff; u32(dpi);u32(1);
-  new Uint8Array(buf).set(rgb, imgOff);
-
-  dl(URL.createObjectURL(new Blob([new Uint8Array(buf)],{type:'image/tiff'})), name+'.tiff');
+  new Uint8Array(buf).set(strip, imgOff);
+  return new Uint8Array(buf);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -11850,6 +12043,9 @@ function applyPreset(name){
   // the journal's double-column width, so the export lands at a real physical size
   const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
   sv('export-width-mm', wmm||'0');
+  // PLOS asks for LZW-compressed TIFF. Switched on for PLOS only, and never switched
+  // off by another preset: someone who ticked it wants it.
+  if(name==='plos') sc('export-tiff-lzw', true);
   scheduleRender();
   if(!_gapsCleared) toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
 }
@@ -11887,6 +12083,14 @@ function _sameAdjustments(a,b){
   const k=im=>[im.brightness??1, im.contrast??1, im.gamma||1, im.blackPt||0, im.whitePt??255,
                !!im.invert, !!im.grayscale, im.lut||'none', !!(im.bgKey&&im.bgKey.on)].join('|');
   return k(a)===k(b);
+}
+
+// Were the display adjustments identical on every shown panel? null when nothing was
+// adjusted or there is only one panel, so there is nothing to say. The caption and the
+// Methods paragraph both ask this, and must never answer differently.
+function _adjustmentsUniform(shown){
+  if(shown.length<2||!shown.some(im=>_captionAdjustments(im).length>0)) return null;
+  return shown.every(im=>_sameAdjustments(im,shown[0]));
 }
 
 function generateCaption(){
@@ -11960,11 +12164,10 @@ function generateCaption(){
   // Whether the adjustments were the same on every panel is itself a disclosure a
   // journal asks for: identical settings are routine, per-panel settings are the case
   // that needs stating rather than being left for a reader to infer from the numbers.
-  const shown=_figurePanels();
-  const anyAdj=shown.some(im=>_captionAdjustments(im).length>0);
+  const _uni=_adjustmentsUniform(_figurePanels());
   let uniformity='';
-  if(anyAdj&&shown.length>1){
-    uniformity=shown.every(im=>_sameAdjustments(im,shown[0]))
+  if(_uni!==null){
+    uniformity=_uni
       ? ' The same adjustment settings were applied to every panel.'
       : ' Adjustment settings differ between panels, as stated per panel above.';
   }
@@ -11973,6 +12176,124 @@ function generateCaption(){
   document.getElementById('caption-out').value=cap;
   logAction('generateCaption',{panels:n});
   toast('Caption generated — copy and paste!','ok');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// METHODS PARAGRAPH
+// Journals want the image processing described in the Methods: the software and its
+// version, whether adjustments were uniform, any non-linear step, pseudocolour,
+// resampling, projections and where the scale came from. FigureLab holds every one of
+// those facts, so it writes the paragraph from them. Facts only: a step that leaves no
+// trace on the panel is not mentioned, and nothing here carries a date, so the same
+// figure always gives the same text.
+// ═══════════════════════════════════════════════════════════════
+function _methodsPanels(){
+  return layoutMode==='freeform'
+    ? freeformElements.filter(e=>e&&e.type==='image')
+    : _figurePanels();
+}
+function _listAnd(a){ return a.length<2 ? (a[0]||'') : a.slice(0,-1).join(', ')+' and '+a[a.length-1]; }
+function _panelsPhrase(names){ return (names.length===1?'panel ':'panels ')+_listAnd(names); }
+function _ucFirst(t){ return t ? t[0].toUpperCase()+t.slice(1) : t; }
+function generateMethodsParagraph(){
+  const P=_methodsPanels();
+  const nm=im=>formatLabel(im.label)||'(unlabelled)';
+  const was=a=>a.length===1?'was':'were';
+  const S=[];
+  S.push(`Figures were assembled in FigureLab v${APP_VERSION} (Awuah 2026; https://doi.org/10.5281/zenodo.21269456).`);
+  const hasHistory=images.filter(Boolean).length>0;          // PANEL_HISTORY.txt ships only then
+  // Linear display adjustments. Whether they were uniform comes from the caption's own
+  // predicate, which also counts gamma, LUT, inversion and keying, so the "differ"
+  // sentence is worded as the caption words it, not as a claim about levels alone.
+  const lin=P.filter(im=>(im.blackPt||0)>0||(im.whitePt??255)<255||(im.brightness??1)!==1||(im.contrast??1)!==1);
+  const uni=_adjustmentsUniform(P);
+  if(lin.length){
+    if(uni===true) S.push('Brightness, contrast and display range were adjusted linearly, with identical settings on every panel, each applied to the whole image.');
+    else S.push(`Brightness, contrast or display range were adjusted linearly for ${_panelsPhrase(lin.map(nm))}, each applied to the whole image.`);
+  }
+  if(uni===false) S.push('Adjustment settings differ between panels'+(hasHistory?'; the per-panel values are listed in PANEL_HISTORY.txt.':'.'));
+  const gam=P.filter(im=>(im.gamma||1)!==1);
+  if(gam.length) S.push(`A non-linear gamma adjustment was applied to ${_listAnd(gam.map(im=>`panel ${nm(im)} (γ = ${(+im.gamma).toFixed(2)})`))}.`);
+  // Pseudocolour: the panel's own LUT and those of any merged channels.
+  const luts=[];
+  P.forEach(im=>{
+    const l=[];
+    if(im.lut&&im.lut!=='none') l.push(LUT_NAMES[im.lut]||im.lut);
+    (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') l.push(LUT_NAMES[k]||k); });
+    if(l.length) luts.push(`panel ${nm(im)}, ${_listAnd(l)}`);
+  });
+  if(luts.length) S.push(`Images were pseudocoloured with lookup tables: ${luts.join('; ')}.`);
+  P.filter(im=>im.channels&&im.channels.some(c=>c.img)).forEach(im=>{
+    // The base image plus each channel that has pixels; a channel without them is not drawn.
+    const n=1+im.channels.filter(c=>c.img).length;
+    S.push(`Panel ${nm(im)} is a composite of ${n} channels combined by screen blending, each cropped to the same field of view.`);
+  });
+  const gs=P.filter(im=>im.grayscale), inv=P.filter(im=>im.invert), key=P.filter(im=>im.bgKey&&im.bgKey.on);
+  if(gs.length) S.push(`${_ucFirst(_panelsPhrase(gs.map(nm)))} ${was(gs)} converted to grayscale.`);
+  if(inv.length) S.push(`${_ucFirst(_panelsPhrase(inv.map(nm)))} ${was(inv)} displayed with inverted intensities.`);
+  if(key.length) S.push(`The background was keyed out of ${_panelsPhrase(key.map(nm))} (a display mask applied when the figure is drawn; the stored pixels are unchanged).`);
+  // Geometry. A tilted crop resamples; say so, but not why — the app does not know why.
+  const tilt=P.filter(im=>Math.abs(+im.cropAngle||0)>1e-9);
+  if(tilt.length) S.push(`${_ucFirst(_panelsPhrase(tilt.map(nm)))} ${was(tilt)} cropped at an angle (${_listAnd(tilt.map(im=>`${(+im.cropAngle).toFixed(1)}°`))}), so ${tilt.length===1?'its':'their'} pixels were resampled by interpolation.`);
+  const orient=[];
+  P.forEach(im=>{
+    const deg=layoutMode==='freeform' ? (+im.rotation||0) : (+im.rotate||0);
+    const d=((deg%360)+360)%360, bits=[];
+    if(d) bits.push(`rotated ${+d.toFixed(1)}°`);
+    if(im.flipH) bits.push('mirrored horizontally');
+    if(im.flipV) bits.push('mirrored vertically');
+    if(bits.length) orient.push(`panel ${nm(im)} (${_listAnd(bits)})`);
+  });
+  if(orient.length) S.push(`Orientation was changed for ${_listAnd(orient)}.`);
+  // Every raster panel is drawn at its printed size through the canvas's smoothing; the
+  // ones enlarged past their source pixels are named, from the same arithmetic as the
+  // compliance check's Panel resolution row.
+  if(P.some(im=>!im.isVector)){
+    const low=_panelPpiList(getExportDPI()).filter(p=>p.ppi<PANEL_MIN_PPI);
+    S.push('Panels were scaled to their printed size by interpolation (browser canvas image smoothing).'
+      +(low.length?` ${_ucFirst(_panelsPhrase(low.map(p=>p.label)))} ${low.length===1?'prints':'print'} below ${PANEL_MIN_PPI} ppi and ${was(low)} therefore enlarged beyond ${low.length===1?'its':'their'} source resolution.`:''));
+  }
+  // Projections record themselves (projectTickedPanels sets _projection); a projection
+  // made before that flag existed carries none and is not mentioned.
+  P.filter(im=>im._projection).forEach(im=>{
+    const pj=im._projection;
+    S.push(`Panel ${nm(im)} is a ${pj.mode==='mean'?'mean':'maximum'}-intensity projection of ${pj.n} source panels, computed on 8-bit display values.`);
+  });
+  // Calibration, grouped by where it came from and its value.
+  const cal=new Map();
+  P.filter(im=>im.umPerPx>0).forEach(im=>{
+    const fromMeta=im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
+    const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:'set by hand';
+    const k=how+'|'+(+im.umPerPx);
+    if(!cal.has(k)) cal.set(k,{how, um:+im.umPerPx, names:[]});
+    cal.get(k).names.push(nm(im));
+  });
+  if(cal.size) S.push('Pixel size was '+_listAnd([...cal.values()].map(c=>`${c.how} for ${_panelsPhrase(c.names)} (${+c.um.toPrecision(4)} µm per pixel)`))+'.');
+  // Splice markers record themselves (addSpliceMarker sets splice:true); a plain line
+  // drawn by hand, or a marker added before the flag existed, is not a splice claim.
+  const spl=(annotations||[]).filter(a=>a&&a.splice);
+  if(spl.length){
+    const shownIds=new Set(P.map(im=>im.id));
+    const where=[...new Set(spl.map(a=>{ const p=_findPanelById(a.splicePanel); return p&&shownIds.has(p.id)?nm(p):null; }).filter(Boolean))];
+    S.push(`Splice boundaries are marked with dividing lines${where.length?` (${_panelsPhrase(where)})`:''}.`);
+  }
+  P.filter(im=>im.insetOf).forEach(im=>{
+    const p=_findPanelById(im.insetOf); if(!p) return;
+    const mag=_insetMag(im);
+    S.push(`Panel ${nm(im)} is a magnified view${mag?` (${(+mag).toFixed(1)}×)`:''} of the ${_insetFramesOn()?'boxed ':''}region in panel ${nm(p)}, displayed with the same settings.`);
+  });
+  // Only what the app knows: it records AI-generated objects, and nothing else.
+  S.push(_aiDisclosureSentence()||'FigureLab records no generative-AI content in this figure.');
+  if(hasHistory) S.push('A per-panel record of every operation is provided as PANEL_HISTORY.txt.');
+  return S.join(' ');
+}
+function writeMethodsParagraph(){
+  const n=_methodsPanels().length;
+  if(!n){ toast('No image panels to describe','warn'); return; }
+  render();                     // the resolution sentence reads this frame's panel cells
+  document.getElementById('methods-out').value=generateMethodsParagraph();
+  logAction('methodsParagraph',{panels:n});
+  toast('Methods paragraph written — check it, then paste it into your Methods','ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -12101,6 +12422,7 @@ function serializeSession(bundleImages){
       axisFont:gv('axis-font'),axisBold:gc('axis-bold'),axisItalic:gc('axis-italic'),
       axisColor:gv('axis-color'),axisAutoColor:gc('axis-auto-color') },
     exportDpi:gv('export-dpi'), exportWidthMm:gv('export-width-mm'), exportName:gv('export-name'),
+    exportTiffLzw:gc('export-tiff-lzw'),
     // An empty slot is saved as null so a blank cell keeps its place in the grid.
     images:images.map(im=>im?({name:im.name,label:im.label,sbOn:im.sbOn,umPerPx:im.umPerPx,
       sbUm:im.sbUm,sbUnit:im.sbUnit||'µm',brightness:im.brightness,contrast:im.contrast,
@@ -12116,6 +12438,10 @@ function serializeSession(bundleImages){
       lblDX:im.lblDX||0, lblDY:im.lblDY||0, sbDX:im.sbDX||0, sbDY:im.sbDY||0,
       tagDX:im.tagDX||0, tagDY:im.tagDY||0, cbarDX:im.cbarDX||0, cbarDY:im.cbarDY||0,
       isVector: im.isVector||false,
+      // What the Methods paragraph reads: a projection's record, and whether µm/px
+      // came from the file's metadata or was typed in.
+      _projection: im._projection||undefined,
+      _metaUmPerPx: im._metaUmPerPx||undefined, _metaCalibSource: im._metaCalibSource||undefined,
       // Pixel data (bundled mode only) so a saved session reloads without re-dropping files
       src: _bundle ? im.src : undefined,
       svgSource: (_bundle && im.svgSource) ? im.svgSource : undefined,
@@ -12198,6 +12524,7 @@ function applySession(s,_opts){
       if(s.exportDpi) sv('export-dpi',s.exportDpi);
       if(s.exportWidthMm) sv('export-width-mm',s.exportWidthMm);
       if(s.exportName) sv('export-name',s.exportName);
+      if(s.exportTiffLzw!==undefined) sc('export-tiff-lzw',!!s.exportTiffLzw);
       if(Array.isArray(s.annotations)){ annotations=s.annotations; renderAnnotationList(); }
       if(s.notes){ const nt=document.getElementById('fig-notes'); if(nt) nt.value=s.notes; }
       if(s.panelBorder){
@@ -12850,6 +13177,9 @@ function projectTickedPanels(mode){
     for(const k of ['lut','grayscale','invert','blackPt','whitePt','gamma','umPerPx','sbUm','sbUnit','sbOn','group']) if(src0[k]!==undefined) p[k]=src0[k];
     p.raw=null; p.channels=[]; p.label=nextLabel();
     p.captionNote=`${mode==='max'?'Maximum':'Mean'} intensity projection of ${sel.length} panels (${labels}), on 8-bit display values`;
+    // What it is, as state, so the Methods paragraph can say so without parsing a note
+    // the author is free to rewrite.
+    p._projection={mode, n:sel.length};
     images.splice(sel[sel.length-1]+1,0,p);
     renderImgList(); renderMiniGrid(); scheduleRender(0);
     logAction('projectPanels',{mode,panels:sel.length,from:labels});
