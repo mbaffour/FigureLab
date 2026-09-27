@@ -2435,6 +2435,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <option value="rect">□ Rect</option>
     <option value="ellipse">○ Ellipse</option>
   </select>
+  <select id="ann-float-repeat" title="Put a copy of this annotation at the same spot on other panels (on the same pixels when they share a crop and source size)" style="display:none;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;font-family:var(--mono)">
+    <option value="">⧉ Repeat on…</option>
+    <option value="row">panels in this row</option>
+    <option value="group">panels in this match group</option>
+    <option value="all">every panel</option>
+  </select>
   <button id="ann-float-del">✕ Del</button>
 </div>
 
@@ -3636,6 +3642,12 @@ const CMD_REGISTRY=[
              pushUndo(); const on=!gc('auto-row-h'); sc('auto-row-h',on); scheduleRender();
              toast(on?'Each row now shrinks to the tallest panel in it':'Every row is the panel height again','ok');
              _cmdpGoto('auto-row-h'); }},
+  {label:'Repeat the selected panel annotation across its row', keys:'repeat copy annotation arrow box text every panel same place channels mirror duplicate row dapi gfp merge',
+   run:()=>repeatPanelAnn('row')},
+  {label:'Repeat the selected panel annotation in its match group', keys:'repeat copy annotation arrow box text group match same place channels duplicate',
+   run:()=>repeatPanelAnn('group')},
+  {label:'Repeat the selected panel annotation on every panel', keys:'repeat copy annotation arrow box text all every panel same place duplicate everywhere',
+   run:()=>repeatPanelAnn('all')},
   {label:'Rows and columns',        keys:'rows columns grid layout how many arrange cols', run:()=>_cmdpGoto('cols','Columns, then rows below')},
   // Export — "dpi" and "resolution" reached nothing.
   {label:'Export resolution (DPI)', keys:'dpi resolution 300 600 print quality export ppi dots per inch', run:()=>_cmdpGoto('export-dpi','300 DPI or more for journals')},
@@ -6793,6 +6805,8 @@ function showPanelAnnFloat(imgIdx, annIdx, pb){
   if(isTxt) document.getElementById('ann-float-halo').checked=a.halo!==false;
   document.getElementById('ann-float-corner').style.display='none';
   document.getElementById('ann-float-corner-lbl').style.display='none';
+  const rep=document.getElementById('ann-float-repeat');
+  if(rep){ rep.value=''; rep.style.display=(layoutMode!=='freeform'&&a.type!=='legend')?'':'none'; }
   // Position near annotation
   const rect=annCanvas.getBoundingClientRect();
   const W=annCanvas.width, H=annCanvas.height;
@@ -6806,6 +6820,68 @@ function showPanelAnnFloat(imgIdx, annIdx, pb){
   let afTop=ay-54; if(afTop<4) afTop=ay+24; // flip below if it would clip the top
   af.style.top=Math.max(4,Math.min(window.innerHeight-afH-4,afTop))+'px';
   document.getElementById('ann-float').style.display='flex';
+}
+
+// Repeat the selected panel annotation on other panels — the same arrowhead in every
+// channel of a DAPI | GFP | merge row, which otherwise means redrawing it by eye.
+// Panel annotations are fractions of the CELL, and cells differ once rows hug their
+// panels, so when two panels show the same picture (source size, crop, turn, flip) the
+// copy is mapped through the drawn picture and lands on the same pixels. When they
+// don't, there are no shared pixels to aim for: the copy keeps the same place in the
+// panel, and the toast says so rather than implying the positions correspond.
+function _samePanelPicture(p, q){
+  const dim=im=>{ const g=im&&im.img; return g?[g.naturalWidth||g.width||0, g.naturalHeight||g.height||0]:[0,0]; };
+  const P=dim(p), Q=dim(q);
+  if(!(P[0]>0&&P[1]>0)||P[0]!==Q[0]||P[1]!==Q[1]) return false;
+  return ['cropT','cropL','cropB','cropR','cropAngle','rotate'].every(k=>(+p[k]||0)===(+q[k]||0))
+    && !!p.flipH===!!q.flipH && !!p.flipV===!!q.flipV;
+}
+function repeatPanelAnn(scope){
+  if(layoutMode==='freeform'){ toast('Repeat applies to grid panels','warn'); return; }
+  if(!selectedPanelAnn){ toast('Select a 📌 panel annotation first','warn'); return; }
+  const {imgIdx,annIdx}=selectedPanelAnn;
+  const src=images[imgIdx], a=src&&src.panelAnns&&src.panelAnns[annIdx];
+  if(!a) return;
+  // The channel key describes the whole figure; a copy in every panel says nothing new.
+  if(a.type==='legend'){ toast('The channel key describes the whole figure, so it is not repeated','warn'); return; }
+  const sp=panelBounds.find(b=>b.idx===imgIdx); if(!sp) return;
+  let targets=panelBounds.filter(b=>b.idx>=0&&b.idx!==imgIdx&&images[b.idx]);
+  if(scope==='row') targets=targets.filter(b=>Math.round(b.y)===Math.round(sp.y));
+  else if(scope==='group'){
+    const grp=(src.group||'').trim();
+    if(!grp){ toast('Give this panel a Match group first','warn'); return; }
+    targets=targets.filter(b=>(images[b.idx].group||'').trim()===grp);
+  } else if(scope!=='all') return;
+  const where=scope==='row'?' in this row':scope==='group'?' in this group':'';
+  if(!targets.length){ toast('No other panels'+where,'warn'); return; }
+  // The drawn picture box; missing only for a cell whose image has not been drawn yet.
+  const box=b=>(b.iw>0&&b.ih>0)?{x:b.ix,y:b.iy,w:b.iw,h:b.ih}:null;
+  const S=box(sp);
+  const writes=[]; let approx=0;
+  for(const b of targets){
+    const tim=images[b.idx], T=box(b);
+    const exact=!!(S&&T&&_samePanelPicture(src,tim));
+    const c=JSON.parse(JSON.stringify(a));   // panel annotations hold plain values only
+    if(exact) for(const [kx,ky] of [['xf','yf'],['x2f','y2f']]){
+      if(a[kx]==null||a[ky]==null) continue;
+      const u=(sp.x+a[kx]*sp.w-S.x)/S.w, v=(sp.y+a[ky]*sp.h-S.y)/S.h;
+      c[kx]=(T.x+u*T.w-b.x)/b.w; c[ky]=(T.y+v*T.h-b.y)/b.h;
+    }
+    // Pressing it twice must not stack a second copy on top of the first.
+    const near=(o,k)=>Math.abs((o[k]??0)-(c[k]??0))<1e-4;
+    if((tim.panelAnns||[]).some(o=>o.type===c.type&&near(o,'xf')&&near(o,'yf')&&near(o,'x2f')&&near(o,'y2f'))) continue;
+    if(!exact) approx++;
+    writes.push([tim,c]);
+  }
+  if(!writes.length){ toast('Already on every other panel'+where,'ok'); return; }
+  pushUndo();   // one step takes back the whole repeat
+  writes.forEach(([tim,c])=>{ if(!Array.isArray(tim.panelAnns)) tim.panelAnns=[]; tim.panelAnns.push(c); });
+  const n=writes.length;
+  renderAnnotationList(); scheduleRender(0);
+  logAction('repeatPanelAnn',{from:formatLabel(src.label), type:a.type, scope, to:n});
+  toast(`${a.type} repeated on ${n} panel${n>1?'s':''}`+(approx
+    ? ` — ${approx} ${approx>1?'have':'has'} a different crop or source size, so the copy keeps the same place in the panel rather than the same pixels`
+    : ''),'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -8873,6 +8949,11 @@ function applyLayoutSnapshot(o){
   onLayoutChange(); // rebuild label inputs for the restored cols/rows
   setAxisLabels('col', o.colLabels);
   setAxisLabels('row', o.rowLabels);
+  // The snapshot holds the WHOLE store (axisLabelValues), so anything past its end came
+  // from the state being undone — a loaded figure's extra headings, harvested by
+  // onLayoutChange above — and would reappear the next time the grid grew.
+  if(Array.isArray(o.colLabels)) _colLabelText.length=o.colLabels.length;
+  if(Array.isArray(o.rowLabels)) _rowLabelText.length=o.rowLabels.length;
 }
 function snapshotState(){
   return {
@@ -9357,6 +9438,8 @@ function showAnnFloat(idx){
   if(tbText){ tbText.style.display=hasText?'':'none'; if(hasText) tbText.value=a.text||(a.type==='axes'?'D V A P':''); tbText.title=a.type==='axes'?'Four letters: up down left right':''; }
   const tbShape=document.getElementById('ann-float-tb-shape');
   if(tbShape){ tbShape.style.display=isTb?'':'none'; if(isTb) tbShape.value=a.shape||'rect'; }
+  // Repeat on… belongs to panel annotations; a figure-level one has no panel to repeat from.
+  const repSel=document.getElementById('ann-float-repeat'); if(repSel) repSel.style.display='none';
   if(hasFill){
     document.getElementById('ann-float-fill').checked=a.fill!==false;
     document.getElementById('ann-float-fill-color').value=a.fillColor||'#000000';
@@ -10212,9 +10295,14 @@ document.getElementById('ann-float-tb-shape').addEventListener('change', e=>{
   annotations[selectedAnnotation].shape=e.target.value;
   scheduleRender(0);
 });
+document.getElementById('ann-float-repeat').addEventListener('change', e=>{
+  const v=e.target.value; e.target.value='';
+  if(v) repeatPanelAnn(v);
+});
 document.getElementById('ann-float-del').addEventListener('click', ()=>{
   if(selectedPanelAnn){
     const {imgIdx,annIdx}=selectedPanelAnn;
+    pushUndo();   // the figure-level branch below always had one; this branch did not
     images[imgIdx].panelAnns.splice(annIdx,1);
     selectedPanelAnn=null; hideAnnFloat();
     renderAnnotationList(); scheduleRender(0); return;
@@ -19116,10 +19204,19 @@ function embedPNGMetadata(pngDataUrl, metaObj, dpi){
 
 // Provenance: a SHA-256 of the canonical figure state (settings, not pixels),
 // so a reader can verify which exact settings produced a figure. On-device.
+// The height of every row as the grid draws it, one per row whether or not they hug
+// ('' in freeform, which has no rows).
+function _provRowHeights(){
+  const G=layoutMode==='grid'?gridGeom():null;
+  return G?Array.from({length:G.rows},(_,r)=>_rh(G.ph,r)).join(','):'';
+}
 async function _provenanceHash(){
   try{
     const parts=[APP_VERSION, gv('fig-title')||'', gv('cols'),gv('rows'),gv('panel-w'),gv('panel-h'),
       gv('gap-h'),gv('gap-v'),gv('bg-color')];
+    // panel-h alone is not the geometry once rows hug their panels: two figures with
+    // different row heights hashed the same. Record the switch and the rows it drew.
+    parts.push(gc('auto-row-h')?1:0, _provRowHeights());
     images.forEach(im=>{ if(!im) return; parts.push([im.label,im.lut,im.grayscale?1:0,im.invert?1:0,
       im.brightness,im.contrast,im.gamma||1,im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,im.umPerPx||0,im.sbUm||0,
@@ -19140,6 +19237,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
     'Panels':String(images.filter(Boolean).length),
     'FigureLab-Settings':JSON.stringify({
       cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
+      autoRowH:gc('auto-row-h'), rowH:_provRowHeights(),
       bgColor:gv('bg-color'),labelSize:gv('label-size'),
     }),
     'FigureLab-ReproLog':JSON.stringify(reproLog.slice(-20)),
@@ -19360,6 +19458,12 @@ function shareSession(){
       // Unconditional, as in applySession: a link made before this field existed was
       // laid out with uniform rows.
       sc('auto-row-h',!!L.autoRowH);
+      // shareSession writes the per-gutter overrides, but the link never read them back,
+      // so the recipient got uniform gutters and a figure narrower than the one shared.
+      colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
+      rowGaps=Array.isArray(L.rowGaps)?L.rowGaps.slice():null;
+      advancedSpacing=!!L.advancedSpacing;
+      const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing;
     }
     if(s.style){
       const T=s.style;
