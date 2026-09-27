@@ -1,4 +1,4 @@
-# FigureLab v3.16.0
+# FigureLab v3.17.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,7 +281,11 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
-### Unreleased — since v3.16.0
+### Unreleased — since v3.17.0
+
+### v3.17.0 — 27 September 2026
+
+Built by making real figures end to end and fixing every place the work stalled, then reviewing those fixes adversarially and fixing what the review found — plus six features for getting a figure through submission: a Methods paragraph, per-panel print resolution, LZW TIFF, merging ticked channel files, a split that keeps the field, and repeating an annotation across panels.
 
 - **New: every panel shows the resolution it actually prints at.** The DPI check was about the whole canvas. A 512 px confocal field or a tight inset stretched across a column exported at '300 DPI' while the panel itself was 90 ppi of interpolated pixels, and the report said ✓. Each image-list row now reads '412 ppi' or '180 ppi · enlarged 1.7×'. The compliance check (with a Select panel fix) and the Save dialog name any panel below 300 ppi. The FAQ no longer claims that a higher DPI adds detail to a picture that has none.
 - **New: ✎ Write Methods paragraph.** Journals want the image processing described in the Methods: the software and its version, whether adjustments were applied uniformly, any non-linear gamma, pseudocolour, resampling, projections and where the scale came from. FigureLab knew every one of these and told you to type them yourself. It now writes the paragraph from the figure's own state, using the same test the caption uses so the two cannot disagree, and puts it in the submission package as `-methods.txt`. Splice markers and projections now record what they are, so the paragraph can say so.
@@ -685,7 +689,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.16.0) [Computer software].
+> publication-quality scientific figures* (Version 3.17.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -695,7 +699,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.16.0},
+  version   = {3.17.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
