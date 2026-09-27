@@ -107,6 +107,7 @@ test('ticked channel files combine into one merge, hidden not deleted, one undo'
   const errors = await loadApp(page);
   await seedPanels(page, 3);
   await page.evaluate(TICK_FIJI);
+  await page.evaluate(() => _tickFiji());
   const r = await page.evaluate(() => {
     const srcImgs = images.map(p => p.img);
     const steps0 = undoStack.length;
@@ -177,6 +178,7 @@ test('a merge made here splits back into its row', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 3);
   await page.evaluate(TICK_FIJI);
+  await page.evaluate(() => _tickFiji());
   const r = await page.evaluate(() => {
     const srcImgs = images.map(p => p.img);
     mergeTickedPanels();
@@ -240,7 +242,8 @@ test('the palette finds Merge channels from ticked panels without taking "split 
   // Fails today: no registry entry or button runs mergeTickedPanels.
   expect(r.combine.top).toMatch(/ticked panels/);
   expect(r.fiji.top).toMatch(/ticked panels/);
-  expect(r.merge.top).toMatch(/Merge channels/);    // palette.spec's pin still holds
+  // anchored to the original command: both labels start "Merge channels"
+  expect(r.merge.top).toMatch(/^Merge channels \(add a second/);
   expect(r.split.top).toMatch(/Split a merge/);
   expect(r.btnTip).toMatch(/hidden, not deleted/);
   expect(errors).toEqual([]);

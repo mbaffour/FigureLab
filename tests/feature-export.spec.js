@@ -202,6 +202,25 @@ test('methods: says where the pixel size came from', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('methods: a panel whose calibration source was never recorded is not said to be set by hand', async ({ page }) => {
+  // A panel from a session saved before _metaUmPerPx was kept has no record of where
+  // its pixel size came from. "Set by hand" would be a false disclosure; the value
+  // alone is the honest sentence. Fails before the three-way split, which printed
+  // "set by hand for panel B" here.
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const t = await page.evaluate(() => {
+    sv('cols', 2); sv('rows', 1); onLayoutChange(); render();
+    Object.assign(images[0], { umPerPx: 0.108, _metaUmPerPx: 0.108, _metaCalibSource: 'OME-TIFF' });
+    images[1].umPerPx = 0.65; delete images[1]._metaUmPerPx; delete images[1]._metaCalibSource;
+    return generateMethodsParagraph();
+  });
+  expect(t).toMatch(/read from OME-TIFF metadata for panel A/);
+  expect(t).toMatch(/0\.65 µm per pixel for panel B/);
+  expect(t).not.toMatch(/set by hand/);
+  expect(errors).toEqual([]);
+});
+
 test('methods: projections and splices are recorded, not guessed, and a hidden panel is not described', async ({ page }) => {
   // Fails at HEAD: projectTickedPanels sets no _projection and addSpliceMarker pushes a
   // plain line with no splice flag, so there is nothing for the paragraph to read — and
@@ -224,10 +243,11 @@ test('methods: projections and splices are recorded, not guessed, and a hidden p
     selectedPanel = 0;                 // the splice goes on panel A, whatever was selected
     const before = undoStack.length;
     addSpliceMarker();
+    const steps = undoStack.length - before;   // read before hiding, which is its own step
     const a = annotations[annotations.length - 1];
     const withSplice = generateMethodsParagraph();
     togglePanelExcluded(last);
-    return { splice: a.splice, onPanel: a.splicePanel === images[0].id, steps: undoStack.length - before,
+    return { splice: a.splice, onPanel: a.splicePanel === images[0].id, steps,
              proj: images.find(im => im._projection)._projection, withSplice, lastLabel,
              hidden: generateMethodsParagraph() };
   });

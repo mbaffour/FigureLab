@@ -47,7 +47,7 @@ test('the words a biologist types reach the right tool', async ({ page }) => {
       'make panels bigger': /Panel width/,
       'dpi': /Export resolution/, 'resolution': /Export resolution/, '300 dpi': /Export resolution/,
       'arrow': /Draw an arrow/, 'label': /panel letters/i, 'micron': /Scale bar/, 'um': /Scale bar/,
-      'merge': /Merge channels/, 'split channels': /Split a merge/,
+      'merge': /^Merge channels \(add a second/, 'split channels': /Split a merge/,
       'submit': /journal requirements/, 'load': /Load a saved session/,
       'redo': /^Redo$/, 'flip': /Rotate/, 'sideways': /Rotate/, 'gutter': /gutter/i,
     };

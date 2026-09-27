@@ -5463,7 +5463,7 @@ function splitChannelRow(srcIdx){
   // sat beside whole, unturned DAPI and GFP panels: a row comparing two fields while
   // looking like one. Tone, caption and letter stay each part's own.
   const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV',
-    'sbOn','sbDX','sbDY','cbar','metaNote',
+    'sbOn','sbDX','sbDY','cbar','cbarDX','cbarDY','metaNote',
     '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'];
   const mk=(src,imgEl,lut,cap,bp,wp)=>{
     const p=_freshPanel(imgEl, src, (cap||'channel')+'.png', 'tmp');
@@ -6860,16 +6860,22 @@ function repeatPanelAnn(scope){
   const writes=[]; let approx=0;
   for(const b of targets){
     const tim=images[b.idx], T=box(b);
-    const exact=!!(S&&T&&_samePanelPicture(src,tim));
+    let exact=!!(S&&T&&_samePanelPicture(src,tim));
     const c=JSON.parse(JSON.stringify(a));   // panel annotations hold plain values only
     if(exact) for(const [kx,ky] of [['xf','yf'],['x2f','y2f']]){
       if(a[kx]==null||a[ky]==null) continue;
       const u=(sp.x+a[kx]*sp.w-S.x)/S.w, v=(sp.y+a[ky]*sp.h-S.y)/S.h;
+      // A point in the letterbox beside the picture has no pixel to map to; pushing
+      // it through the picture box extrapolates it, and in a shorter hugged cell it
+      // lands outside the panel. Such a copy falls back to the cell fraction.
+      if(u<0||u>1||v<0||v>1){ exact=false; break; }
       c[kx]=(T.x+u*T.w-b.x)/b.w; c[ky]=(T.y+v*T.h-b.y)/b.h;
     }
+    if(!exact) for(const k of ['xf','yf','x2f','y2f']) if(a[k]!=null) c[k]=a[k];
     // Pressing it twice must not stack a second copy on top of the first.
     const near=(o,k)=>Math.abs((o[k]??0)-(c[k]??0))<1e-4;
-    if((tim.panelAnns||[]).some(o=>o.type===c.type&&near(o,'xf')&&near(o,'yf')&&near(o,'x2f')&&near(o,'y2f'))) continue;
+    // Same spot is not enough for text: an 'A' already there must not suppress a 'B'.
+    if((tim.panelAnns||[]).some(o=>o.type===c.type&&(o.text||'')===(c.text||'')&&near(o,'xf')&&near(o,'yf')&&near(o,'x2f')&&near(o,'y2f'))) continue;
     if(!exact) approx++;
     writes.push([tim,c]);
   }
@@ -10529,6 +10535,7 @@ function renderAnnotationList(){
       });
       row.querySelector('.icon-btn').addEventListener('click',e=>{
         e.stopPropagation();
+        pushUndo();   // the figure-level row's × has always had one
         im.panelAnns.splice(annIdx,1);
         if(selectedPanelAnn?.imgIdx===imgIdx&&selectedPanelAnn?.annIdx===annIdx){ selectedPanelAnn=null; hideAnnFloat(); }
         renderAnnotationList(); scheduleRender(0);
@@ -10766,9 +10773,14 @@ function _panelFitScale(sw, sh, rotateDeg, cellW, cellH){
 // Printed inches per logical px. With a printed width chosen, the figure is that many
 // mm across canvasLogicalW; without one, a logical px is 1/96 in. Neither involves the
 // DPI, which is why raising the DPI cannot rescue an enlarged panel.
-function _inchPerLogicalPx(){
+function _inchPerLogicalPx(dpi){
   const mm=getTargetWidthMm();
-  return mm>0 ? (mm/25.4)/(canvasLogicalW||1) : 1/96;
+  if(mm>0) return (mm/25.4)/(canvasLogicalW||1);
+  // No printed width: a logical px prints at exportScale/dpi inches. That is 1/96 in
+  // above 96 DPI, but _exportScaleFor clamps the scale to 1 below it, so at 72 DPI a
+  // logical px is 1/72 in — a flat 1/96 overstated every panel's ppi by 4/3 there.
+  const d=dpi||getExportDPI();
+  return _exportScaleFor(d)/d;
 }
 // {ppi, enlarge, sw, sh} for panel idx — images[] in grid mode, freeformElements[] in
 // freeform — or null when it is not a drawn raster picture (hidden, blank, vector, or
@@ -10795,7 +10807,7 @@ function _panelEffPpi(idx, dpi){
     fit=_panelFitScale(sw, sh, im.rotate, b.w, b.h);
   }
   if(!(fit>0)) return null;
-  return {ppi:1/(fit*_inchPerLogicalPx()), enlarge:fit*_exportScaleFor(dpi||getExportDPI()), sw, sh};
+  return {ppi:1/(fit*_inchPerLogicalPx(dpi)), enlarge:fit*_exportScaleFor(dpi||getExportDPI()), sw, sh};
 }
 // Every drawn raster panel with its ppi, in figure order. The compliance check and the
 // Save dialog both read this, so they always name the same panels.
@@ -12385,14 +12397,22 @@ function generateMethodsParagraph(){
   });
   // Calibration, grouped by where it came from and its value.
   const cal=new Map();
+  // Three cases, not two. _metaUmPerPx is only known for panels imported (or saved)
+  // since the field was recorded; a panel from an older session, or one duplicated
+  // or merged before that, has none — and calling that "set by hand" would state a
+  // falsehood in the one paragraph whose job is to state what was done. Unknown
+  // provenance gets the value alone, with no claim about where it came from.
   P.filter(im=>im.umPerPx>0).forEach(im=>{
-    const fromMeta=im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
-    const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:'set by hand';
+    const known=im._metaUmPerPx!==undefined&&im._metaUmPerPx!==null;
+    const fromMeta=known&&im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
+    const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:known?'set by hand':'';
     const k=how+'|'+(+im.umPerPx);
     if(!cal.has(k)) cal.set(k,{how, um:+im.umPerPx, names:[]});
     cal.get(k).names.push(nm(im));
   });
-  if(cal.size) S.push('Pixel size was '+_listAnd([...cal.values()].map(c=>`${c.how} for ${_panelsPhrase(c.names)} (${+c.um.toPrecision(4)} µm per pixel)`))+'.');
+  if(cal.size) S.push('Pixel size was '+_listAnd([...cal.values()].map(c=>c.how
+    ? `${c.how} for ${_panelsPhrase(c.names)} (${+c.um.toPrecision(4)} µm per pixel)`
+    : `${+c.um.toPrecision(4)} µm per pixel for ${_panelsPhrase(c.names)}`))+'.');
   // Splice markers record themselves (addSpliceMarker sets splice:true); a plain line
   // drawn by hand, or a marker added before the flag existed, is not a splice claim.
   const spl=(annotations||[]).filter(a=>a&&a.splice);
@@ -13340,7 +13360,10 @@ function mergeTickedPanels(){
   const base=images[sel[0]];
   const labels=sel.map(i=>formatLabel(images[i].label)||'?').join(', ');
   const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV'];
-  const mixedFrame=sel.some(i=>FRAME.some(k=>(images[i][k]||0)!==(base[k]||0)));
+  // Compare through each field's default, so an older panel with no cropShape field
+  // (meaning 'rect') is not reported as framed differently from one that says 'rect'.
+  const _fv=(im,k)=>k==='cropShape'?(im[k]||'rect'):(im[k]||0);
+  const mixedFrame=sel.some(i=>FRAME.some(k=>_fv(images[i],k)!==_fv(base,k)));
   pushUndo();
   const p=_freshPanel(base.img, base.src, base.name, 'tmp');
   for(const k of ['umPerPx','sbUm','sbUnit','sbOn','group',...FRAME,
@@ -19217,6 +19240,8 @@ async function _provenanceHash(){
     // panel-h alone is not the geometry once rows hug their panels: two figures with
     // different row heights hashed the same. Record the switch and the rows it drew.
     parts.push(gc('auto-row-h')?1:0, _provRowHeights());
+    // Per-gutter overrides move panels as surely as the uniform gaps do.
+    parts.push(advancedSpacing?1:0, JSON.stringify(colGaps||null), JSON.stringify(rowGaps||null));
     images.forEach(im=>{ if(!im) return; parts.push([im.label,im.lut,im.grayscale?1:0,im.invert?1:0,
       im.brightness,im.contrast,im.gamma||1,im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,im.umPerPx||0,im.sbUm||0,
