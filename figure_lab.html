@@ -505,10 +505,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showOnlySelectedPanels()" title="Keep only the ticked panels in the figure; hide the rest">☑ Show only ticked</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="showAllPanels()" title="Bring every hidden panel back into the figure">👁 Show all</button>
     </div>
-    <div class="sec-lbl" style="margin-top:6px">Combine ticked panels <span class="help-chip" tabindex="0" role="button" aria-label="About projections" data-tip="Tick panels of the same pixel size — the pages of a z-stack, say — and collapse them into one new panel: the brightest value at each pixel (maximum intensity projection) or the average. Computed on the displayed 8-bit pixels; the source panels are kept.">?</span></div>
+    <div class="sec-lbl" style="margin-top:6px">Combine ticked panels <span class="help-chip" tabindex="0" role="button" aria-label="About projections" data-tip="Tick panels of the same pixel size — the pages of a z-stack, say — and collapse them into one new panel: the brightest value at each pixel (maximum intensity projection) or the average. Computed on the displayed 8-bit pixels; the source panels are kept. Merge channels makes separately saved channels (C1-DAPI.tif, C2-GFP.tif…) one multichannel panel, coloured from their filenames; the sources are hidden, not deleted.">?</span></div>
     <div class="inline-row">
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="projectTickedPanels('max')" title="Maximum intensity projection of the ticked panels into a new panel">⬆ Max projection</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="projectTickedPanels('mean')" title="Pixelwise mean of the ticked panels into a new panel">≈ Mean</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="mergeTickedPanels()" title="Combine the ticked single-channel panels (C1, C2… files) into one multichannel merge; the originals are hidden, not deleted">⊕ Merge channels</button>
     </div>
     <button class="btn adv" style="width:100%;justify-content:center;font-size:11px;margin-top:4px;color:var(--danger)" onclick="deleteHiddenPanels()" title="Permanently remove the panels that are currently hidden">🗑 Delete hidden panels…</button>
 
@@ -3094,18 +3095,23 @@ async function inflate(data){
 }
 // Decode a TIFF File → rasterize to PNG → feed the normal import pipeline.
 // Multi-page TIFFs add every page as a separate panel.
+// A decoded TIFF page as an <img>, for the importer and for '+ Add channel'. Resolves
+// null when the browser cannot load the PNG made from it.
+function _tiffResToImg(res,name){
+  return new Promise(resolve=>{
+    const c=document.createElement('canvas'); c.width=res.width; c.height=res.height;
+    c.getContext('2d').putImageData(new ImageData(res.rgba,res.width,res.height),0,0);
+    const img=new Image(); const src=c.toDataURL('image/png');
+    img.onload=()=>resolve({img,src,name}); img.onerror=()=>resolve(null); img.src=src;
+  });
+}
 async function _loadTIFFFile(f, fail){
   try{
     const buf=new Uint8Array(await f.arrayBuffer());
     const first=await decodeTIFF(buf, 0);
     const pages=Math.min(first.pages||1, 60);
     const base=f.name.replace(/\.tiff?$/i,'');
-    const toImg=(res,nm)=>new Promise(resolve=>{
-      const c=document.createElement('canvas'); c.width=res.width; c.height=res.height;
-      c.getContext('2d').putImageData(new ImageData(res.rgba,res.width,res.height),0,0);
-      const img=new Image(); const src=c.toDataURL('image/png');
-      img.onload=()=>resolve({img,src,name:nm}); img.onerror=()=>resolve(null); img.src=src;
-    });
+    const toImg=_tiffResToImg;
     const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
                          deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||''});
     const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
@@ -3648,6 +3654,7 @@ const CMD_REGISTRY=[
   {label:'Select tool (stop drawing)', keys:'select pointer arrow cursor stop drawing escape none', hint:'V', run:()=>setTool('none')},
   // Channels — "merge" appeared in no reachable label.
   {label:'Merge channels (add a second colour channel)', keys:'merge channel channels multichannel multi-channel overlay composite dapi gfp rfp colocalis colocaliz two colour two color dual second channel screen blend combine', run:()=>_cmdpAddChannel()},
+  {label:'Merge channels from the ticked panels (C1, C2… files) into one panel', keys:'combine ticked panels separate channel files c1 c2 c3 fiji exported tif tiff multichannel composite colour color dapi gfp mcherry one panel', run:()=>mergeTickedPanels()},
   {label:'Split a merge into a row of channels', keys:'split channels separate row merge unmix individual panels', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:0; if(images[i]) splitChannelRow(i); else toast('Add a multi-channel panel first','warn'); }},
   // Save / load — the palette could not load a session.
   {label:'Load a saved session',    keys:'load open session restore reopen previous work file json resume', run:()=>esLoadSession()},
@@ -4455,7 +4462,7 @@ function renderImgList(){
         <div class="sec-lbl">Channels (screen blend) <span class="ch-count"></span></div>
         <div class="ch-list"></div>
         <label class="btn f-add-ch-btn" style="width:100%;justify-content:center;cursor:pointer" title="Pick a second image file for this panel — a different fluorescence channel of the same field. It is laid over the first with a screen blend and its own colour, which is how a two-colour merge is made.">
-          + Add channel<input type="file" class="f-add-ch" accept="image/*" style="display:none">
+          + Add channel<input type="file" class="f-add-ch" accept="image/*,.tif,.tiff" style="display:none">
         </label>
         <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
         <div class="divider"></div>
@@ -4676,20 +4683,34 @@ function renderImgList(){
     if(_splitBtn) _splitBtn.addEventListener('click',()=>splitChannelRow(idx));
     item.querySelector('.f-add-ch').addEventListener('change', e=>{
       const f2=e.target.files[0]; if(!f2) return;
+      e.target.value='';
+      // One undo step: adding a channel could not be undone.
+      const addCh=(img2,src2)=>{
+        pushUndo();
+        const _cbSafe=['magenta','green','cyan','yellow'];
+        const _used=new Set([images[idx].lut, ...images[idx].channels.map(c=>c.lut)]);
+        const _lut=_cbSafe.find(l=>!_used.has(l))||'magenta';
+        images[idx].channels.push({name:f2.name, img:img2, src:src2, lut:_lut, blackPt:0, whitePt:255});
+        renderChList(); scheduleRender();
+      };
+      // Chromium's <img> cannot decode a TIFF and this path had no error handler, so
+      // picking one did nothing at all. Use the decoder that opening a file uses.
+      if(/\.tiff?$/i.test(f2.name)||f2.type==='image/tiff'){
+        f2.arrayBuffer().then(b=>decodeTIFF(new Uint8Array(b),0)).then(res=>{
+          if(res.pages>1) toast(`Used page 1 of ${res.pages} from "${f2.name}"`,'info');
+          return _tiffResToImg(res,f2.name);
+        }).then(it=>{ if(it) addCh(it.img,it.src); else toast(`"${f2.name}" could not be decoded as an image`,'err'); })
+          .catch(err=>toast(`Couldn't open "${f2.name}" as a channel: ${(err&&err.message)||err}`,'err'));
+        return;
+      }
       const reader2=new FileReader();
       reader2.onload=ev2=>{
         const img2=new Image();
-        img2.onload=()=>{
-          const _cbSafe=['magenta','green','cyan','yellow'];
-          const _used=new Set([images[idx].lut, ...images[idx].channels.map(c=>c.lut)]);
-          const _lut=_cbSafe.find(l=>!_used.has(l))||'magenta';
-          images[idx].channels.push({name:f2.name, img:img2, src:ev2.target.result, lut:_lut, blackPt:0, whitePt:255});
-          renderChList(); scheduleRender();
-        };
+        img2.onload=()=>addCh(img2, ev2.target.result);
+        img2.onerror=()=>toast(`"${f2.name}" could not be decoded as an image`,'err');
         img2.src=ev2.target.result;
       };
       reader2.readAsDataURL(f2);
-      e.target.value='';
     });
 
     // Drag-to-reorder — mousedown on handle sets the flag; dragstart checks it
@@ -5425,19 +5446,34 @@ function splitChannelRow(srcIdx){
   const im=images[srcIdx]; if(!im) return;
   if(!im.channels || !im.channels.length){ toast('Add extra channels to this panel first — a split needs a merge to split','warn'); return; }
   pushUndo();
+  // The parts are the same field as the merge, so they take its framing. Built from
+  // scratch they inherited only the calibration, and a merge you had cropped and turned
+  // sat beside whole, unturned DAPI and GFP panels: a row comparing two fields while
+  // looking like one. Tone, caption and letter stay each part's own.
+  const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV',
+    'sbOn','sbDX','sbDY','cbar','metaNote',
+    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'];
   const mk=(src,imgEl,lut,cap,bp,wp)=>{
     const p=_freshPanel(imgEl, src, (cap||'channel')+'.png', 'tmp');
     p.lut=lut||'none'; p.blackPt=(bp!=null?bp:0); p.whitePt=(wp!=null?wp:255);
     p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.sbUnit=im.sbUnit; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
+    for(const k of FRAME) if(im[k]!==undefined) p[k]=im[k];
     return p;
   };
   const parts=[ mk(im.src, im.img, im.lut, _lutChannelName(im.lut), im.blackPt, im.whitePt) ];
   im.channels.forEach(ch=>parts.push(mk(ch.src, ch.img, ch.lut, _lutChannelName(ch.lut), ch.blackPt, ch.whitePt)));
-  const merge={...im, id:Date.now()+Math.random(), captionNote:'Merge',
+  // The merge continues the original panel, so it keeps its id: a fresh one orphaned
+  // any inset linked to it. The original is spliced out, so no two panels share it.
+  const merge={...im, id:im.id, captionNote:'Merge',
     channels:im.channels.map(c=>({...c})), _adjCache:undefined, _adjKey:undefined};
   parts.push(merge);
   images.splice(srcIdx,1,...parts);
-  let i=0; images.forEach(p=>{ p.label = i<26?ALPHABET[i]:String(i+1); i++; });   // positional relabel
+  // Letter what the reader sees, then the hidden panels, as relabelPanels does. The
+  // positional pass threw on a blank cell (a null slot), and beside hidden panels (the
+  // sources of a Merge channels) it lettered the visible row D, E, F.
+  let n=0;
+  images.forEach(p=>{ if(p&&!p.excluded) p.label=_letterLabel(n++); });
+  images.forEach(p=>{ if(p&&p.excluded) p.label=_letterLabel(n++); });
   // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
   const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
   // It is called splitChannelRow and its button promises "a row of separate
@@ -13186,6 +13222,57 @@ function projectTickedPanels(mode){
     toast(`${mode==='max'?'Max':'Mean'} projection of ${sel.length} panels added as ${formatLabel(p.label)}`,'ok');
   };
   img.src=src;
+}
+
+// The inverse of Split channels. Fiji's Split Channels and most microscope software
+// write one file per channel (C1-DAPI.tif, C2-GFP.tif…), and the only way to merge
+// them was to re-pick each file from disk inside one panel's drawer. The sources are
+// hidden, not deleted, so the merge can be undone, split back, or checked against them.
+function mergeTickedPanels(){
+  if(layoutMode==='freeform'){ toast('Merging channels works on grid panels','warn'); return; }
+  const sel=_listSelection().filter(i=>images[i]&&images[i].img&&!images[i].isVector).sort((a,b)=>a-b);
+  if(sel.length<2){ toast('Tick two or more single-channel panels (for example C1-DAPI.tif and C2-GFP.tif) first','warn'); return; }
+  const already=sel.find(i=>(images[i].channels||[]).length);
+  if(already!==undefined){ toast(`${formatLabel(images[already].label)||'A ticked panel'} is already a merge — untick it`,'warn'); return; }
+  // Channels of one field share a frame; a merge of mismatched frames is a misregistration.
+  const dims=i=>{ const g=images[i].img; return [g.naturalWidth||g.width, g.naturalHeight||g.height]; };
+  const [W,H]=dims(sel[0]);
+  if(!sel.every(i=>{ const [w,h]=dims(i); return w===W&&h===H; })){
+    toast('The ticked panels differ in pixel size — channels of one field must match','warn'); return; }
+  // One colour per channel: the panel's own LUT, else the one its filename names, else
+  // the next colour-blind-safe one not yet taken. Named ones are placed first so a
+  // fallback cannot take the green a later GFP file needs. A base with none stays grey,
+  // as when you add a channel to a LUT-less panel.
+  const luts=sel.map(i=>{ const s=images[i];
+    return (s.lut&&s.lut!=='none') ? s.lut : ((_detectChannel(s.name)||{}).lut||null); });
+  const used=new Set(luts.filter(Boolean)), cbSafe=['magenta','green','cyan','yellow'];
+  for(let k=1;k<luts.length;k++) if(!luts[k]){
+    luts[k]=cbSafe.find(c=>!used.has(c))||'magenta'; used.add(luts[k]); }
+  if(!luts[0]) luts[0]='none';
+  const base=images[sel[0]];
+  const labels=sel.map(i=>formatLabel(images[i].label)||'?').join(', ');
+  const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV'];
+  const mixedFrame=sel.some(i=>FRAME.some(k=>(images[i][k]||0)!==(base[k]||0)));
+  pushUndo();
+  const p=_freshPanel(base.img, base.src, base.name, 'tmp');
+  for(const k of ['umPerPx','sbUm','sbUnit','sbOn','group',...FRAME,
+    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'])
+    if(base[k]!==undefined) p[k]=base[k];
+  p.lut=luts[0]; p.blackPt=base.blackPt||0; p.whitePt=base.whitePt??255;
+  p.channels=sel.slice(1).map((i,k)=>{ const s=images[i];
+    return {name:s.name, img:s.img, src:s.src, lut:luts[k+1], blackPt:s.blackPt||0, whitePt:s.whitePt??255}; });
+  p.captionNote='Merge'; p.raw=null;
+  // The merge continues the base, so it takes the base's letter and the hidden base a
+  // fresh one. Letters stay unique (PANEL_HISTORY marks hidden panels by letter) and a
+  // figure that is now one panel is not lettered D.
+  const fresh=nextLabel();
+  if(base.label){ p.label=base.label; base.label=fresh; } else p.label=fresh;
+  sel.forEach(i=>{ images[i].excluded=true; });
+  images.splice(sel[sel.length-1]+1,0,p);
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  logAction('mergeTicked',{from:labels, into:formatLabel(p.label)});
+  toast(`${labels} merged into ${formatLabel(p.label)} (${luts.join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
+    + (mixedFrame?' — the base panel’s crop applies to every channel':''),'ok');
 }
 
 function showOnlySelectedPanels(){
