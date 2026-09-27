@@ -406,7 +406,8 @@ test('hugging rows keeps the headings, bands, gutters and export in step', async
     // exporting must use the same geometry
     const ex = renderExportCanvas(300);
     const ratio = ex.height / (canvasLogicalH || document.getElementById('fig-canvas').height);
-    return { cells, rowLbls, band: band ? band.y : null, hit: hit && { axis: hit.axis, index: hit.index }, gridH: G.gridH, ratio };
+    const exp = { w: ex.width, h: ex.height, s: ex._exportScale, lw: canvasLogicalW, lh: canvasLogicalH };
+    return { cells, rowLbls, band: band ? band.y : null, hit: hit && { axis: hit.axis, index: hit.index }, gridH: G.gridH, ratio, exp };
   });
   expect(r.cells[0].h).not.toBe(r.cells[1].h);            // the rows really do differ
   // each row heading sits inside its own row, not at the uniform-grid position
@@ -420,7 +421,13 @@ test('hugging rows keeps the headings, bands, gutters and export in step', async
   // the row gutter is findable where the shrunken rows put it
   expect(r.hit).toEqual({ axis: 'row', index: 1 });
   expect(r.gridH).toBeCloseTo(r.cells[0].h + 10 + r.cells[1].h, 0);
-  expect(r.ratio).toBeGreaterThan(1);                      // export scaled, not reshaped
+  expect(r.ratio).toBeGreaterThan(1);                      // export scaled…
+  // …not reshaped. ratio > 1 alone holds for ANY 300 dpi export, hugged or not. The
+  // export canvas is round(logical × scale) on both axes only if it laid the rows out
+  // exactly as the screen did; uniform rows in the export would make it much taller.
+  expect(r.exp.s).toBeGreaterThan(1);
+  expect(r.exp.w).toBe(Math.round(r.exp.lw * r.exp.s));
+  expect(r.exp.h).toBe(Math.round(r.exp.lh * r.exp.s));
   expect(errors).toEqual([]);
 });
 

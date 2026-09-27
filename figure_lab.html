@@ -2651,20 +2651,26 @@ let _preCropBusy=false;
 function _rasterizeSVG(dataURL, callback, onfail){
   const img=new Image();
   img.onload=()=>{
-    const nw=img.naturalWidth||800, nh=img.naturalHeight||800;
-    // Rasterise crisp (4096 longest side vs the old 2048). The original vector
-    // source is kept separately so SVG export can stay truly vector.
-    const scale=Math.min(12, 4096/(Math.max(nw,nh)||800));
-    const rw=Math.max(1,Math.round(nw*scale)), rh=Math.max(1,Math.round(nh*scale));
-    const c=document.createElement('canvas');
-    c.width=rw; c.height=rh;
-    const cx=c.getContext('2d');
-    cx.drawImage(img,0,0,rw,rh);
-    const png=c.toDataURL('image/png');
-    const out=new Image();
-    out.onload=()=>callback(out,png);
-    out.onerror=()=>onfail&&onfail();
-    out.src=png;
+    // A throw in here — a canvas tainted by a <foreignObject> SVG makes toDataURL raise
+    // a SecurityError in Firefox, and getContext can return null — used to escape the
+    // handler and call neither callback. Now that addFiles opens files one at a time
+    // and waits for each, that stranded every later file in the same drop, silently.
+    try{
+      const nw=img.naturalWidth||800, nh=img.naturalHeight||800;
+      // Rasterise crisp (4096 longest side vs the old 2048). The original vector
+      // source is kept separately so SVG export can stay truly vector.
+      const scale=Math.min(12, 4096/(Math.max(nw,nh)||800));
+      const rw=Math.max(1,Math.round(nw*scale)), rh=Math.max(1,Math.round(nh*scale));
+      const c=document.createElement('canvas');
+      c.width=rw; c.height=rh;
+      const cx=c.getContext('2d');
+      cx.drawImage(img,0,0,rw,rh);
+      const png=c.toDataURL('image/png');
+      const out=new Image();
+      out.onload=()=>callback(out,png);
+      out.onerror=()=>onfail&&onfail();
+      out.src=png;
+    }catch(e){ onfail&&onfail(); }
   };
   img.onerror=()=>onfail&&onfail();
   img.src=dataURL;
@@ -2883,8 +2889,8 @@ function _tiffCalibration(T, le, page, T0){
   const ascii=(t,src)=>{ src=src||T; if(!src[t]) return ''; try{ return new TextDecoder('utf-8').decode(Uint8Array.from(src[t].values)); }catch(e){ let s=''; for(const c of src[t].values){ if(c) s+=String.fromCharCode(c); } return s; } };
   // OME-TIFF and ImageJ write their description into PAGE 0 only. Reading it from
   // the current page meant frames 2..N of a real Bio-Formats stack found no
-  // PhysicalSizeX, fell through to the resolution tags, and — when the file
-  // carries no resolution tags, which is what tifffile emits — arrived
+  // PhysicalSizeX, fell through to the resolution tags, and — when those carry no
+  // usable unit, as tifffile's default 1/1 with ResolutionUnit "none" does — arrived
   // UNCALIBRATED with their scale bar switched on and nothing to draw it from.
   // _tiffTime alongside this already fell back to T0 for exactly this reason.
   // ascii(306) below keeps the per-page default: DateTime really is per plane.
@@ -3089,11 +3095,14 @@ function _loadSVGFile(f, fail, done){
     const svgSource=ev.target.result;
     const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgSource);
     _rasterizeSVG(dataURL,(img,pngSrc)=>{
-      _preCropQueue.push({img, src:pngSrc, name:f.name, svgSource});
-      _drainPreCrop(); fin();
+      // finally: addFiles waits on fin(), so a throw in _commitImage/_openPreCrop must
+      // not keep the rest of the drop from opening.
+      try{ _preCropQueue.push({img, src:pngSrc, name:f.name, svgSource}); _drainPreCrop(); }
+      finally{ fin(); }
     }, ()=>{ fail(); fin(); });
   };
   reader.onerror=()=>{ fail(); fin(); };
+  reader.onabort=()=>{ fail(); fin(); };
   reader.readAsText(f);
 }
 
@@ -3126,13 +3135,17 @@ function _addOneFile(f){
     reader.onload=ev=>{
       const img=new Image();
       img.onload=()=>{
-        _preCropQueue.push({img, src:ev.target.result, name:f.name});
-        _drainPreCrop(); done();
+        // finally: the serial loop in addFiles waits on done(); a throw while
+        // committing must not strand every file after this one.
+        try{ _preCropQueue.push({img, src:ev.target.result, name:f.name}); _drainPreCrop(); }
+        finally{ done(); }
       };
       img.onerror=()=>{ fail(); done(); };
       img.src=ev.target.result;
     };
     reader.onerror=()=>{ fail(); done(); };
+    // An aborted read fires onabort, not onerror, and would otherwise never settle.
+    reader.onabort=()=>{ fail(); done(); };
     reader.readAsDataURL(f);
   });
 }
@@ -5411,8 +5424,11 @@ function addLaneLabels(){
   pushUndo();
   const fs=16;
   // Lane numbers sit above the blot when there is room in the margin, otherwise
-  // just inside its top edge — never off the sheet.
-  const yf = (t.iy>=fs+4 ? (t.iy-fs*0.6)/t.H : t.fy(0.04));
+  // just inside its top edge — never off the sheet. Text annotations draw with
+  // textBaseline 'top', so yf is the TOP of the number and it hangs a full font size
+  // below that. iy-fs*0.6 therefore put the numbers across the blot's top edge, their
+  // lower third over the first band; iy-fs-4 leaves a 4 px gap under them.
+  const yf = (t.iy>=fs+4 ? (t.iy-fs-4)/t.H : t.fy(0.04));
   for(let i=0;i<n;i++){
     const u=(i+0.5)/n;                          // one per lane, centred in its share
     annotations.push({type:'text', xf:t.fx(u), yf, text:String(i+1), fontSize:fs, color:'#000000', halo:false});
@@ -8508,7 +8524,15 @@ function _endStrandedDrags(){
     if(_sbResizeState.preSnap) _pushSnap(_sbResizeState.preSnap);
     _sbResizeState=null; dirty=true;
   }
-  if(annDragState){ if(annDragState.preDrag) _pushSnap(annDragState.preDrag); annDragState=null; dirty=true; }
+  // Same movement test as the canvas mouseup. Pushing unconditionally meant a click on an
+  // annotation released off the canvas recorded a no-op step, so the next Ctrl+Z seemed
+  // to do nothing and the real previous edit needed a second press.
+  if(annDragState){
+    const a=annotations[annDragState.idx];
+    const moved=!!a&&(Math.abs(a.xf-annDragState.ox0f)>0.001||Math.abs(a.yf-annDragState.oy0f)>0.001);
+    if(moved&&annDragState.preDrag) _pushSnap(annDragState.preDrag);
+    annDragState=null; dirty=true;
+  }
   if(annResizeState){ if(annResizeState.moved&&annResizeState.preDrag) _pushSnap(annResizeState.preDrag); annResizeState=null; dirty=true; }
   // Panel-bound annotations were left out of this list, so releasing one off the canvas
   // left it following the pointer with no button held. Record the move only if there was
@@ -9966,6 +9990,10 @@ annCanvas.addEventListener('contextmenu', e=>{
 
 annCanvas.addEventListener('mouseleave', ()=>{
   hidePanelTooltip();
+  // Only mousemove over the canvas cleared the chip's hover, so leaving the canvas
+  // straight off the chip (it sits in the top-left corner, next to the edge) left it
+  // lit, saying "click me" to a pointer that was no longer there.
+  if(labelChipHover){ labelChipHover=false; drawAnnOverlay(); }
   if(annState.drawing){ annState.drawing=false; annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height); }
   if(panState) panState=null;
   if(panelDragState){
@@ -18453,8 +18481,12 @@ function openFreeformCropEditor(){
   const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
   // ang: reopening a tilted crop used to show it upright, so pressing Apply again
   // silently straightened the element.
+  // hasBox: a tilt with no crop is still the whole frame, never drawn. Counting the tilt
+  // as a box made every drag inside the image a clamped move of that full-frame box, so
+  // a straightened element could never be cropped — the stall 131707a fixed for grid
+  // panels, left in place here. The tilt itself is carried by ang and shown in the readout.
   cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0,
-               hasBox:hasCrop||!!el.cropAngle, ang:+el.cropAngle||0};
+               hasBox:hasCrop, ang:+el.cropAngle||0};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');

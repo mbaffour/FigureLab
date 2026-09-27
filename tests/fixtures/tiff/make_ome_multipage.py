@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Build cal_ome_multi.ome.tif — a 3-plane OME-TIFF that carries its calibration
-ONLY in page 0's ImageDescription, with no resolution tags anywhere.
+ONLY in page 0's ImageDescription.
+
+Every page does carry resolution tags — tifffile always writes them — but with
+its defaults: XResolution = YResolution = 1/1 and ResolutionUnit = 1 ("none").
+A unitless resolution says nothing about physical size, so _tiffCalibration
+ignores it (it only reads the tags in centimetres, or alongside an ImageJ
+description), and the OME description is the only calibration in the file.
 
 That is what Bio-Formats and tifffile actually emit, and it is the case
 _tiffCalibration used to get wrong: it read ImageDescription from the CURRENT
-page's IFD, so planes 2 and 3 found no PhysicalSizeX, fell through to the
-resolution tags that are not there, and arrived uncalibrated with their scale
-bar switched on and nothing to draw it from.
+page's IFD, so planes 2 and 3 found no PhysicalSizeX, fell through to
+resolution tags they cannot be calibrated from, and arrived uncalibrated with
+their scale bar switched on and nothing to draw it from.
 
 Needs tifffile + numpy (not installed system-wide; use a scratchpad venv).
 Run from this directory:  python make_ome_multipage.py
@@ -40,7 +46,8 @@ ome = (
 out = 'cal_ome_multi.ome.tif'
 with tifffile.TiffWriter(out) as tw:
     for i, p in enumerate(planes):
-        # description on page 0 only; resolution deliberately omitted everywhere
+        # description on page 0 only; no resolution= argument, so tifffile writes
+        # its unitless 1/1 default on every page, which the reader cannot use
         tw.write(p, description=(ome if i == 0 else None), contiguous=False,
                  metadata=None, photometric='minisblack')
 
