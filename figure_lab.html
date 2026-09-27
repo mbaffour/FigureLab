@@ -3567,7 +3567,10 @@ const CMD_REGISTRY=[
   {label:'Panel width (make panels bigger or smaller)',  keys:'panel size width bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-w','Panel width in pixels')},
   {label:'Panel height (make panels bigger or smaller)', keys:'panel size height bigger smaller larger resize scale enlarge shrink dimensions', run:()=>_cmdpGoto('panel-h','Panel height in pixels')},
   {label:'Rows hug their panels (remove dead space in wide short panels)', keys:'row height hug shrink tight blot gel kymograph stack register dead space letterbox white bars align lanes',
-   run:()=>{ pushUndo(); const on=!gc('auto-row-h'); sc('auto-row-h',on); scheduleRender();
+   // Freeform has no rows, so ticking the box there changed nothing on the canvas and
+   // still pushed an undo step and toasted success.
+   run:()=>{ if(layoutMode==='freeform'){ toast('Rows hug their panels applies to grid mode','warn'); return; }
+             pushUndo(); const on=!gc('auto-row-h'); sc('auto-row-h',on); scheduleRender();
              toast(on?'Each row now shrinks to the tallest panel in it':'Every row is the panel height again','ok');
              _cmdpGoto('auto-row-h'); }},
   {label:'Rows and columns',        keys:'rows columns grid layout how many arrange cols', run:()=>_cmdpGoto('cols','Columns, then rows below')},
@@ -5777,14 +5780,23 @@ function autoRowHeights(rows, cols, pw, ph, gH, gV){
     const cs=Math.min((im&&im.colSpan)||1, cols-c), rs=Math.min((im&&im.rowSpan)||1, rows-r);
     for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
     seq++;
-    if(!im){ H[r]=Math.max(H[r], ph); continue; }   // a blank cell keeps its full height
+    // A cell with no image has no ink to hold the row open. Pinning it to ph meant any
+    // ragged last row (five blots in a 3 x 2 grid) and any row with an inserted blank
+    // kept exactly the dead space this option exists to remove. A row made only of
+    // empty cells still falls back to ph through H[r]||ph below.
+    if(!im) continue;
     const apw=cs*pw+spanGapsW(c,cs,gH);
     const aph=rs*ph+spanGapsH(r,rs,gV);
     const need=_panelOuterH(im, apw, aph);
     if(rs>1){ spans.push({r,rs,need}); continue; }  // measured after the single rows settle
     H[r]=Math.max(H[r], need);
   }
-  for(let r=0;r<rows;r++) H[r]=Math.max(20, Math.min(ph, Math.round(H[r]||ph)));
+  // Round UP, never to nearest. A 650 x 200 panel 300 px wide needs 92.31 px; rounded
+  // to 92 the draw loop's fit became height-limited (92/200 = 0.46 < 300/650), so the
+  // panel was drawn 299 px wide and shifted 1 px, misregistering its lanes against
+  // the row below. At 93 it stays width-limited and keeps its full 300 px. The 1e-6
+  // stops an exact integer need (45.000000001) ceiling up a whole pixel.
+  for(let r=0;r<rows;r++) H[r]=Math.max(20, Math.min(ph, Math.ceil((H[r]||ph)-1e-6)));
   // A panel spanning several rows must still fit across them; top up evenly if the
   // shrunken rows no longer hold it.
   for(const sp of spans){
@@ -6304,8 +6316,12 @@ function render(targetCanvas, exportScale, opts){
   const _pf=_physFacts();
   document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${cols}×${rows} · ${Math.round(zoom*100)}%`;
   _syncPhysReadout();
+  // With rows hugging their panels ph is one height per row; interpolated as-is it
+  // printed "panel 300×90,45px".
+  const _rowHs=Array.isArray(ph)?ph:[ph];
   setStatus(`${Math.min(images.length,cols*rows)} panel(s) · ${totalW}×${totalH}px`,
-    `gap ${gH}h ${gV}v · panel ${pw}×${ph}px`);
+    new Set(_rowHs).size>1 ? `gap ${gH}h ${gV}v · panel ${pw}px wide · rows ${_rowHs.join(' / ')} px tall`
+                           : `gap ${gH}h ${gV}v · panel ${pw}×${_rowHs[0]}px`);
 
   // Sync overlay canvas to same logical dimensions — CSS max-width:100% handles visual scaling for both
   annCanvas.width=totalW; annCanvas.height=totalH;
@@ -8251,6 +8267,9 @@ function checkCompliance(){
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
   const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
   const _sbNotDrawn=_scaleBarsNotDrawn();
+  const _Gc=gridGeom();
+  const _rowHs=_Gc ? (Array.isArray(_Gc.ph)?_Gc.ph:[_Gc.ph]) : [gi('panel-h')];
+  const _minRowH=Math.min(..._rowHs);
   // Megapixels at the scale the export ACTUALLY uses — _physFacts already resolved
   // the printed-width target, and dpi/96 is only the right scale without one.
   const exportPx=W*H*Math.pow(_pf.scale,2);
@@ -8299,7 +8318,11 @@ function checkCompliance(){
       fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
-    {label:'Min panel size',ok:gi('panel-w')>=80&&gi('panel-h')>=80, warn:false, note:`${gi('panel-w')}×${gi('panel-h')} px per panel`},
+    // Read the rows the renderer draws, not the panel-height field: with rows hugging
+    // their panels a 45 px blot row is 45 px tall however tall the field says, and
+    // this line used to report 300×300 for it.
+    {label:'Min panel size',ok:gi('panel-w')>=80&&_minRowH>=80, warn:false,
+      note:new Set(_rowHs).size>1 ? `${gi('panel-w')} px wide, rows ${_rowHs.join(' / ')} px tall` : `${gi('panel-w')}×${_rowHs[0]} px per panel`},
     // Warn, never fail: AI-generated schematics are legitimate in many venues, but the
     // author must disclose them — and the strictest journals refuse them outright.
     // An inset whose parent was deleted still renders, but it is no longer bound to
@@ -12307,8 +12330,17 @@ ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height =
 // ═══════════════════════════════════════════════════════════════
 // R SCRIPT
 // ═══════════════════════════════════════════════════════════════
+// One height per row, from the geometry the renderer uses. The scripts used to emit
+// only PANEL_H, so with rows hugging their panels they rebuilt a taller figure with
+// uniform rows, not the one that was exported.
+function _scriptRowHeights(rows){
+  const n=Math.max(1,rows|0), G=gridGeom();   // Array(-1) throws on a mistyped rows field
+  if(!G) return Array(n).fill(gi('panel-h'));
+  return Array.isArray(G.ph) ? G.ph.slice(0,n) : Array(n).fill(G.ph);
+}
 function exportR(){
   const cols=gi('cols'),rows=gi('rows');
+  const RH=_scriptRowHeights(rows);
   const cfg=images.filter(Boolean).map(im=>`  list(label="${im.label}",sb_on=${im.sbOn},um_per_px=${im.umPerPx||0},sb_um=${im.sbUm},brightness=${im.brightness},contrast=${im.contrast},crop=c(${im.cropT},${im.cropL},${im.cropB},${im.cropR}))`).join(',\n');
   const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
   const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
@@ -12320,6 +12352,7 @@ input_dir   <- "path/to/your/images"   # <- CHANGE THIS
 output_file <- "${gv('export-name')||'figure'}.tiff"
 COLS <- ${cols}; ROWS <- ${rows}
 PANEL_W <- ${gi('panel-w')}; PANEL_H <- ${gi('panel-h')}
+ROW_H <- c(${RH.join(',')})   # one height per row; below PANEL_H where rows hug their panels
 GAP_H <- ${gi('gap-h')}; GAP_V <- ${gi('gap-v')}
 DPI  <- ${gi('export-dpi')||300}
 BG   <- "${gv('bg-color')}"
@@ -12327,10 +12360,10 @@ COL_LABELS <- c(${cLbls})
 ROW_LABELS <- c(${rLbls})
 PANELS <- list(\n${cfg}\n)
 
-add_scale_bar<-function(img,um_per_px,sb_um,color="${gv('sb-color')}",bar_h=${gi('sb-h')}){
+add_scale_bar<-function(img,um_per_px,sb_um,color="${gv('sb-color')}",bar_h=${gi('sb-h')},panel_h=PANEL_H){
   if(um_per_px<=0) return(img)
   info<-image_info(img); bar_px<-round((sb_um/um_per_px)*(PANEL_W/info$width))
-  pad<-max(6L,round(PANEL_W*0.04)); x2<-PANEL_W-pad; x1<-x2-bar_px; y2<-PANEL_H-pad; y1<-y2-bar_h
+  pad<-max(6L,round(PANEL_W*0.04)); x2<-PANEL_W-pad; x1<-x2-bar_px; y2<-panel_h-pad; y1<-y2-bar_h
   img<-image_draw(img); rect(x1,y1,x2,y2,col=color,border=NA)
   text((x1+x2)/2,y1-3,paste0(sb_um,"µm"),col=color,cex=.7,adj=c(.5,1)); dev.off(); img
 }
@@ -12344,12 +12377,17 @@ panels<-lapply(seq_len(COLS*ROWS),function(i){
   p<-if(i<=length(PANELS)) PANELS[[i]] else list(label=LETTERS[i],sb_on=FALSE,um_per_px=0,sb_um=10,brightness=1,contrast=1,crop=c(0,0,0,0))
   img<-image_read(files[[i]])
   if(!is.null(p$brightness)&&p$brightness!=1) img<-image_modulate(img,brightness=p$brightness*100)
-  if(isTRUE(p$sb_on)) img<-add_scale_bar(img,p$um_per_px,p$sb_um)
+  if(isTRUE(p$sb_on)) img<-add_scale_bar(img,p$um_per_px,p$sb_um,panel_h=ROW_H[(i-1)%/%COLS+1])
   img<-add_label(img,p$label)
   img
 })
-montage<-image_montage(do.call(c,panels),
-  geometry=paste0(PANEL_W,"x",PANEL_H,"+",GAP_H,"+",GAP_V),tile=paste0(COLS,"x",ROWS),bg=BG)
+# image_montage tiles every cell at one size, so each row is tiled at its own height
+# and the rows are stacked; with equal ROW_H this is the same as one montage.
+row_imgs<-lapply(seq_len(ROWS),function(r){
+  image_montage(do.call(c,panels[((r-1)*COLS+1):(r*COLS)]),
+    geometry=paste0(PANEL_W,"x",ROW_H[r],"+",GAP_H,"+",GAP_V),tile=paste0(COLS,"x1"),bg=BG)
+})
+montage<-image_append(do.call(c,row_imgs),stack=TRUE)
 image_write(montage,output_file,format="tiff",density=as.character(DPI))
 cat("Saved:",output_file,"\\n")`;
   const chartR=_charts().map((el,i)=>_chartRSnippet(el,i)).join('\n');
@@ -12363,6 +12401,7 @@ cat("Saved:",output_file,"\\n")`;
 // ═══════════════════════════════════════════════════════════════
 function exportPython(){
   const cols=gi('cols'),rows=gi('rows');
+  const RH=_scriptRowHeights(rows);
   const cfg=images.filter(Boolean).map(im=>`    {"label":"${im.label}","sb_on":${im.sbOn},"um_per_px":${im.umPerPx||0},"sb_um":${im.sbUm},"brightness":${im.brightness},"contrast":${im.contrast},"crop":[${im.cropT},${im.cropL},${im.cropB},${im.cropR}]},`).join('\n');
   const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
   const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
@@ -12377,6 +12416,7 @@ input_dir   = Path("path/to/your/images")  # <- CHANGE THIS
 output_file = Path("${gv('export-name')||'figure'}.tiff")
 COLS, ROWS   = ${cols}, ${rows}
 PANEL_W, PANEL_H = ${gi('panel-w')}, ${gi('panel-h')}
+ROW_H        = [${RH.join(', ')}]  # one height per row; below PANEL_H where rows hug their panels
 GAP_H, GAP_V = ${gi('gap-h')}, ${gi('gap-v')}
 DPI          = ${gi('export-dpi')||300}
 BG           = "${gv('bg-color')}"
@@ -12386,17 +12426,17 @@ PANELS = [
 ${cfg}
 ]
 
-def process(img, p):
+def process(img, p, ph=PANEL_H):
     cT,cL,cB,cR = p.get("crop",[0,0,0,0])
     w,h = img.size
     img = img.crop([int(cL/100*w),int(cT/100*h),int((1-cR/100)*w),int((1-cB/100)*h)])
-    img = img.resize((PANEL_W,PANEL_H),Image.LANCZOS).convert("RGB")
+    img = img.resize((PANEL_W,ph),Image.LANCZOS).convert("RGB")
     if p.get("brightness",1)!=1: img=ImageEnhance.Brightness(img).enhance(p["brightness"])
     if p.get("contrast",1)!=1:   img=ImageEnhance.Contrast(img).enhance(p["contrast"])
     if p.get("sb_on") and p.get("um_per_px",0)>0:
         draw=ImageDraw.Draw(img); um,ppm=p["sb_um"],p["um_per_px"]
         bar=int((um/ppm)*(PANEL_W/img.size[0])); pad=max(6,int(PANEL_W*.04))
-        x2,y2=PANEL_W-pad,PANEL_H-pad; x1,y1=x2-bar,y2-${gi('sb-h')}
+        x2,y2=PANEL_W-pad,ph-pad; x1,y1=x2-bar,y2-${gi('sb-h')}
         draw.rectangle([x1,y1,x2,y2],fill="${gv('sb-color')}")
         try: font=ImageFont.truetype("arial.ttf",int(PANEL_W*.04))
         except: font=ImageFont.load_default()
@@ -12410,12 +12450,12 @@ exts={".png",".tif",".tiff",".jpg",".jpeg"}
 files=sorted(p for p in input_dir.iterdir() if p.suffix.lower() in exts)
 assert len(files)>=COLS*ROWS, f"Need {COLS*ROWS} files, found {len(files)}"
 
-fig=plt.figure(figsize=((COLS*PANEL_W+(COLS-1)*GAP_H)/DPI,(ROWS*PANEL_H+(ROWS-1)*GAP_V)/DPI),dpi=DPI,facecolor=BG)
-GS=gs.GridSpec(ROWS,COLS,hspace=GAP_V/PANEL_H,wspace=GAP_H/PANEL_W,left=.05,right=.99,top=.97,bottom=.01)
+fig=plt.figure(figsize=((COLS*PANEL_W+(COLS-1)*GAP_H)/DPI,(sum(ROW_H)+(ROWS-1)*GAP_V)/DPI),dpi=DPI,facecolor=BG)
+GS=gs.GridSpec(ROWS,COLS,height_ratios=ROW_H,hspace=GAP_V/(sum(ROW_H)/ROWS),wspace=GAP_H/PANEL_W,left=.05,right=.99,top=.97,bottom=.01)
 for idx,fpath in enumerate(files[:COLS*ROWS]):
     r,c=divmod(idx,COLS); ax=fig.add_subplot(GS[r,c])
     p=PANELS[idx] if idx<len(PANELS) else {"label":chr(65+idx)}
-    ax.imshow(np.array(process(Image.open(fpath),p))); ax.axis("off")
+    ax.imshow(np.array(process(Image.open(fpath),p,ROW_H[r]))); ax.axis("off")
     if r==0 and c<len(COL_LABELS): ax.set_title(COL_LABELS[c],fontsize=${gi('axis-fs')},pad=4)
     if c==0 and r<len(ROW_LABELS): ax.set_ylabel(ROW_LABELS[r],fontsize=${gi('axis-fs')},rotation=90,labelpad=6)
 plt.savefig(output_file,dpi=DPI,bbox_inches="tight",facecolor=BG,format="tiff")
@@ -17411,8 +17451,11 @@ function runAdvancedConsistency(){
 
   // 5. Panel size
   if(layoutMode==='grid'){
-    const pw=gi('panel-w'),ph=gi('panel-h');
-    results.push({status:'pass',msg:`Grid panels uniform: ${pw}×${ph}px`});
+    // From the resolved geometry: with rows hugging their panels the field's height
+    // is only a ceiling, and "uniform: 300×300" was false for rows of 90 and 45 px.
+    const G=gridGeom(), hs=Array.isArray(G.ph)?G.ph:[G.ph];
+    if(new Set(hs).size>1) results.push({status:'pass',msg:`Grid rows hug their panels: ${G.pw} px wide, row heights ${hs.join(' / ')} px`});
+    else results.push({status:'pass',msg:`Grid panels uniform: ${G.pw}×${hs[0]}px`});
   } else {
     const elems=freeformElements.filter(e=>e.type==='image');
     if(elems.length>1){
