@@ -3097,7 +3097,9 @@ function _loadSVGFile(f, fail, done){
     _rasterizeSVG(dataURL,(img,pngSrc)=>{
       // finally: addFiles waits on fin(), so a throw in _commitImage/_openPreCrop must
       // not keep the rest of the drop from opening.
+      // catch: a file that fails here must still be reported, not vanish silently.
       try{ _preCropQueue.push({img, src:pngSrc, name:f.name, svgSource}); _drainPreCrop(); }
+      catch(e){ fail(); }
       finally{ fin(); }
     }, ()=>{ fail(); fin(); });
   };
@@ -3138,6 +3140,7 @@ function _addOneFile(f){
         // finally: the serial loop in addFiles waits on done(); a throw while
         // committing must not strand every file after this one.
         try{ _preCropQueue.push({img, src:ev.target.result, name:f.name}); _drainPreCrop(); }
+        catch(e){ fail(); }
         finally{ done(); }
       };
       img.onerror=()=>{ fail(); done(); };
@@ -8351,7 +8354,11 @@ function checkCompliance(){
     // Read the rows the renderer draws, not the panel-height field: with rows hugging
     // their panels a 45 px blot row is 45 px tall however tall the field says, and
     // this line used to report 300×300 for it.
-    {label:'Min panel size',ok:gi('panel-w')>=80&&_minRowH>=80, warn:false,
+    {label:'Min panel size',ok:gi('panel-w')>=80&&_minRowH>=80,
+      // A hugged row is short because its panel is: the ink is the same size it
+      // was in the uniform layout, so a short hugged row is a warning worth
+      // reading, not a failure.
+      warn:gi('panel-w')>=80&&_minRowH<80&&new Set(_rowHs).size>1&&gc('auto-row-h'),
       note:new Set(_rowHs).size>1 ? `${gi('panel-w')} px wide, rows ${_rowHs.join(' / ')} px tall` : `${gi('panel-w')}×${_rowHs[0]} px per panel`},
     // Warn, never fail: AI-generated schematics are legitimate in many venues, but the
     // author must disclose them — and the strictest journals refuse them outright.
@@ -11884,7 +11891,10 @@ function _sameAdjustments(a,b){
 
 function generateCaption(){
   const cols=gi('cols'), rows=gi('rows');
-  const n=Math.min(images.length,cols*rows);
+  // Guard and log on the panels the caption describes. The old count was
+  // min(images, cols*rows), which logged 4 for a figure whose spanning panel
+  // leaves 3 drawn, and let a figure with every panel hidden through the guard.
+  const n=_figurePanels().length;
   if(!n){ toast('No images to caption','warn'); return; }
   const parts=_figurePanels().map(im=>{
     const note=im.captionNote?.trim();

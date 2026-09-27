@@ -104,8 +104,9 @@ test('the status bar and compliance report give the row heights, not an array or
   expect(r.status).toContain('rows 90 / 45 px tall');
   expect(r.note).toContain('rows 90 / 45 px tall');
   expect(r.note).not.toContain('300×300');
-  // a 45 px row genuinely is under the 80 px floor, which the field hid
-  expect(r.icon).toBe('✗');
+  // a 45 px row is under the 80 px floor, which the field hid — but it is short
+  // because its panel is, so hugging reports it as a warning, not a failure
+  expect(r.icon).toBe('⚠');
   expect(errors).toEqual([]);
 });
 
