@@ -4682,6 +4682,19 @@ function setAxisLabels(which, arr){
   const ins=[...document.querySelectorAll('#'+which+'-label-inputs input')];
   arr.forEach((v,i)=>{ if(ins[i]) ins[i].value=v; });
 }
+// A figure boundary (new figure, session load, share link): the store belongs to
+// one figure. Empty the fields, THEN the store, THEN write the incoming headings,
+// THEN rebuild — onLayoutChange harvests the fields first, so clearing only the
+// store would be undone by the outgoing figure's fields. setAxisLabels itself
+// deliberately keeps entries past the array's end (undo across a shrink/regrow).
+function resetAxisLabels(col, row){
+  document.getElementById('col-label-inputs').innerHTML='';
+  document.getElementById('row-label-inputs').innerHTML='';
+  _colLabelText.length=0; _rowLabelText.length=0;
+  setAxisLabels('col', col||[]);
+  setAxisLabels('row', row||[]);
+  onLayoutChange();
+}
 
 function onLayoutChange(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
@@ -10230,6 +10243,8 @@ function confirmNewFigure(){
   showConfirmModal('Start a new figure?','All images and annotations will be cleared.',()=>{
     images=[]; annotations=[]; selectedPanel=-1; selectedAnnotation=-1;
     undoStack=[]; redoStack=[]; panelBounds=[];
+    // The blank figure used to inherit the old one's column and row headings.
+    resetAxisLabels([], []);
     hideAnnFloat(); renderImgList(); renderMiniGrid();
     annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
     document.getElementById('fig-canvas').getContext('2d').clearRect(0,0,
@@ -11965,6 +11980,9 @@ function serializeSession(bundleImages){
     layout:{ cols:gv('cols'),rows:gv('rows'),panelW:gv('panel-w'),panelH:gv('panel-h'),
       gapH:gv('gap-h'),gapV:gv('gap-v'),mTop:gv('m-top'),mLeft:gv('m-left'),mBtm:gv('m-btm'),mRight:gv('m-right'),
       figTitle:gv('fig-title'),showColLabels:gc('show-col-labels'),showRowLabels:gc('show-row-labels'),
+      // Rows hug their panels changes every row's height, so a figure saved without it
+      // reopened taller than the one exported from it.
+      autoRowH:gc('auto-row-h'),
       colLabels:axisLabelValues('col'),
       rowLabels:axisLabelValues('row'),
       colGaps, rowGaps, advancedSpacing },
@@ -12047,6 +12065,9 @@ function applySession(s,_opts){
         sv('m-top',L.mTop);sv('m-left',L.mLeft);sv('m-btm',L.mBtm);sv('m-right',L.mRight);
         sv('fig-title',L.figTitle||'');
         sc('show-col-labels',L.showColLabels);sc('show-row-labels',L.showRowLabels);
+        // Unconditional: a file saved before this field existed was laid out with uniform
+        // rows, and must reopen that way even if the box happens to be ticked right now.
+        sc('auto-row-h',!!L.autoRowH);
         colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
         rowGaps=Array.isArray(L.rowGaps)?L.rowGaps.slice():null;
         advancedSpacing=!!L.advancedSpacing;
@@ -12076,9 +12097,11 @@ function applySession(s,_opts){
         if(s.panelBorder.c) sv('panel-border-c',s.panelBorder.c);
       }
       if(s.labelFormat) sv('label-format',s.labelFormat);
-      onLayoutChange();
-      setAxisLabels('col', s.layout?.colLabels);
-      setAxisLabels('row', s.layout?.rowLabels);
+      // The loaded figure's headings REPLACE the store. setAxisLabels only writes the
+      // indices it is given, so the previous figure's headings used to survive past
+      // the end of the loaded array and reappear in any column the grid later grew
+      // into — or wholesale, for a session saved with no heading arrays at all.
+      resetAxisLabels(s.layout?.colLabels||[], s.layout?.rowLabels||[]);
       if(s.layoutMode){
         document.getElementById('layout-mode').value=s.layoutMode;
         setLayoutMode(s.layoutMode);
@@ -16199,6 +16222,7 @@ function saveTemplate(){
     // Per-gutter spacing is part of the layout; a template that dropped it loaded as a
     // different figure, and left the OLD overrides in place so its gaps did nothing.
     advancedSpacing, colGaps:colGaps?colGaps.slice():null, rowGaps:rowGaps?rowGaps.slice():null,
+    autoRowH:gc('auto-row-h'),   // row heights are geometry too; a template without it loaded taller
     fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
     fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
     // Strip transient render caches (live canvases, adjust/chart caches) before cloning.
@@ -16244,6 +16268,7 @@ function loadTemplate(t){
     rowGaps = Array.isArray(t.rowGaps) ? t.rowGaps.slice() : null;
     advancedSpacing = !!t.advancedSpacing;
     const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing;
+    sc('auto-row-h',!!t.autoRowH);   // replaced like the gutters, so an older template loads uniform
     onLayoutChange();
   } else {
     sv('fm-canvas-w',t.fmW||1200); sv('fm-canvas-h',t.fmH||900);
@@ -18692,6 +18717,9 @@ function shareSession(){
       mTop:gv('m-top'), mLeft:gv('m-left'), mBtm:gv('m-btm'), mRight:gv('m-right'),
       figTitle:gv('fig-title'),
       showColLabels:gc('show-col-labels'), showRowLabels:gc('show-row-labels'),
+      // Rows hug their panels changes every row's height, so a figure saved without it
+      // reopened taller than the one exported from it.
+      autoRowH:gc('auto-row-h'),
       colLabels:axisLabelValues('col'),
       rowLabels:axisLabelValues('row'),
     },
@@ -18763,6 +18791,9 @@ function shareSession(){
       sv('m-top',L.mTop);sv('m-left',L.mLeft);sv('m-btm',L.mBtm);sv('m-right',L.mRight);
       sv('fig-title',L.figTitle||'');
       sc('show-col-labels',L.showColLabels);sc('show-row-labels',L.showRowLabels);
+      // Unconditional, as in applySession: a link made before this field existed was
+      // laid out with uniform rows.
+      sc('auto-row-h',!!L.autoRowH);
     }
     if(s.style){
       const T=s.style;
@@ -18785,9 +18816,8 @@ function shareSession(){
     if(Array.isArray(s.annotations)) annotations = s.annotations;
     // Store panel settings to apply when images are dropped
     if(Array.isArray(s.panelSettings)) window._sharedPanelSettings = s.panelSettings;
-    onLayoutChange();
-    setAxisLabels('col', s.layout?.colLabels);
-    setAxisLabels('row', s.layout?.rowLabels);
+    // Replace, not merge — see applySession.
+    resetAxisLabels(s.layout?.colLabels||[], s.layout?.rowLabels||[]);
     // Strip hash without navigation
     history.replaceState(null,'',location.pathname + location.search);
     // Show welcome banner

@@ -128,7 +128,7 @@ test('typed column and row headings survive a resize, a hide and an undo', async
   expect(errors).toEqual([]);
 });
 
-test('a saved session round-trips headings that are hidden at save time', async ({ page }) => {
+test('an undo snapshot round-trips headings that are hidden when it is taken', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 4);
   const r = await page.evaluate(async () => {
