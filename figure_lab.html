@@ -4088,7 +4088,9 @@ function _refreshPreflight(){
   if(capped) warns.push({t:'warn',m:'Export exceeds ~60 MP and will be scaled down to fit browser memory.'});
   const bg=gv('bg-color'); const white=(bg.toLowerCase()==='#ffffff'||bg==='#fff');
   if(!white) warns.push({t:'info',m:`Background is ${bg}; most journals require white.`});
-  const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
+  // Counted over the panels the export draws, as the compliance check does: a hidden
+  // panel's scale bar is never exported, so warning about it was noise.
+  const uncal=_figurePanels().filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
   if(uncal) warns.push({t:'warn',m:`${uncal} panel(s) show a scale bar but aren't calibrated (⚠).`});
   const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
   if(notDrawn.length) warns.push({t:'warn',
@@ -8271,7 +8273,10 @@ function checkCompliance(){
   const panelsWithImages=_shownPanels.length;
   const panelsWithLabels=_shownPanels.filter(im=>im.label).length;
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
-  const uncal=images.filter(im=>im&&im.sbOn&&!(im.umPerPx>0)).length;
+  // Only the panels the reader sees: a hidden (or spanned-out) uncalibrated panel
+  // used to fail this line and offer Calibrate for a panel that is not in the figure,
+  // while the label line beside it already counted the shown panels only.
+  const uncal=_shownPanels.filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
   const _sbNotDrawn=_scaleBarsNotDrawn();
   const _Gc=gridGeom();
   const _rowHs=_Gc ? (Array.isArray(_Gc.ph)?_Gc.ph:[_Gc.ph]) : [gi('panel-h')];
@@ -8279,7 +8284,10 @@ function checkCompliance(){
   // Megapixels at the scale the export ACTUALLY uses — _physFacts already resolved
   // the printed-width target, and dpi/96 is only the right scale without one.
   const exportPx=W*H*Math.pow(_pf.scale,2);
-  const extreme=images.filter(im=>im&&((im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2)).length;
+  const extreme=_shownPanels.filter(im=>(im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2).length;
+  // Insets likewise: an orphaned inset that is hidden cannot mislead a reader.
+  const _orphanInsets=_shownPanels.filter(im=>im.insetOrphaned).length;
+  const _linkedInsets=_shownPanels.filter(im=>im.insetOf).length;
   // Display range per channel: every visible panel and extra channel, grouped by the
   // channel it shows; more than one distinct black–white range in a group is drift.
   const _ranges=new Map();
@@ -8334,11 +8342,10 @@ function checkCompliance(){
     // An inset whose parent was deleted still renders, but it is no longer bound to
     // anything and will not follow future adjustments — silence there would be a figure
     // showing two processings of one field with nothing to say so.
-    {label:'Linked insets', ok:images.filter(im=>im&&im.insetOrphaned).length===0, warn:images.filter(im=>im&&im.insetOrphaned).length>0,
-      note:images.filter(im=>im&&im.insetOrphaned).length
-        ? `${images.filter(im=>im&&im.insetOrphaned).length} inset(s) lost their parent panel — no longer synced`
-        : (images.filter(im=>im&&im.insetOf).length
-           ? `${images.filter(im=>im&&im.insetOf).length} inset(s), all linked ✓` : 'None')},
+    {label:'Linked insets', ok:_orphanInsets===0, warn:_orphanInsets>0,
+      note:_orphanInsets
+        ? `${_orphanInsets} inset(s) lost their parent panel — no longer synced`
+        : (_linkedInsets ? `${_linkedInsets} inset(s), all linked ✓` : 'None')},
     {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
       note:_aiGeneratedCount()
         ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
@@ -8373,7 +8380,10 @@ function _auditFix(action){
     if(src>=0) syncLevelsByChannel(src);
   }
   else if(action==='calibrate'){
-    const idx=images.findIndex(im=>im&&im.sbOn&&!(im.umPerPx>0));
+    // The first uncalibrated panel the figure SHOWS: the report no longer counts
+    // hidden ones, so opening the calibrator on one would fix nothing it flagged.
+    const shown=new Set(_figurePanels());
+    const idx=images.findIndex(im=>im&&shown.has(im)&&im.sbOn&&!(im.umPerPx>0));
     if(idx>=0){ if(m) m.remove(); if(typeof openCalib==='function') openCalib(idx); return; }
   }
   checkCompliance();   // re-run to refresh the report
@@ -12722,9 +12732,26 @@ const _includedCount = () => images.filter(im=>im && !im.excluded).length;
 // still consumed one of those cols*rows places it silently DROPPED a visible one
 // off the end. A 10-panel figure shipped a caption for 12, a CSV whose rows ran
 // 1-6 then 8-12, and a compliance line reading "11/11 panels labelled".
-const _figurePanels = () =>
-  _gridOrder().slice(0, Math.max(1,gi('cols'))*Math.max(1,gi('rows')))
-              .map(i=>images[i]).filter(Boolean);
+// Slicing _gridOrder() to cols*rows entries was still wrong once a panel spans: a
+// span eats several cells, so fewer panels are placed than there are cells, and the
+// slice went on describing a panel the export never drew (a 2 x 2 grid with A across
+// the top draws A, B, C; the caption, CSV and manifest still said D). So this walks
+// the cells exactly as render() and autoRowHeights() do: an empty slot consumes one
+// cell, a span consumes all of its cells, and whatever is left over has no place.
+const _figurePanels = () => {
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const order=_gridOrder(), occupied=new Set(), out=[];
+  let seq=0;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    if(occupied.has(`${r}_${c}`)) continue;
+    const im = seq<order.length ? images[order[seq]] : null;
+    seq++;
+    const cs=Math.min((im&&im.colSpan)||1, cols-c), rs=Math.min((im&&im.rowSpan)||1, rows-r);
+    for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
+    if(im) out.push(im);
+  }
+  return out;
+};
 
 function togglePanelExcluded(idx){
   const im=images[idx]; if(!im) return;
