@@ -6276,7 +6276,9 @@ function render(targetCanvas, exportScale, opts){
           ctx.restore();
         }
         // Panel-bound annotations (follow image when reordered); the spotlight veil went first
-        drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight'});
+        // skipPanelLegends is set only by the SVG export, which re-emits the key as text.
+        // It is not tied to skipLabels: the PDF passes a function there and re-emits no key.
+        drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight', skipLegend:!!(opts&&opts.skipPanelLegends)});
         seq++;
       }
     }
@@ -6606,6 +6608,7 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im, opts){
   for(const a of im.panelAnns){
     if(opts&&opts.only&&a.type!==opts.only) continue;
     if(opts&&opts.skip&&a.type===opts.skip) continue;
+    if(opts&&opts.skipLegend&&a.type==='legend') continue;   // SVG export re-emits it as vector
     const x1=pbx+a.xf*pbw, y1=pby+a.yf*pbh;
     const x2=pbx+(a.x2f??a.xf)*pbw, y2=pby+(a.y2f??a.yf)*pbh;
     if(a.type==='text'){
@@ -6636,7 +6639,10 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im, opts){
 // Convert a panel annotation to a virtual global-space annotation for hit-testing
 function panelAnnToVirtual(a, pb, canvasW, canvasH){
   return {
-    type:a.type, text:a.text, fontSize:a.fontSize, width:a.width,
+    // _w/_h are the key's drawn box (stamped by _drawLegend in canvas px, the same space
+    // as W,H here); without them hitAnnotation fell back to 80x30 and only the key's
+    // top-left corner could be grabbed. arm likewise sizes the axes hit circle.
+    type:a.type, text:a.text, fontSize:a.fontSize, width:a.width, _w:a._w, _h:a._h, arm:a.arm,
     xf:  (pb.x + a.xf *pb.w) / canvasW,
     yf:  (pb.y + a.yf *pb.h) / canvasH,
     x2f: (pb.x + (a.x2f??a.xf)*pb.w) / canvasW,
@@ -8460,7 +8466,7 @@ function canvasCoords(canvas, e){
 // Canvas drags are started on the canvas but can end anywhere, so every one of these
 // needs an ending that does not depend on where the pointer was released.
 function _dragStranded(){
-  return !!(gutterDragState||panelRotState||labelDragState||_sbResizeState||annDragState||annResizeState);
+  return !!(gutterDragState||panelRotState||labelDragState||_sbResizeState||annDragState||annResizeState||panelAnnDrag);
 }
 // While an annotation is being dragged or resized, the floating toolbar must not eat the
 // pointer. It is positioned 54 px above the topmost endpoint and sits over the canvas, so
@@ -8494,6 +8500,17 @@ function _endStrandedDrags(){
   }
   if(annDragState){ if(annDragState.preDrag) _pushSnap(annDragState.preDrag); annDragState=null; dirty=true; }
   if(annResizeState){ if(annResizeState.moved&&annResizeState.preDrag) _pushSnap(annResizeState.preDrag); annResizeState=null; dirty=true; }
+  // Panel-bound annotations were left out of this list, so releasing one off the canvas
+  // left it following the pointer with no button held. Record the move only if there was
+  // one, as the canvas mouseup does, so a click-and-release-outside adds no dead undo step.
+  if(panelAnnDrag){
+    const {imgIdx,annIdx,pb}=panelAnnDrag;
+    const a=images[imgIdx]?.panelAnns?.[annIdx];
+    const moved=!!a&&(Math.abs(a.xf-panelAnnDrag.ox0f)>0.001||Math.abs(a.yf-panelAnnDrag.oy0f)>0.001);
+    if(moved&&panelAnnDrag.preDrag) _pushSnap(panelAnnDrag.preDrag);
+    panelAnnDrag=null; dirty=true;
+    if(selectedPanelAnn) showPanelAnnFloat(selectedPanelAnn.imgIdx,selectedPanelAnn.annIdx,pb);
+  }
   if(dirty){
     annCanvas.style.cursor='default'; hidePanelTooltip();
     renderImgList(); scheduleRender(0); drawAnnOverlay();
@@ -9305,6 +9322,9 @@ annCanvas.addEventListener('mousedown', e=>{
     if(hitImgIdx>=0){
       selectedPanelAnn={imgIdx:hitImgIdx,annIdx:hitAnnIdx};
       const a=images[hitImgIdx].panelAnns[hitAnnIdx];
+      // The same #ann-float sits above a panel annotation too, so dragging one upward
+      // froze under its own toolbar exactly as the grid path did before it got this.
+      _annFloatPassthrough(true);
       panelAnnDrag={imgIdx:hitImgIdx,annIdx:hitAnnIdx,pb:hitPb,
         ox0f:a.xf,oy0f:a.yf,ox2f:a.x2f,oy2f:a.y2f,mx:x,my:y,
         preDrag:snapshotState()};
@@ -9763,6 +9783,7 @@ annCanvas.addEventListener('mouseup', e=>{
     const a=images[imgIdx].panelAnns[annIdx];
     const moved=Math.abs(a.xf-panelAnnDrag.ox0f)>0.001||Math.abs(a.yf-panelAnnDrag.oy0f)>0.001;
     if(moved){ _pushSnap(panelAnnDrag.preDrag); }
+    _annFloatPassthrough(false);
     panelAnnDrag=null; annCanvas.style.cursor='default';
     if(selectedPanelAnn) showPanelAnnFloat(selectedPanelAnn.imgIdx,selectedPanelAnn.annIdx,pb);
     scheduleRender(0); return;
@@ -11240,7 +11261,8 @@ function exportSVG(name, dpi, canvas){
   // (otherwise the antialiased raster edges double up under the vector <g>).
   // skipInsetFrames: inset outlines, their letters and connector lines are re-emitted
   // as vector below, like the labels, so they stay editable and never pixelate.
-  render(off, S, {skipLabels:true, skipCharts:true, skipInsetFrames:true});   // fills figTextItems (logical coords), no text on raster
+  // skipPanelLegends: a channel key pinned to a panel is re-emitted as vector below too.
+  render(off, S, {skipLabels:true, skipCharts:true, skipInsetFrames:true, skipPanelLegends:true});   // fills figTextItems (logical coords), no text on raster
   annotations=savedAnns;
   const items=figTextItems.slice();
   const frames=_lastFrames.slice(), cells=_lastCells, connectorsOn=gc('inset-connectors');
@@ -11286,6 +11308,29 @@ function exportSVG(name, dpi, canvas){
   const wt=gc('label-bold')?'bold':'normal';
   const st=gc('label-italic')?'italic':'normal';
   let annSVG='';
+  // The channel key, as vector text. Shared by the figure-level key and a key pinned to a
+  // panel, so the two cannot drift apart in the SVG.
+  const legendSVG=(a, lx, ly)=>{
+    const col=a.color||'#ffffff';
+    const mc=document.createElement('canvas').getContext('2d');
+    const L=_legendLayout(mc,a); const f2=v=>v.toFixed(2);
+    const font=`bold ${L.fs}px ${fam}`;
+    if(a.fill!==false) annSVG+=`<rect x="${f2(lx)}" y="${f2(ly)}" width="${f2(L.w)}" height="${f2(L.h)}" rx="4" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}"/>`;
+    L.rows.forEach((r,i)=>{
+      const cy=ly+L.pad+i*L.lh+L.fs*0.55;
+      if(r.color) annSVG+=`<rect x="${f2(lx+L.pad)}" y="${f2(cy-L.sw/2)}" width="${f2(L.sw)}" height="${f2(L.sw)}" fill="${r.color}"/>`;
+      annSVG+=`<text x="${f2(lx+L.pad+L.sw+L.gap)}" y="${f2(cy)}" style="font:${font}" fill="${r.color||col}" dominant-baseline="central">${esc(r.name)}</text>`;
+    });
+  };
+  // A key pinned to a panel (panel mode) was baked into the raster, so in panel mode the
+  // channel names became pixels where the same key placed on the figure stayed text. The
+  // export render above left it off the raster; draw it here from the cell it was drawn
+  // in. Grid only: freeform returns before _lastCells is refreshed and draws no panelAnns.
+  if(cells && layoutMode!=='freeform') for(const [idx,cell] of cells){
+    for(const a of (images[idx]?.panelAnns||[])){
+      if(a.type==='legend') legendSVG(a, cell.x+a.xf*cell.w, cell.y+a.yf*cell.h);
+    }
+  }
   annotations.forEach(a=>{
     const x1=(a.xf*W).toFixed(2), y1=(a.yf*H).toFixed(2);
     const x2=((a.x2f??a.xf)*W).toFixed(2), y2=((a.y2f??a.yf)*H).toFixed(2);
@@ -11311,15 +11356,7 @@ function exportSVG(name, dpi, canvas){
       annSVG+=`<circle cx="${x1}" cy="${y1}" r="${r}" fill="${a.color||'#ff4444'}" stroke="#ffffff" stroke-width="1.5"/>`
              +`<text x="${x1}" y="${y1}" style="font:bold ${Math.max(8,r*1.2)}px system-ui,sans-serif" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${n}</text>`;
     } else if(a.type==='legend'){
-      const mc=document.createElement('canvas').getContext('2d');
-      const L=_legendLayout(mc,a); const lx=+x1, ly=+y1; const f2=v=>v.toFixed(2);
-      const font=`bold ${L.fs}px ${fam}`;
-      if(a.fill!==false) annSVG+=`<rect x="${f2(lx)}" y="${f2(ly)}" width="${f2(L.w)}" height="${f2(L.h)}" rx="4" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}"/>`;
-      L.rows.forEach((r,i)=>{
-        const cy=ly+L.pad+i*L.lh+L.fs*0.55;
-        if(r.color) annSVG+=`<rect x="${f2(lx+L.pad)}" y="${f2(cy-L.sw/2)}" width="${f2(L.sw)}" height="${f2(L.sw)}" fill="${r.color}"/>`;
-        annSVG+=`<text x="${f2(lx+L.pad+L.sw+L.gap)}" y="${f2(cy)}" style="font:${font}" fill="${r.color||col}" dominant-baseline="central">${esc(r.name)}</text>`;
-      });
+      legendSVG(a, +x1, +y1);
     } else if(a.type==='axes'){
       const [up,down,left,right]=_axesLetters(a);
       const cx=+x1, cy=+y1, L=a.arm||24, fs=a.fontSize||12, hl=6;
