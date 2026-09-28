@@ -688,26 +688,26 @@ test('exact pixels: the fields read the crop in source pixels and typing one mov
   expect(errors).toEqual([]);
 });
 
-test('ratio lock and the size fields are disabled while batch crop pins the size', async ({ page }) => {
+test('batch crop shares one size but leaves it editable: W/H and ratio stay enabled and a resize carries forward', async ({ page }) => {
   const errors = await loadApp(page);
-  await seedPanels(page, 2);
+  await seedPanels(page, 3);
   const r = await page.evaluate(async () => {
-    startBatchCrop();
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const before = document.getElementById('crop-px-w').disabled;
+    const tf = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    startBatchCrop(); await tf();
     cropEdState.cx = 0.3; cropEdState.cy = 0.3; cropEdState.cw = 0.4; cropEdState.ch = 0.4; cropEdState.hasBox = true;
-    applyCropModal();                                             // pins the size, advances
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const after = ['crop-px-w', 'crop-px-h', 'crop-aspect'].map(id => document.getElementById(id).disabled);
-    const cwBefore = cropEdState.cw;
-    setCropPx('w', 10);                                           // must be ignored
-    const cwAfter = cropEdState.cw;
+    applyCropModal(); await tf();                                 // sets the size, advances
+    const disabled = ['crop-px-w', 'crop-px-h', 'crop-aspect'].map(id => document.getElementById(id).disabled);
+    const [iw] = _ceSrcDims();
+    setCropPx('w', Math.round(iw * 0.2));                         // resize on image 2
+    const shared = +cropEdState.batchCropW.toFixed(3);
+    applyCropModal(); await tf();                                 // image 3 gets the new size
+    const next = +cropEdState.cw.toFixed(3);
     closeCropModal();
-    return { before, after, cwBefore, cwAfter };
+    return { disabled, shared, next };
   });
-  expect(r.before).toBe(false);
-  expect(r.after).toEqual([true, true, true]);
-  expect(r.cwAfter).toBe(r.cwBefore);
+  expect(r.disabled).toEqual([false, false, false]);
+  expect(r.shared).toBeCloseTo(0.2, 2);
+  expect(r.next).toBeCloseTo(0.2, 2);
   expect(errors).toEqual([]);
 });
 

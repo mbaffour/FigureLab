@@ -716,7 +716,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">Crop</div>
     <button class="btn btn-primary" onclick="cropSelectedPanel()" style="width:100%;justify-content:center" title="Drag a box on one panel to trim it — non-destructive and reversible">✂ Crop a panel…</button>
     <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of an image — each becomes its own panel">⊞ Multi-crop into panels…</button>
-    <button class="btn" onclick="startBatchCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Draw one crop size on the first image, then move that same box across all images">▦ Batch crop all images…</button>
+    <button class="btn" onclick="startBatchCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Draw one crop size on the first image, then move, resize and edit that box across all images">▦ Batch crop all images…</button>
     <button class="btn" onclick="trimBordersAll()" style="width:100%;justify-content:center;margin-top:4px" title="Strip the single-colour margin every panel arrived with — the white border around a saved plot, the black edge of a scan. Replaces each panel's crop with its content bounds; panels with no uniform border are left alone">▣ Trim borders on all panels</button>
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px" title="Clear the crop and tilt on every panel">↺ Reset all crops</button>
 
@@ -2326,11 +2326,55 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:2px">H<input type="number" id="crop-px-h" min="1" step="1" oninput="setCropPx('h',this.value)" style="width:52px;font-size:10px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono)"></label>
     </div>
     <div style="font-size:10px;color:var(--muted);margin:-2px 0 6px;line-height:1.35">Drag inside the box to move it, or drag a corner/edge handle to resize — no need to redraw. Drag the round grip above the box to tilt it (Shift snaps to 15°); <kbd>[</kbd> and <kbd>]</kbd> nudge by 1°. <b>Level</b>: click two points along an edge that should be straight. <b>Auto</b>: let the editor find the angle.</div>
-    <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;align-items:center;gap:8px;font-size:11px">
-      <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent)">Image 1 / 1</span>
-      <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
-      <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px">→ Skip</button>
-      <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop position to all remaining images (centered)">✓ All</button>
+    <!-- Batch crop. One size is shared by every image, but the size is not frozen: resize
+         the box (handles or W/H) on any image and the new size carries to the images
+         still to come; "Size → done" brings the ones already cropped into line. Each
+         image can also be edited here — levels, LUT, orientation — without leaving the
+         batch, and those edits can carry forward so a series is processed identically. -->
+    <div id="batch-crop-bar" style="display:none;background:rgba(91,141,238,.1);border:1px solid rgba(91,141,238,.3);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="batch-crop-progress" style="flex:1;font-weight:600;color:var(--accent);white-space:nowrap">Image 1 / 1</span>
+        <span id="batch-crop-hint" style="color:var(--muted)">Draw crop to set size</span>
+        <button class="btn" id="batch-back-btn" onclick="backBatchCrop()" style="padding:2px 8px;font-size:10px" title="Go back to the previous image and re-edit it">← Back</button>
+        <button class="btn" onclick="skipBatchCrop()" style="padding:2px 8px;font-size:10px" title="Leave this image unchanged and move on">→ Skip</button>
+        <button class="btn" onclick="applyBatchCropAll()" style="padding:2px 8px;font-size:10px" title="Apply this crop (centered) — and, with 'Carry edits' on, these edits — to all remaining images">✓ All</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="batch-size-note" style="flex:1;color:var(--muted)"></span>
+        <button class="btn" id="batch-size-all-btn" onclick="batchSizeToAll()" style="display:none;padding:2px 8px;font-size:10px" title="Give the images already cropped this size too, each keeping its own centre and tilt">⤢ Size → done</button>
+        <button class="btn" id="batch-edit-toggle" onclick="toggleBatchEdit()" style="padding:2px 8px;font-size:10px" title="Show or hide the image edits">🎚 Edits ▾</button>
+      </div>
+      <div id="batch-edit-panel" style="display:flex;gap:10px;align-items:flex-start;border-top:1px solid rgba(91,141,238,.25);padding-top:6px">
+        <div style="flex:1;display:grid;grid-template-columns:auto 1fr auto;gap:3px 6px;align-items:center;font-size:10px">
+          <label for="be-br">Brightness</label><input type="range" id="be-br" style="width:100%" min="0.2" max="3" step="0.05" value="1" oninput="setBatchEdit('brightness',+this.value)"><code id="be-br-v">1.00</code>
+          <label for="be-ct">Contrast</label><input type="range" id="be-ct" style="width:100%" min="0.2" max="3" step="0.05" value="1" oninput="setBatchEdit('contrast',+this.value)"><code id="be-ct-v">1.00</code>
+          <label for="be-gm">Gamma</label><input type="range" id="be-gm" style="width:100%" min="0.25" max="2.5" step="0.05" value="1" oninput="setBatchEdit('gamma',+this.value)"><code id="be-gm-v">1.00</code>
+          <label for="be-lut">LUT</label>
+          <select id="be-lut" onchange="setBatchEdit('lut',this.value)" style="font-size:10px;padding:1px 3px;grid-column:span 2">
+            <option value="none">none</option><option value="green">green</option><option value="magenta">magenta</option>
+            <option value="cyan">cyan</option><option value="yellow">yellow</option><option value="blue">blue</option><option value="fire">fire</option>
+          </select>
+          <div style="grid-column:1 / -1;display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">
+            <button class="btn" id="be-gray" onclick="setBatchEdit('grayscale',!cropEdState.batchEdit.grayscale)" style="padding:1px 6px;font-size:10px">Grayscale</button>
+            <button class="btn" id="be-inv" onclick="setBatchEdit('invert',!cropEdState.batchEdit.invert)" style="padding:1px 6px;font-size:10px">Invert</button>
+            <button class="btn" onclick="batchEditRotate(-90)" style="padding:1px 6px;font-size:10px" title="Rotate the panel 90° anticlockwise">↺ 90°</button>
+            <button class="btn" onclick="batchEditRotate(90)" style="padding:1px 6px;font-size:10px" title="Rotate the panel 90° clockwise">↻ 90°</button>
+            <button class="btn" id="be-fh" onclick="setBatchEdit('flipH',!cropEdState.batchEdit.flipH)" style="padding:1px 6px;font-size:10px" title="Flip horizontal">⇄ H</button>
+            <button class="btn" id="be-fv" onclick="setBatchEdit('flipV',!cropEdState.batchEdit.flipV)" style="padding:1px 6px;font-size:10px" title="Flip vertical">⇅ V</button>
+            <button class="btn" onclick="resetBatchEdit()" style="padding:1px 6px;font-size:10px" title="Back to no adjustment and upright">↺ Reset</button>
+          </div>
+          <div style="grid-column:1 / -1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:2px">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer" title="Start each next image with these edits, so the whole series is processed the same way">
+              <input type="checkbox" id="be-carry" checked onchange="cropEdState.batchCarry=this.checked"> Carry edits to next images
+            </label>
+            <button class="btn" onclick="batchEditsToAll()" style="padding:1px 6px;font-size:10px" title="Apply these edits to every image in this batch now — done, current and remaining">⇉ Edits → all</button>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:9px;color:var(--muted)">
+          <canvas id="be-result" width="120" height="90" style="display:block;background:#111;border-radius:4px;border:1px solid var(--border)"></canvas>
+          <span id="be-orient">panel preview</span>
+        </div>
+      </div>
     </div>
     <div id="mc-crop-bar" style="display:none;background:rgba(245,166,35,.10);border:1px solid rgba(245,166,35,.35);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -7447,7 +7491,9 @@ function drawCropEd(){
   const W=cc.width,H=cc.height;
   ctx.clearRect(0,0,W,H);
   if(!img||!W||!H) return;
-  ctx.drawImage(img,0,0,W,H);
+  const _src=cropEdState.batch?_batchPreviewSrc(W,H):img;
+  ctx.drawImage(_src,0,0,W,H);
+  if(cropEdState.batch) _batchDrawResult(_src,W,H);
   // When no box drawn yet (batch mode, fresh image): show guide overlay
   if(!hasBox&&cw>0.97){
     ctx.fillStyle='rgba(0,0,0,.42)'; ctx.fillRect(0,0,W,H);
@@ -7493,7 +7539,7 @@ function drawCropEd(){
     ctx.beginPath(); ctx.moveTo(a2[0],a2[1]); ctx.lineTo(b2[0],b2[1]); ctx.stroke();
   }
   // Corner + edge handles — hidden when the size is pinned, since resize is off
-  const pinned=(cropEdState.batch&&cropEdState.batchCropW>0)||(cropEdState.mc&&mcSession.cropW>0);
+  const pinned=_ceSizeLocked();
   if(!pinned){
     [q[0],q[1],q[3],q[2],
      lerp(q[0],q[1],.5),lerp(q[3],q[2],.5),lerp(q[0],q[3],.5),lerp(q[1],q[2],.5)]
@@ -7535,6 +7581,7 @@ function drawCropEd(){
   _ceDrawLevel(ctx);
   _ceDrawLoupe(ctx,W,H);
   _ceSyncFields();
+  if(cropEdState.batch) _batchSyncSize();
 }
 
 // ── Loupe ─────────────────────────────────────────────────────
@@ -7778,10 +7825,17 @@ function setCropAngle(v){
 }
 function nudgeCropAngle(d){ setCropAngle((+cropEdState.ang||0)+d); }
 
-// Crop size is pinned (batch or multi-crop) → the box may move and tilt, not resize.
+// Crop size is pinned (multi-crop) → the box may move and tilt, not resize. Batch crop
+// used to pin it too, which meant a size drawn slightly wrong on image 1 could only be
+// fixed by cancelling the batch. Its size is now SHARED but editable: resizing on any
+// image changes the size the next images get (see _batchSyncSize).
 function _ceSizeLocked(){
-  return !!((cropEdState.batch&&cropEdState.batchCropW>0)
-        || (cropEdState.mc&&mcSession.cropW>0));
+  return !!(cropEdState.mc&&mcSession.cropW>0);
+}
+// Batch crop once its size is set: a click anywhere moves the box rather than
+// starting a new one, so a stray click cannot throw the shared size away.
+function _ceBatchSized(){
+  return !!(cropEdState.batch&&cropEdState.batchCropW>0&&cropEdState.hasBox);
 }
 function _ceSrcDims(){
   const im=cropEdState.img;
@@ -7977,7 +8031,7 @@ function _trimTxt(tb){
 // In the editor: set the box to the content bounds.
 function trimCropBorders(){
   const img=cropEdState.img; if(!img) return;
-  if(_ceSizeLocked()){ toast('The size is pinned in this mode — use "Trim borders on all panels" instead','warn'); return; }
+  if(_ceSizeLocked()||(cropEdState.batch&&cropEdState.batchCropW>0)){ toast('The size is shared in this mode — use "Trim borders on all panels" instead','warn'); return; }
   const tb=_trimBounds(img);
   if(!tb){ toast('No single-colour border found around this image','warn'); return; }
   if(tb.none){ toast('Nothing to trim — the content reaches every edge','ok'); return; }
@@ -8073,6 +8127,7 @@ document.addEventListener('keydown', e=>{
     return;
   }
   if(!/Arrow/.test(e.key)) return;
+  if(typing) return;                     // a focused slider or number field owns its arrows
   const step=e.shiftKey?0.02:0.005; let moved=false;
   if(e.key==='ArrowLeft'){ cropEdState.cx=Math.max(0,cropEdState.cx-step); moved=true; }
   else if(e.key==='ArrowRight'){ cropEdState.cx=Math.min(1-cropEdState.cw,cropEdState.cx+step); moved=true; }
@@ -8082,6 +8137,23 @@ document.addEventListener('keydown', e=>{
 }, true);
 
 // ── Batch crop ────────────────────────────────────────────────
+// Per-image edits the batch can make alongside the crop. These are the panel's own
+// fields, written on Apply exactly as the panel settings would write them, so the
+// caption's adjustment disclosure, undo and export see nothing new.
+const _BATCH_EDIT_KEYS=['brightness','contrast','gamma','lut','grayscale','invert','rotate','flipH','flipV'];
+function _batchEditOf(im){
+  return {brightness:im.brightness??1, contrast:im.contrast??1, gamma:im.gamma||1,
+    lut:im.lut||'none', grayscale:!!im.grayscale, invert:!!im.invert,
+    rotate:+im.rotate||0, flipH:!!im.flipH, flipV:!!im.flipV};
+}
+function _batchEditIdentity(){
+  return {brightness:1,contrast:1,gamma:1,lut:'none',grayscale:false,invert:false,rotate:0,flipH:false,flipV:false};
+}
+function _batchWriteEdit(im,e){
+  _BATCH_EDIT_KEYS.forEach(k=>{ im[k]=e[k]; });
+  im._adjCache=undefined; im._adjKey=undefined;
+}
+
 function startBatchCrop(){
   if(mcSession.active){ toast('Finish multi-crop first','warn'); return; }
   const eligible=images.map((im,i)=>({im,i})).filter(({im})=>im&&im.img);
@@ -8090,11 +8162,19 @@ function startBatchCrop(){
   // openCropModal fully replaces cropEdState, so batch fields must be set AFTER it returns
   openCropModal(allIdx[0]);
   cropEdState.batch=true;
+  cropEdState.batchAll=allIdx.slice();
   cropEdState.batchQueue=allIdx.slice(1);
+  cropEdState.batchHistory=[];            // images already visited, most recent last
+  cropEdState.batchApplied=new Set();     // …and which of those were cropped, not skipped
   cropEdState.batchTotal=allIdx.length;
   cropEdState.batchCropW=0; cropEdState.batchCropH=0;
   cropEdState.batchMoving=false;
+  const carry=document.getElementById('be-carry');
+  cropEdState.batchCarry=carry?carry.checked:true;
+  cropEdState.batchEdit=_batchEditOf(images[allIdx[0]]);
+  cropEdState.batchEditTouched=false;
   _updateBatchUI();
+  _syncBatchEditUI();
 }
 
 function _updateBatchUI(){
@@ -8107,16 +8187,164 @@ function _updateBatchUI(){
   bar.style.display='flex';
   const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
   prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
-  const sizeLocked=cropEdState.batchCropW>0;
-  hint.textContent=sizeLocked?'Drag to reposition · grip tilts':'Draw to set crop size';
+  const sized=cropEdState.batchCropW>0;
+  hint.textContent=sized?'Drag moves · handles resize':'Draw to set crop size';
   title.textContent=`✂ Batch Crop (${done} / ${cropEdState.batchTotal})`;
-  document.getElementById('crop-modal-desc').textContent=sizeLocked
-    ?'Crop size is locked. Drag the box to reposition and turn the grip to tilt this image, then Apply & Next.'
-    :'Draw a crop region to set the size. It will be reused for every image.';
+  document.getElementById('crop-modal-desc').textContent=sized
+    ?'Drag the box to reposition and turn the grip to tilt this image. Resize it with the handles or W/H to change the size for this and the next images. Edit the image below, then Apply & Next.'
+    :'Draw a crop region to set the size. It will be reused for every image, and you can still resize it later.';
   applyBtn.textContent=cropEdState.batchQueue.length>0?'✓ Apply & Next':'✓ Apply & Done';
-  // Cursor hint: grab when box is moveable
-  document.getElementById('crop-ed-canvas').style.cursor=sizeLocked?'grab':'crosshair';
-  _ceSyncFields();   // the size fields and the ratio lock follow the pin at once
+  const back=document.getElementById('batch-back-btn');
+  if(back) back.disabled=!(cropEdState.batchHistory&&cropEdState.batchHistory.length);
+  document.getElementById('crop-ed-canvas').style.cursor=sized?'grab':'crosshair';
+  _ceSyncFields();
+  _batchSizeNote();
+}
+
+// The box's size IS the batch size once it is set: a resize on any image — handle, W/H
+// field or ratio — becomes the size every following image starts with.
+function _batchSyncSize(){
+  const s=cropEdState;
+  if(!s.batch||!(s.batchCropW>0)||!s.hasBox||s.dragging) return;
+  if(s.cw<=0.02||s.ch<=0.02) return;
+  const L=s._beLoadSize;
+  if(L&&Math.abs(L[0]-s.cw)<1e-9&&Math.abs(L[1]-s.ch)<1e-9){ _batchSizeNote(); return; }
+  s._beLoadSize=null;
+  if(Math.abs(s.batchCropW-s.cw)>1e-9||Math.abs(s.batchCropH-s.ch)>1e-9){
+    s.batchCropW=s.cw; s.batchCropH=s.ch;
+  }
+  _batchSizeNote();
+}
+// Cropped images whose size no longer matches the current one.
+function _batchSizeMismatch(){
+  const s=cropEdState; if(!s.batch||!s.batchApplied) return [];
+  return [...s.batchApplied].filter(i=>{
+    if(i===s.imgIdx) return false;
+    const im=images[i]; if(!im) return false;
+    const w=(100-im.cropL-im.cropR)/100, h=(100-im.cropT-im.cropB)/100;
+    return Math.abs(w-s.batchCropW)>0.0006||Math.abs(h-s.batchCropH)>0.0006;
+  });
+}
+function _batchSizeNote(){
+  const n=document.getElementById('batch-size-note'), b=document.getElementById('batch-size-all-btn');
+  if(!n||!b) return;
+  const s=cropEdState;
+  if(!s.batch||!(s.batchCropW>0)){ n.textContent=''; b.style.display='none'; return; }
+  const [iw,ih]=_ceSrcDims();
+  const off=_batchSizeMismatch();
+  n.textContent=`Size ${Math.round(s.batchCropW*iw)} × ${Math.round(s.batchCropH*ih)} px`
+    +(off.length?` · ${off.length} done image${off.length>1?'s':''} at another size`:'');
+  n.style.color=off.length?'var(--warn)':'';
+  b.style.display=off.length?'':'none';
+}
+// Bring the already-cropped images to the current size, each about its own centre.
+function batchSizeToAll(){
+  const s=cropEdState; if(!s.batch||!(s.batchCropW>0)) return;
+  const off=_batchSizeMismatch(); if(!off.length) return;
+  pushUndo();
+  const w=s.batchCropW, h=s.batchCropH;
+  off.forEach(i=>{
+    const im=images[i];
+    const l=im.cropL/100, t=im.cropT/100, cw=1-l-im.cropR/100, ch=1-t-im.cropB/100;
+    const mx=l+cw/2, my=t+ch/2;
+    const nx=Math.max(0,Math.min(1-w,mx-w/2)), ny=Math.max(0,Math.min(1-h,my-h/2));
+    im.cropL=_cropPct(nx); im.cropT=_cropPct(ny);
+    im.cropR=_cropPct(1-nx-w); im.cropB=_cropPct(1-ny-h);
+    im._cropCache=undefined; im._cropKey=undefined;
+    im._adjCache=undefined; im._adjKey=undefined;
+  });
+  _batchSizeNote(); scheduleRender(0);
+  toast(`${off.length} cropped image${off.length>1?'s':''} resized to match`,'ok');
+}
+
+// ── Batch edits ───────────────────────────────────────────────
+function setBatchEdit(k,v){
+  if(!cropEdState.batch||!cropEdState.batchEdit) return;
+  cropEdState.batchEdit[k]=v;
+  cropEdState.batchEditTouched=true;
+  _syncBatchEditUI(); drawCropEd();
+}
+function batchEditRotate(d){
+  if(!cropEdState.batchEdit) return;
+  setBatchEdit('rotate',(((+cropEdState.batchEdit.rotate||0)+d)%360+360)%360);
+}
+function resetBatchEdit(){
+  if(!cropEdState.batch) return;
+  cropEdState.batchEdit=_batchEditIdentity();
+  cropEdState.batchEditTouched=true;
+  _syncBatchEditUI(); drawCropEd();
+}
+function toggleBatchEdit(force){
+  const p=document.getElementById('batch-edit-panel'), b=document.getElementById('batch-edit-toggle');
+  if(!p) return;
+  const show=force!==undefined?!!force:p.style.display==='none';
+  p.style.display=show?'flex':'none';
+  if(b) b.textContent=show?'🎚 Edits ▾':'🎚 Edits ▸';
+}
+// Every image in the batch, now — done, current and remaining.
+function batchEditsToAll(){
+  const s=cropEdState; if(!s.batch||!s.batchEdit) return;
+  pushUndo();
+  (s.batchAll||[]).forEach(i=>{ const im=images[i]; if(im&&i!==s.imgIdx) _batchWriteEdit(im,s.batchEdit); });
+  s.batchEditTouched=true;
+  s.batchCarry=true; const c=document.getElementById('be-carry'); if(c) c.checked=true;
+  renderImgList(); scheduleRender(0);
+  toast(`Edits applied to all ${s.batchTotal} image${s.batchTotal>1?'s':''} in the batch`,'ok');
+}
+function _syncBatchEditUI(){
+  const e=cropEdState.batchEdit; if(!e) return;
+  const set=(id,v,txt)=>{ const el=document.getElementById(id); if(el&&document.activeElement!==el) el.value=v;
+    const t=document.getElementById(id+'-v'); if(t) t.textContent=txt; };
+  set('be-br',e.brightness,(+e.brightness).toFixed(2));
+  set('be-ct',e.contrast,(+e.contrast).toFixed(2));
+  set('be-gm',e.gamma,(+e.gamma).toFixed(2));
+  const lut=document.getElementById('be-lut'); if(lut) lut.value=e.lut||'none';
+  const on=(id,v)=>{ const b=document.getElementById(id); if(!b) return;
+    b.style.borderColor=v?'var(--accent)':''; b.style.color=v?'var(--accent)':''; b.setAttribute('aria-pressed',v?'true':'false'); };
+  on('be-gray',e.grayscale); on('be-inv',e.invert); on('be-fh',e.flipH); on('be-fv',e.flipV);
+  const c=document.getElementById('be-carry'); if(c) c.checked=cropEdState.batchCarry!==false;
+  const o=document.getElementById('be-orient');
+  if(o){ const bits=[]; if(+e.rotate) bits.push(`↻ ${+(+e.rotate).toFixed(1)}°`);
+    if(e.flipH) bits.push('⇄'); if(e.flipV) bits.push('⇅');
+    o.textContent='panel preview'+(bits.length?' · '+bits.join(' '):''); }
+}
+// The editor canvas shows the image through the pending edits, so the box is placed
+// on what the panel will look like. Levels and LUT go through applyAdjust itself —
+// the renderer's own code path — on a thumbnail, so the preview cannot drift from it.
+function _batchPreviewSrc(W,H){
+  const s=cropEdState, img=s.img, im=images[s.imgIdx];
+  if(!s.batchEdit||!im) return img;
+  if(!s._beThumb||s._beThumbImg!==img||s._beThumb.width!==W||s._beThumb.height!==H){
+    const t=document.createElement('canvas'); t.width=W; t.height=H;
+    t.getContext('2d').drawImage(img,0,0,W,H);
+    s._beThumb=t; s._beThumbImg=img; s._bePrevObj={};    // fresh cache for a new image
+  }
+  const p=Object.assign(s._bePrevObj,s.batchEdit,
+    {blackPt:im.blackPt||0, whitePt:im.whitePt||255, bgKey:im.bgKey, cropAngle:0, img:s._beThumb});
+  const r=applyAdjust(p,0,0,W,H,s._beThumb);
+  return r.off?r.canvas:s._beThumb;
+}
+// A small preview of the panel as it will come out: cropped, straightened, adjusted,
+// then turned and flipped in the same order the renderer applies them.
+function _batchDrawResult(src,W,H){
+  const rc=document.getElementById('be-result'); if(!rc) return;
+  const ctx=rc.getContext('2d'), s=cropEdState, e=s.batchEdit||_batchEditIdentity();
+  const box=s.hasBox&&s.cw>0.02&&s.ch>0.02;
+  const bw=(box?s.cw:1)*W, bh=(box?s.ch:1)*H;
+  const q=box?_ceQuad():[[0,0],[W,0],[W,H],[0,H]];
+  const ctr=[(q[0][0]+q[2][0])/2,(q[0][1]+q[2][1])/2];
+  const r=(+e.rotate||0)*Math.PI/180;
+  const ow=Math.abs(bw*Math.cos(r))+Math.abs(bh*Math.sin(r));
+  const oh=Math.abs(bw*Math.sin(r))+Math.abs(bh*Math.cos(r));
+  const S=Math.min(120/ow,90/oh);
+  rc.width=Math.max(1,Math.round(ow*S)); rc.height=Math.max(1,Math.round(oh*S));
+  ctx.save();
+  ctx.translate(rc.width/2,rc.height/2); ctx.scale(S,S);
+  ctx.rotate(r); ctx.scale(e.flipH?-1:1,e.flipV?-1:1);
+  ctx.beginPath(); ctx.rect(-bw/2,-bh/2,bw,bh); ctx.clip();
+  ctx.rotate(-_ceAngRad()*(box?1:0)); ctx.translate(-ctr[0],-ctr[1]);
+  ctx.drawImage(src,0,0,W,H);
+  ctx.restore();
 }
 
 // Batch crop keeps ONE size for every image but lets each image carry its own tilt,
@@ -8131,29 +8359,30 @@ function _applyBatchCropCurrent(){
   im.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
   im.cropR=_cropPct((1-cropEdState.cx-cropEdState.cw));
   im.cropAngle=+cropEdState.ang||0;
+  if(cropEdState.batchEdit) _batchWriteEdit(im,cropEdState.batchEdit);
   im._cropCache=undefined; im._cropKey=undefined;
   im._adjCache=undefined; im._adjKey=undefined;
+  if(cropEdState.batchApplied) cropEdState.batchApplied.add(idx);
 }
 
-function _advanceBatchCrop(){
-  if(!cropEdState.batchQueue.length){
-    cropEdState.batch=false; _updateBatchUI(); _resetCropModalUI();
-    document.getElementById('crop-modal').classList.remove('open');
-    renderImgList(); scheduleRender(0);
-    toast('Batch crop applied','ok');
-    return;
+// Put image `idx` in the editor. `box` is its own saved crop (going Back); without
+// it the image gets the shared size, centred and upright.
+function _batchLoad(idx,box){
+  const im=images[idx]; if(!im) return;
+  const s=cropEdState;
+  s.imgIdx=idx; s.img=im.img;
+  if(box){ Object.assign(s,box); }
+  else {
+    const cw=s.batchCropW, ch=s.batchCropH;
+    s.cx=(1-cw)/2; s.cy=(1-ch)/2; s.cw=cw; s.ch=ch; s.ang=0;
   }
-  const nextIdx=cropEdState.batchQueue.shift();
-  const im=images[nextIdx]; if(!im) { _advanceBatchCrop(); return; }
-  // Preserve locked size, center the box on new image. Each image starts upright,
-  // as in multi-crop: inheriting the last image's tilt would be a guess, and Level
-  // or Auto set the right one in two clicks.
-  const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH;
-  cropEdState.imgIdx=nextIdx; cropEdState.img=im.img;
-  cropEdState.cx=(1-cw)/2; cropEdState.cy=(1-ch)/2;
-  cropEdState.cw=cw; cropEdState.ch=ch;
-  cropEdState.ang=0; cropEdState._gray=null;
-  cropEdState.hasBox=true;
+  s._gray=null; s.hasBox=true;
+  // Edits: the image's own, unless the batch is carrying edits forward and some were made.
+  s.batchEdit=(!box&&s.batchCarry!==false&&s.batchEditTouched)
+    ? Object.assign({},s.batchEdit) : _batchEditOf(im);
+  // Going Back shows that image at the size it was saved with; that is not a resize,
+  // so it must not become the shared size. Only a change from here on is.
+  s._beLoadSize=[s.cw,s.ch];
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -8162,12 +8391,44 @@ function _advanceBatchCrop(){
     cc.width=Math.round(im.img.width*sc); cc.height=Math.round(im.img.height*sc);
     drawCropEd();
   });
-  _updateBatchUI();
+  _updateBatchUI(); _syncBatchEditUI();
+}
+
+function _advanceBatchCrop(){
+  if(cropEdState.imgIdx>=0&&cropEdState.batchHistory) cropEdState.batchHistory.push(cropEdState.imgIdx);
+  if(!cropEdState.batchQueue.length){
+    cropEdState.batch=false; _updateBatchUI(); _resetCropModalUI();
+    document.getElementById('crop-modal').classList.remove('open');
+    renderImgList(); scheduleRender(0);
+    toast('Batch crop applied','ok');
+    return;
+  }
+  const nextIdx=cropEdState.batchQueue.shift();
+  if(!images[nextIdx]) { cropEdState.imgIdx=-1; _advanceBatchCrop(); return; }
+  // Preserve the shared size, center the box on the new image. Each image starts
+  // upright, as in multi-crop: inheriting the last image's tilt would be a guess, and
+  // Level or Auto set the right one in two clicks.
+  _batchLoad(nextIdx);
+}
+
+// Step back to the previous image with its crop and edits as they were saved, to
+// re-edit it. The image being left is put back at the front of the queue.
+function backBatchCrop(){
+  const s=cropEdState;
+  if(!s.batch||!s.batchHistory||!s.batchHistory.length){ toast('This is the first image','warn'); return; }
+  const prev=s.batchHistory.pop();
+  if(s.imgIdx>=0) s.batchQueue.unshift(s.imgIdx);
+  const im=images[prev]; if(!im){ backBatchCrop(); return; }
+  const l=im.cropL/100,t=im.cropT/100,r=im.cropR/100,b=im.cropB/100;
+  const cropped=s.batchApplied&&s.batchApplied.has(prev);
+  _batchLoad(prev, cropped
+    ? {cx:l,cy:t,cw:1-l-r,ch:1-t-b,ang:+im.cropAngle||0}
+    : {cx:(1-s.batchCropW)/2,cy:(1-s.batchCropH)/2,cw:s.batchCropW,ch:s.batchCropH,ang:0});
 }
 
 function skipBatchCrop(){
   if(!cropEdState.batch) return;
-  // Lock size from whatever is drawn if not yet locked
+  // Set the size from whatever is drawn if it is not set yet
   if(!cropEdState.batchCropW && cropEdState.cw>0.02){
     cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
   }
@@ -8182,6 +8443,7 @@ function applyBatchCropAll(){
   _applyBatchCropCurrent();
   const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH, ang=+cropEdState.ang||0;
   const remaining=cropEdState.batchQueue.length;
+  const carry=cropEdState.batchCarry!==false&&cropEdState.batchEditTouched&&cropEdState.batchEdit;
   cropEdState.batchQueue.forEach(i=>{
     const im=images[i]; if(!im) return;
     im.cropT=_cropPct((1-ch)/2);
@@ -8189,6 +8451,7 @@ function applyBatchCropAll(){
     im.cropB=_cropPct((1-ch)/2);
     im.cropR=_cropPct((1-cw)/2);
     im.cropAngle=ang;
+    if(carry) _batchWriteEdit(im,cropEdState.batchEdit);
     im._cropCache=undefined; im._cropKey=undefined;
     im._adjCache=undefined; im._adjKey=undefined;
   });
@@ -8692,7 +8955,7 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
     const h=_handleAt(p.fx,p.fy);
     if(h){ cc.style.cursor=_handleCursor(h); return; }
     // In batch mode with size locked, always grabbable
-    if(_sizeLocked()){ cc.style.cursor='grab'; return; }
+    if(_sizeLocked()||_ceBatchSized()){ cc.style.cursor='grab'; return; }
     cc.style.cursor=_insideBox(p.fx,p.fy)?'grab':'crosshair';
   }
 
@@ -8721,7 +8984,7 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
       e.preventDefault(); return;
     }
     // Batch with locked size OR clicking inside an existing box → move it
-    const shouldMove=_sizeLocked()||_insideBox(p.fx,p.fy);
+    const shouldMove=_sizeLocked()||_ceBatchSized()||_insideBox(p.fx,p.fy);
     if(shouldMove){
       cropEdState.batchMoving=true;
       cropEdState.batchMoveStartX=p.fx; cropEdState.batchMoveStartY=p.fy;
