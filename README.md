@@ -283,6 +283,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ### Unreleased — since v3.17.0
 
+- **New: 🎓 Tutorials.** Five step-by-step tutorials, each of which builds its own small demo figure and walks you through the real controls: *a western blot with its loading control* (greyscale, rows that hug, lane numbers, MW ladder, splice marker, compliance, Methods), *a multichannel fluorescence row* (merge ticked C1/C2/C3 files, split into a row, channel key), *straighten a tilted specimen, then crop*, *headings, group bands and spacing* (a phage spot-plate grid across two host strains), and *get a figure through submission* (journal preset, per-panel ppi, compliance, Methods, LZW TIFF, package). When a step asks you to do something, the card waits and moves on once you have done it. **Do it for me** does the step for you, so you can't get stuck, and <kbd>Esc</kbd> ends a tutorial at any point. Starting one over your own figure asks first and is a single undo step. They live in a new **🎓 Tutorials** tab in Help, on the welcome screen, and in ⌘K (*tutorial western*, *tutorial channels*…). The five-step Quick tour is unchanged. A test walks every tutorial end to end, so a renamed control fails the build instead of stranding someone halfway through.
+
 ### v3.17.0 — 27 September 2026
 
 Built by making real figures end to end and fixing every place the work stalled, then reviewing those fixes adversarially and fixing what the review found — plus six features for getting a figure through submission: a Methods paragraph, per-panel print resolution, LZW TIFF, merging ticked channel files, a split that keeps the field, and repeating an annotation across panels.

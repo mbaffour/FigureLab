@@ -1421,6 +1421,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="esLoadSession()">📂 Load a session</button>
           <button class="btn btn-primary" onclick="loadExampleFigure()">✨ Try the example figure</button>
           <button class="btn" onclick="startTour(true)" title="A quick 5-step walkthrough of the workflow">🧭 Quick tour</button>
+          <button class="btn" onclick="openHelp('tutorials')" title="Step-by-step tutorials that build a demo figure as you go — a western blot, a multichannel row, straighten-and-crop, headings and bands, and submission">🎓 Tutorials</button>
           <button class="btn" onclick="openCustomize()">⚙ Customize</button>
         </div>
         <div class="es-actions" style="margin-top:6px">
@@ -1723,6 +1724,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="help-tabs" role="tablist">
       <button class="help-tab active" data-help-tab="start" onclick="switchHelpTab('start')" role="tab">Getting Started</button>
       <button class="help-tab" data-help-tab="whatsnew" onclick="switchHelpTab('whatsnew')" role="tab">✨ What's New</button>
+      <button class="help-tab" data-help-tab="tutorials" onclick="switchHelpTab('tutorials')" role="tab">🎓 Tutorials</button>
       <button class="help-tab" data-help-tab="usecases" onclick="switchHelpTab('usecases')" role="tab">Use Cases</button>
       <button class="help-tab" data-help-tab="faq" onclick="switchHelpTab('faq')" role="tab">FAQ</button>
     </div>
@@ -2026,6 +2028,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <div class="help-callout help-tip"><b>Tip</b> Prefer the full toolset? Everything advanced is one click away via the <b>Advanced</b> toggle (top-right) or the command palette.</div>
 <p class="help-p" style="color:var(--muted);font-size:11px">See the full history in the project README changelog.</p>
 <!-- /HELP:WHATSNEW -->
+      </div>
+      <div class="help-pane" id="help-pane-tutorials">
+<h3 class="help-h">Tutorials</h3>
+<p class="help-p">Each tutorial builds a small demo figure and walks you through the real controls, one step at a time. When a step asks you to do something, the card waits and moves on once you have done it. <b>Do it for me</b> does that step for you, and <kbd>Esc</kbd> ends the tutorial at any point. Your own figure is replaced while a tutorial runs; <kbd>Ctrl</kbd>+<kbd>Z</kbd> brings it back.</p>
+<div id="tutorial-list"></div>
       </div>
       <div class="help-pane" id="help-pane-usecases">
 <!-- HELP:USECASES -->
@@ -2565,6 +2572,7 @@ const annCanvas = document.getElementById('ann-canvas');
 // ═══════════════════════════════════════════════════════════════
 // ── Help & FAQ modal ─────────────────────────────────────────
 function switchHelpTab(tab){
+  if(tab==='tutorials' && typeof renderTutorialList==='function') renderTutorialList();
   document.querySelectorAll('.help-tab').forEach(b=>b.classList.toggle('active', b.dataset.helpTab===tab));
   document.querySelectorAll('.help-pane').forEach(p=>p.classList.toggle('active', p.id==='help-pane-'+tab));
   const body=document.querySelector('#help-modal .help-body'); if(body) body.scrollTop=0;
@@ -3740,6 +3748,12 @@ const CMD_REGISTRY=[
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
   {label:"What's new (v3.9)",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
   {label:'Replay guided tour',       keys:'tour guide onboarding walkthrough help', run:()=>startTour(true)},
+  {label:'Tutorials — list them all', keys:'tutorial tutorials lesson learn how to guide walkthrough teach course', run:()=>openHelp('tutorials')},
+  {label:'Tutorial: a western blot with its loading control', keys:'tutorial western blot gel loading control lanes ladder splice learn', run:()=>startTutorial('blot')},
+  {label:'Tutorial: a multichannel fluorescence row', keys:'tutorial channels merge split fluorescence dapi gfp mcherry channel key learn', run:()=>startTutorial('channels')},
+  {label:'Tutorial: straighten a tilted specimen, then crop', keys:'tutorial straighten level tilt rotate crop angle gel learn', run:()=>startTutorial('straighten')},
+  {label:'Tutorial: headings, group bands and spacing', keys:'tutorial headings row column labels group bands spacing gaps grid phage plates learn', run:()=>startTutorial('layout')},
+  {label:'Tutorial: get a figure through submission', keys:'tutorial submission journal preset compliance methods ppi package tiff learn', run:()=>startTutorial('submit')},
   {label:'Customize (name, theme, background)', keys:'customize name theme background animation welcome', run:()=>openCustomize()},
   {label:'Toggle animated background', keys:'background animation motion science toggle', run:()=>{ if(typeof setBgAnimation==='function') setBgAnimation(!(typeof bgAnimationEnabled==='function'&&bgAnimationEnabled())); }},
   {label:'Polish caption (on-device AI)', keys:'ai caption gemini nano polish legend', run:()=>aiPolishCaption()},
@@ -5774,18 +5788,40 @@ const TOUR_STEPS=[
   {sel:'#export-acc', title:'4 · Export', body:'Set a file name and DPI (300 for print, 600 for journals), then export PNG, TIFF, PDF, SVG — or a whole submission package.'},
   {sel:'#help-btn', title:'5 · Finding everything', body:'Sections are named for what you are doing — Crop & Scale, Measure, Check. Press ⌘K to search every tool by name. Press ❔ for help & FAQ.'},
 ];
-let _tourI=0;
+// The same engine runs the basics tour and every task tutorial (TUTORIALS, below).
+// A step is {sel, title, body} plus, optionally:
+//   before()  — run first: open the section or ⚙ drawer the control lives in
+//   waitFor() — the step asks you to DO something; the card advances by itself
+//               the moment this is true, and Next becomes "Skip this step"
+//   act()     — what "Do it for me" runs, so no tutorial can strand someone
+// sel may be a function, for targets whose index depends on earlier steps.
+let _tourI=0, _tourSteps=TOUR_STEPS, _tut=null, _tourPoll=null;
 function startTour(force){
   try{ if(!force && localStorage.getItem('fl-tour-done')) return; }catch(e){}
+  _tut=null; _tourSteps=TOUR_STEPS;
   _tourI=0; _tourShow();
 }
 function _tourEndSave(){ try{ localStorage.setItem('fl-tour-done','1'); localStorage.setItem('fl-hints-seen','1'); }catch(e){} }
-function _tourClose(){ const o=document.getElementById('tour-ov'); if(o) o.remove(); }
-function _tourEnd(){ _tourClose(); _tourEndSave(); }
+function _tourClose(){ clearInterval(_tourPoll); _tourPoll=null; const o=document.getElementById('tour-ov'); if(o) o.remove(); }
+function _tourEnd(){ _tourClose(); _tourEndSave(); _tut=null; _tourSteps=TOUR_STEPS; }
+function _tourFinish(){
+  if(_tut){ try{ localStorage.setItem('fl-tut-done-'+_tut.id,'1'); }catch(e){}
+    toast(`Tutorial complete: ${_tut.title}. Ctrl+Z steps back through it; ❔ → Tutorials has the others.`,'ok'); }
+  _tourEnd();
+}
+function _tourNext(){ if(_tourI>=_tourSteps.length-1) _tourFinish(); else { _tourI++; _tourShow(); } }
+const _tourSel = step => typeof step.sel==='function' ? step.sel() : step.sel;
+// A bare checkbox is 13 px; ring the row it sits in so it can be found.
+function _tourTarget(step){
+  let el=null; try{ el=document.querySelector(_tourSel(step)); }catch(e){}
+  if(el && el.matches('input[type=checkbox]') && el.parentElement) el=el.parentElement;
+  return el;
+}
 function _tourShow(){
   _tourClose();
-  const step=TOUR_STEPS[_tourI]; if(!step){ _tourEnd(); return; }
-  const el=document.querySelector(step.sel);
+  const step=_tourSteps[_tourI]; if(!step){ _tourEnd(); return; }
+  if(step.before){ try{ step.before(); }catch(e){ console.warn('tutorial step setup', e); } }
+  const el=_tourTarget(step);
   const visible = el && el.getBoundingClientRect().width>0;
   // Scroll the target into view FIRST, then measure once layout has settled — otherwise
   // targets below the fold (e.g. the Export section) get a stale off-screen rect and the
@@ -5793,45 +5829,387 @@ function _tourShow(){
   if(visible){ try{ el.scrollIntoView({block:'center', inline:'nearest', behavior:'instant'}); }catch(e){ try{ el.scrollIntoView({block:'center'}); }catch(_){} } }
   requestAnimationFrame(()=>requestAnimationFrame(()=>_tourRender(step, visible?el:null)));
 }
-function _tourRender(step, el){
-  _tourClose();
+function _tourHoleRect(el){
   let r={left:innerWidth/2-110, top:innerHeight/2-40, width:220, height:80};
   if(el){ const b=el.getBoundingClientRect(); if(b.width){ r={left:b.left-6, top:b.top-6, width:b.width+12, height:b.height+12}; } }
-  const ov=document.createElement('div'); ov.id='tour-ov'; ov.style.cssText='position:fixed;inset:0;z-index:10000';
+  return r;
+}
+function _tourRender(step, el){
+  _tourClose();
+  const doing=!!step.waitFor;
+  let r=_tourHoleRect(el);
+  // A step that asks you to click something must let the click through, so its
+  // overlay is inert and only the card takes the pointer. Escape and Skip still end it.
+  const ov=document.createElement('div'); ov.id='tour-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:10000'+(doing?';pointer-events:none':'');
   const hole=document.createElement('div');
-  hole.style.cssText=`position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`+
-    `border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.6);pointer-events:none;transition:all .2s`;
+  const holeCss=r=>`position:absolute;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;`+
+    `border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,${doing?.45:.6});pointer-events:none;transition:all .2s`+
+    (doing?';outline:2px solid var(--accent);outline-offset:2px':'');
+  hole.style.cssText=holeCss(r);
   ov.appendChild(hole);
-  const CARD_W=280;
+  const CARD_W=_tut?300:280;
   const cLeft=Math.min(Math.max(8, r.left), innerWidth-CARD_W-8);
   const card=document.createElement('div'); card.id='tour-card';
   card.style.cssText=`position:absolute;width:${CARD_W}px;max-width:calc(100vw - 16px);background:var(--surface);`+
     `border:1px solid var(--border2);border-radius:10px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);`+
-    `font-family:var(--mono);left:${cLeft}px;top:8px;visibility:hidden`;
-  card.innerHTML=`<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">${step.title}</div>
+    `font-family:var(--mono);left:${cLeft}px;top:8px;visibility:hidden;pointer-events:auto`;
+  const last=_tourI===_tourSteps.length-1;
+  card.innerHTML=`${_tut?`<div style="font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:4px">${esc(_tut.title)}</div>`:''}
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">${step.title}</div>
     <div style="font-size:11.5px;color:var(--muted);line-height:1.55">${step.body}</div>
-    <div style="display:flex;gap:6px;align-items:center;margin-top:12px">
-      <span style="font-size:10px;color:var(--muted)">${_tourI+1} / ${TOUR_STEPS.length}</span>
-      <button class="btn" id="tour-skip" style="margin-left:auto;padding:3px 9px;font-size:11px">Skip</button>
+    ${doing?`<div id="tour-doing" style="font-size:10.5px;color:var(--accent);margin-top:8px">● Waiting for you to do it — this card moves on by itself.</div>`:''}
+    <div style="display:flex;gap:6px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <span style="font-size:10px;color:var(--muted)">${_tourI+1} / ${_tourSteps.length}</span>
+      <button class="btn" id="tour-skip" style="margin-left:auto;padding:3px 9px;font-size:11px" title="End the ${_tut?'tutorial':'tour'} (Esc)">${_tut?'End':'Skip'}</button>
       ${_tourI>0?'<button class="btn" id="tour-back" style="padding:3px 9px;font-size:11px">‹ Back</button>':''}
-      <button class="btn btn-primary" id="tour-next" style="padding:3px 9px;font-size:11px">${_tourI===TOUR_STEPS.length-1?'Done':'Next ›'}</button>
+      ${doing&&step.act?'<button class="btn" id="tour-act" style="padding:3px 9px;font-size:11px" title="Do this step for me, and move on">Do it for me</button>':''}
+      <button class="btn btn-primary" id="tour-next" style="padding:3px 9px;font-size:11px"${doing?' title="Move on without doing this step"':''}>${last?'Done':doing?'Skip step ›':'Next ›'}</button>
     </div>`;
   ov.appendChild(card);
   document.body.appendChild(ov);
   // Clamp the card fully inside the viewport so Next / Skip are ALWAYS reachable.
-  const ch=card.offsetHeight||160;
-  const below = r.top < innerHeight/2;
-  let cTop = below ? (r.top+r.height+12) : (r.top-ch-12);
-  cTop = Math.min(Math.max(8, cTop), innerHeight-ch-8);
-  card.style.top=cTop+'px'; card.style.visibility='visible';
+  const place=()=>{
+    const ch=card.offsetHeight||160;
+    const below = r.top < innerHeight/2;
+    let cTop = below ? (r.top+r.height+12) : (r.top-ch-12);
+    cTop = Math.min(Math.max(8, cTop), innerHeight-ch-8);
+    card.style.top=cTop+'px';
+    card.style.left=Math.min(Math.max(8, r.left), innerWidth-CARD_W-8)+'px';
+  };
+  place(); card.style.visibility='visible';
   // Clicking the dimmed area outside the card also dismisses the tour (belt & suspenders).
-  ov.addEventListener('click', e=>{ if(e.target===ov || e.target===hole) _tourEnd(); });
-  card.querySelector('#tour-next').addEventListener('click',()=>{ if(_tourI===TOUR_STEPS.length-1) _tourEnd(); else { _tourI++; _tourShow(); } });
+  // Not on a "do it" step: there the click is meant for the app underneath.
+  if(!doing) ov.addEventListener('click', e=>{ if(e.target===ov || e.target===hole) _tourEnd(); });
+  card.querySelector('#tour-next').addEventListener('click',_tourNext);
   const bk=card.querySelector('#tour-back'); if(bk) bk.addEventListener('click',()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); });
   card.querySelector('#tour-skip').addEventListener('click',_tourEnd);
+  const ab=card.querySelector('#tour-act');
+  if(ab) ab.addEventListener('click',()=>{ try{ step.act(); }catch(e){ console.warn('tutorial act', e); toast('That step could not be done automatically — try it by hand','warn'); } });
+  if(doing){
+    const myI=_tourI;
+    _tourPoll=setInterval(()=>{
+      if(_tourI!==myI || !document.getElementById('tour-ov')){ clearInterval(_tourPoll); return; }
+      let ok=false; try{ ok=!!step.waitFor(); }catch(e){}
+      if(ok){
+        clearInterval(_tourPoll); _tourPoll=null;
+        const d=card.querySelector('#tour-doing'); if(d){ d.textContent='✓ Done'; d.style.color='var(--a2)'; }
+        setTimeout(()=>{ if(_tourI===myI && document.getElementById('tour-ov')) _tourNext(); }, 450);
+        return;
+      }
+      // The control may have moved (a list rebuilt, a row hugged); keep the ring on it.
+      const t=_tourTarget(step);
+      if(t){ const nr=_tourHoleRect(t); if(Math.abs(nr.left-r.left)+Math.abs(nr.top-r.top)+Math.abs(nr.width-r.width)>2){ r=nr; hole.style.cssText=holeCss(r); place(); } }
+    }, 250);
+  }
 }
 // Safety hatch: Escape always dismisses the tour, so it can never trap you.
 document.addEventListener('keydown', e=>{ if(e.key==='Escape' && document.getElementById('tour-ov')){ e.preventDefault(); e.stopPropagation(); _tourEnd(); } }, true);
+
+// ── Task tutorials ──────────────────────────────────────────────
+// Each builds its own small figure from deterministic demo pixels (nothing is
+// downloaded), then walks through the real controls. The data is a stand-in and the
+// tutorials say so: calibrations are set here, by hand, and the Methods paragraph
+// reports them that way.
+function _tutOpen(id){           // open every <details> around a control, quietly
+  const el=typeof id==='string'?document.getElementById(id)||document.querySelector(id):id;
+  let n=el; while(n && n!==document.body){ if(n.tagName==='DETAILS') n.open=true; n=n.parentElement; }
+  return el;
+}
+function _tutDrawer(idx){        // a panel's ⚙ drawer, freshly built and open
+  renderImgList();
+  const d=document.getElementById('settings-'+idx);
+  if(d){ d.classList.add('open'); _tutOpen(d); }
+  return d;
+}
+function _tutPrompt(answer, fn){ const real=window.prompt; window.prompt=()=>answer; try{ fn(); } finally { window.prompt=real; } }
+function _tutCloseInfo(){ const m=document.getElementById('info-modal-bg'); if(m) m.remove(); }
+const _tutMergeIdx = () => images.findIndex(im=>im&&!im.excluded&&(im.channels||[]).length>=1);
+function _tutVisible(){ return images.filter(im=>im&&!im.excluded); }
+
+function _tutMakeImage(kind, seed){
+  const rnd=_demoRnd(seed);
+  const mk=(w,h)=>{ const c=document.createElement('canvas'); c.width=w; c.height=h; return [c,c.getContext('2d')]; };
+  const band=(x,cx,cy,w,h,d)=>{ const g=x.createRadialGradient(cx,cy,1,cx,cy,w);
+    g.addColorStop(0,`rgba(18,18,24,${Math.min(0.92,d)})`); g.addColorStop(1,'rgba(18,18,24,0)');
+    x.fillStyle=g; x.beginPath(); x.ellipse(cx,cy,w,h,0,0,7); x.fill(); };
+  const grain=(x,W,H,n)=>{ x.fillStyle='rgba(0,0,0,0.05)'; for(let i=0;i<n;i++) x.fillRect(rnd()*W,rnd()*H,1,1); };
+  if(kind==='blotWide' || kind==='blotLoad'){
+    const W=600, H=kind==='blotWide'?180:70, lanes=6, [c,x]=mk(W,H);
+    x.fillStyle='#eeede8'; x.fillRect(0,0,W,H); grain(x,W,H,1400);
+    const lw=(W-40)/lanes;
+    for(let L=0;L<lanes;L++){
+      const cx=20+lw*L+lw/2;
+      if(kind==='blotLoad') band(x,cx,H/2,lw*0.34,8,0.7);                     // even loading control
+      else [ {y:48,h:8,d:0.78},{y:98,h:7,d:0.15+L*0.14},{y:142,h:9,d:0.55} ]    // target rises lane by lane
+        .forEach(b=>band(x,cx,b.y,lw*0.34,b.h,b.d));
+    }
+    return c.toDataURL('image/png');
+  }
+  if(kind==='gelTilted'){                       // a gel photographed about 7° off square
+    const W=520, H=360, [c,x]=mk(W,H);
+    x.fillStyle='#16171c'; x.fillRect(0,0,W,H);
+    x.save(); x.translate(W/2,H/2); x.rotate(7*Math.PI/180);
+    const gw=380, gh=220;
+    x.fillStyle='#2b2d35'; x.fillRect(-gw/2,-gh/2,gw,gh);
+    x.strokeStyle='#4a4d58'; x.lineWidth=2; x.strokeRect(-gw/2,-gh/2,gw,gh);
+    for(let L=0;L<8;L++){
+      const cx=-gw/2+24+L*((gw-48)/7);
+      x.fillStyle='#0d0d10'; x.fillRect(cx-12,-gh/2+10,24,6);               // wells
+      [40,78,122,168].forEach((y,k)=>{ if(rnd()<0.8){ const a=0.35+rnd()*0.55;
+        x.fillStyle=`rgba(236,240,255,${a})`; x.fillRect(cx-12,-gh/2+y,24,4+k%2*2); } });
+    }
+    x.restore();
+    return c.toDataURL('image/png');
+  }
+  if(kind.startsWith('plate')){                 // a spot plate: lawn with plaques
+    const S=240, [c,x]=mk(S,S), clear=+kind.slice(5)||0;   // 0 = no phage … 3 = heavy lysis
+    x.fillStyle='#202226'; x.fillRect(0,0,S,S);
+    x.fillStyle='#d8cfa6'; x.beginPath(); x.arc(S/2,S/2,S/2-10,0,7); x.fill();   // lawn
+    x.strokeStyle='#8f8a78'; x.lineWidth=4; x.beginPath(); x.arc(S/2,S/2,S/2-10,0,7); x.stroke();
+    grain(x,S,S,900);
+    const n=[0,14,40,90][clear]||0;
+    for(let i=0;i<n;i++){ const a=rnd()*7, rr=rnd()*(S/2-26);
+      x.fillStyle='rgba(40,42,48,0.78)'; x.beginPath(); x.arc(S/2+Math.cos(a)*rr,S/2+Math.sin(a)*rr,1.5+rnd()*2.6,0,7); x.fill(); }
+    return c.toDataURL('image/png');
+  }
+  return _makeDemoImage(kind, seed);
+}
+// Build and install a tutorial's figure: one undo step, replacing what was there.
+async function _tutSeed(specs, layout){
+  let loaded;
+  try{
+    loaded = await Promise.all(specs.map(sp=>new Promise((res,rej)=>{
+      const src=_tutMakeImage(sp.kind, sp.seed||1); const img=new Image();
+      img.onload=()=>res({img,src,sp}); img.onerror=rej; img.src=src;
+    })));
+  }catch(e){ toast('Could not build the tutorial figure','err'); return false; }
+  pushUndo();
+  images = loaded.map(({img,src,sp},i)=>{
+    const p=_freshPanel(img,src,sp.name,_letterLabel(i));
+    // The tutorial sets these by hand, and _metaUmPerPx:0 records exactly that — the
+    // Methods paragraph will say "set by hand", which is true.
+    p._metaUmPerPx=0; p._metaCalibSource='';
+    Object.assign(p, sp.set||{});
+    return p;
+  });
+  annotations=[]; figGroups=[]; if(typeof renderGroupList==='function') renderGroupList();
+  colGaps=null; rowGaps=null; advancedSpacing=false; { const a=document.getElementById('advanced-spacing'); if(a) a.checked=false; }
+  selectedPanel=-1; selectedPanelAnn=null; selectedAnnotation=-1; hideAnnFloat();
+  if(panelAnnMode) togglePanelAnnMode();
+  if(typeof setTool==='function') setTool('none');
+  sc('auto-row-h',false); sc('show-col-labels',false); sc('show-row-labels',false); sc('show-labels',true);
+  const L=Object.assign({cols:2,rows:1,pw:300,ph:300,gap:6,title:''}, layout||{});
+  sv('cols',L.cols); sv('rows',L.rows); sv('panel-w',L.pw); sv('panel-h',L.ph); sv('gap-h',L.gap); sv('gap-v',L.gap);
+  sv('fig-title',L.title);
+  resetAxisLabels([],[]);          // also re-lays the grid
+  renderImgList(); renderMiniGrid(); render(); drawAnnOverlay();
+  logAction('tutorialSeed',{panels:images.length});
+  return true;
+}
+
+const TUTORIALS=[
+  { id:'basics', title:'The five-minute tour', blurb:'Where things are: import, layout, annotate, export, and ⌘K to find any tool.', steps:TOUR_STEPS },
+
+  { id:'blot', title:'A western blot with its loading control', minutes:4,
+    blurb:'Stack a blot over its loading control with no dead space, number the lanes, add the ladder, mark a splice, and write the Methods paragraph.',
+    setup:()=>_tutSeed([
+      {kind:'blotWide', seed:5, name:'anti-FLAG_blot.png', set:{captionNote:'α-FLAG'}},
+      {kind:'blotLoad', seed:6, name:'anti-GAPDH_loading.png', set:{captionNote:'α-GAPDH (loading control)'}},
+    ], {cols:1, rows:2, pw:360, ph:300, title:'Tutorial — FLAG-tagged protein, 0–60 min'}),
+    steps:[
+      { sel:'#fig-canvas', title:'Two blots, a lot of empty space',
+        body:'A 600 × 180 blot and a 600 × 70 loading control, each in a 300 px-tall cell. The white above and below each strip is <b>inside</b> its cell, so no gap setting can remove it. Next, you will make them greyscale, stack them tight, and label the lanes.' },
+      { before:()=>_tutDrawer(0), sel:'#settings-0 .f-gray', title:'Make the blots greyscale',
+        body:'In panel A\'s ⚙ settings, click <b>Grayscale</b>, then do the same for panel B. A colour scan of a membrane should not carry a tint into the figure.',
+        waitFor:()=>_tutVisible().every(im=>im.grayscale),
+        act:()=>images.forEach((im,i)=>{ if(im&&!im.grayscale){ const b=document.querySelector('#settings-'+i+' .f-gray'); if(b) b.click(); } }) },
+      { before:()=>_tutOpen('auto-row-h'), sel:'#auto-row-h', title:'Let the rows hug their panels',
+        body:'Tick <b>Rows hug their panels</b>. Each row shrinks to the panel in it, so the loading control sits right under the blot. The width does not change, so the lanes stay lined up.',
+        waitFor:()=>gc('auto-row-h'), act:()=>document.getElementById('auto-row-h').click() },
+      { before:()=>{ selectedPanel=0; _tutOpen(document.querySelector('button[onclick="addLaneLabels()"]')); },
+        sel:'button[onclick="addLaneLabels()"]', title:'Number the lanes',
+        body:'Click <b>▦ Lane labels</b> and answer <b>6</b>. The numbers go above panel A, which is the selected panel. Drag them onto the lanes afterwards with ↖ Select.',
+        waitFor:()=>annotations.some(a=>a&&a.type==='text'&&a.text==='1'),
+        act:()=>_tutPrompt('6',()=>{ selectedPanel=0; addLaneLabels(); }) },
+      { sel:'button[onclick="addLadderLabels()"]', title:'Add the molecular-weight ladder',
+        body:'Click <b>↕ MW ladder</b> and enter the markers you ran, top to bottom, for example <code>250,130,70,35</code>. They land beside the blot, ready to drag onto the ladder bands.',
+        waitFor:()=>annotations.some(a=>a&&a.type==='text'&&/^(250|130|100|70|55|35|25)$/.test(a.text||'')),
+        act:()=>_tutPrompt('250,130,70,35',()=>{ selectedPanel=0; addLadderLabels(); }) },
+      { sel:'button[onclick="addSpliceMarker()"]', title:'Mark a splice',
+        body:'If lanes were cut from one membrane and rejoined, journals require a visible line at the join. <b>⎸ Add splice marker</b> draws one across the blot, and the Methods paragraph will mention it. There is no real splice in this demo; add one anyway to see how it works.',
+        waitFor:()=>annotations.some(a=>a&&a.splice),
+        act:()=>{ selectedPanel=0; addSpliceMarker(); } },
+      { before:()=>_tutOpen(document.querySelector('button[onclick="checkCompliance()"]')),
+        sel:'button[onclick="checkCompliance()"]', title:'Check it against the journal rules',
+        body:'<b>✓ Check journal compliance</b> checks calibration, resolution, adjustments, splices and labels. Read what it flags. The low-resolution warning is real: these demo strips are small.',
+        waitFor:()=>!!document.getElementById('info-modal-bg'), act:()=>checkCompliance() },
+      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick="writeMethodsParagraph()"]')); },
+        sel:'button[onclick="writeMethodsParagraph()"]', title:'Write the Methods paragraph',
+        body:'<b>✎ Write Methods paragraph</b> describes the image processing from what the figure records: greyscale, the splice, where the scale came from. Edit it freely. The submission package ships your edited version.',
+        waitFor:()=>(document.getElementById('methods-out').value||'').length>40, act:()=>writeMethodsParagraph() },
+      { sel:'#fig-canvas', title:'That is a blot figure',
+        body:'Everything you did is a single undo history: <kbd>Ctrl</kbd>+<kbd>Z</kbd> steps back through it. For your own blots, drop in the scans, crop to the lanes (⚙ → ✂ Crop editor) and repeat these steps.' },
+    ] },
+
+  { id:'channels', title:'A multichannel fluorescence row', minutes:3,
+    blurb:'Merge separately exported channel files into one panel, split it back into a DAPI | GFP | mCherry | merge row, and add a channel key.',
+    setup:()=>_tutSeed([
+      {kind:'nuclei',    seed:11, name:'C1-DAPI.tif',    set:{umPerPx:0.16, sbOn:true, sbUm:20}},
+      {kind:'filaments', seed:23, name:'C2-GFP.tif',     set:{umPerPx:0.16}},
+      {kind:'puncta',    seed:37, name:'C3-mCherry.tif', set:{umPerPx:0.16}},
+    ], {cols:3, rows:1, pw:260, ph:260, title:'Tutorial — three channels of one field'}),
+    steps:[
+      { sel:'#fig-canvas', title:'Three files, one field',
+        body:'Fiji\'s Split Channels and most microscope software save each channel as its own greyscale file: <code>C1-DAPI.tif</code>, <code>C2-GFP.tif</code>, <code>C3-mCherry.tif</code>. They show one field, and you want them as one colour merge.' },
+      { before:()=>renderImgList(), sel:'#img-list', title:'Tick the three panels',
+        body:'Tick the checkbox on each of the three rows in the panel list.',
+        waitFor:()=>_listSelection().length>=3,
+        act:()=>document.querySelectorAll('#img-list .panel-pick').forEach(cb=>{ if(!cb.checked){ cb.checked=true; cb.dispatchEvent(new Event('change',{bubbles:true})); } }) },
+      { before:()=>_tutOpen(document.querySelector('button[onclick="mergeTickedPanels()"]')),
+        sel:'button[onclick="mergeTickedPanels()"]', title:'Merge them',
+        body:'Press <b>⊕ Merge channels</b>. The first ticked panel becomes the base and the others become its channels, each coloured from its filename. The originals are hidden, not deleted.',
+        waitFor:()=>_tutMergeIdx()>=0 && (images[_tutMergeIdx()].channels||[]).length>=2,
+        act:()=>{ if(_listSelection().length<3) document.querySelectorAll('#img-list .panel-pick').forEach(cb=>{ cb.checked=true; }); mergeTickedPanels(); } },
+      { before:()=>_tutDrawer(Math.max(0,_tutMergeIdx())), sel:()=>`#settings-${Math.max(0,_tutMergeIdx())} [data-splitch]`,
+        title:'Split it back into a row',
+        body:'The classic figure shows each channel next to the merge. <b>⑃ Split channels into panels</b> makes that row. Each part keeps the merge\'s crop, turn and calibration, so all four show the same field.',
+        waitFor:()=>_tutVisible().length>=4 && _tutVisible().some(im=>im.captionNote==='Merge'),
+        act:()=>splitChannelRow(_tutMergeIdx()) },
+      { before:()=>{ if(!panelAnnMode) togglePanelAnnMode(); _tutOpen('ann-tools'); }, sel:'[data-tool="legend"]',
+        title:'Add a channel key',
+        body:'Panel mode (📌) is on, so an annotation belongs to the panel you click and moves with it. Pick <b>▤ Key</b>, then click on the merge panel. The key lists each channel with its colour and updates when you change a LUT.',
+        waitFor:()=>images.some(im=>im&&(im.panelAnns||[]).some(a=>a.type==='legend')) || annotations.some(a=>a&&a.type==='legend'),
+        act:()=>{ const m=images.findIndex(im=>im&&!im.excluded&&im.captionNote==='Merge'); const i=m>=0?m:images.findIndex(im=>im&&!im.excluded);
+          pushUndo(); const im=images[i]; if(!im.panelAnns) im.panelAnns=[];
+          im.panelAnns.push({type:'legend', xf:0.04, yf:0.04, color:gv('ann-color')||'#ffffff', width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+          setTool('none'); renderAnnotationList(); scheduleRender(0); } },
+      { sel:'#fig-canvas', title:'Two more things worth knowing',
+        body:'To point at the same cell in every channel, draw one 📌 arrow, select it and choose <b>⧉ Repeat on… this row</b> from its toolbar. To give every GFP panel the same display range, use ⌘K → <i>Sync display range by channel</i>. The compliance check warns when compared channels differ.' },
+    ] },
+
+  { id:'straighten', title:'Straighten a tilted specimen, then crop it', minutes:2,
+    blurb:'Level a gel photographed at an angle, draw the crop in the straightened frame, and see how the tilt is disclosed.',
+    setup:()=>_tutSeed([{kind:'gelTilted', seed:3, name:'agarose_gel_photo.png'}], {cols:1, rows:1, pw:420, ph:300, title:''}),
+    steps:[
+      { sel:'#fig-canvas', title:'A gel photographed at an angle',
+        body:'The gel sits about 7° off square. Cropping it as it is would cut a slanted strip. Straighten it first, then crop.' },
+      { before:()=>_tutDrawer(0), sel:'#settings-0 [data-opencrop]', title:'Open the crop editor',
+        body:'In panel A\'s ⚙ settings, open the <b>✂ Crop editor</b>.',
+        waitFor:()=>document.getElementById('crop-modal').classList.contains('open') && cropEdState.imgIdx===0,
+        act:()=>openCropModal(0) },
+      { sel:'#crop-level-btn', title:'Level it',
+        body:'Press <b>📐 Level</b>, then click two points along the gel\'s top edge. The crop rotates to make that edge horizontal. <b>✨ Auto</b>, next to it, finds the angle by itself.',
+        waitFor:()=>Math.abs(+cropEdState.ang||0)>2,
+        act:()=>setCropAngle(7) },     // the demo gel is drawn 7° clockwise; this turns it back
+      { sel:'#crop-ed-canvas', title:'Draw the crop',
+        body:'Drag a box around the gel. The box is drawn in the straightened frame, so its edges run parallel to the lanes.',
+        waitFor:()=>!!cropEdState.hasBox,
+        act:()=>{ Object.assign(cropEdState,{cx:0.13,cy:0.18,cw:0.74,ch:0.64,hasBox:true}); drawCropEd(); } },
+      { sel:'#crop-apply-btn', title:'Apply it',
+        body:'Press <b>✓ Apply Crop</b>.',
+        waitFor:()=>!document.getElementById('crop-modal').classList.contains('open') && Math.abs(+images[0].cropAngle||0)>2,
+        act:()=>applyCropModal() },
+      { sel:'#fig-canvas', title:'Straight, and disclosed',
+        body:'A tilted crop is the one crop that <b>changes pixel values</b>: rotating means interpolating. So FigureLab records the angle in the metadata CSV, the provenance file and the Methods paragraph. Reopen the editor any time; it remembers the angle.' },
+    ] },
+
+  { id:'layout', title:'Headings, group bands and spacing', minutes:3,
+    blurb:'Build a phage spot-plate grid: name the columns and rows, add a band over the phage columns, and set the space between panels.',
+    setup:()=>_tutSeed([
+      {kind:'plate0',seed:1,name:'MG1655_buffer.png'},{kind:'plate2',seed:2,name:'MG1655_T4.png'},
+      {kind:'plate3',seed:3,name:'MG1655_T7.png'},{kind:'plate1',seed:4,name:'MG1655_lambda.png'},
+      {kind:'plate0',seed:5,name:'dompC_buffer.png'},{kind:'plate0',seed:6,name:'dompC_T4.png'},
+      {kind:'plate3',seed:7,name:'dompC_T7.png'},{kind:'plate1',seed:8,name:'dompC_lambda.png'},
+    ], {cols:4, rows:2, pw:180, ph:180, gap:6, title:'Tutorial — host range on two strains'}),
+    steps:[
+      { sel:'#fig-canvas', title:'A 2 × 4 spot-plate grid',
+        body:'Two host strains in rows and four treatments in columns. The reader needs to know which is which, so you will name them here instead of in the caption.' },
+      { before:()=>_tutOpen('show-col-labels'), sel:'#show-col-labels', title:'Turn on column headings',
+        body:'Tick <b>Column labels</b>.', waitFor:()=>gc('show-col-labels'), act:()=>document.getElementById('show-col-labels').click() },
+      { sel:'#col-label-inputs', title:'Name the columns',
+        body:'Type a heading into each field, for example <i>Buffer</i>, <i>T4</i>, <i>T7</i>, <i>λ vir</i>. The headings stay if you resize the grid or hide them.',
+        waitFor:()=>axisLabelValues('col').slice(0,4).filter(v=>v&&!/^Col \d+$/.test(v)).length>=2,
+        act:()=>{ setAxisLabels('col',['Buffer','T4','T7','λ vir']); scheduleRender(0); } },
+      { before:()=>_tutOpen('show-row-labels'), sel:'#show-row-labels', title:'And the rows',
+        body:'Tick <b>Row labels</b> and name the two strains, for example <i>MG1655</i> and <i>ΔompC</i>.',
+        waitFor:()=>gc('show-row-labels') && axisLabelValues('row').slice(0,2).some(v=>v&&!/^Row \d+$/.test(v)),
+        act:()=>{ if(!gc('show-row-labels')) document.getElementById('show-row-labels').click(); setAxisLabels('row',['MG1655','ΔompC']); scheduleRender(0); } },
+      { before:()=>_tutOpen(document.querySelector('button[onclick="addFigGroup()"]')), sel:'button[onclick="addFigGroup()"]',
+        title:'A band over the phage columns',
+        body:'A second level of heading: a bracket over columns 2–4 reading <i>Phage</i>. Set the direction to <b>across the columns</b>, press <b>＋ Add band</b>, set its range to 2 → 4 and name it.',
+        waitFor:()=>figGroups.some(g=>g.axis==='col'&&g.from>=2&&String(g.label||'').trim()),
+        act:()=>setFigGroups([{axis:'col',from:2,to:4,label:'Phage'}], false) },
+      { before:()=>_tutOpen('gap-h'), sel:'#gap-h', title:'Set the space between panels',
+        body:'Change the <b>H gap</b>. You can also drag the divider between two panels on the canvas, or tick <b>Per-gutter spacing</b> to set each divider separately. A gap of 0 butts the panels together.',
+        waitFor:()=>gi('gap-h')!==6, act:()=>{ sv('gap-h',14); scheduleRender(0); } },
+      { sel:'#fig-canvas', title:'A labelled grid',
+        body:'Headings, bands and spacing are saved with the figure, carried by share links and templates, and exported as text in SVG and PDF.' },
+    ] },
+
+  { id:'submit', title:'Get a figure through submission', minutes:3,
+    blurb:'Apply a journal preset, read the per-panel resolution, run the compliance check, write the Methods paragraph and build the submission package.',
+    setup:async()=>{
+      const ok=await _tutSeed([
+        {kind:'nuclei',seed:11,name:'nuclei_DAPI.png',set:{lut:'blue',captionNote:'Nuclei (DAPI)',umPerPx:0.16,sbOn:true,sbUm:20}},
+        {kind:'filaments',seed:23,name:'actin_GFP.png',set:{lut:'green',captionNote:'Actin (GFP)',umPerPx:0.16}},
+        {kind:'puncta',seed:37,name:'vesicles_mCherry.png',set:{lut:'magenta',captionNote:'Vesicles (mCherry)',umPerPx:0.16}},
+        {kind:'merge',seed:41,name:'merge.png',set:{captionNote:'Merge',umPerPx:0.16}},
+      ], {cols:2, rows:2, pw:300, ph:300, title:'Tutorial — subcellular localisation'});
+      return ok;
+    },
+    steps:[
+      { sel:'#fig-canvas', title:'A finished-looking figure',
+        body:'Four fluorescence panels, labelled and calibrated. Before it goes to a journal: the house style, the resolution each panel really prints at, the integrity checks, and the Methods text.' },
+      { before:()=>_tutOpen(document.querySelector("button[onclick=\"applyPreset('plos')\"]")), sel:"button[onclick=\"applyPreset('plos')\"]",
+        title:'Apply the journal\'s preset',
+        body:'Press <b>PLOS</b>, or your own journal. A preset sets the column width, fonts and gaps, and for PLOS it also switches TIFF export to LZW compression.',
+        waitFor:()=>_lastPresetName==='plos', act:()=>applyPreset('plos') },
+      { before:()=>{ renderImgList(); if(typeof _syncPanelPpi==='function') _syncPanelPpi(); }, sel:'#img-list .f-ppi',
+        title:'The resolution each panel really has',
+        body:'Each panel shows the ppi it prints at: its source pixels divided by its printed width. These demo images are 280 px, so they print at about 100 ppi, far below the 300 journals ask for, <b>whatever export DPI you pick</b>. A real 2048 px camera frame would not have this problem.' },
+      { before:()=>_tutOpen(document.querySelector('button[onclick="checkCompliance()"]')), sel:'button[onclick="checkCompliance()"]',
+        title:'Run the compliance check',
+        body:'<b>✓ Check journal compliance</b> lists what a reviewer or image-forensics screen would flag. Rows marked ⚠ or ✗ explain themselves, and many have a button that takes you to the fix.',
+        waitFor:()=>!!document.getElementById('info-modal-bg'), act:()=>checkCompliance() },
+      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick="writeMethodsParagraph()"]')); },
+        sel:'button[onclick="writeMethodsParagraph()"]', title:'Write the Methods paragraph',
+        body:'<b>✎ Write Methods paragraph</b> writes the software citation, pseudocolour, calibration and resampling from what the figure records, and nothing it cannot know.',
+        waitFor:()=>(document.getElementById('methods-out').value||'').length>40, act:()=>writeMethodsParagraph() },
+      { before:()=>_tutOpen('export-tiff-lzw'), sel:'#export-tiff-lzw', title:'Compressed TIFF',
+        body:'The PLOS preset ticked <b>Compress TIFF (LZW)</b>. It is lossless: every pixel comes back unchanged.' },
+      { before:()=>_tutOpen(document.querySelector('button[onclick="exportSubmissionPackage()"]')), sel:'button[onclick="exportSubmissionPackage()"]',
+        title:'One ZIP for the journal',
+        body:'<b>📦 Export submission package</b> bundles the PNG, TIFF, PDF and SVG, the caption, the Methods paragraph, the metadata CSV, each panel on its own, a provenance manifest and the session. Everything a journal or co-author asks for is in one file.' },
+    ] },
+];
+function _tutById(id){ return TUTORIALS.find(t=>t.id===id); }
+async function startTutorial(id){
+  const T=_tutById(id); if(!T){ toast('No such tutorial','warn'); return; }
+  if(T.id==='basics'){ startTour(true); return; }
+  _tourClose();
+  if(images.some(Boolean) && !confirm(`Start "${T.title}"? It replaces the current figure with a small demo one. Ctrl+Z brings yours back.`)) return;
+  if(layoutMode==='freeform'){ const lm=document.getElementById('layout-mode'); if(lm) lm.value='grid'; setLayoutMode('grid'); }
+  const hm=document.getElementById('help-modal'); if(hm) hm.classList.remove('open');
+  const ok=await T.setup(); if(ok===false) return;
+  _tut=T; _tourSteps=T.steps; _tourI=0;
+  logAction('tutorialStart',{id:T.id});
+  _tourShow();
+}
+function renderTutorialList(){
+  const el=document.getElementById('tutorial-list'); if(!el) return;
+  const done=id=>{ try{ return !!localStorage.getItem(id==='basics'?'fl-tour-done':'fl-tut-done-'+id); }catch(e){ return false; } };
+  el.innerHTML=TUTORIALS.map(t=>`
+    <div class="tut-row" style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-weight:700;color:var(--text)">${esc(t.title)} ${done(t.id)?'<span style="color:var(--a2);font-weight:400" title="You have finished this one">✓</span>':''}</div>
+        <div class="help-p" style="margin:3px 0 0">${esc(t.blurb)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">${t.steps.length} steps${t.minutes?` · about ${t.minutes} min`:''}${t.setup?' · builds its own demo figure':''}</div>
+      </div>
+      <button class="btn btn-primary" data-tut="${t.id}" style="white-space:nowrap" title="Start “${esc(t.title)}”">Start ›</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-tut]').forEach(b=>b.addEventListener('click',()=>startTutorial(b.dataset.tut)));
+}
 // The tour is OPT-IN: the welcome / empty-state shows first (never covered by an
 // auto-launched modal). Users start it from the ✦ button or the command palette.
 
