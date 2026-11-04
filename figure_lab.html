@@ -301,8 +301,10 @@ button.adv::before,.btn.adv::before{content:none}
   box-shadow:0 6px 24px rgba(0,0,0,.4);pointer-events:none;display:none}
 
 /* ── Empty-state start screen ───────────────────────────────── */
-#empty-state{position:absolute;inset:0;display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
-.es-card{max-width:480px;width:100%;text-align:center;background:var(--surface);border:1px solid var(--border);
+/* margin:auto rather than align-items:center: centred the same when the card fits, but a
+   card taller than a short window scrolls from its top instead of losing it above the edge. */
+#empty-state{position:absolute;inset:0;display:none;align-items:flex-start;justify-content:center;z-index:40;padding:20px;overflow-y:auto}
+.es-card{margin:auto;max-width:480px;width:100%;text-align:center;background:var(--surface);border:1px solid var(--border);
   border-radius:14px;padding:28px 26px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
 .es-title{font-family:'Instrument Serif',Georgia,'Times New Roman',serif;font-size:25px;color:var(--text);margin-bottom:8px}
 .es-sub{font-size:12px;color:var(--muted);line-height:1.6;margin:0 auto 18px;max-width:400px}
@@ -375,6 +377,46 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   #canvas-wrap { padding: 0; overflow: visible; }
   #canvas-container { transform: none !important; }
   #fig-canvas { width: 100% !important; max-width: 100%; }
+}
+
+/* ── Narrow windows ─────────────────────────────────────────────
+   FigureLab is laid out for a desktop window, and nothing here applies at
+   1280 px or wider. Below that the page has to stay inside the window: people
+   open it on a small laptop, on a tablet, or on a phone to look at a figure a
+   colleague shared, and a fixed 310 px side panel used to leave a phone a
+   55 px strip for the figure, with Help and the theme button off the edge. */
+#sb-toggle,#sb-scrim{display:none}
+@media (max-width:1279px){
+  /* The shortcut hint gives way before the buttons do — cut short, never wrapped. */
+  .hdr-right{min-width:0}
+  #kb-hint{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+}
+@media (max-width:899px){
+  body{height:100vh;height:100dvh}
+  header{padding:7px 10px;gap:8px}
+  #kb-hint{display:none}
+  .hdr-right{gap:2px}
+  /* Room for a fingertip on the buttons you need on a phone. */
+  header .btn-icon{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;padding:0}
+  .canvas-toolbar .btn{min-height:32px}
+  details>summary{min-height:34px}
+  /* The side panel becomes a drawer over the canvas, so the figure keeps the
+     whole width. It stays laid out while closed (visibility, not display) —
+     tutorials and the start screen reach for controls inside it. */
+  #sb-toggle{display:inline-flex}
+  .app{position:relative}
+  .sidebar{position:absolute;top:0;bottom:0;left:0;z-index:600;width:min(310px,88vw);
+    transform:translateX(-100%);visibility:hidden}
+  body.sb-open .sidebar{transform:none;visibility:visible;box-shadow:8px 0 30px rgba(0,0,0,.4)}
+  body.sb-open #sb-scrim{display:block;position:absolute;inset:0;z-index:599;background:rgba(0,0,0,.45)}
+  #toast{white-space:normal;max-width:calc(100vw - 24px);text-align:center}
+}
+@media (max-width:599px){
+  .badge-free{display:none}
+  .canvas-wrap{padding:10px}
+  .modal-bg,#info-modal-bg{padding:10px !important}
+  .modal:not(.help-modal){padding:16px}
+  footer em{display:none}
 }
 
 /* ── Freeform mode ──────────────────────────────────────────── */
@@ -450,11 +492,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
+  <button class="btn-icon" id="sb-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Show the side panel" title="Show or hide the side panel" onclick="toggleSidebar()">☰</button>
   <div class="logo">Figure<span>Lab</span></div>
   <span class="badge" id="version-badge">v3.9.2</span>
-  <span class="badge" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
+  <span class="badge badge-free" style="color:var(--a2);border-color:var(--a2)">free &amp; open</span>
   <div class="hdr-right">
-    <span id="kb-hint" style="font-size:10px;color:var(--muted)">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
+    <span id="kb-hint" style="font-size:10px;color:var(--muted)" title="R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan">R=render · Ctrl+Z/Y=undo/redo · Ctrl+S=save · Ctrl+scroll=zoom · Space+drag=pan</span>
     <button class="btn-icon" id="cmd-btn" aria-label="Command palette" onclick="openCmdPalette()" title="Command palette (Ctrl+K)" style="font-size:11px;min-width:28px">⌘K</button>
     <button class="btn-icon" id="help-btn" aria-label="Help and FAQ" onclick="openHelp()" title="Help &amp; FAQ" style="font-size:13px;min-width:28px">❔</button>
     <button class="btn-icon" id="theme-btn" aria-label="Cycle theme: Light, Lab, Dark" onclick="toggleTheme()" title="Cycle theme: Light → Lab → Dark" style="font-size:13px;min-width:28px"></button>
@@ -462,8 +505,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </header>
 
 <div class="app">
+<!-- Behind the side panel when it is a drawer (narrow windows): a tap outside closes it. -->
+<div id="sb-scrim" onclick="toggleSidebar(false)"></div>
 <!-- ── Sidebar ─────────────────────────────────────────────── -->
-<aside class="sidebar">
+<aside class="sidebar" id="sidebar">
 
 <!-- IMAGES -->
 <details open>
@@ -4272,12 +4317,49 @@ function toggleUiMode(){ toast('All tools are always visible now — sections co
   window.addEventListener('scroll',hide,true);
 })();
 
+// ── Side panel as a drawer (windows narrower than 900 px) ────
+// Below 900 px the side panel slides over the canvas instead of taking 310 px
+// beside it. It starts open while there is nothing to look at (that is where you
+// add images) and closes the moment a figure appears, so a phone opened on a
+// shared session shows the figure, fitted, not the controls.
+const _narrowMQ = window.matchMedia ? window.matchMedia('(max-width: 899px)') : { matches:false };
+function _isNarrow(){ return !!_narrowMQ.matches; }
+function _figureIsEmpty(){ return images.length===0 && freeformElements.length===0; }
+function toggleSidebar(open){
+  if(open===undefined) open=!document.body.classList.contains('sb-open');
+  open=!!open;
+  document.body.classList.toggle('sb-open', open);
+  const b=document.getElementById('sb-toggle');
+  if(b){ b.setAttribute('aria-expanded', String(open)); b.setAttribute('aria-label', open?'Hide the side panel':'Show the side panel'); }
+}
+let _drawerFigEmpty=null;
+function _drawerOnFigure(empty){
+  const was=_drawerFigEmpty; _drawerFigEmpty=empty;
+  if(!_isNarrow()) return;
+  if(was===null) toggleSidebar(empty);               // first look at the page
+  else if(was && !empty) toggleSidebar(false);       // a figure just arrived
+}
+function _onNarrowChange(){
+  if(!_isNarrow()) return;                           // wide: the panel is just there
+  const empty=_figureIsEmpty();
+  toggleSidebar(empty);
+  if(!empty) zoomToFit();
+}
+if(_narrowMQ.addEventListener) _narrowMQ.addEventListener('change', _onNarrowChange);
+// In a narrow window, re-fit whenever the figure's size changes (a new layout,
+// another row), so a phone always shows the whole figure. Wide windows keep
+// their zoom exactly as before.
+if(typeof ResizeObserver==='function')
+  new ResizeObserver(()=>{ if(_isNarrow() && !_figureIsEmpty()) zoomToFit(); })
+    .observe(document.getElementById('fig-canvas'));
+
 // ── Empty-state start screen ─────────────────────────────────
 function updateEmptyState(){
   const es=document.getElementById('empty-state'); if(!es) return;
   const ffEmpty=(typeof freeformElements==='undefined')||freeformElements.length===0;
   const empty=(images.length===0 && ffEmpty);
   es.style.display=empty?'flex':'none';
+  _drawerOnFigure(empty);
   // The drag-divider tip is meaningless with no panels — keep it out of the way.
   if(empty){ const h=document.getElementById('canvas-hint'); if(h) h.style.display='none';
     if(typeof updateGreeting==='function') updateGreeting(); }
@@ -4285,7 +4367,7 @@ function updateEmptyState(){
 function esOpenTemplates(){
   const d=[...document.querySelectorAll('.sidebar > details')]
     .find(x=>/Templates/i.test((x.querySelector('summary')||{}).textContent||''));
-  if(d){ d.open=true; d.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+  if(d){ if(_isNarrow()) toggleSidebar(true); d.open=true; d.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 }
 function esLoadSession(){
   const i=document.querySelector('.sidebar input[type="file"][accept=".json"]');
@@ -5170,8 +5252,14 @@ function zoomToFit(){
   const canvas=document.getElementById('fig-canvas');
   const wrap=document.getElementById('canvas-wrap');
   if(!canvas.width||!canvas.height) return;
-  const scaleX=(wrap.clientWidth-24)/canvas.width;
-  const scaleY=(wrap.clientHeight-24)/canvas.height;
+  // Fit the canvas as laid out, not its backing store. #fig-canvas carries
+  // max-width:100%, so in a window narrower than the figure it is already drawn
+  // smaller than canvas.width — and scaling from canvas.width shrank it a second
+  // time (a 988 px figure fitted on a phone came out 116 px wide). offsetWidth
+  // ignores the zoom transform, so this is the size at 100%.
+  const w=canvas.offsetWidth||canvas.width, h=canvas.offsetHeight||canvas.height;
+  const scaleX=(wrap.clientWidth-24)/w;
+  const scaleY=(wrap.clientHeight-24)/h;
   zoom=Math.max(0.1,Math.min(scaleX,scaleY,1));
   if(typeof applyZoom==='function') applyZoom();
   else document.getElementById('canvas-container').style.transform=`scale(${zoom})`;
@@ -6947,7 +7035,8 @@ function renderHouseStyles(){
 const TOUR_STEPS=[
   {sel:'#load-example-btn', title:'1 · Import images', body:'Drop microscopy, blot, or histology images on the panel above — or click "Load example figure" to explore with a ready-made demo.'},
   {sel:'#cols', title:'2 · Choose a layout', body:'Set rows × columns for your grid, or pick a Template / Journal preset. The panel map shows how images are arranged.'},
-  {sel:'#ann-tools', title:'3 · Annotate', body:'Add arrows, boxes, scale bars, and text. Switch to ↖ Select (or press Esc) to move or edit anything you draw.'},
+  // The tools sit in a section that starts closed; open it, or the ring lands on nothing.
+  {before:()=>_tutOpen('ann-tools'), sel:'#ann-tools', title:'3 · Annotate', body:'Add arrows, boxes, scale bars, and text. Switch to ↖ Select (or press Esc) to move or edit anything you draw.'},
   {sel:'#export-acc', title:'4 · Export', body:'Set a file name and DPI (300 for print, 600 for journals), then export PNG, TIFF, PDF, SVG — or a whole submission package.'},
   {sel:'#help-btn', title:'5 · Finding everything', body:'Sections are named for what you are doing — Crop & Scale, Measure, Check. Press ⌘K to search every tool by name. Press ❔ for help & FAQ.'},
 ];
@@ -6985,6 +7074,10 @@ function _tourShow(){
   const step=_tourSteps[_tourI]; if(!step){ _tourEnd(); return; }
   if(step.before){ try{ step.before(); }catch(e){ console.warn('tutorial step setup', e); } }
   const el=_tourTarget(step);
+  // In a narrow window the side panel is a drawer: open it for a step that points
+  // into it and close it for one that points elsewhere, or the ring lands on a
+  // control that is off-screen or under the drawer.
+  if(el && _isNarrow() && !el.closest('.modal-bg,#info-modal-bg')) toggleSidebar(!!el.closest('.sidebar'));
   const visible = el && el.getBoundingClientRect().width>0;
   // Scroll the target into view FIRST, then measure once layout has settled — otherwise
   // targets below the fold (e.g. the Export section) get a stale off-screen rect and the
