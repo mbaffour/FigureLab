@@ -82,8 +82,8 @@ test('a share link carries Rows hug their panels and the headings, and opening i
   await page.goto(APP_URL + r.hash);
   await page.waitForFunction(() => typeof render === 'function' && typeof _commitImage === 'function');
   const opened = await page.evaluate(() => ({
-    // the loader stores these for the recipient's images just before it restores the headings
-    loaderRan: Array.isArray(window._sharedPanelSettings),
+    // the loader leaves the shared panels waiting for the recipient's images
+    loaderRan: _pendingPanels.length > 0,
     ticked: gc('auto-row-h'),
     heads: [...document.querySelectorAll('#col-label-inputs input')].map(i => i.value),
   }));
@@ -193,6 +193,10 @@ test('New figure starts with no headings from the old one', async ({ page }) => 
     document.querySelector('#row-label-inputs input').value = 'WT';
     confirmNewFigure();
     document.getElementById('cm-ok').click();
+    // New now puts the layout back to a fresh page's too; ask for the same grid with
+    // headings on, so the fields that appear can only hold the old figure's text if
+    // something leaked.
+    sv('cols', 3); sv('rows', 1); sc('show-col-labels', true); sc('show-row-labels', true); onLayoutChange();
     return {
       images: images.length,
       col: [...document.querySelectorAll('#col-label-inputs input')].map(i => i.value),

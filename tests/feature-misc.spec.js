@@ -222,7 +222,7 @@ test('opening a share link restores per-gutter spacing', async ({ page }) => {
   await page.goto(APP_URL + r.hash);
   await page.waitForFunction(() => typeof render === 'function' && typeof _commitImage === 'function');
   const opened = await page.evaluate(() => ({
-    loaderRan: Array.isArray(window._sharedPanelSettings),
+    loaderRan: _pendingPanels.length > 0,   // the shared panels wait for the recipient's images
     colGaps, rowGaps, advancedSpacing,
     checked: document.getElementById('advanced-spacing').checked,
     col: gapBefore(1, gi('gap-h')), row: rGapBefore(1, gi('gap-v')),
