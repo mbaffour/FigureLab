@@ -31,6 +31,9 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     // Built inside showInfoModal bodies: the credits textarea, and the homogenizer's
     // per-property selects (homo-<prop>, which are generated from what actually drifted).
     'credits-text',
+    // The lane & band analysis dialog, built when it opens.
+    'gel-modal-bg', 'gel-nlanes', 'gel-win', 'gel-pol', 'gel-pol-guess', 'gel-ladder-lane', 'gel-ladder-sizes',
+    'gel-canvas', 'gel-banner', 'gel-table', 'gel-fit', 'gel-ref', 'gel-lc',
   ]);
   const real = missing.filter(id => !runtimeBuilt.has(id));
   expect(real, `ids the script looks up but the markup no longer has: ${real.join(', ')}`).toEqual([]);
