@@ -8183,11 +8183,11 @@ document.addEventListener('keydown', e=>{
   const m=document.getElementById('crop-modal'); if(!m||!m.classList.contains('open')) return;
   const t=e.target, typing=t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT');
   if(e.key==='Escape' && cropEdState.leveling){
-    e.preventDefault(); e.stopPropagation(); toggleCropLevel(false); return;
+    e._flHandled=true; e.preventDefault(); e.stopPropagation(); toggleCropLevel(false); return;
   }
   // Escape leaves the editor (through the same path as ×, so multi-crop still asks
   // before discarding regions and a pre-crop still adds its image); Enter is Apply.
-  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeCropModal(); return; }
+  if(e.key==='Escape'){ e._flHandled=true; e.preventDefault(); e.stopPropagation(); closeCropModal(); return; }
   if(e.key==='Enter' && !typing){ e.preventDefault(); e.stopPropagation(); applyCropModal(); return; }
   if((e.key==='['||e.key===']') && !typing){
     e.preventDefault(); e.stopPropagation();
@@ -13862,7 +13862,11 @@ const _dlgBackdropCloses = el => !(_DIALOGS[el.id] && _DIALOGS[el.id].backdrop==
 // shortcut handler's "Escape deselects everything". The guided tour's own capture
 // listener is registered earlier and ends the tour instead — it keeps that.
 document.addEventListener('keydown', e=>{
-  if(e.key!=='Escape' || e.defaultPrevented || e.isComposing) return;
+  // _flHandled as well as defaultPrevented: a dialog's own handler may have run first
+  // (on an event dispatched at the document itself, listeners run in registration
+  // order), and preventDefault does nothing on a non-cancelable event — without the
+  // flag, one Escape cancelled a half-placed Level line AND closed the crop editor.
+  if(e.key!=='Escape' || e.defaultPrevented || e._flHandled || e.isComposing) return;
   if(document.getElementById('tour-ov')) return;
   const top=_topDialog(); if(!top) return;
   e.preventDefault(); e.stopImmediatePropagation();
