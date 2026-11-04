@@ -12578,6 +12578,7 @@ function clearAnnotations(){
 function confirmNewFigure(){
   showConfirmModal('Start a new figure?','Everything in this figure is cleared — panels, annotations, objects, title, notes, layout and style go back to a blank figure. Ctrl+Z brings it back.',()=>{
     // One undo step: clearing the history as well made a mis-click unrecoverable.
+    if(typeof _tutAbort==='function') _tutAbort('Tutorial ended — you started a new figure.');
     pushUndo({boundary:true});
     _resetFigureState();
     panelBounds=[];
@@ -15088,6 +15089,9 @@ function loadJSON(input){
 // last edit). _opts: {silent, noUndo, origin:'file'|'autosave'|'library'|'share'}.
 function applySession(s,_opts){
       _opts=_opts||{};
+      // Opening a file replaces the figure a running tutorial is working on; its
+      // "Do it for me" steps would then act on the loaded panels.
+      if(typeof _tutAbort==='function') _tutAbort('Tutorial ended — you opened another figure.');
       if(!_opts.noUndo) pushUndo({boundary:true});
       // A file with no images list at all keeps the panels on screen (a style/layout
       // file applied to them); one with a list replaces them.
