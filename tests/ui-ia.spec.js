@@ -34,6 +34,8 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     // The lane & band analysis dialog, built when it opens.
     'gel-modal-bg', 'gel-nlanes', 'gel-win', 'gel-pol', 'gel-pol-guess', 'gel-ladder-lane', 'gel-ladder-sizes',
     'gel-canvas', 'gel-banner', 'gel-table', 'gel-fit', 'gel-ref', 'gel-lc',
+    // The uncropped-originals (S1) dialog, built when it opens.
+    's1-modal-bg',
   ]);
   const real = missing.filter(id => !runtimeBuilt.has(id));
   expect(real, `ids the script looks up but the markup no longer has: ${real.join(', ')}`).toEqual([]);
