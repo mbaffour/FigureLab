@@ -293,7 +293,8 @@ test('F16 a TIFF stack past 60 pages asks, and says which pages it left out when
     const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
     await addFiles([new File([u], 'stack70.tif', { type: 'image/tiff' })]);
     window.toast = o; window.confirm = oc;
-    return { n: images.length, last: images[images.length - 1].name, asked, toasts: window.__toasts };
+    const lastIm = images[images.length - 1];
+    return { n: images.length, last: _sourceName(lastIm), asked, toasts: window.__toasts };
   }, { b64, accept });
   const declined = await open(false);
   expect(declined.asked).toMatch(/70 pages/);
@@ -301,7 +302,9 @@ test('F16 a TIFF stack past 60 pages asks, and says which pages it left out when
   expect(declined.toasts.some(t => t.k === 'warn' && /61.70/.test(t.m) && /60 of 70/.test(t.m))).toBe(true);
   const accepted = await open(true);
   expect(accepted.n).toBe(70);
-  expect(accepted.last).toBe('stack70_p70.png');
+  // panels cite the file the author has, and which page of it (was "stack70_p70.png",
+  // a file that never existed)
+  expect(accepted.last).toBe('stack70.tif (page 70 of 70)');
   expect(errors).toEqual([]);
 });
 
