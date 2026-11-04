@@ -111,7 +111,7 @@ test('Back reopens the previous image with its saved crop and edits, without cha
     backBatchCrop(); await tf();                     // back to image 1
     const back = { idx: cropEdState.imgIdx, cw: +cropEdState.cw.toFixed(3), cx: +cropEdState.cx.toFixed(3),
       br: cropEdState.batchEdit.brightness, shared: +cropEdState.batchCropW.toFixed(3),
-      queue: cropEdState.batchQueue.slice() };
+      queue: cropEdState.batchQueue.map(id => images.findIndex(im => im && im.id === id)) };   // the queue holds panel ids
     const note = document.getElementById('batch-size-note').textContent;
     applyCropModal(); await tf();                    // re-apply image 1 at 0.4, forward to image 2
     const fwd = { idx: cropEdState.imgIdx, cw: +cropEdState.cw.toFixed(3) };

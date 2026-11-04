@@ -2570,7 +2570,21 @@ let _renderStamp = 0;       // bumps on every on-screen render; caches keyed on 
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
 let hoverLabel = null;      // {kind, idx} currently hovered label (for overlay highlight)
-let selectedPanel = -1;
+// The selected panel is remembered by id as well as by slot. Deleting or inserting a
+// panel before it left the number where it was, so the selection slid onto the next
+// panel and the next shortcut (] turns it, Delete removes it) acted on that one. Reading
+// selectedPanel finds the panel again by id whenever its slot no longer holds it, and
+// gives -1 once it has left the figure. Setting it is unchanged: a slot number.
+let _selIdx=-1, _selPid=null;
+Object.defineProperty(window,'selectedPanel',{configurable:true,
+  get(){
+    if(_selIdx<0) return -1;
+    const cur=images[_selIdx];
+    if(_selPid==null){ if(cur) _selPid=cur.id; return _selIdx; }   // selected before it was added
+    if(!cur||cur.id!==_selPid){ _selIdx=_pidx(_selPid); if(_selIdx<0) _selPid=null; }
+    return _selIdx;
+  },
+  set(v){ v=(v==null||isNaN(v))?-1:Math.trunc(+v); _selIdx=v; _selPid=(v>=0&&images[v])?images[v].id:null; }});
 let panelRotState = null;   // {idx, cx, cy, start, a0, preSnap, moved} — dragging the rotate grip
 let zoom = 1;
 let spaceDown = false;
@@ -2580,7 +2594,7 @@ let annResizeState = null;    // {idx, updateXF, updateYF, updateX2F, updateY2F,
 let panelDragState= null;    // {srcIdx, dropIdx, startX, startY, moved}
 let panelAnnMode  = false;   // true = drawing/selecting panel-bound annotations
 let panelAnnDraw  = null;    // {imgIdx, pb, x0, y0} — active draw in panel
-let selectedPanelAnn = null; // {imgIdx, annIdx}
+let selectedPanelAnn = null; // {imgIdx, annIdx, pid, ref} — read it through _selPA()
 let panelAnnDrag  = null;    // {imgIdx, annIdx, pb, ox0f,oy0f,ox2f,oy2f, mx,my, preDrag}
 
 // ── Logical canvas size (decoupled from backing-store px for supersampling) ──
@@ -3667,17 +3681,25 @@ function duplicateGridLine(kind){
   if(!images[idx]){ toast('Select a panel in the row/column you want to duplicate','warn'); return; }
   pushUndo();
   const r=Math.floor(idx/cols), c=idx%cols;
+  // A copy is a new panel: its own id and its own letter, as the per-panel Duplicate
+  // gives. cloneImageForUndo is the undo copy, which keeps both, so the copies shared
+  // their originals' ids — the S1 sheet then drew the original's splice marker on the
+  // copy's page, and one tick in its dialog decided both panels.
+  const copies=[];
+  const dup=im=>{ if(!im) return null;
+    const p=cloneImageForUndo(im); p.id=Date.now()+Math.random(); p.label=''; copies.push(p); return p; };
   if(kind==='row'){
     const line=[]; for(let i=0;i<cols;i++) line.push(images[r*cols+i]);
-    images.splice((r+1)*cols,0,...line.map(im=>im?cloneImageForUndo(im):null));
+    images.splice((r+1)*cols,0,...line.map(dup));
     sv('rows',rows+1);
   } else {
     for(let i=rows-1;i>=0;i--){
       const src=images[i*cols+c];
-      images.splice(i*cols+c+1,0,src?cloneImageForUndo(src):null);
+      images.splice(i*cols+c+1,0,dup(src));
     }
     sv('cols',cols+1);
   }
+  copies.forEach(p=>{ p.label=nextLabel(); });
   onLayoutChange(); renderImgList(); scheduleRender(0);
   toast(`Duplicated the ${kind}`,'ok');
 }
@@ -4489,7 +4511,20 @@ function _scaleBarsNotDrawn(){
 // One key per panel for the list's view state. Panel ids survive undo snapshots and
 // reorders; a figure loaded from a file written before ids existed gets them here. A
 // merge copies its base's id, so a repeat is told apart by how many came before it.
+// Two panels sharing an id are two panels the id-keyed code (insets, splice markers, the
+// S1 sheet, every editor that holds a panel by id) cannot tell apart. Duplicate row used
+// to make such pairs and a saved figure can still carry them, so the later one of a
+// pair gets a fresh id whenever the list is rebuilt — which every load and undo does.
+function _dedupePanelIds(){
+  const seen=new Set();
+  images.forEach(im=>{
+    if(!im) return;
+    if(im.id==null||seen.has(im.id)){ let id; do{ id=Date.now()+Math.random(); }while(seen.has(id)); im.id=id; }
+    seen.add(im.id);
+  });
+}
 function _panelKeys(){
+  _dedupePanelIds();
   const seen={};
   return images.map(im=>{
     if(!im) return null;
@@ -6587,7 +6622,8 @@ function openGelAnalysis(idx){
       </div>
     </div>
   </div>`;
-  m.addEventListener('click',e=>{ if(e.target===m) closeGelAnalysis(); });
+  // The backdrop and Escape are the dialog engine's (_DIALOGS): its own backdrop listener
+  // closed the dialog on a text-selection drag released outside it, losing a typed ladder.
   document.body.appendChild(m);
   _gelWireCanvas();
   _gelRenderModal();
@@ -6722,8 +6758,11 @@ function _gelRenderModal(){
 // a figure annotation behind the dialog, and Ctrl/⌘+Z refreshes the table it undoes.
 document.addEventListener('keydown',e=>{
   if(!_gelUI||!document.getElementById('gel-modal-bg')) return;
+  // Only while it is the dialog on top. Escape is left to the dialog engine, which closes
+  // the topmost dialog — this handler closed the gel dialog under an info box instead.
+  if(_topDialog()!==document.getElementById('gel-modal-bg')) return;
   const t=e.target, typing=t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT');
-  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeGelAnalysis(); return; }
+  if(e.key==='Escape') return;
   if(typing) return;
   if((e.key==='Delete'||e.key==='Backspace')){ e.preventDefault(); e.stopPropagation();
     if(_gelUI.sel){ const s=_gelUI.sel; _gelUI.sel=null; gelDeleteBand(_gelUI.idx,s.li,s.bi); } return; }
@@ -8362,6 +8401,8 @@ function panelAnnToVirtual(a, pb, canvasW, canvasH){
 
 // Show float toolbar positioned over a panel annotation
 function showPanelAnnFloat(imgIdx, annIdx, pb){
+  // A selection set as two bare numbers is bound to its mark here, while they still name it.
+  if(selectedPanelAnn&&selectedPanelAnn.pid===undefined&&selectedPanelAnn.imgIdx===imgIdx&&selectedPanelAnn.annIdx===annIdx) _selPA();
   const im=images[imgIdx];
   const a=im?.panelAnns?.[annIdx]; if(!a) return;
   // Reuse ann-float toolbar — populate same fields
@@ -8407,11 +8448,31 @@ function _samePanelPicture(p, q){
   return ['cropT','cropL','cropB','cropR','cropAngle','rotate'].every(k=>(+p[k]||0)===(+q[k]||0))
     && !!p.flipH===!!q.flipH && !!p.flipV===!!q.flipV;
 }
+// The selected 📌 annotation is held by its panel's id and by the mark itself, not by
+// two slot numbers. Removing an earlier panel left {imgIdx:2} pointing at the next
+// panel's arrow, so the floating toolbar restyled another panel's mark, and after a
+// second removal threw. _selPA() finds it again, refreshes the hint indices, and drops
+// the selection (and the toolbar) once the mark or its panel is gone.
+function _selectPanelAnn(imgIdx, annIdx){
+  const im=images[imgIdx];
+  selectedPanelAnn={imgIdx, annIdx, pid:im?_pidOf(imgIdx):null, ref:(im&&im.panelAnns&&im.panelAnns[annIdx])||null};
+  return selectedPanelAnn;
+}
+function _selPA(){
+  const s=selectedPanelAnn; if(!s) return null;
+  if(s.pid===undefined) _selectPanelAnn(s.imgIdx, s.annIdx);   // set directly as two numbers: bind it now
+  const t=selectedPanelAnn, i=_pidx(t.pid), im=i>=0?images[i]:null;
+  const j=(im&&im.panelAnns&&t.ref)?im.panelAnns.indexOf(t.ref):-1;
+  if(j<0){ selectedPanelAnn=null; hideAnnFloat(); return null; }
+  t.imgIdx=i; t.annIdx=j;
+  return {im, a:t.ref, imgIdx:i, annIdx:j};
+}
 function repeatPanelAnn(scope){
   if(layoutMode==='freeform'){ toast('Repeat applies to grid panels','warn'); return; }
-  if(!selectedPanelAnn){ toast('Select a 📌 panel annotation first','warn'); return; }
-  const {imgIdx,annIdx}=selectedPanelAnn;
-  const src=images[imgIdx], a=src&&src.panelAnns&&src.panelAnns[annIdx];
+  const sel=_selPA();
+  if(!sel){ toast('Select a 📌 panel annotation first','warn'); return; }
+  const {imgIdx,annIdx}=sel;
+  const src=sel.im, a=sel.a;
   if(!a) return;
   // The channel key describes the whole figure; a copy in every panel says nothing new.
   if(a.type==='legend'){ toast('The channel key describes the whole figure, so it is not repeated','warn'); return; }
@@ -8517,6 +8578,34 @@ function _mcBlank(){
 let mcSession=_mcBlank();
 let _mcInternalOpen=false; // lets startMultiCrop's own openCropModal call past the guard
 
+// An editor that stays open while the figure can change behind it — the crop editor,
+// batch crop, multi-crop, the calibration dialog, the panel menu, the 📌 toolbar —
+// holds its panel by id, never by its place in images[]. An undo, a delete, a reorder
+// or a split behind it moves the panel to another slot, and a remembered slot then
+// names a different photo, or nothing: Apply cropped the wrong panel, or threw after
+// its undo step had already emptied the redo stack. The id is looked up again at the
+// moment of use, and if the panel has gone the action is cancelled, with no undo step.
+function _pidx(id){ return id==null ? -1 : images.findIndex(im=>im&&im.id===id); }
+function _pidOf(idx){
+  const im=images[idx]; if(!im) return null;
+  if(im.id==null) im.id=Date.now()+Math.random();   // a panel from a file written before ids
+  return im.id;
+}
+const _PANEL_GONE='That panel is no longer in the figure, so nothing was changed';
+// The crop editor's grid panel, found again by id. imgIdx is kept current for readers
+// that only want a hint (the cell aspect, a tutorial's check); -1 once the panel is gone.
+function _ceIdx(){
+  const s=cropEdState;
+  if(s.imgId!=null) s.imgIdx=_pidx(s.imgId);
+  return s.imgIdx;
+}
+// …and the panel itself, but only while it still holds the picture the box was drawn
+// on. A box drawn on one photo is a fraction of that photo, not of whatever is there now.
+function _ceTarget(){
+  const i=_ceIdx(), im=i>=0?images[i]:null;
+  return (im && im.img===cropEdState.img) ? im : null;
+}
+
 // Palette helpers — set the clip shape on the panel the user is working on, and
 // flip the import preference, without making them hunt for the control.
 function _cmdCropShape(shape){
@@ -8556,7 +8645,7 @@ function openCropModal(idx){
   // Convert existing crop % to normalised rect
   const l=im.cropL/100, t=im.cropT/100, r=im.cropR/100, b=im.cropB/100;
   const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
-  cropEdState={imgIdx:idx,img:im.img,cx:l,cy:t,cw:1-l-r,ch:1-t-b,dragging:false,dx0:0,dy0:0,
+  cropEdState={imgIdx:idx,imgId:_pidOf(idx),img:im.img,cx:l,cy:t,cw:1-l-r,ch:1-t-b,dragging:false,dx0:0,dy0:0,
                hasBox:hasCrop,ang:+im.cropAngle||0};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
@@ -8854,26 +8943,33 @@ function applyCropModal(){
   if(cropEdState.mc){ mcAddRegion(); return; }
   // Inset region: hand the box to addLinkedInset, which keeps its own undo entry.
   if(cropEdState._insetOf!=null){
-    const {cx,cy,cw,ch,_insetOf}=cropEdState;
+    const {cx,cy,cw,ch,_insetOf,_insetOfId}=cropEdState;
     if(!(cw>0.02&&ch>0.02)){ toast('Draw the region to magnify first','warn'); return; }
-    const parent=images[_insetOf];
+    const pi=_insetOfId!=null?_pidx(_insetOfId):_insetOf;
     cropEdState._insetOf=null; closeCropModal();
-    if(parent){ selectedPanel=_insetOf; addLinkedInset(cx,cy,cw,ch); }
+    if(pi>=0&&images[pi]){ selectedPanel=pi; addLinkedInset(cx,cy,cw,ch); }
+    else toast(_PANEL_GONE,'warn');
     return;
   }
-  pushUndo();
+  // The undo step is pushed by each branch once it knows it will change something.
+  // Pushing it up front spent a step, and emptied the redo stack, on an Apply that then
+  // stopped at "draw a region first" or found its panel gone.
   // Batch crop mode
   if(cropEdState.batch){
-    if(!cropEdState.batchCropW && cropEdState.cw>0.02){
+    // Only a box that was drawn sets the size: the untouched whole frame is not a crop,
+    // and taking it as one spent an undo step cropping nothing.
+    if(!cropEdState.batchCropW && cropEdState.hasBox && cropEdState.cw>0.02){
       cropEdState.batchCropW=cropEdState.cw; cropEdState.batchCropH=cropEdState.ch;
     }
     if(!cropEdState.batchCropW){ toast('Draw a crop region first','warn'); return; }
-    _applyBatchCropCurrent();
+    if(_ceTarget()){ pushUndo(); _applyBatchCropCurrent(); }
+    else toast(_PANEL_GONE+' — moving on to the next image','warn');
     _advanceBatchCrop();
     return;
   }
   // Pre-use crop: destructively crop and commit image
   if(cropEdState._preCrop){
+    pushUndo();
     const {img,name,raw}=cropEdState._preCrop;
     const sx=Math.round(cropEdState.cx*img.naturalWidth);
     const sy=Math.round(cropEdState.cy*img.naturalHeight);
@@ -8907,7 +9003,14 @@ function applyCropModal(){
   }
   // Freeform element crop
   if(cropEdState._fmIdx!==undefined&&cropEdState._fmIdx>=0){
-    const el=freeformElements[cropEdState._fmIdx]; if(el){
+    const fid=cropEdState._fmId;
+    const el=fid!=null ? freeformElements.find(e=>e&&e.id===fid) : freeformElements[cropEdState._fmIdx];
+    if(!el){
+      cropEdState._fmIdx=-1; closeCropModal();
+      toast('That object is no longer on the canvas, so nothing was changed','warn'); return;
+    }
+    pushUndo();
+    {
       el.cropT=_cropPct(cropEdState.cy);
       el.cropL=_cropPct(cropEdState.cx);
       el.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
@@ -8921,8 +9024,10 @@ function applyCropModal(){
     toast('Crop applied','ok'); return;
   }
   // Grid image crop
-  const idx=cropEdState.imgIdx; if(idx<0) return;
-  const im=images[idx];
+  if(cropEdState.imgIdx<0&&cropEdState.imgId==null) return;
+  const im=_ceTarget();
+  if(!im){ closeCropModal(); toast(_PANEL_GONE,'warn'); return; }
+  pushUndo();
   im.cropT=_cropPct(cropEdState.cy);
   im.cropL=_cropPct(cropEdState.cx);
   im.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
@@ -9109,7 +9214,8 @@ function autoCropAngle(){
 // the image's own shape; in normalised units it would be the image's own aspect.
 function _ceCellAspect(){
   if(cropEdState._fmIdx>=0){ const el=freeformElements[cropEdState._fmIdx]; return (el&&el.h)?el.w/el.h:1; }
-  const pb=(panelBounds||[]).find(b=>b.idx===cropEdState.imgIdx)||(panelBounds||[])[0];
+  const ci=_ceIdx();
+  const pb=(panelBounds||[]).find(b=>b.idx===ci)||(panelBounds||[])[0];
   return (pb&&pb.h)?pb.w/pb.h:1;
 }
 function setCropAspect(key){
@@ -9233,10 +9339,12 @@ function _syncCropAngleNote(){
 
 // Copy the current crop rect to every panel (or every panel in the same group).
 function copyCropTo(scope){
-  const cs=cropEdState; if(cs.imgIdx<0){ toast('Open a single panel crop first','warn'); return; }
+  const cs=cropEdState;
+  if(cs.imgId!=null&&!_ceTarget()){ closeCropModal(); toast(_PANEL_GONE,'warn'); return; }
+  const ci=_ceIdx(); if(ci<0){ toast('Open a single panel crop first','warn'); return; }
   const T=_cropPct(cs.cy), L=_cropPct(cs.cx),
         B=_cropPct((1-cs.cy-cs.ch)), Rr=_cropPct((1-cs.cx-cs.cw));
-  const grp=(images[cs.imgIdx]&&images[cs.imgIdx].group||'').trim();
+  const grp=(images[ci]&&images[ci].group||'').trim();
   if(scope==='group' && !grp){ toast('Give this panel a Match group first','warn'); return; }
   pushUndo(); let n=0;
   const ANG=+cs.ang||0;
@@ -9245,7 +9353,7 @@ function copyCropTo(scope){
     im._cropCache=undefined; im._cropKey=undefined; };
   images.forEach((im,i)=>{ if(!im) return;
     if(scope==='group' && (im.group||'').trim()!==grp) return;
-    if(i!==cs.imgIdx) n++; setC(im); });
+    if(i!==ci) n++; setC(im); });
   closeCropModal(); renderImgList(); scheduleRender(0);
   toast(n?`Crop copied to ${n} ${scope==='group'?'group ':''}panel${n>1?'s':''}`:'No other panels'+(scope==='group'?' in this group':''),'ok');
 }
@@ -9303,8 +9411,10 @@ function startBatchCrop(){
   // openCropModal fully replaces cropEdState, so batch fields must be set AFTER it returns
   openCropModal(allIdx[0]);
   cropEdState.batch=true;
-  cropEdState.batchAll=allIdx.slice();
-  cropEdState.batchQueue=allIdx.slice(1);
+  // Panel ids, not slots: see _pidx.
+  const allIds=allIdx.map(_pidOf);
+  cropEdState.batchAll=allIds.slice();
+  cropEdState.batchQueue=allIds.slice(1);
   cropEdState.batchHistory=[];            // images already visited, most recent last
   cropEdState.batchApplied=new Set();     // …and which of those were cropped, not skipped
   cropEdState.batchTotal=allIdx.length;
@@ -9359,8 +9469,9 @@ function _batchSyncSize(){
 // Cropped images whose size no longer matches the current one.
 function _batchSizeMismatch(){
   const s=cropEdState; if(!s.batch||!s.batchApplied) return [];
-  return [...s.batchApplied].filter(i=>{
-    if(i===s.imgIdx) return false;
+  const cur=_ceIdx();
+  return [...s.batchApplied].map(_pidx).filter(i=>{
+    if(i<0||i===cur) return false;
     const im=images[i]; if(!im) return false;
     const w=(100-im.cropL-im.cropR)/100, h=(100-im.cropT-im.cropB)/100;
     return Math.abs(w-s.batchCropW)>0.0006||Math.abs(h-s.batchCropH)>0.0006;
@@ -9426,7 +9537,8 @@ function toggleBatchEdit(force){
 function batchEditsToAll(){
   const s=cropEdState; if(!s.batch||!s.batchEdit) return;
   pushUndo();
-  (s.batchAll||[]).forEach(i=>{ const im=images[i]; if(im&&i!==s.imgIdx) _batchWriteEdit(im,s.batchEdit); });
+  const cur=_ceIdx();
+  (s.batchAll||[]).forEach(id=>{ const i=_pidx(id), im=images[i]; if(im&&i!==cur) _batchWriteEdit(im,s.batchEdit); });
   s.batchEditTouched=true;
   s.batchCarry=true; const c=document.getElementById('be-carry'); if(c) c.checked=true;
   renderImgList(); scheduleRender(0);
@@ -9453,7 +9565,7 @@ function _syncBatchEditUI(){
 // on what the panel will look like. Levels and LUT go through applyAdjust itself —
 // the renderer's own code path — on a thumbnail, so the preview cannot drift from it.
 function _batchPreviewSrc(W,H){
-  const s=cropEdState, img=s.img, im=images[s.imgIdx];
+  const s=cropEdState, img=s.img, im=images[_ceIdx()];
   if(!s.batchEdit||!im) return img;
   if(!s._beThumb||s._beThumbImg!==img||s._beThumb.width!==W||s._beThumb.height!==H){
     const t=document.createElement('canvas'); t.width=W; t.height=H;
@@ -9493,8 +9605,7 @@ function _batchDrawResult(src,W,H){
 // different angles share a panel size and straighten independently. The angle used to
 // be dropped here — the grip turned the box on screen and the saved crop was upright.
 function _applyBatchCropCurrent(){
-  const idx=cropEdState.imgIdx; if(idx<0||!images[idx]) return;
-  const im=images[idx];
+  const im=_ceTarget(); if(!im) return;
   im.cropT=_cropPct(cropEdState.cy);
   im.cropL=_cropPct(cropEdState.cx);
   im.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
@@ -9503,7 +9614,7 @@ function _applyBatchCropCurrent(){
   if(cropEdState.batchEdit) _batchWriteEdit(im,cropEdState.batchEdit);
   im._cropCache=undefined; im._cropKey=undefined;
   im._adjCache=undefined; im._adjKey=undefined;
-  if(cropEdState.batchApplied) cropEdState.batchApplied.add(idx);
+  if(cropEdState.batchApplied) cropEdState.batchApplied.add(im.id);
 }
 
 // Put image `idx` in the editor. `box` is its own saved crop (going Back); without
@@ -9511,7 +9622,7 @@ function _applyBatchCropCurrent(){
 function _batchLoad(idx,box){
   const im=images[idx]; if(!im) return;
   const s=cropEdState;
-  s.imgIdx=idx; s.img=im.img;
+  s.imgIdx=idx; s.imgId=_pidOf(idx); s.img=im.img;
   if(box){ Object.assign(s,box); }
   else {
     const cw=s.batchCropW, ch=s.batchCropH;
@@ -9536,7 +9647,7 @@ function _batchLoad(idx,box){
 }
 
 function _advanceBatchCrop(){
-  if(cropEdState.imgIdx>=0&&cropEdState.batchHistory) cropEdState.batchHistory.push(cropEdState.imgIdx);
+  if(cropEdState.imgId!=null&&cropEdState.batchHistory) cropEdState.batchHistory.push(cropEdState.imgId);
   if(!cropEdState.batchQueue.length){
     cropEdState.batch=false; _updateBatchUI(); _resetCropModalUI();
     document.getElementById('crop-modal').classList.remove('open');
@@ -9544,8 +9655,8 @@ function _advanceBatchCrop(){
     toast('Batch crop applied','ok');
     return;
   }
-  const nextIdx=cropEdState.batchQueue.shift();
-  if(!images[nextIdx]) { cropEdState.imgIdx=-1; _advanceBatchCrop(); return; }
+  const nextIdx=_pidx(cropEdState.batchQueue.shift());
+  if(!images[nextIdx]) { cropEdState.imgIdx=-1; cropEdState.imgId=null; _advanceBatchCrop(); return; }
   // Preserve the shared size, center the box on the new image. Each image starts
   // upright, as in multi-crop: inheriting the last image's tilt would be a guess, and
   // Level or Auto set the right one in two clicks.
@@ -9557,11 +9668,14 @@ function _advanceBatchCrop(){
 function backBatchCrop(){
   const s=cropEdState;
   if(!s.batch||!s.batchHistory||!s.batchHistory.length){ toast('This is the first image','warn'); return; }
-  const prev=s.batchHistory.pop();
-  if(s.imgIdx>=0) s.batchQueue.unshift(s.imgIdx);
-  const im=images[prev]; if(!im){ backBatchCrop(); return; }
+  // Step over images that have left the figure since they were visited.
+  let prev=-1;
+  while(prev<0 && s.batchHistory.length) prev=_pidx(s.batchHistory.pop());
+  if(prev<0){ toast('The earlier images are no longer in the figure','warn'); _updateBatchUI(); return; }
+  if(_ceIdx()>=0) s.batchQueue.unshift(s.imgId);
+  const im=images[prev];
   const l=im.cropL/100,t=im.cropT/100,r=im.cropR/100,b=im.cropB/100;
-  const cropped=s.batchApplied&&s.batchApplied.has(prev);
+  const cropped=s.batchApplied&&s.batchApplied.has(im.id);
   _batchLoad(prev, cropped
     ? {cx:l,cy:t,cw:1-l-r,ch:1-t-b,ang:+im.cropAngle||0}
     : {cx:(1-s.batchCropW)/2,cy:(1-s.batchCropH)/2,cw:s.batchCropW,ch:s.batchCropH,ang:0});
@@ -9579,13 +9693,16 @@ function skipBatchCrop(){
 function applyBatchCropAll(){
   if(!cropEdState.batch) return;
   if(!cropEdState.batchCropW){ toast('Draw a crop first','warn'); return; }
+  const rest=cropEdState.batchQueue.map(_pidx).filter(i=>i>=0);
+  const cur=_ceTarget();
+  if(!cur&&!rest.length){ cropEdState.batchQueue=[]; toast(_PANEL_GONE,'warn'); _advanceBatchCrop(); return; }
   pushUndo();
   // Apply centered crop — at the current tilt — to all remaining images
-  _applyBatchCropCurrent();
+  if(cur) _applyBatchCropCurrent();
   const cw=cropEdState.batchCropW, ch=cropEdState.batchCropH, ang=+cropEdState.ang||0;
-  const remaining=cropEdState.batchQueue.length;
+  const remaining=rest.length;
   const carry=cropEdState.batchCarry!==false&&cropEdState.batchEditTouched&&cropEdState.batchEdit;
-  cropEdState.batchQueue.forEach(i=>{
+  rest.forEach(i=>{
     const im=images[i]; if(!im) return;
     im.cropT=_cropPct((1-ch)/2);
     im.cropL=_cropPct((1-cw)/2);
@@ -9628,9 +9745,10 @@ function startMultiCrop(idxList){
   cropEdState.mc=true;
   mcSession=_mcBlank();
   mcSession.active=true; mcSession.mode='grid';
-  mcSession.queue=eligible.slice(1); mcSession.total=eligible.length;
+  // The queue and every banked source hold panel ids — see _pidx.
+  mcSession.queue=eligible.slice(1).map(_pidOf); mcSession.total=eligible.length;
   const im0=images[eligible[0]];
-  mcSession.cur={img:im0.img,src:im0.src,name:im0.name,srcIdx:eligible[0]};
+  mcSession.cur={img:im0.img,src:im0.src,name:im0.name,srcIdx:eligible[0],srcId:_pidOf(eligible[0])};
   // Start from a clean frame so an existing crop doesn't preset the locked size
   cropEdState.cx=0;cropEdState.cy=0;cropEdState.cw=1;cropEdState.ch=1;cropEdState.hasBox=false;
   _mcBindBarInputs(); _mcUpdateUI(); drawCropEd();
@@ -9663,14 +9781,14 @@ function _startMultiCropFF(idxList){
   if(!eligible.length){ toast('Select an image on the canvas to multi-crop','warn'); return; }
   const el0=freeformElements[eligible[0]];
   const img0=el0._imgEl;
-  cropEdState={imgIdx:-1,_fmIdx:eligible[0],img:img0,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,
+  cropEdState={imgIdx:-1,_fmIdx:eligible[0],_fmId:el0.id,img:img0,cx:0,cy:0,cw:1,ch:1,dragging:false,dx0:0,dy0:0,
                hasBox:false,ang:0};
   document.getElementById('crop-modal').classList.add('open');
   cropEdState.mc=true;
   mcSession=_mcBlank();
   mcSession.active=true; mcSession.mode='freeform';
-  mcSession.queue=eligible.slice(1); mcSession.total=eligible.length;
-  mcSession.cur={img:img0, src:el0.src, name:el0.label||'object', srcIdx:eligible[0]};
+  mcSession.queue=eligible.slice(1).map(i=>freeformElements[i].id); mcSession.total=eligible.length;
+  mcSession.cur={img:img0, src:el0.src, name:el0.label||'object', srcIdx:eligible[0], srcId:el0.id};
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
     const sc=Math.min(520/img0.naturalWidth, 360/img0.naturalHeight, 1);
@@ -9707,10 +9825,14 @@ function _mcMakeElement(srcEl, rect, n, srcLabel){
 
 function _mcFinalizeFF(){
   if(!mcSession.results.length){ _mcCancel('No regions added'); return; }
+  const srcOf=r=>r.srcId!=null ? freeformElements.find(e=>e&&e.id===r.srcId) : freeformElements[r.srcIdx];
+  const live=mcSession.results.filter(r=>srcOf(r));
+  if(!live.length){ _mcCancel('The objects you cut regions from are no longer on the canvas, so nothing was added'); return; }
+  if(live.length<mcSession.results.length) toast(`${mcSession.results.length-live.length} source object(s) left the canvas while you worked — their regions were dropped`,'warn');
   pushUndo();
   let made=0;
-  mcSession.results.forEach(r=>{
-    const srcEl=freeformElements[r.srcIdx];
+  live.forEach(r=>{
+    const srcEl=srcOf(r);
     if(!srcEl) return;
     const group=[];
     const srcLabel=(r.srcLabel||'').trim();
@@ -9863,12 +9985,15 @@ function mcFinishNow(){
 function _mcAdvance(){
   const ff = mcSession.mode==='freeform';
   if(!mcSession.queue.length) return ff ? _mcFinalizeFF() : _mcFinalize();
-  const nextIdx=mcSession.queue.shift();
-  // grid works on images[]; freeform on the placed elements
-  const im = ff ? _mcFFSource(nextIdx) : images[nextIdx];
-  if(!im||!im.img) return _mcAdvance(); // skip holes / unloaded
+  const nextId=mcSession.queue.shift();
+  // grid works on images[]; freeform on the placed elements. Both are found by id now,
+  // so a panel moved or removed since the session started is never mistaken for another.
+  const nextIdx = ff ? freeformElements.findIndex(e=>e&&e.id===nextId) : _pidx(nextId);
+  const im = nextIdx<0 ? null : ff ? _mcFFSource(nextIdx) : images[nextIdx];
+  if(!im||!im.img) return _mcAdvance(); // skip holes / unloaded / gone
   // Mutate cropEdState in place — openCropModal would wipe .mc
-  if(ff) cropEdState._fmIdx=nextIdx; else cropEdState.imgIdx=nextIdx;
+  if(ff){ cropEdState._fmIdx=nextIdx; cropEdState._fmId=nextId; }
+  else { cropEdState.imgIdx=nextIdx; cropEdState.imgId=nextId; }
   cropEdState.img=im.img;
   const cw=mcSession.cropW||1, ch=mcSession.cropH||1;
   cropEdState.cw=cw; cropEdState.ch=ch;
@@ -9878,7 +10003,7 @@ function _mcAdvance(){
   cropEdState.ang=0;
   mcSession.editIdx=-1;
   cropEdState.hasBox=!!mcSession.cropW;
-  mcSession.cur={img:im.img,src:im.src,name:im.name,srcIdx:nextIdx};
+  mcSession.cur={img:im.img,src:im.src,name:im.name,srcIdx:nextIdx,srcId:nextId};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -9923,17 +10048,26 @@ function _mcFinalize(){
   if(!mcSession.results.length){ _mcCancel('No regions added'); return; }
   const keep=mcSession.keepOriginal, arrange=mcSession.arrange;
 
-  // Each source's panels: [full image?] + its regions, in draw order
+  // Each source's panels: [full image?] + its regions, in draw order. A source is the
+  // panel with that id still holding the picture the regions were drawn on; one that has
+  // left the figure (or been given another image) since contributes nothing, rather than
+  // having its regions cut from whichever panel took its slot.
+  const srcOf=r=>{ const p=r.srcId!=null?images[_pidx(r.srcId)]:images[r.srcIdx];
+    return (p&&(!r.img||p.img===r.img))?p:null; };
+  const lost=mcSession.results.filter(r=>!srcOf(r)).length;
+  const usedIds=new Set();
   const panels=mcSession.results.map(r=>{
-    const srcPanel=images[r.srcIdx];
+    const srcPanel=srcOf(r);
     if(!srcPanel) return [];
+    usedIds.add(srcPanel.id);
     const group=[];
     const srcLabel=(r.srcLabel||'').trim();
     if(keep) group.push(_mcMakePanel(srcPanel,null,srcLabel));
     r.regions.forEach(rect=>group.push(_mcMakePanel(srcPanel,rect,srcLabel)));
     return group;
   }).filter(g=>g.length);
-  if(!panels.length){ _mcCancel('No regions added'); return; }
+  if(!panels.length){ _mcCancel(lost?'The images you cut regions from are no longer in the figure, so nothing was added':'No regions added'); return; }
+  if(lost) toast(`${lost} source image${lost>1?'s':''} left the figure while you worked — ${lost>1?'their':'its'} regions were dropped`,'warn');
 
   const M=panels.length;
   const R=Math.max(...panels.map(p=>p.length));
@@ -9951,8 +10085,7 @@ function _mcFinalize(){
 
   pushUndo(); // one undo entry for the whole session
 
-  const used=new Set(mcSession.results.map(r=>r.srcIdx));
-  const leftovers=images.filter((im,i)=>im&&!used.has(i));
+  const leftovers=images.filter(im=>im&&!usedIds.has(im.id));
   images=block.concat(leftovers);
   const rows=RW+Math.ceil(leftovers.length/C);
 
@@ -10492,7 +10625,11 @@ function setTool(tool){
   // Deselect annotation when switching to a drawing tool
   selectedAnnotation=-1; hideAnnFloat(); drawAnnOverlay();
   annCanvas.classList.toggle('text-mode', tool==='text');
-  annCanvas.classList.toggle('drawing', tool!=='text'&&tool!=='counter');
+  // The counter places a mark per click, so it needs the canvas to take the pointer as
+  // much as any drawing tool does. Leaving it out of 'drawing' left the canvas with no
+  // pointer-events at all: every click fell through to the figure underneath, and the
+  // tool could not place a single mark.
+  annCanvas.classList.toggle('drawing', tool!=='text');
 }
 
 // Mouse-coord helper: accounts for CSS scaling
@@ -10550,9 +10687,12 @@ function _endStrandedDrags(){
     const a=annotations[annDragState.idx];
     const moved=!!a&&(Math.abs(a.xf-annDragState.ox0f)>0.001||Math.abs(a.yf-annDragState.oy0f)>0.001);
     if(moved&&annDragState.preDrag) _pushSnap(annDragState.preDrag);
+    if(moved) _rulerBind(a);
     annDragState=null; dirty=true;
   }
-  if(annResizeState){ if(annResizeState.moved&&annResizeState.preDrag) _pushSnap(annResizeState.preDrag); annResizeState=null; dirty=true; }
+  if(annResizeState){ if(annResizeState.moved&&annResizeState.preDrag) _pushSnap(annResizeState.preDrag);
+    if(annResizeState.moved) _rulerBind(annotations[annResizeState.idx]);
+    annResizeState=null; dirty=true; }
   // Panel-bound annotations were left out of this list, so releasing one off the canvas
   // left it following the pointer with no button held. Record the move only if there was
   // one, as the canvas mouseup does, so a click-and-release-outside adds no dead undo step.
@@ -10833,6 +10973,7 @@ function restoreState(s){
   // one and the index now names a different mark (or none).
   selectedAnnotation=(_selAnnAt>=0 && annotations.length===_annN && annotations[_selAnnAt] && annotations[_selAnnAt].type===_selAnnType) ? _selAnnAt : -1;
   selectedPanelAnn=null; hideAnnFloat();
+  hidePanelMenu();   // it names a panel of the figure that was just replaced
   renderImgList(); renderMiniGrid(); updateFreeformElemList(); renderAnnotationList(); scheduleRender(0);
   if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
 }
@@ -10845,12 +10986,26 @@ function undo(){
   redoStack.push(snapshotState({boundary:_isBoundary(undoStack)}));
   restoreState(undoStack.pop());
   toast(`Undo (${undoStack.length} left)`,'ok');
+  _tutAbort();
 }
 function redo(){
   if(!redoStack.length){ toast('Nothing to redo','warn'); return; }
   undoStack.push(snapshotState({boundary:_isBoundary(redoStack)}));
   restoreState(redoStack.pop());
   toast('Redo','ok');
+  _tutAbort();
+}
+// A tutorial works on the demo figure it built, and its "Do it for me" steps act on
+// whatever panels are there. Its start prompt promises that Ctrl+Z brings your own figure
+// back — and it did, with the tutorial still running, so the next step cropped, tilted
+// or relabelled YOUR panels. Stepping through history therefore ends the tutorial.
+// Loading a file or starting a new figure replaces the tutorial's figure as well and
+// should end it the same way.
+function _tutAbort(why){
+  if(!_tut) return;
+  const title=_tut.title;
+  _tourEnd();
+  toast(why||`Tutorial “${title}” ended — undo and redo work on your own figure. ❔ → Tutorials starts it again.`,'warn');
 }
 
 // Capture-before-edit for form controls: arm a snapshot on pointer/keyboard
@@ -11167,11 +11322,10 @@ function drawAnnOverlay(){
       ctx.setLineDash([4,3]); ctx.strokeRect(pb.x+1,pb.y+1,pb.w-2,pb.h-2); ctx.restore();
     });
     // Selected panel annotation golden highlight
-    if(selectedPanelAnn){
-      const {imgIdx,annIdx}=selectedPanelAnn;
-      const im=images[imgIdx];
+    const _spa=_selPA();
+    if(_spa){
+      const {imgIdx,im,a}=_spa;
       const pb=panelBounds.find(p=>p.idx===imgIdx);
-      const a=im?.panelAnns?.[annIdx];
       if(a && pb){
         const x1=pb.x+a.xf*pb.w, y1=pb.y+a.yf*pb.h;
         const x2=pb.x+(a.x2f??a.xf)*pb.w, y2=pb.y+(a.y2f??a.yf)*pb.h;
@@ -11363,11 +11517,16 @@ function _annUnderPoint(e){
 }
 
 // ── Ann-canvas mouse events ──────────────────────────────────
+// The measure tools (ROI, line profile, count) read the rendered figure, which is the
+// same in both layouts. They were routed to handleMeasureTool only inside the freeform
+// branch, so in Grid — the default — a drag fell through to the annotation code and
+// stored an invisible "measure-roi" mark with an undo step, and measured nothing.
+const _measureToolActive = () => !spaceDown && /^measure-(roi|line|count)$/.test(activeTool||'');
 annCanvas.addEventListener('mousedown', e=>{
   e.preventDefault();
+  if(_measureToolActive()){ handleMeasureTool(e,'down'); return; }
   // Freeform mode — delegate entirely (except space-pan)
   if(layoutMode==='freeform'&&!spaceDown){
-    if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'down'); return; }
     // Annotation tools, and clicks that land on an existing annotation, fall through
     // to the same code grid mode uses. Everything else is object manipulation.
     if(!_annToolActive() && !_annUnderPoint(e)){ freeformMousedown(e); return; }
@@ -11428,7 +11587,7 @@ annCanvas.addEventListener('mousedown', e=>{
       }
     }
     if(hitImgIdx>=0){
-      selectedPanelAnn={imgIdx:hitImgIdx,annIdx:hitAnnIdx};
+      _selectPanelAnn(hitImgIdx,hitAnnIdx);
       const a=images[hitImgIdx].panelAnns[hitAnnIdx];
       // The same #ann-float sits above a panel annotation too, so dragging one upward
       // froze under its own toolbar exactly as the grid path did before it got this.
@@ -11594,9 +11753,9 @@ annCanvas.addEventListener('mousedown', e=>{
 });
 
 annCanvas.addEventListener('mousemove', e=>{
+  if(!panState && _measureToolActive()){ handleMeasureTool(e,'move'); return; }
   // Freeform mode
   if(layoutMode==='freeform'&&!panState){
-    if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'move'); return; }
     // keep following an annotation that is being drawn, dragged or resized
     if(!_annToolActive() && !annDragState && !annResizeState && !annState.drawing){ freeformMousemove(e); return; }
   }
@@ -11818,8 +11977,8 @@ annCanvas.addEventListener('mousemove', e=>{
 });
 
 annCanvas.addEventListener('mouseup', e=>{
+  if(!panState && _measureToolActive()){ handleMeasureTool(e,'up'); return; }
   if(layoutMode==='freeform'&&!panState){
-    if(activeTool==='measure-roi'||activeTool==='measure-line'||activeTool==='measure-count'){ handleMeasureTool(e,'up'); return; }
     if(!_annToolActive() && !annDragState && !annResizeState && !annState.drawing){ freeformMouseup(e); return; }
   }
   if(panState){ panState=null; annCanvas.style.cursor=spaceDown?'grab':'default'; return; }
@@ -11914,7 +12073,7 @@ annCanvas.addEventListener('mouseup', e=>{
     renderAnnotationList(); scheduleRender(0); return;
   }
   if(annResizeState){
-    if(annResizeState.moved) _pushSnap(annResizeState.preDrag); // skip no-op resize
+    if(annResizeState.moved){ _pushSnap(annResizeState.preDrag); _rulerBind(annotations[annResizeState.idx]); } // skip no-op resize
     _annFloatPassthrough(false);
     annResizeState=null;
     annCanvas.style.cursor='default';
@@ -11924,7 +12083,7 @@ annCanvas.addEventListener('mouseup', e=>{
   if(annDragState){
     const a=annotations[annDragState.idx];
     const moved=Math.abs(a.xf-annDragState.ox0f)>0.001||Math.abs(a.yf-annDragState.oy0f)>0.001;
-    if(moved){ _pushSnap(annDragState.preDrag); }
+    if(moved){ _pushSnap(annDragState.preDrag); _rulerBind(a); }
     _annFloatPassthrough(false);
     annDragState=null;
     annCanvas.style.cursor='move';
@@ -11959,6 +12118,7 @@ annCanvas.addEventListener('mouseup', e=>{
     ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
     ...(activeTool==='textbox'?{text:'Label',fill:true,fillColor:'#000000',fillOpacity:0.6,shape:'rect',fontSize:16,fontFamily:'',bold:false,italic:false}:{}),
   });
+  _rulerBind(annotations[annotations.length-1]);
   annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
   renderAnnotationList(); scheduleRender(0);
 });
@@ -12010,6 +12170,11 @@ function hidePanelMenu(){ const m=document.getElementById('panel-ctx-menu'); if(
 function showPanelMenu(idx, cx, cy){
   hidePanelMenu();
   const im=images[idx];
+  // The menu outlives the click that opened it — an undo (Ctrl+Z, the palette) or a
+  // delete can run while it is up — so each item finds its panel again by id. It used to
+  // act on the slot, and after an undo reordered the panels, Remove took another photo.
+  const pid=_pidOf(idx);
+  const here=()=>{ const i=_pidx(pid); if(i<0) toast(_PANEL_GONE,'warn'); return i; };
   const menu=document.createElement('div');
   menu.id='panel-ctx-menu';
   const screenW=window.innerWidth;
@@ -12029,6 +12194,8 @@ function showPanelMenu(idx, cx, cy){
   };
   if(im){
     row('⎘  Duplicate panel', ()=>{
+      const idx=here(); if(idx<0) return;
+      const im=images[idx];
       pushUndo();
       const clone={...im,id:Date.now()+Math.random(),label:nextLabel(),
         channels:(im.channels||[]).map(ch=>({...ch})),
@@ -12036,6 +12203,7 @@ function showPanelMenu(idx, cx, cy){
       images.splice(idx+1,0,clone); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     row('⚙  Open settings', ()=>{
+      const idx=here(); if(idx<0) return;
       renderImgList();
       const gear=document.querySelector(`[data-gear="${idx}"]`);
       const drawer=document.getElementById('settings-'+idx);
@@ -12045,6 +12213,7 @@ function showPanelMenu(idx, cx, cy){
     sep.style.cssText='height:1px;background:var(--border);margin:3px 0';
     menu.appendChild(sep);
     row('✕  Remove panel', ()=>{
+      const idx=here(); if(idx<0) return;
       pushUndo();
       images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
     }, true);
@@ -12082,8 +12251,8 @@ annCanvas.addEventListener('mouseleave', ()=>{
 document.getElementById('ann-float').addEventListener('mousedown', e=>e.stopPropagation());
 document.getElementById('ann-float-color').addEventListener('input', e=>{
   if(selectedPanelAnn){
-    const {imgIdx,annIdx}=selectedPanelAnn;
-    images[imgIdx].panelAnns[annIdx].color=e.target.value;
+    const s=_selPA(); if(!s) return;
+    s.a.color=e.target.value;
     sv('ann-color',e.target.value); scheduleRender(0); return;
   }
   if(selectedAnnotation<0) return;
@@ -12092,8 +12261,8 @@ document.getElementById('ann-float-color').addEventListener('input', e=>{
 });
 document.getElementById('ann-float-width').addEventListener('input', e=>{
   if(selectedPanelAnn){
-    const {imgIdx,annIdx}=selectedPanelAnn;
-    images[imgIdx].panelAnns[annIdx].width=parseInt(e.target.value)||2;
+    const s=_selPA(); if(!s) return;
+    s.a.width=parseInt(e.target.value)||2;
     sv('ann-width',e.target.value); scheduleRender(0); return;
   }
   if(selectedAnnotation<0) return;
@@ -12102,8 +12271,8 @@ document.getElementById('ann-float-width').addEventListener('input', e=>{
 });
 document.getElementById('ann-float-font').addEventListener('input', e=>{
   if(selectedPanelAnn){
-    const {imgIdx,annIdx}=selectedPanelAnn;
-    images[imgIdx].panelAnns[annIdx].fontSize=parseInt(e.target.value)||16;
+    const s=_selPA(); if(!s) return;
+    s.a.fontSize=parseInt(e.target.value)||16;
     sv('ann-font',e.target.value); scheduleRender(0); return;
   }
   if(selectedAnnotation<0) return;
@@ -12112,8 +12281,8 @@ document.getElementById('ann-float-font').addEventListener('input', e=>{
 });
 document.getElementById('ann-float-halo').addEventListener('change', e=>{
   if(selectedPanelAnn){
-    const {imgIdx,annIdx}=selectedPanelAnn;
-    images[imgIdx].panelAnns[annIdx].halo=e.target.checked;
+    const s=_selPA(); if(!s) return;
+    s.a.halo=e.target.checked;
     scheduleRender(0); return;
   }
   if(selectedAnnotation<0) return;
@@ -12157,9 +12326,9 @@ document.getElementById('ann-float-repeat').addEventListener('change', e=>{
 });
 document.getElementById('ann-float-del').addEventListener('click', ()=>{
   if(selectedPanelAnn){
-    const {imgIdx,annIdx}=selectedPanelAnn;
+    const s=_selPA(); if(!s) return;
     pushUndo();   // the figure-level branch below always had one; this branch did not
-    images[imgIdx].panelAnns.splice(annIdx,1);
+    s.im.panelAnns.splice(s.annIdx,1);
     selectedPanelAnn=null; hideAnnFloat();
     renderAnnotationList(); scheduleRender(0); return;
   }
@@ -12364,6 +12533,7 @@ function renderAnnotationList(){
   if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
 
   // Panel annotations grouped by panel
+  const _spa=_selPA();
   images.forEach((im,imgIdx)=>{
     if(!im?.panelAnns?.length) return;
     const hdr=document.createElement('div');
@@ -12371,7 +12541,7 @@ function renderAnnotationList(){
     hdr.textContent=`Panel ${im.label||imgIdx+1}`;
     list.appendChild(hdr);
     im.panelAnns.forEach((a,annIdx)=>{
-      const isSel=selectedPanelAnn?.imgIdx===imgIdx&&selectedPanelAnn?.annIdx===annIdx;
+      const isSel=!!_spa&&_spa.imgIdx===imgIdx&&_spa.annIdx===annIdx;
       const row=document.createElement('div');
       row.className='ann-row'+(isSel?' selected':'');
       const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
@@ -12380,7 +12550,7 @@ function renderAnnotationList(){
         <button class="icon-btn del" title="Delete" style="font-size:11px">×</button>`;
       row.addEventListener('click', ev=>{
         if(ev.target.classList.contains('del')) return;
-        selectedPanelAnn={imgIdx,annIdx}; selectedAnnotation=-1;
+        _selectPanelAnn(imgIdx,annIdx); selectedAnnotation=-1;
         // Find pb for this imgIdx
         const pb=panelBounds.find(p=>p.idx===imgIdx);
         if(pb) showPanelAnnFloat(imgIdx,annIdx,pb);
@@ -12388,9 +12558,10 @@ function renderAnnotationList(){
       });
       row.querySelector('.icon-btn').addEventListener('click',e=>{
         e.stopPropagation();
+        _selPA();     // bind the selection to its mark before the list shifts under it
         pushUndo();   // the figure-level row's × has always had one
         im.panelAnns.splice(annIdx,1);
-        if(selectedPanelAnn?.imgIdx===imgIdx&&selectedPanelAnn?.annIdx===annIdx){ selectedPanelAnn=null; hideAnnFloat(); }
+        _selPA();     // still selected if it was another mark; dropped if it was this one
         renderAnnotationList(); scheduleRender(0);
       });
       list.appendChild(row);
@@ -12982,7 +13153,7 @@ function pickInsetRegion(){
   if(!(cd.sw>=2&&cd.sh>=2)){ toast('This panel shows too little to magnify','warn'); return; }
   const view=document.createElement('canvas'); view.width=Math.round(cd.sw); view.height=Math.round(cd.sh);
   view.getContext('2d').drawImage(cd.img, cd.sx,cd.sy,cd.sw,cd.sh, 0,0,view.width,view.height);
-  cropEdState={imgIdx:-1,_fmIdx:-1,_insetOf:idx,img:view,cx:1/3,cy:1/3,cw:1/3,ch:1/3,
+  cropEdState={imgIdx:-1,_fmIdx:-1,_insetOf:idx,_insetOfId:_pidOf(idx),img:view,cx:1/3,cy:1/3,cw:1/3,ch:1/3,
                dragging:false,dx0:0,dy0:0,hasBox:true,ang:0};
   document.getElementById('crop-modal-title').textContent=`⧉ Inset of ${formatLabel(src.label)||'this panel'}`;
   document.getElementById('crop-modal-desc').textContent=
@@ -14186,7 +14357,7 @@ async function exportPDF(name, dpi, canvas, opts){
 // SCALE CALIBRATION TOOL
 // ═══════════════════════════════════════════════════════════════
 function openCalib(imgIdx){
-  calibState={imgIdx, pts:[], img:images[imgIdx].img, scale:1, offX:0, offY:0};
+  calibState={imgIdx, imgId:_pidOf(imgIdx), pts:[], img:images[imgIdx].img, scale:1, offX:0, offY:0};
   document.getElementById('calib-modal').classList.add('open');
   document.getElementById('calib-status').textContent='Click the first point…';
   document.getElementById('calib-apply').disabled=true;
@@ -14247,7 +14418,14 @@ function applyCalib(){
   if(isNaN(umVal)||umVal<=0){ toast('Enter a valid length','warn'); return; }
   const umTotal=umVal*unit;
   const umPerPx=umTotal/calibState.pxDist;
-  images[calibState.imgIdx].umPerPx=parseFloat(umPerPx.toFixed(6));
+  // The two points were clicked on one photo; the length belongs to that panel, found by
+  // id, and to nothing else if it has left the figure since (see _pidx).
+  const ci=calibState.imgId!=null?_pidx(calibState.imgId):calibState.imgIdx;
+  const target=images[ci];
+  if(!target||target.img!==calibState.img){ closeCalib(); toast(_PANEL_GONE,'warn'); return; }
+  calibState.imgIdx=ci;
+  pushUndo();
+  target.umPerPx=parseFloat(umPerPx.toFixed(6));
   document.getElementById('calib-result').textContent=
     `✓ Set: ${umPerPx.toFixed(4)} µm/px`;
   toast(`Scale set: ${umPerPx.toFixed(4)} µm/px`,'ok');
@@ -15653,6 +15831,8 @@ const _DIALOGS = {
   'kb-modal': {}, 'help-modal': {},
   'info-modal-bg': {}, 'confirm-modal-bg': {},          // built by showInfoModal / showConfirmModal
   'ba-modal-bg': {}, 'compare-modal': {},
+  'gel-modal-bg': { close:()=>closeGelAnalysis() },   // built by openGelAnalysis; resets _gelUI as it closes
+  's1-modal-bg': {},                                   // the uncropped-originals sheet
 };
 // The compliance report and the confirm box are styled inline rather than with
 // .modal-bg, and exist only while open, so they are found by id.
@@ -21279,7 +21459,18 @@ function _rulerFmt(um, umPerPx){
   return {value:+s, unit, d, text:`${s} ${unit}`};
 }
 
-var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image'};
+var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image', moved:'moved off its panel'};
+// A ruler is a measurement OF one image, so it records which panel it was drawn on.
+// Rulers are figure-level marks and stay where they are on the canvas; after a swap, or
+// hiding a panel with no gap left, another image slid under the ruler and it silently
+// reported that image's length at that image's µm/px. Bound to the panel's id, it now
+// says it has moved off its panel instead. Dragging it again binds it to where it lands.
+function _rulerBind(a){
+  if(!a||a.type!=='ruler') return;
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const h=_measurePanelAt(a.xf*W, a.yf*H);
+  if(h&&h.im&&h.im.id!=null) a.rulerPanel=h.im.id; else delete a.rulerPanel;
+}
 // One ruler, measured now. status: ok | uncal | nomap | off. Only 'ok' carries a length.
 function _rulerMeasure(a, W, H){
   W=W||canvasLogicalW||annCanvas.width; H=H||canvasLogicalH||annCanvas.height;
@@ -21292,6 +21483,11 @@ function _rulerMeasure(a, W, H){
   const h1=_measurePanelAt(fx1,fy1), h2=_measurePanelAt(fx2,fy2);
   if(!h1||!h2){ out.why='an end is off every panel'; return out; }
   if(h1.pb!==h2.pb){ out.why='the two ends are on different panels'; return out; }
+  // A ruler from a file saved before rulers were bound (or placed by code) is bound to the
+  // image it is on the first time it is measured.
+  if(a.rulerPanel==null&&h1.im.id!=null) a.rulerPanel=h1.im.id;
+  if(a.rulerPanel!=null&&h1.im.id!==a.rulerPanel){ out.status='moved'; out.note=_RULER_NOTE.moved;
+    out.why='the image it was drawn on has moved, been hidden or been removed — drag the ruler onto an image to measure again'; return out; }
   if(h1.im.type&&h1.im.type!=='image'){ out.why='not an image'; return out; }
   out.im=h1.im; out.pb=h1.pb;
   const map=_panelSourceMap(h1.pb,h1.im);
@@ -22222,7 +22418,7 @@ function openFreeformCropEditor(){
   // as a box made every drag inside the image a clamped move of that full-frame box, so
   // a straightened element could never be cropped — the stall 131707a fixed for grid
   // panels, left in place here. The tilt itself is carried by ang and shown in the readout.
-  cropEdState={imgIdx:-1, _fmIdx:idx, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0,
+  cropEdState={imgIdx:-1, _fmIdx:idx, _fmId:el.id, img:imgEl, cx:l, cy:t, cw:1-l-r, ch:1-t-b, dragging:false, dx0:0, dy0:0,
                hasBox:hasCrop, ang:+el.cropAngle||0};
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
@@ -22310,7 +22506,9 @@ function autoDetectScaleBar(imgIdx){
   const suggestions=[1,2,5,10,20,25,50,100,200,500];
   const modal=document.createElement('div');
   modal.className='modal-bg open';
-  const btnRow=suggestions.map(s=>`<button class="btn" style="margin:2px" onclick="applyScaleDetect(${imgIdx},${barPxOrig},${s});this.closest('.modal-bg').remove()">${s} µm</button>`).join('');
+  // By id: the choice is made in a dialog, after which the panel may not be at imgIdx.
+  const pid=_pidOf(imgIdx);
+  const btnRow=suggestions.map(s=>`<button class="btn" style="margin:2px" onclick="applyScaleDetect(_pidx(${esc(JSON.stringify(pid))}),${barPxOrig},${s});this.closest('.modal-bg').remove()">${s} µm</button>`).join('');
   modal.innerHTML=`<div class="modal" style="max-width:420px;padding:22px">
     <div style="font-weight:600;margin-bottom:10px">Scale Bar Detected</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
@@ -22323,7 +22521,8 @@ function autoDetectScaleBar(imgIdx){
   document.body.appendChild(modal);
 }
 function applyScaleDetect(imgIdx,barPx,um){
-  const im=images[imgIdx]; if(!im) return;
+  const im=images[imgIdx]; if(!im){ toast(_PANEL_GONE,'warn'); return; }
+  pushUndo();
   im.umPerPx=um/barPx; im.sbUm=um; im.sbOn=true;
   logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx.toFixed(4)});
   renderImgList(); scheduleRender(0);
