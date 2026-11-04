@@ -559,6 +559,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="panel-h" value="300" min="40" max="1400" oninput="scheduleRender()"></div>
     <div class="field"><label title="Every cell is the same height, so a wide short panel — a blot, a gel, a kymograph — floats in a tall cell with dead space above and below it, and closing the gaps does not help because the space is INSIDE the cell. With this on, each row shrinks to the tallest panel in it. Rows never grow past the panel height above; panel width and the figure's overall width do not move.">Rows hug their panels</label>
       <input type="checkbox" id="auto-row-h" onchange="scheduleRender()"></div>
+    <div class="field"><label for="hidden-gap" title="When you hide a panel (👁 in the list), does its cell stay blank or do the panels after it move up to fill it? Once the grid has row/column headings or group bands, moving up puts every later panel under the wrong heading — so Auto leaves a gap then, and closes up otherwise.">Hidden panels leave a gap</label>
+      <select id="hidden-gap" onchange="onLayoutChange()" style="width:auto;max-width:108px">
+        <option value="auto">Auto</option>
+        <option value="gap">Yes</option>
+        <option value="reflow">No</option>
+      </select></div>
+    <div id="hidden-gap-note" style="font-size:10px;color:var(--muted);line-height:1.4;margin:-2px 0 4px"></div>
     <button class="btn" style="width:100%;justify-content:center;font-size:11px;margin:3px 0 0" onclick="insertBlankCell()" title="Leave a grid position empty — after the selected panel, or at the end — to hold a place for a schematic added later or to align a ragged row. It is background in the export.">▭ Insert blank cell</button>
     <div class="inline-row" style="margin:3px 0 5px">
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. Spanning panels are counted as one cell.">⊞ Fit grid to panels</button>
@@ -1674,7 +1681,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <div id="toast"></div>
 
 <!-- ── Keyboard shortcuts modal ─────────────────────────────── -->
-<div class="modal-bg" id="kb-modal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="modal-bg" id="kb-modal">
   <div class="modal" style="max-width:520px">
     <button class="modal-close" onclick="document.getElementById('kb-modal').classList.remove('open')">×</button>
     <h3>⌨ Keyboard Shortcuts</h3>
@@ -1700,7 +1707,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div><code>Ctrl+V</code> Paste image from clipboard</div>
       <div><code>Ctrl+E</code> Export PNG</div>
       <div><code>Delete</code> Delete selected</div>
-      <div><code>Escape</code> Cancel / deselect</div>
+      <div><code>Escape</code> Close the open dialog, else cancel / deselect</div>
       <div style="color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase;grid-column:1/-1;margin-top:6px">Spacing &amp; labels</div>
       <div><code>Drag divider</code> Space panels apart</div>
       <div><code>+ / −</code> Nudge a gutter ±2px</div>
@@ -1717,7 +1724,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Help & FAQ modal ──────────────────────────────────────── -->
-<div class="modal-bg" id="help-modal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="modal-bg" id="help-modal">
   <div class="modal help-modal">
     <button class="modal-close" onclick="document.getElementById('help-modal').classList.remove('open')" aria-label="Close help">×</button>
     <h3>❔ Help &amp; FAQ</h3>
@@ -2196,7 +2203,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Command palette ───────────────────────────────────────── -->
-<div class="modal-bg" id="cmd-palette" onclick="if(event.target===this)closeCmdPalette()">
+<div class="modal-bg" id="cmd-palette">
   <div class="modal">
     <input id="cmdp-input" class="cmdp-input" type="text" autocomplete="off" spellcheck="false"
       placeholder="Type a command…  (export, render, theme, preset, help)" aria-label="Command palette">
@@ -2205,7 +2212,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Export preflight modal ────────────────────────────────── -->
-<div class="modal-bg" id="preflight-modal" onclick="if(event.target===this)closePreflight()">
+<div class="modal-bg" id="preflight-modal">
   <div class="modal" style="max-width:470px">
     <button class="modal-close" onclick="closePreflight()" aria-label="Cancel export">×</button>
     <h3>⤓ Save figure</h3>
@@ -2251,7 +2258,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </div>
 
 <!-- ── Customize modal ───────────────────────────────────────── -->
-<div class="modal-bg" id="customize-modal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="modal-bg" id="customize-modal">
   <div class="modal" style="max-width:400px">
     <button class="modal-close" onclick="document.getElementById('customize-modal').classList.remove('open')" aria-label="Close">×</button>
     <h3>⚙ Customize</h3>
@@ -2707,7 +2714,7 @@ document.addEventListener('paste', e=>{
   const t=e.target;
   if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
   // …or while a dialog owns the screen (the crop editor included)
-  if(document.querySelector('.modal-bg.open')) return;
+  if(_topDialog()) return;
   const dt=e.clipboardData; if(!dt) return;
   const items=Array.from(dt.items||[]);
   const imgItem=items.find(i=>i.kind==='file'&&/^image\//.test(i.type));
@@ -3995,6 +4002,7 @@ function _cmdpRun(){
     if((e.ctrlKey||e.metaKey)&&(e.key==='k'||e.key==='K')){
       e.preventDefault();
       const el=document.getElementById('cmd-palette');
+      if(!el.classList.contains('open') && _topDialog()) return;   // another dialog has the screen
       el.classList.contains('open')?closeCmdPalette():openCmdPalette();
     }
   });
@@ -4362,6 +4370,33 @@ function _scaleBarsNotDrawn(){
   return out;
 }
 
+// One key per panel for the list's view state. Panel ids survive undo snapshots and
+// reorders; a figure loaded from a file written before ids existed gets them here. A
+// merge copies its base's id, so a repeat is told apart by how many came before it.
+function _panelKeys(){
+  const seen={};
+  return images.map(im=>{
+    if(!im) return null;
+    if(im.id==null) im.id=Date.now()+Math.random();
+    const k=String(im.id); seen[k]=(seen[k]||0)+1;
+    return k+'#'+seen[k];
+  });
+}
+function _listViewState(list){
+  const open=new Set(), ticked=new Set();
+  list.querySelectorAll('.img-item[data-pid]').forEach(it=>{
+    const k=it.dataset.pid;
+    if(it.querySelector('.img-settings.open')) open.add(k);
+    const cb=it.querySelector('.panel-pick'); if(cb&&cb.checked) ticked.add(k);
+  });
+  // Clearing the list collapses its height and the browser clamps scrollTop to 0, so
+  // the position is read here, from whichever ancestor actually scrolls.
+  let scroller=list.parentElement;
+  while(scroller && scroller!==document.body && scroller.scrollHeight<=scroller.clientHeight) scroller=scroller.parentElement;
+  if(scroller===document.body) scroller=null;
+  return {open, ticked, scroller, top:scroller?scroller.scrollTop:0};
+}
+
 // ═══════════════════════════════════════════════════════════════
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
@@ -4375,7 +4410,13 @@ function renderImgList(){
   }
   if(typeof updateEmptyState==='function') updateEmptyState();
   const list = document.getElementById('img-list');
+  // The list is rebuilt on almost every edit and on undo, and the rebuild used to drop
+  // whatever you had open: the ⚙ drawer you were working in snapped shut, the ticks
+  // went, and the sidebar jumped back to the top. Read them off the outgoing rows
+  // (keyed by panel id, not index — undo and a drag can reorder) before clearing.
+  const _view=_listViewState(list);
   list.innerHTML = '';
+  const _keys=_panelKeys();
   const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
   images.forEach((im, idx) => {
     if(!im){
@@ -4394,6 +4435,7 @@ function renderImgList(){
     }
     const item = document.createElement('div');
     item.className = 'img-item';
+    item.dataset.pid = _keys[idx];
     item.draggable = true;
     const objOpts = Object.entries(OBJECTIVES).map(([k,v])=>
       `<option value="${v}" ${im.umPerPx===v?'selected':''}>${k} (${v})</option>`).join('');
@@ -4411,7 +4453,7 @@ function renderImgList(){
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
         ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
         ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
-        <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
+        <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'+(layoutMode==='freeform'?'':' — '+(_hiddenLeavesGap()?'its cell stays blank':'the panels after it move up')+'; change this under Grid › Hidden panels leave a gap')}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
         <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
         <button class="icon-btn gear" aria-label="Panel settings" title="Settings" data-gear="${idx}">⚙</button>
@@ -4813,8 +4855,14 @@ function renderImgList(){
       }
     });
 
+    if(_view.open.has(_keys[idx])){
+      s.classList.add('open'); gear.classList.add('active');
+      requestAnimationFrame(()=>drawHistogram(item.querySelector('.f-hist'), images[idx]));
+    }
+    if(_view.ticked.has(_keys[idx])) item.querySelector('.panel-pick').checked=true;
     list.appendChild(item);
   });
+  if(_view.scroller) _view.scroller.scrollTop=_view.top;
   renderMiniGrid();
   // Fill the ppi readouts from the last frame's geometry. Arithmetic only: this list is
   // rebuilt on every mutation, so it must never render.
@@ -4828,13 +4876,15 @@ function renderMiniGrid(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const g=document.getElementById('mini-grid');
   g.style.gridTemplateColumns=`repeat(${cols},1fr)`; g.innerHTML='';
+  const order=layoutMode==='freeform' ? images.map((_,i)=>i) : _gridOrder();
   for(let i=0;i<cols*rows;i++){
     const cell=document.createElement('div');
-    const im=images[i];
+    const im=i<order.length ? images[order[i]] : null;
     cell.className='mini-cell'+(im?' filled':'');
     if(im){ cell.style.backgroundImage=`url(${im.src})`;
       const lbl=document.createElement('span'); lbl.className='mini-cell-lbl'; lbl.textContent=im.label; cell.appendChild(lbl);
-    } else { cell.textContent='·'; }
+    } else if(order.gapOf && order.gapOf[i]!=null){ cell.textContent='–'; cell.title=`${images[order.gapOf[i]].label||'A panel'} is hidden — its cell is kept`; }
+    else { cell.textContent='·'; }
     g.appendChild(cell);
   }
 }
@@ -4909,6 +4959,7 @@ function onLayoutChange(){
   }
   const lblBtn=document.getElementById('labels-toggle-btn');
   if(lblBtn) lblBtn.classList.toggle('active', showC||showR);
+  _syncHiddenGapNote();
   renderMiniGrid(); scheduleRender();
 }
 
@@ -5101,7 +5152,7 @@ function _fitGrid(n){
 }
 function fitGridToPanels(){
   if(layoutMode==='freeform'){ toast('The grid applies to grid mode','warn'); return; }
-  const n=images.filter(im=>im&&!im.excluded).length;
+  const n=_gridOrder().length;   // hidden panels count when they keep their cell
   if(!n){ toast('Add images first','warn'); return; }
   const {cols,rows}=_fitGrid(n);
   if(cols===gi('cols')&&rows===gi('rows')){ toast(`Already ${cols} × ${rows} for ${n} panel${n>1?'s':''}`,'ok'); return; }
@@ -5670,7 +5721,6 @@ function openBeforeAfter(idx){
     <input type="range" id="ba-slider" min="0" max="100" value="50" style="width:${W}px;display:block;margin:8px auto 0">
     <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:2px">Left = original · Right = adjusted · drag the slider${adj.off?'':' — (no adjustments on this panel)'}</div>
   </div>`;
-  m.addEventListener('click',e=>{ if(e.target===m) m.remove(); });
   document.body.appendChild(m);
   const ctx=document.getElementById('ba-canvas').getContext('2d');
   const draw=(pct)=>{
@@ -6673,7 +6723,10 @@ function render(targetCanvas, exportScale, opts){
           ctx.font=`bold ${Math.max(14,Math.round(Math.min(apw,aph)*0.18))}px system-ui,sans-serif`;
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.18)':'rgba(0,0,0,.18)';
           ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(String(seq+seqBase+1), px+apw/2, py+aph/2);
+          { const gi_=_order.gapOf && _order.gapOf[seq], gim=gi_!=null ? images[gi_] : null;
+            if(gim){ ctx.font=`${Math.max(11,Math.round(Math.min(apw,aph)*0.08))}px system-ui,sans-serif`;
+              ctx.fillText(`${formatLabel(gim.label)||'panel'} hidden`, px+apw/2, py+aph/2); }
+            else ctx.fillText(String(seq+seqBase+1), px+apw/2, py+aph/2); }
           ctx.restore();
           seq++; continue;
         }
@@ -9587,7 +9640,7 @@ function cloneElemForUndo(el){
 }
 const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
   'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
-  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos'];
+  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','label-format','fm-canvas-w','fm-canvas-h','tag-pos','hidden-gap'];
 const _layoutCheckIds=['auto-row-h','show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
   'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color',
   'export-tiff-lzw'];
@@ -9628,6 +9681,12 @@ function snapshotState(){
 }
 function restoreState(s){
   if(!s) return;
+  // Undo used to drop the selection outright, so the panel you were adjusting had to
+  // be found and clicked again after every Ctrl+Z. Remember it by id and look it up in
+  // the restored state; it is cleared only if that panel (or object) no longer exists.
+  const _selId=(selectedPanel>=0&&images[selectedPanel])?images[selectedPanel].id:null;
+  const _selElIds=[...selectedElems].map(i=>freeformElements[i]&&freeformElements[i].id).filter(v=>v!=null);
+  const _selAnnAt=selectedAnnotation, _selAnnType=annotations[selectedAnnotation]&&annotations[selectedAnnotation].type, _annN=annotations.length;
   if(s.images) images=s.images.map(cloneImageForUndo);
   annotations=(s.annotations||[]).map(a=>({...a}));
   freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
@@ -9642,8 +9701,16 @@ function restoreState(s){
     const lm=document.getElementById('layout-mode'); if(lm) lm.value=s.layoutMode; setLayoutMode(s.layoutMode);
   }
   if(s.layout) applyLayoutSnapshot(s.layout);
-  selectedAnnotation=-1; selectedPanel=-1; selectedPanelAnn=null; selectedElems.clear(); hideAnnFloat();
+  selectedPanel=_selId!=null ? images.findIndex(im=>im&&im.id===_selId) : -1;
+  selectedElems.clear();
+  _selElIds.forEach(id=>{ const i=freeformElements.findIndex(el=>el&&el.id===id); if(i>=0) selectedElems.add(i); });
+  // Annotations carry no id. Keep the selection only when the list is the same length
+  // and the same kind of mark sits at that place — otherwise the undo added or removed
+  // one and the index now names a different mark (or none).
+  selectedAnnotation=(_selAnnAt>=0 && annotations.length===_annN && annotations[_selAnnAt] && annotations[_selAnnAt].type===_selAnnType) ? _selAnnAt : -1;
+  selectedPanelAnn=null; hideAnnFloat();
   renderImgList(); renderMiniGrid(); updateFreeformElemList(); renderAnnotationList(); scheduleRender(0);
+  if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
 }
 function _pushSnap(snap){ undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[]; _pendingUndoSnap=null; }
 function pushUndo(){ _pushSnap(snapshotState()); if(typeof scheduleAutosave==='function') scheduleAutosave(); }
@@ -10841,7 +10908,8 @@ function showPanelMenu(idx, cx, cy){
     row('⚙  Open settings', ()=>{
       renderImgList();
       const gear=document.querySelector(`[data-gear="${idx}"]`);
-      if(gear){ gear.click(); gear.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+      const drawer=document.getElementById('settings-'+idx);
+      if(gear){ if(!(drawer&&drawer.classList.contains('open'))) gear.click(); gear.scrollIntoView({behavior:'smooth',block:'nearest'}); }
     });
     const sep=document.createElement('div');
     sep.style.cssText='height:1px;background:var(--border);margin:3px 0';
@@ -13208,6 +13276,7 @@ function serializeSession(bundleImages){
       // Rows hug their panels changes every row's height, so a figure saved without it
       // reopened taller than the one exported from it.
       autoRowH:gc('auto-row-h'),
+      hiddenGap:gv('hidden-gap')||'auto',   // where a hidden panel's neighbours sit
       colLabels:axisLabelValues('col'),
       rowLabels:axisLabelValues('row'),
       colGaps, rowGaps, advancedSpacing },
@@ -13298,6 +13367,7 @@ function applySession(s,_opts){
         // Unconditional: a file saved before this field existed was laid out with uniform
         // rows, and must reopen that way even if the box happens to be ticked right now.
         sc('auto-row-h',!!L.autoRowH);
+        sv('hidden-gap',_hiddenGapFrom(L.hiddenGap, s.images));
         colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
         rowGaps=Array.isArray(L.rowGaps)?L.rowGaps.slice():null;
         advancedSpacing=!!L.advancedSpacing;
@@ -13675,9 +13745,102 @@ print(f"Saved: {output_file}")`;
 }
 
 // ═══════════════════════════════════════════════════════════════
+// DIALOGS — one behaviour for all of them
+// ═══════════════════════════════════════════════════════════════
+// Each dialog used to decide for itself: five closed on a backdrop click, one more
+// on Escape, the rest on neither, and none stopped the figure's shortcuts — Ctrl+Z
+// with the compliance report open undid the figure behind it, and R, V, Delete and
+// the arrow keys went through every dialog except the crop editor's own keys. Now:
+// Escape closes the topmost dialog (one per press), a click on its dimmed backdrop
+// closes it, and while any dialog is open the shortcut handler stands aside.
+//
+// The registry names the dialogs that need a particular closer or must NOT close on a
+// stray backdrop click. A dialog not listed — the before/after viewer, the audits, the
+// scale-bar picker, the share-link fallback — is still found by its .modal-bg.open
+// class and closed by removing it, which is what its own × does.
+// backdrop:false is kept to the dialogs where a click outside would throw away work
+// that only their Apply/Done button commits.
+const _DIALOGS = {
+  'crop-modal':      { close:()=>{ if(cropEdState.leveling) toggleCropLevel(false); else closeCropModal(); },
+                       backdrop:false },   // the box, a tilt, pending multi-crop regions — Apply commits them
+  'calib-modal':     { close:()=>closeCalib(), backdrop:false },        // two clicked points + a typed length
+  'chart-modal':     { close:()=>closeChartModal(), backdrop:false },   // pasted data, committed by Insert
+  'genemap-modal':   { close:()=>closeGenemapModal(), backdrop:false }, // a feature table, committed by Apply
+  'cmd-palette':     { close:()=>closeCmdPalette() },
+  'preflight-modal': { close:()=>closePreflight() },   // only a file name to lose; it always closed on the backdrop
+  'customize-modal': {},                                // a greeting name; it always closed on the backdrop
+  'ff-adjust-modal': {},                                // adjustments apply live, Done only closes
+  'kb-modal': {}, 'help-modal': {},
+  'info-modal-bg': {}, 'confirm-modal-bg': {},          // built by showInfoModal / showConfirmModal
+  'ba-modal-bg': {}, 'compare-modal': {},
+};
+// The compliance report and the confirm box are styled inline rather than with
+// .modal-bg, and exist only while open, so they are found by id.
+function _dialogList(){
+  return [...document.querySelectorAll('.modal-bg.open, #info-modal-bg, #confirm-modal-bg')]
+    .filter(el=>el.isConnected && getComputedStyle(el).display!=='none');
+}
+// Topmost: highest z-index, then the most recently opened. DOM order alone is wrong —
+// the palette is declared before the crop editor, so it would count as "under" it.
+let _dlgSeq=0;
+function _topDialog(){
+  const l=_dialogList(); if(!l.length) return null;
+  const z=el=>parseInt(getComputedStyle(el).zIndex,10)||0;
+  return l.reduce((a,b)=>{ const za=z(a), zb=z(b);
+    return (zb>za || (zb===za && (b._dlgAt||0)>=(a._dlgAt||0))) ? b : a; });
+}
+function _closeDialog(el){
+  if(!el) return;
+  const d=_DIALOGS[el.id];
+  if(d && d.close) return d.close();
+  if(el.dataset.dlgStatic) el.classList.remove('open'); else el.remove();
+}
+const _dlgBackdropCloses = el => !(_DIALOGS[el.id] && _DIALOGS[el.id].backdrop===false) && !el.hasAttribute('data-no-backdrop');
+// Stamp the order dialogs open in. Static dialogs toggle .open; built ones are appended
+// to <body> already open.
+(function watchDialogs(){
+  const stamp=el=>{ el._dlgAt=++_dlgSeq; };
+  const isDlg=n=>n.nodeType===1 && (n.classList.contains('modal-bg') || n.id==='info-modal-bg' || n.id==='confirm-modal-bg');
+  const obs=new MutationObserver(recs=>recs.forEach(r=>{
+    if(r.type==='attributes'){
+      if(r.target.classList.contains('open') && !/\bopen\b/.test(r.oldValue||'')) stamp(r.target);
+    } else r.addedNodes.forEach(n=>{ if(isDlg(n)) stamp(n); });
+  }));
+  document.querySelectorAll('.modal-bg').forEach(el=>{
+    el.dataset.dlgStatic='1';
+    obs.observe(el,{attributes:true, attributeFilter:['class'], attributeOldValue:true});
+  });
+  obs.observe(document.body,{childList:true});
+})();
+// Escape: capture phase, so it runs before the dialog's own handlers and before the
+// shortcut handler's "Escape deselects everything". The guided tour's own capture
+// listener is registered earlier and ends the tour instead — it keeps that.
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape' || e.defaultPrevented || e.isComposing) return;
+  if(document.getElementById('tour-ov')) return;
+  const top=_topDialog(); if(!top) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  _closeDialog(top);
+}, true);
+// Backdrop: only a click that both began and ended on the backdrop itself. Selecting
+// text in a field and releasing past the dialog's edge is a drag, not a click outside.
+let _dlgDownOn=null;
+document.addEventListener('pointerdown', e=>{ _dlgDownOn=e.target; }, true);
+document.addEventListener('click', e=>{
+  const t=e.target;
+  if(!t || t!==_dlgDownOn) return;
+  if(!(t.classList && t.classList.contains('modal-bg')) && t.id!=='info-modal-bg' && t.id!=='confirm-modal-bg') return;
+  if(t!==_topDialog() || !_dlgBackdropCloses(t)) return;
+  _closeDialog(t);
+});
+
+// ═══════════════════════════════════════════════════════════════
 // KEYBOARD SHORTCUTS
 // ═══════════════════════════════════════════════════════════════
 document.addEventListener('keydown', e=>{
+  // A dialog owns the keyboard while it is open: its fields, its own keys (the crop
+  // editor's arrows and Enter, the palette's list) — never the figure behind it.
+  if(_topDialog()) return;
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
   // Tool shortcuts
   if(!e.ctrlKey&&!e.metaKey&&!e.altKey){
@@ -13882,9 +14045,58 @@ function renderGroupList(){
 // may only need six. Deleting the rest throws away work you might want back —
 // and re-cropping is the expensive part. im.excluded takes a panel out of the
 // FIGURE while it stays in the list, in the session, and one click from
-// returning. Excluded panels don't occupy a cell, so the rest close up.
-const _gridOrder = () =>
-  images.map((im,i)=>i).filter(i => !images[i] || !images[i].excluded);
+// returning. On an unnamed grid an excluded panel gives up its cell and the rest close
+// up. Once the grid is NAMED — row or column headings, or group bands — closing up
+// slid every later panel one cell back, under a heading that described a different
+// condition, and nothing said so. There a hidden panel keeps its cell as a blank
+// (-1, which every walker below already treats as an empty cell). "Hidden panels
+// leave a gap" overrides the automatic choice either way.
+const _gridIsNamed = () => gc('show-col-labels') || gc('show-row-labels') || _hasGroups('row') || _hasGroups('col');
+function _hiddenLeavesGap(){
+  const m=gv('hidden-gap');
+  if(m==='gap') return true;
+  if(m==='reflow') return false;
+  return _gridIsNamed();
+}
+// .gapOf maps a cell position to the hidden panel holding it, so the editing view can
+// say whose cell it is.
+const _gridOrder = () => {
+  const gap=_hiddenLeavesGap(), out=[]; out.gapOf={};
+  images.forEach((im,i)=>{
+    if(im && im.excluded){ if(gap){ out.gapOf[out.length]=i; out.push(-1); } }
+    else out.push(i);
+  });
+  return out;
+};
+// A file written before the option existed was drawn closed up. If it hides any panel
+// it reopens that way, so it matches the figure exported from it; otherwise Auto.
+function _hiddenGapFrom(v, imgs){
+  if(v==='auto'||v==='gap'||v==='reflow') return v;
+  return (Array.isArray(imgs) && imgs.some(d=>d&&d.excluded)) ? 'reflow' : 'auto';
+}
+// The resolved state, spelled out under the control, so "Auto" is never a guess.
+function _syncHiddenGapNote(){
+  const note=document.getElementById('hidden-gap-note'), sel=document.getElementById('hidden-gap');
+  if(!note||!sel) return;
+  const gap=_hiddenLeavesGap();
+  const why = gc('show-col-labels') ? 'column headings are on'
+            : gc('show-row-labels') ? 'row headings are on'
+            : (_hasGroups('row')||_hasGroups('col')) ? 'the grid has group bands'
+            : 'no headings or group bands';
+  const auto=sel.querySelector('option[value="auto"]');
+  if(auto) auto.textContent = gap ? 'Auto · gap' : 'Auto · close up';
+  note.textContent = (sel.value||'auto')==='auto'
+    ? `Auto: ${gap?'a hidden panel leaves its cell blank':'the panels close up over a hidden one'} — ${why}.`
+    : (gap ? 'A hidden panel leaves its cell blank.' : 'The panels close up over a hidden one.');
+}
+// What hiding did to the grid, for the toast — the move used to be silent.
+function _hideOutcome(){
+  if(layoutMode==='freeform') return '';
+  if(!_hiddenLeavesGap()) return ' — the panels after it moved up a cell';
+  const lost=_includedCount()-_figurePanels().length;
+  return ' — its cell is left blank so the rest stay under their headings'
+    + (lost>0 ? ` (${lost} shown panel${lost>1?'s':''} now fall${lost>1?'':'s'} outside the grid)` : '');
+}
 const _includedCount = () => images.filter(im=>im && !im.excluded).length;
 // The panels the figure actually DRAWS, in reading order. Everything shipped to a
 // journal — the caption, the metadata CSV, the compliance check, the package
@@ -13919,7 +14131,7 @@ function togglePanelExcluded(idx){
   pushUndo();
   im.excluded=!im.excluded;
   renderImgList(); renderMiniGrid(); scheduleRender(0);
-  toast(`${im.label||('Panel '+(idx+1))} ${im.excluded?'hidden from the figure':'shown again'}`,'ok');
+  toast(`${im.label||('Panel '+(idx+1))} ${im.excluded?'hidden from the figure'+_hideOutcome():'shown again'}`,'ok');
 }
 // Keep only what is currently selected in the list; everything else is hidden,
 // not deleted.
@@ -14032,6 +14244,7 @@ function mergeTickedPanels(){
   if(base.label){ p.label=base.label; base.label=fresh; } else p.label=fresh;
   sel.forEach(i=>{ images[i].excluded=true; });
   images.splice(sel[sel.length-1]+1,0,p);
+  document.querySelectorAll('#img-list .panel-pick:checked').forEach(cb=>{ cb.checked=false; });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('mergeTicked',{from:labels, into:formatLabel(p.label)});
   toast(`${labels} merged into ${formatLabel(p.label)} (${luts.join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
@@ -14044,7 +14257,10 @@ function showOnlySelectedPanels(){
   pushUndo();
   images.forEach((im,i)=>{ if(im) im.excluded=!keep.has(i); });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
-  toast(`Showing ${keep.size} of ${images.filter(Boolean).length} panels`,'ok');
+  const gap=layoutMode!=='freeform'&&_hiddenLeavesGap(), lost=_includedCount()-_figurePanels().length;
+  toast(`Showing ${keep.size} of ${images.filter(Boolean).length} panels`
+    + (gap ? ` — hidden ones leave blank cells under the headings${lost>0?`; ${lost} fall outside the grid (set “Hidden panels leave a gap” to No to close up)`:''}` : ''),
+    gap&&lost>0?'warn':'ok');
 }
 function showAllPanels(){
   if(!images.some(im=>im&&im.excluded)){ toast('All panels are already shown','ok'); return; }
@@ -17545,6 +17761,7 @@ function saveTemplate(){
     // different figure, and left the OLD overrides in place so its gaps did nothing.
     advancedSpacing, colGaps:colGaps?colGaps.slice():null, rowGaps:rowGaps?rowGaps.slice():null,
     autoRowH:gc('auto-row-h'),   // row heights are geometry too; a template without it loaded taller
+    hiddenGap:gv('hidden-gap')||'auto',
     fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
     fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
     // Strip transient render caches (live canvases, adjust/chart caches) before cloning.
@@ -17591,6 +17808,7 @@ function loadTemplate(t){
     advancedSpacing = !!t.advancedSpacing;
     const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=advancedSpacing;
     sc('auto-row-h',!!t.autoRowH);   // replaced like the gutters, so an older template loads uniform
+    sv('hidden-gap',_hiddenGapFrom(t.hiddenGap, null));
     onLayoutChange();
   } else {
     sv('fm-canvas-w',t.fmW||1200); sv('fm-canvas-h',t.fmH||900);
@@ -19894,6 +20112,8 @@ async function _provenanceHash(){
     parts.push(gc('auto-row-h')?1:0, _provRowHeights());
     // Per-gutter overrides move panels as surely as the uniform gaps do.
     parts.push(advancedSpacing?1:0, JSON.stringify(colGaps||null), JSON.stringify(rowGaps||null));
+    // Which panel sits in which cell — hiding one moves the rest, or leaves a blank.
+    if(layoutMode==='grid') parts.push(_gridOrder().join(','));
     images.forEach(im=>{ if(!im) return; parts.push([im.label,im.lut,im.grayscale?1:0,im.invert?1:0,
       im.brightness,im.contrast,im.gamma||1,im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,im.umPerPx||0,im.sbUm||0,
@@ -20061,6 +20281,7 @@ function shareSession(){
       // Rows hug their panels changes every row's height, so a figure saved without it
       // reopened taller than the one exported from it.
       autoRowH:gc('auto-row-h'),
+      hiddenGap:gv('hidden-gap')||'auto',
       colLabels:axisLabelValues('col'),
       rowLabels:axisLabelValues('row'),
     },
@@ -20135,6 +20356,7 @@ function shareSession(){
       // Unconditional, as in applySession: a link made before this field existed was
       // laid out with uniform rows.
       sc('auto-row-h',!!L.autoRowH);
+      sv('hidden-gap',_hiddenGapFrom(L.hiddenGap, s.images));
       // shareSession writes the per-gutter overrides, but the link never read them back,
       // so the recipient got uniform gutters and a figure narrower than the one shared.
       colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
