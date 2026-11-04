@@ -795,6 +795,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLaneLabels()" title="Add numbered lane labels across the top — drag to align with your lanes">▦ Lane labels</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLadderLabels()" title="Add molecular-weight ladder labels down the left edge">↕ MW ladder</button>
     </div>
+    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Supplementary sheet journals ask for: each blot or gel's whole original image with the region used in the figure outlined, its file name, crop in source pixels, tilt and splice markers. PDF (one page per panel) or PNG.">🗎 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
     </div><!-- /annotate-grid-only -->
@@ -967,6 +968,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="measure-roi" onclick="setTool('measure-roi')" style="font-size:11px">⬚ ROI</button>
       <button class="ann-tool" data-tool="measure-line" onclick="setTool('measure-line')" style="font-size:11px">📏 Profile</button>
       <button class="ann-tool" data-tool="measure-count" onclick="setTool('measure-count')" style="font-size:11px">🔢 Count</button>
+      <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')" style="font-size:11px" title="Draw a ruler on a calibrated panel: it reads its length in nm, µm or mm from the panel's source pixels and µm/px. Name rulers below (e.g. capsid, tail) to get n, mean and SD.">⊢ Ruler</button>
     </div>
     <div class="field" id="count-thresh-row" style="display:none;margin-top:4px">
       <label style="font-size:10px">Threshold</label>
@@ -978,6 +980,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="export-measurements-btn" onclick="exportMeasurements()" style="width:100%;justify-content:center;display:none;margin-top:4px">⬇ Export Measurements CSV</button>
     <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">
       Measurements read your camera's native samples where an exact mapping exists, and the 8-bit display otherwise — every result says which.</div>
+    <div id="ruler-results"></div>
   </div>
 </details>
 
@@ -1050,6 +1053,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label for="export-tiff-lzw" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Write TIFFs LZW-compressed (lossless, horizontal differencing): the pixels come back bit for bit. PLOS asks for it, and the PLOS preset switches it on. Also used by the submission package.">Compress TIFF (LZW, lossless)</label>
     </div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
+    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Each blot or gel's whole original image with the cropped region outlined, file name, crop coordinates, tilt and splice markers — the uncropped-originals supplement Nature, Cell, JBC, PLOS and eLife require. Also added to the submission package.">🗎 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
     <button class="btn" id="pptx-btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx) with each panel as a separate, movable picture and the title as an editable text box — finish your slide in PowerPoint.">📊 Export editable PowerPoint (.pptx)</button>
 
@@ -3376,6 +3380,7 @@ function _finishPreCrop(croppedSrc,croppedImg,keepVector,raw){
     im.img=croppedImg; im.src=croppedSrc; im.name=name;
     im.svgSource=keepVector?(pc.svgSource||null):null; im.isVector=!!(keepVector&&pc.svgSource);
     im.raw=(raw===undefined?pc.raw:raw)||null;
+    im._importCrop=pc.importCrop||undefined;
     im._adjCache=undefined; im._adjKey=undefined;
     logAction('addImage',{name,mode:layoutMode,source:'clipboard',replaced:im.label});
     renderImgList(); renderMiniGrid(); scheduleRender(0);
@@ -3384,6 +3389,10 @@ function _finishPreCrop(croppedSrc,croppedImg,keepVector,raw){
     // keep the vector source only when the image wasn't cropped (a crop makes it raster).
     // Calibration (µm/px) is per-pixel, so it survives cropping either way.
     _commitImage(croppedImg,croppedSrc,name, keepVector?pc.svgSource:null, pc.calib, raw===undefined?pc.raw:raw);
+    if(pc.importCrop){   // same undo step as the commit: its snapshot was taken before the push
+      const made=[...images, ...(typeof freeformElements!=='undefined'?freeformElements:[])].find(p=>p&&p.img===croppedImg);
+      if(made) made._importCrop=pc.importCrop;
+    }
   }
   _resetCropModalUI();
   document.getElementById('crop-modal').classList.remove('open');
@@ -3759,6 +3768,8 @@ const CMD_REGISTRY=[
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
   {label:'Export submission package (ZIP)', keys:'submission package zip bundle everything', run:()=>exportSubmissionPackage()},
   {label:'Export editable PowerPoint (.pptx)', keys:'powerpoint pptx slides editable ppt', run:()=>exportPPTX()},
+  {label:'Export uncropped originals (S1) — blots and gels', keys:'uncropped original originals blot gel western full scan supplement supplementary s1 raw unprocessed crop region journal', run:()=>openS1Dialog()},
+  {label:'Export ruler lengths (CSV)', keys:'ruler length measure measurement nm tem capsid tail size csv mean sd', run:()=>exportRulerCSV()},
   {label:'Add splice marker (blot/gel)', keys:'splice blot gel lane divider integrity', run:()=>addSpliceMarker()},
   {label:'Duplicate-panel check',    keys:'duplicate reuse identical panel integrity proofig imagetwin plagiarism', run:()=>runDuplicateScan()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
@@ -5671,7 +5682,7 @@ function addLaneLabels(){
   const yf = (t.iy>=fs+4 ? (t.iy-fs-4)/t.H : t.fy(0.04));
   for(let i=0;i<n;i++){
     const u=(i+0.5)/n;                          // one per lane, centred in its share
-    annotations.push({type:'text', xf:t.fx(u), yf, text:String(i+1), fontSize:fs, color:'#000000', halo:false});
+    annotations.push({type:'text', xf:t.fx(u), yf, text:String(i+1), fontSize:fs, color:'#000000', halo:false, blotPanel:images[t.idx]&&images[t.idx].id});
   }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0); toast(`Added ${n} lane labels over panel ${t.name} — switch to ↖ Select to drag them onto your lanes`,'ok');
@@ -5684,7 +5695,7 @@ function addLadderLabels(){
   pushUndo();
   const xf = (t.ix>=34 ? (t.ix-30)/t.W : t.fx(0.02));   // in the margin beside the blot, if there is one
   mw.forEach((v,i)=>{ const v01=mw.length>1?i/(mw.length-1):0.5;
-    annotations.push({type:'text', xf, yf:t.fy(0.1+0.8*v01), text:v, fontSize:13, color:'#000000', halo:false}); });
+    annotations.push({type:'text', xf, yf:t.fy(0.1+0.8*v01), text:v, fontSize:13, color:'#000000', halo:false, blotPanel:images[t.idx]&&images[t.idx].id}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0); toast(`Added ${mw.length} MW labels beside panel ${t.name} — drag to align with the ladder`,'ok');
 }
@@ -6929,7 +6940,7 @@ function render(targetCanvas, exportScale, opts){
   _lastFrames=_frameSink||[]; _lastCells=_cellRects; _frameSink=null; _skipFrameDraw=false;
 
   // Draw committed annotations (logical dims — ctx is scaled by S)
-  drawAnnotations(ctx, totalW, totalH);
+  _annExport=isExport; drawAnnotations(ctx, totalW, totalH); _annExport=false;
 
   if(isExport) return; // off-screen export: don't touch on-screen UI state
 
@@ -6937,6 +6948,7 @@ function render(targetCanvas, exportScale, opts){
   maybeShowHint();
   canvasLogicalW=totalW; canvasLogicalH=totalH;
   _renderStamp++;
+  if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
   // Physical size must come from the SAME scale the export uses (dpi/96, or the
   // target printed width when one is set). Dividing logical px by dpi assumes a
   // scale of 1 and under-reports the real size by ~3x at 300 DPI.
@@ -7812,6 +7824,9 @@ function applyCropModal(){
     const rawCrop=(!g.rotated&&raw&&raw.w===img.naturalWidth&&raw.h===img.naturalHeight&&sx+sw<=raw.w&&sy+sh<=raw.h)
       ? _cropRaw(raw,sx,sy,sw,sh) : null;
     if(g.rotated&&raw) toast('Tilted crop-on-import: native samples dropped, so measurements will read the display','warn');
+    // The stored image IS this crop, so the full scan is gone from the session; the S1
+    // sheet has to say so rather than present the crop as the uncropped original.
+    cropEdState._preCrop.importCrop={x:sx,y:sy,w:sw,h:sh,iw:img.naturalWidth,ih:img.naturalHeight,ang};
     const newImg=new Image();
     newImg.onload=()=>_finishPreCrop(newSrc,newImg,false,rawCrop);   // cropped → vector source no longer matches
     newImg.src=newSrc;
@@ -9349,7 +9364,7 @@ function showInfoModal(title, bodyHtml){
 // Returns array of handle descriptors for a selected annotation
 function getAnnHandles(a, W, H){
   if(a.type==='text'||a.type==='inset') return [];
-  if(a.type==='line'||a.type==='arrow'){
+  if(a.type==='line'||a.type==='arrow'||a.type==='ruler'){
     return [
       {id:'p1', x:a.xf*W,      y:a.yf*H,      updateXF:true,  updateYF:true,  updateX2F:false, updateY2F:false, cursor:'crosshair'},
       {id:'p2', x:a.x2f*W,     y:a.y2f*H,     updateXF:false, updateYF:false, updateX2F:true,  updateY2F:true,  cursor:'crosshair'},
@@ -9888,7 +9903,7 @@ function drawAnnotationSingle(ctx, a, W, H){
     ctx.setLineDash([]); ctx.restore(); return;
   }
   if(a.type==='ruler'){
-    // Ruler line with µm label
+    // Ruler line with its measured length (nm / µm / mm) when the panel is calibrated
     const x1=a.xf*W, y1=a.yf*H, x2=(a.x2f??a.xf)*W, y2=(a.y2f??a.yf)*H;
     const col=a.color||'#fff', lw=a.width||2;
     ctx.save();
@@ -9903,14 +9918,19 @@ function drawAnnotationSingle(ctx, a, W, H){
       ctx.lineTo(px+Math.cos(angle)*tk, py+Math.sin(angle)*tk);
       ctx.stroke();
     });
-    // Label
-    if(a.rulerLabel){
-      const midX=(x1+x2)/2, midY=(y1+y2)/2;
-      const perpAngle=Math.atan2(y2-y1,x2-x1)+Math.PI/2;
-      const fs2=Math.max(10,lw*4+8);
-      ctx.font=`${fs2}px system-ui,sans-serif`;
-      ctx.fillStyle=col; ctx.textAlign='center'; ctx.textBaseline='bottom';
-      ctx.fillText(a.rulerLabel, midX+Math.cos(perpAngle)*fs2, midY+Math.sin(perpAngle)*fs2);
+    // Label: the length measured now in source pixels (_rulerMeasure), never a stored
+    // number. Without an honest length the screen says why; an export gets the bare
+    // ruler — the note is an editing aid, like an empty cell's number, not print.
+    const rm=_rulerMeasure(a,W,H);
+    const txt=rm.status==='ok'?rm.label:(_annExport?'':rm.note);
+    if(txt){
+      const L=_rulerLabelAt(x1,y1,x2,y2,lw,txt,rm.status!=='ok');
+      ctx.font=L.font; ctx.textAlign='center'; ctx.textBaseline='middle';
+      // a thin dark halo: a TEM field is mid-grey, where plain light text disappears
+      ctx.lineJoin='round'; ctx.lineWidth=Math.max(2,L.fs*0.18); ctx.strokeStyle='rgba(0,0,0,.6)';
+      ctx.strokeText(txt, L.x, L.y);
+      ctx.fillStyle=rm.status==='ok'?col:'#f5a623';
+      ctx.fillText(txt, L.x, L.y);
     }
     ctx.restore(); return;
   }
@@ -10826,7 +10846,6 @@ annCanvas.addEventListener('mouseup', e=>{
     color:gv('ann-color'), width:gi('ann-width'),
     ...(activeTool==='inset'?{insetCorner:'br'}:{}),
     ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
-    ...(activeTool==='ruler'?{rulerLabel:''}:{}),
     ...(activeTool==='textbox'?{text:'Label',fill:true,fillColor:'#000000',fillOpacity:0.6,shape:'rect',fontSize:16,fontFamily:'',bold:false,italic:false}:{}),
   });
   annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
@@ -11070,6 +11089,8 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
   inp.addEventListener('blur',()=>{ setTimeout(commit,80); });
 })();
 
+// True while an export render draws annotations, so editing aids stay off the file.
+var _annExport=false;
 function drawAnnotations(ctx, W, H){
   const fam=gv('label-font')||'system-ui,sans-serif';
   const wt=gc('label-bold')?'bold':'normal';
@@ -11194,7 +11215,7 @@ function renderAnnotationList(){
     const row=document.createElement('div');
     row.className='ann-row'+(i===selectedAnnotation?' selected':'');
     const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
-    const nm = a.name || (a.type==='text'?`T "${(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,10)}"`:a.type);
+    const nm = a.name || (a.type==='ruler'&&a.rulerName?`ruler "${a.rulerName}"`:a.type==='text'?`T "${(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,10)}"`:a.type);
     row.innerHTML=`${swatch}<span class="ann-name" style="flex:1;${a.hidden?'opacity:.45':''}">${esc(nm)}</span>
       <button class="icon-btn ba-rename" title="Rename layer" style="font-size:10px">✎</button>
       <button class="icon-btn ba-hide" title="${a.hidden?'Show':'Hide'}" style="font-size:10px">${a.hidden?'🙈':'👁'}</button>
@@ -11229,6 +11250,7 @@ function renderAnnotationList(){
     });
     list.appendChild(row);
   });
+  if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
 
   // Panel annotations grouped by panel
   images.forEach((im,imgIdx)=>{
@@ -12061,6 +12083,15 @@ async function exportSubmissionPackage(){
     const tifC=rc();
     add(await _captureDownload(()=>exportTIFF(name,tifC._effDpi||dpi,tifC,true,{lzw:gc('export-tiff-lzw')}),'TIFF'));
     add(await _captureDownload(()=>_exportPDFWithText(name,dpi,{lossless:true}),'PDF (lossless)'));
+    // The uncropped originals journals require for blots and gels, chosen by the same
+    // rule the S1 dialog ticks by (or by the author's own ticks there).
+    if(grid){
+      const s1=_s1Panels().filter(_s1Selected);
+      if(s1.length){
+        try{ files.push({name:S1_FILENAME+'.pdf', data:await _s1PdfBytes(s1,{})}); }
+        catch(e){ _captureSkips.push({label:'S1 uncropped originals', why:e&&e.message||String(e)}); }
+      }
+    }
     add(await _captureDownload(()=>exportSVG(name,dpi,figc),'SVG'));
     add(await _captureDownload(()=>saveJSON(),'session JSON'));
     add(await _captureDownload(()=>exportCSV(),'panel metadata CSV'));
@@ -12453,6 +12484,21 @@ function exportSVG(name, dpi, canvas){
       const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
       annSVG+=`<path d="M0 0H${W}V${H}H0Z M${rx.toFixed(2)} ${ry.toFixed(2)}h${rw.toFixed(2)}v${rh.toFixed(2)}h${(-rw).toFixed(2)}Z" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}" fill-rule="evenodd"/>`;
       annSVG+=`<rect x="${rx.toFixed(2)}" y="${ry.toFixed(2)}" width="${rw.toFixed(2)}" height="${rh.toFixed(2)}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
+    } else if(a.type==='ruler'){
+      // Rulers were missing from the SVG altogether: the raster pass empties the list and
+      // this loop had no ruler case. The length is real <text>, from the same
+      // _rulerMeasure as the canvas and the CSV; a ruler with no honest length gets none.
+      if(a.hidden) return;
+      const X1=+x1, Y1=+y1, X2=+x2, Y2=+y2, ang=Math.atan2(Y2-Y1,X2-X1)+Math.PI/2, tk=6;
+      const f2=v=>v.toFixed(2);
+      let d=`M${f2(X1)} ${f2(Y1)}L${f2(X2)} ${f2(Y2)}`;
+      [[X1,Y1],[X2,Y2]].forEach(([px,py])=>{ d+=`M${f2(px-Math.cos(ang)*tk)} ${f2(py-Math.sin(ang)*tk)}L${f2(px+Math.cos(ang)*tk)} ${f2(py+Math.sin(ang)*tk)}`; });
+      annSVG+=`<path d="${d}" stroke="${col}" stroke-width="${lw}" stroke-linecap="round" fill="none"/>`;
+      const rm=_rulerMeasure(a,W,H);
+      if(rm.status==='ok'){
+        const L=_rulerLabelAt(X1,Y1,X2,Y2,lw,rm.label,false);
+        annSVG+=`<text x="${f2(L.x)}" y="${f2(L.y)}" style="font:${L.font}" fill="${col}" text-anchor="middle" dominant-baseline="central" stroke="rgba(0,0,0,0.6)" stroke-width="${f2(Math.max(2,L.fs*0.18))}" stroke-linejoin="round" paint-order="stroke">${esc(rm.label)}</text>`;
+      }
     } else if(a.type==='ellipse'){
       const cx=((+x1+(+x2))/2).toFixed(2), cy=((+y1+(+y2))/2).toFixed(2);
       const rx=(Math.abs(+x2-+x1)/2).toFixed(2), ry2=(Math.abs(+y2-+y1)/2).toFixed(2);
@@ -13123,9 +13169,7 @@ function generateMethodsParagraph(){
   // falsehood in the one paragraph whose job is to state what was done. Unknown
   // provenance gets the value alone, with no claim about where it came from.
   P.filter(im=>im.umPerPx>0).forEach(im=>{
-    const known=im._metaUmPerPx!==undefined&&im._metaUmPerPx!==null;
-    const fromMeta=known&&im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
-    const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:known?'set by hand':'';
+    const how=_calibSourceOf(im).how;   // shared with the ruler CSV
     const k=how+'|'+(+im.umPerPx);
     if(!cal.has(k)) cal.set(k,{how, um:+im.umPerPx, names:[]});
     cal.get(k).names.push(nm(im));
@@ -13307,6 +13351,8 @@ function serializeSession(bundleImages){
       // came from the file's metadata or was typed in.
       _projection: im._projection||undefined,
       _metaUmPerPx: im._metaUmPerPx||undefined, _metaCalibSource: im._metaCalibSource||undefined,
+      // The S1 sheet's tick, and whether the stored image was cropped as it came in.
+      s1: typeof im.s1==='boolean' ? im.s1 : undefined, _importCrop: im._importCrop||undefined,
       // Pixel data (bundled mode only) so a saved session reloads without re-dropping files
       src: _bundle ? im.src : undefined,
       svgSource: (_bundle && im.svgSource) ? im.svgSource : undefined,
@@ -14890,9 +14936,10 @@ function renderFreeform(canvas, ctx, S, opts){
     ctx.restore();
   });
 
-  drawAnnotations(ctx,W,H);   // annotations are baked into exports too
+  _annExport=isExport; drawAnnotations(ctx,W,H); _annExport=false;   // annotations are baked into exports too
   if(!isExport){
     drawFreeformOverlay();
+    if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
     setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
   }
 }
@@ -19348,6 +19395,415 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
     source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   const expBtn=document.getElementById('export-measurements-btn');
   if(expBtn) expBtn.style.display='';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RULER LENGTHS
+// A ruler is drawn on the figure, but a length is a fact about the SOURCE image. Its two
+// ends are mapped back through the panel's display scale, crop and tilt to source pixels
+// (the same _panelSourceMap the raw measurements trust) and only then multiplied by that
+// panel's µm/px — figure pixels times µm/px would be wrong by the display scale, often
+// 5–50x. Nothing is stored: every draw, table row and export recomputes, so a dragged
+// ruler, a new crop or a corrected calibration cannot leave a stale number behind.
+// ═══════════════════════════════════════════════════════════════
+
+// Where a panel's µm/px came from. Three cases, not two — see the Methods paragraph,
+// which reads this too, so the CSV and the Methods can never disagree about provenance.
+function _calibSourceOf(im){
+  if(!im||!(im.umPerPx>0)) return {kind:'none', how:'', text:'uncalibrated'};
+  const known=im._metaUmPerPx!==undefined&&im._metaUmPerPx!==null;
+  const fromMeta=known&&im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
+  const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:known?'set by hand':'';
+  return {kind:fromMeta?'metadata':known?'hand':'unknown', how,
+    text:fromMeta?how:known?'set by hand':'source unknown (not recorded for this panel)'};
+}
+
+// Unit chosen for reading: nm below 1 µm (what capsids and tails need), µm below 1 mm,
+// mm above. The decimals follow the pixel size, so the last digit is never coarser than
+// one source pixel and never ten times finer: at 2 nm/px a capsid reads "62 nm", not
+// "62.37 nm", because the image cannot tell those apart.
+function _rulerFmt(um, umPerPx){
+  const unit = um<1 ? 'nm' : um>=1000 ? 'mm' : 'µm';
+  const f=_sbUnitFactor(unit);                     // µm per unit
+  const v=um/f, px=(umPerPx>0?umPerPx:0)/f;
+  const d = px>0 ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(px)-1e-9))) : 2;
+  const s=v.toFixed(d);
+  return {value:+s, unit, d, text:`${s} ${unit}`};
+}
+
+var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image'};
+// One ruler, measured now. status: ok | uncal | nomap | off. Only 'ok' carries a length.
+function _rulerMeasure(a, W, H){
+  W=W||canvasLogicalW||annCanvas.width; H=H||canvasLogicalH||annCanvas.height;
+  const fx1=a.xf*W, fy1=a.yf*H, fx2=(a.x2f??a.xf)*W, fy2=(a.y2f??a.yf)*H;
+  const out={status:'off', note:_RULER_NOTE.off, why:'', im:null, pb:null, srcPx:null, um:null, label:''};
+  // A multi-page PDF draws each page with images[] swapped for that page's panels while
+  // panelBounds still describes the whole figure, so a lookup could pair a ruler with
+  // the wrong panel's calibration. Decline rather than label it from the wrong one.
+  if(typeof _pageCtx!=='undefined'&&_pageCtx){ out.status='nomap'; out.note=_RULER_NOTE.nomap; out.why='multi-page export'; return out; }
+  const h1=_measurePanelAt(fx1,fy1), h2=_measurePanelAt(fx2,fy2);
+  if(!h1||!h2){ out.why='an end is off every panel'; return out; }
+  if(h1.pb!==h2.pb){ out.why='the two ends are on different panels'; return out; }
+  if(h1.im.type&&h1.im.type!=='image'){ out.why='not an image'; return out; }
+  out.im=h1.im; out.pb=h1.pb;
+  const map=_panelSourceMap(h1.pb,h1.im);
+  if(!map){ out.status='nomap'; out.note=_RULER_NOTE.nomap;
+    out.why='the panel is turned, flipped, shape-cropped or a channel merge, so figure pixels do not map exactly to source pixels'; return out; }
+  if(!map.inside(fx1,fy1)||!map.inside(fx2,fy2)){ out.why='an end is in the panel margin, off the image'; return out; }
+  // Distance in SOURCE space: right for a tilted crop (the rotation is rigid) and for a
+  // freeform box stretched unevenly (kx ≠ ky), neither of which a figure length gets right.
+  const p1=map.toSrc(fx1,fy1), p2=map.toSrc(fx2,fy2);
+  out.src=[p1,p2]; out.srcPx=Math.hypot(p2[0]-p1[0], p2[1]-p1[1]); out.kx=map.kx; out.ky=map.ky;
+  const u=+h1.im.umPerPx;
+  if(!(u>0)){ out.status='uncal'; out.note=_RULER_NOTE.uncal; out.why='the panel has no µm/px calibration'; return out; }
+  const f=_rulerFmt(out.srcPx*u, u);
+  Object.assign(out, {status:'ok', note:'', um:out.srcPx*u, umPerPx:u, value:f.value, unit:f.unit, label:f.text});
+  return out;
+}
+
+// Where a ruler's label goes: beside the line, clear of it and of the end ticks, whatever
+// the ruler's angle (the old placement straddled a horizontal ruler and sat on the thing
+// being measured). Shared by the canvas and the SVG so the two put it in the same place.
+var _rulerMc=null;
+function _rulerLabelAt(x1,y1,x2,y2,lw,txt,italic){
+  const fs=Math.max(10,lw*4+8), font=`${italic?'italic ':''}${fs}px system-ui,sans-serif`;
+  if(!_rulerMc) _rulerMc=document.createElement('canvas').getContext('2d');
+  _rulerMc.font=font;
+  const w=_rulerMc.measureText(txt).width, h=fs;
+  const ang=Math.atan2(y2-y1,x2-x1)+Math.PI/2, nx=Math.cos(ang), ny=Math.sin(ang);
+  const d=6+3+Math.abs(nx)*w/2+Math.abs(ny)*h/2;     // tick + gap + the label's half-extent along the normal
+  return {x:(x1+x2)/2+nx*d, y:(y1+y2)/2+ny*d, fs, font};
+}
+
+// Every figure-level ruler, measured now. A ruler drawn in panel-annotation mode is not
+// listed: drawShape has no ruler case, so one has never been drawn at all.
+function _rulerRows(){
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const rows=[]; let n=0;
+  annotations.forEach((a,i)=>{
+    if(!a||a.type!=='ruler') return;
+    n++;
+    const m=_rulerMeasure(a,W,H);
+    rows.push({a, idx:i, n, name:String(a.rulerName||'').trim(), m, panel:m.im?String(m.im.label||'?'):''});
+  });
+  return rows;
+}
+
+// Repeated measurements: rulers sharing a name on the same panel. Only rulers with an
+// honest length count — an uncalibrated one is not a zero, it is not a measurement.
+function _rulerStats(rows){
+  const groups=new Map();
+  (rows||_rulerRows()).forEach(r=>{
+    if(!r.name||r.m.status!=='ok') return;
+    const k=r.panel+'\u0000'+r.name;
+    if(!groups.has(k)) groups.set(k,{name:r.name, panel:r.panel, im:r.m.im, um:[]});
+    groups.get(k).um.push(r.m.um);
+  });
+  return [...groups.values()].map(g=>{
+    const n=g.um.length, mean=g.um.reduce((s,v)=>s+v,0)/n;
+    const sd=n>1?Math.sqrt(g.um.reduce((s,v)=>s+(v-mean)*(v-mean),0)/(n-1)):null;   // n−1, as the ROI stats
+    const f=_rulerFmt(mean, g.im.umPerPx), fac=_sbUnitFactor(f.unit);
+    return {name:g.name, panel:g.panel, n, umMean:mean, umSd:sd, unit:f.unit,
+      mean:+(mean/fac).toFixed(f.d), sd:sd==null?null:+(sd/fac).toFixed(f.d),
+      meanText:(mean/fac).toFixed(f.d), sdText:sd==null?'':(sd/fac).toFixed(f.d)};
+  });
+}
+
+// The Measurements table for rulers (Measure section). Rebuilt after every on-screen
+// render, so it follows drags, crops and calibration changes like the labels do.
+var _rulerTableHtml='';
+function _rulerTableRefresh(){
+  const box=document.getElementById('ruler-results'); if(!box) return;
+  // Rebuilding under a focused name field would throw away what is being typed.
+  if(document.activeElement&&box.contains(document.activeElement)&&document.activeElement.classList.contains('ruler-name')) return;
+  const rows=_rulerRows();
+  let html='';
+  if(rows.length){
+    const st=_rulerStats(rows);
+    const cell=r=>r.m.status==='ok'?`<b>${esc(r.m.label)}</b>`
+      :`<span style="color:var(--warn,#c98a00)" title="${esc(r.m.why)}">${esc(r.m.note)}${r.m.status==='uncal'&&r.m.srcPx!=null?` · ${r.m.srcPx.toFixed(1)} px`:''}</span>`;
+    html=`<div class="sec-lbl" style="margin-top:6px">Rulers</div>
+      <table class="ruler-tbl" style="width:100%;font-size:10px;border-collapse:collapse">
+      <tr style="color:var(--muted)"><td>#</td><td>Name</td><td>Panel</td><td>Length</td></tr>
+      ${rows.map(r=>`<tr data-ruler="${r.idx}"><td>${r.n}</td>
+        <td><input class="ruler-name" data-ann="${r.idx}" value="${esc(r.name)}" placeholder="e.g. capsid" style="width:72px;font-size:10px" title="Rulers with the same name on the same panel are averaged (n, mean, SD)"></td>
+        <td>${esc(r.panel||'—')}</td><td class="ruler-len">${cell(r)}</td></tr>`).join('')}
+      </table>
+      ${st.length?`<div class="ruler-stats" style="font-size:10px;margin-top:4px;line-height:1.5">${st.map(s=>
+        `<div><b>${esc(s.name)}</b> · panel ${esc(s.panel)}: n = ${s.n}, ${s.meanText}${s.n>1?` ± ${s.sdText}`:''} ${s.unit}${s.n>1?' (mean ± SD)':''}</div>`).join('')}</div>`:''}
+      <button class="btn" onclick="exportRulerCSV()" style="width:100%;justify-content:center;margin-top:4px" title="Every ruler with its panel, length and unit, the repeated-measurement summary, and a header stating where each panel's calibration came from">⬇ Ruler lengths CSV</button>
+      <div style="font-size:9px;color:var(--muted);line-height:1.35;margin-top:3px">Lengths are measured in the panel's source pixels and its µm/px. An uncalibrated panel, or one turned, flipped, shape-cropped or merged, gets no length.</div>`;
+  }
+  if(html!==_rulerTableHtml){ box.innerHTML=html; _rulerTableHtml=html; }
+}
+// A name is the one thing typed here; each change is one undo step.
+document.addEventListener('change', e=>{
+  const t=e.target; if(!t||!t.classList||!t.classList.contains('ruler-name')) return;
+  const a=annotations[+t.dataset.ann]; if(!a||a.type!=='ruler') return;
+  const v=t.value.trim(); if(v===(a.rulerName||'')) return;
+  pushUndo(); a.rulerName=v||undefined;
+  t.blur(); renderAnnotationList(); scheduleRender(0);
+});
+
+function exportRulerCSV(){
+  const rows=_rulerRows();
+  if(!rows.length){ toast('No rulers on the figure — draw one with ⊢ Ruler','warn'); return; }
+  const q=v=>{ const s=String(v??''); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const head=[`# FigureLab v${APP_VERSION} ruler lengths — ${new Date().toISOString()}`,
+    "# Each length is measured between the ruler's ends mapped back to SOURCE pixels through the panel's display scale, crop and tilt, times that panel's µm/px.",
+    '# An end is placed on the figure, so it is only as fine as one figure pixel (see "Source px per figure px"); enlarge the panel to place ends more finely.',
+    '# A row with no length is uncalibrated, or could not be mapped exactly to source pixels; no length is reported for it.'];
+  const seen=new Set();
+  rows.forEach(r=>{ const im=r.m.im; if(!im||seen.has(im)) return; seen.add(im);
+    const c=_calibSourceOf(im);
+    head.push(`# Calibration, panel ${im.label||'?'} (${im.name||'unnamed'}): `
+      +(c.kind==='none'?'uncalibrated — no lengths reported':`${+(+im.umPerPx).toPrecision(6)} µm/px, ${c.text}`));
+  });
+  const f3=v=>v==null?'':(+v).toFixed(3);
+  const table=[['Ruler','Name','Panel','Status','Length','Unit','Length (µm)','Length (source px)','µm/px','Calibration source','Source px per figure px','X1 (source px)','Y1 (source px)','X2 (source px)','Y2 (source px)','Note']];
+  rows.forEach(r=>{ const m=r.m, s=m.src||[[null,null],[null,null]];
+    table.push([r.n, r.name, r.panel, m.status==='ok'?'measured':m.note,
+      m.status==='ok'?m.value:'', m.status==='ok'?m.unit:'', m.status==='ok'?(+m.um.toPrecision(6)):'',
+      m.srcPx==null?'':m.srcPx.toFixed(2), m.status==='ok'?m.umPerPx:'',
+      m.im?_calibSourceOf(m.im).text:'', m.kx==null?'':(+m.kx).toFixed(3),
+      f3(s[0][0]), f3(s[0][1]), f3(s[1][0]), f3(s[1][1]), m.why]);
+  });
+  const st=_rulerStats(rows);
+  const sum=st.length?['','# Repeated measurements: rulers with the same name on the same panel. SD uses an n-1 denominator; blank when n = 1.',
+    ['Name','Panel','n','Mean','SD','Unit'].join(','),
+    ...st.map(s=>[s.name,s.panel,s.n,s.meanText,s.sdText,s.unit].map(q).join(','))]:[];
+  const csv=head.join('\n')+'\n'+table.map(r=>r.map(q).join(',')).join('\n')+'\n'+(sum.length?sum.join('\n')+'\n':'');
+  dl(blobUrl(csv), 'figurelab-rulers.csv');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UNCROPPED ORIGINALS (S1)
+// Nature, Cell, JBC, PLOS and eLife ask for every blot and gel's full, uncropped image in
+// the supplement with the region used in the figure marked. This sheet draws each chosen
+// panel's source image whole, outlines the crop at its source coordinates (the four
+// rotated corners for a tilted crop), and prints the file, the crop in source pixels, the
+// tilt and the splice markers beside it. It shows the file's own pixels by default — the
+// thing a journal asks for — and says so; the figure's display adjustments are offered,
+// and stated on the page, when chosen.
+// ═══════════════════════════════════════════════════════════════
+const S1_FILENAME='S1_uncropped_originals';
+const _S1_MAXPX=4000;             // longest side drawn; above it the ratio is printed
+function _s1Cropped(im){
+  return !!(im.cropT||im.cropL||im.cropB||im.cropR||Math.abs(+im.cropAngle||0)>1e-9||(im.cropShape&&im.cropShape!=='rect'));
+}
+// Why a panel is ticked by default. No panel carries a "blot" flag, so the rule is what
+// can be seen: a crop (there is something outside the figure to show), a splice marker,
+// or lane / ladder labels placed on it.
+function _s1Reasons(im){
+  const r=[];
+  if(_s1Cropped(im)) r.push(Math.abs(+im.cropAngle||0)>1e-9?'tilted crop':'cropped');
+  if(annotations.some(a=>a&&a.splice&&a.splicePanel===im.id)) r.push('splice marker');
+  if(annotations.some(a=>a&&a.blotPanel===im.id)) r.push('lane labels');
+  return r;
+}
+function _s1Selected(im){ return typeof im.s1==='boolean' ? im.s1 : _s1Reasons(im).length>0; }
+function _s1Panels(){
+  if(layoutMode==='freeform') return [];
+  return _figurePanels().filter(im=>im&&(im.img||im._imgEl));
+}
+
+// The geometry the sheet draws, in source pixels — kept apart from the drawing so it can
+// be checked against _cropGeom directly.
+function _s1Geometry(im){
+  const g=_cropGeom(im);
+  const corners=g.rotated ? g.corners() : [[g.sx,g.sy],[g.sx+g.sw,g.sy],[g.sx+g.sw,g.sy+g.sh],[g.sx,g.sy+g.sh]];
+  // Splice markers are figure-level lines; they map back through the same exact inverse
+  // the measurements use, or are reported as unmappable rather than guessed.
+  const idx=images.indexOf(im);
+  const pb=(panelBounds||[]).find(p=>p.idx===idx);
+  const map=pb?_panelSourceMap(pb,im):null;
+  const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  const splices=annotations.filter(a=>a&&a.splice&&a.splicePanel===im.id).map(a=>{
+    if(!map) return {mapped:false};
+    return {mapped:true, p1:map.toSrc(a.xf*W,a.yf*H), p2:map.toSrc((a.x2f??a.xf)*W,(a.y2f??a.yf)*H)};
+  });
+  return {iw:g.iw, ih:g.ih, sx:g.sx, sy:g.sy, sw:g.sw, sh:g.sh, angle:+im.cropAngle||0,
+    rotated:g.rotated, cropped:_s1Cropped(im), corners, splices};
+}
+
+// What the figure does to this panel's pixels that the sheet (by default) does not.
+function _s1AdjText(im){
+  const p=[];
+  if((im.brightness??1)!==1) p.push(`brightness ${im.brightness}`);
+  if((im.contrast??1)!==1) p.push(`contrast ${im.contrast}`);
+  if((im.gamma||1)!==1) p.push(`gamma ${im.gamma}`);
+  if((im.blackPt||0)!==0||(im.whitePt??255)!==255) p.push(`levels ${im.blackPt||0}–${im.whitePt??255}`);
+  if(im.grayscale) p.push('grayscale');
+  if(im.invert) p.push('inverted');
+  if(im.lut&&im.lut!=='none') p.push(`${im.lut} LUT`);
+  return p.join(', ');
+}
+
+// One page: header text, the whole source image, the crop outline, splice lines.
+// opts.applyDisplay draws the figure's display adjustments; opts.forPdf leaves every
+// string the PDF can typeset out of the raster and returns it in `items` instead.
+function _s1PageCanvas(im, opts){
+  opts=opts||{};
+  const src=im.img||im._imgEl;
+  const G=_s1Geometry(im);
+  const sc=Math.min(1, _S1_MAXPX/Math.max(G.iw,G.ih));
+  const dw=Math.max(1,Math.round(G.iw*sc)), dh=Math.max(1,Math.round(G.ih*sc));
+  const fs=Math.max(12, Math.min(40, Math.round(Math.max(dw,720)/55)));
+  const m=Math.round(fs*1.4);
+  const PW=Math.max(dw+2*m, Math.round(fs*48));
+  const fam='Helvetica, Arial, sans-serif';
+  const r1=v=>{ const x=Math.round(v*10)/10; return Number.isInteger(x)?String(x):x.toFixed(1); };
+  const pt=([x,y])=>`(${r1(x)}, ${r1(y)})`;
+  const L=[];   // [text, bold?]
+  L.push([`Panel ${im.label||'?'} — uncropped original`, true]);
+  L.push([`Source file: ${im.name||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
+  if(!G.cropped) L.push(['Not cropped: the whole image is used in the figure.']);
+  else if(G.rotated) L.push([`Crop: a ${r1(G.sw)} × ${r1(G.sh)} px region tilted ${r1(G.angle)}° about the image centre. Corners (source px) TL ${pt(G.corners[0])}, TR ${pt(G.corners[1])}, BR ${pt(G.corners[2])}, BL ${pt(G.corners[3])}.`]);
+  else L.push([`Crop (source px): x ${r1(G.sx)}–${r1(G.sx+G.sw)}, y ${r1(G.sy)}–${r1(G.sy+G.sh)} (${r1(G.sw)} × ${r1(G.sh)} px), outlined.`]);
+  if(im.cropShape&&im.cropShape!=='rect') L.push([`The figure clips this region to a ${im.cropShape}.`]);
+  if(G.splices.length){
+    const ok=G.splices.filter(s=>s.mapped);
+    L.push([ok.length===G.splices.length
+      ? `Splice marker${ok.length>1?'s':''} (source px, dashed): `+ok.map(s=>`${pt(s.p1)} to ${pt(s.p2)}`).join('; ')+'.'
+      : `${G.splices.length} splice marker${G.splices.length>1?'s':''} on this panel could not be mapped to source pixels (the panel is turned, flipped, shape-cropped or merged); see the figure.`]);
+  }
+  const adj=_s1AdjText(im);
+  L.push([opts.applyDisplay
+    ? `Pixels shown: with the figure panel's display adjustments${adj?` (${adj})`:' (none)'}, as the figure shows them.`
+    : `Pixels shown: the image as imported, without display adjustments.${adj?` The figure panel has: ${adj}.`:' The figure panel has none.'}`]);
+  if(im.rotate||im.flipH||im.flipV) L.push([`In the figure this region is ${[im.rotate?`turned ${im.rotate}°`:'', im.flipH?'mirrored left–right':'', im.flipV?'flipped top–bottom':''].filter(Boolean).join(', ')}.`]);
+  if(im._importCrop){ const c=im._importCrop;
+    L.push([`Cropped when imported into FigureLab (from a ${c.iw} × ${c.ih} px file, region x ${c.x}, y ${c.y}, ${c.w} × ${c.h}${c.ang?`, tilted ${r1(c.ang)}°`:''}): this is that imported image, not the full scan. Supply the original scan as well.`]); }
+  if(im.raw) L.push([`The file has ${_rawDepth(im.raw)} samples; this is FigureLab's 8-bit display decode of them.`]);
+  if(im.channels&&im.channels.length) L.push([`Channel merge: only the base channel's file is shown here.`]);
+  if(sc<1) L.push([`Drawn at 1:${r1(1/sc)} to fit (the image is ${G.iw} px wide); coordinates are full-resolution source px.`]);
+  L.push([`FigureLab v${APP_VERSION} · ${new Date().toISOString().slice(0,10)}`]);
+
+  // wrap to the page width
+  const mc=document.createElement('canvas').getContext('2d');
+  const lines=[];
+  L.forEach(([t,b])=>{
+    const font=`${b?'bold ':''}${b?Math.round(fs*1.2):fs}px ${fam}`; mc.font=font;
+    const words=String(t).split(' '); let cur='';
+    words.forEach(w=>{ const nx=cur?cur+' '+w:w;
+      if(cur&&mc.measureText(nx).width>PW-2*m){ lines.push({t:cur,font,fs:b?Math.round(fs*1.2):fs}); cur=w; } else cur=nx; });
+    if(cur) lines.push({t:cur,font,fs:b?Math.round(fs*1.2):fs});
+  });
+  const lh=f=>Math.round(f*1.35);
+  const hdrH=m+lines.reduce((s,l)=>s+lh(l.fs),0)+Math.round(m*0.6);
+  const ix=m, iy=hdrH;
+  const c=document.createElement('canvas'); c.width=PW; c.height=hdrH+dh+m;
+  const x=c.getContext('2d');
+  x.fillStyle='#ffffff'; x.fillRect(0,0,c.width,c.height);
+  const items=[];
+  let ty=m;
+  lines.forEach(l=>{
+    const it={str:l.t, x:m, y:ty, font:l.font, fs:l.fs, fill:'#000000', align:'left', baseline:'top'};
+    if(opts.forPdf&&_pdfCanTypeset(it)) items.push(it);
+    else { x.font=l.font; x.fillStyle='#000'; x.textBaseline='top'; x.textAlign='left'; x.fillText(l.t, m, ty); }
+    ty+=lh(l.fs);
+  });
+  // the image itself
+  x.imageSmoothingEnabled=sc<1; x.imageSmoothingQuality='high';
+  if(opts.applyDisplay){
+    const adjC=applyAdjust(im, 0,0, G.iw, G.ih);
+    x.drawImage(adjC&&adjC.off?adjC.canvas:src, ix, iy, dw, dh);
+  } else x.drawImage(src, ix, iy, dw, dh);
+  x.strokeStyle='#999'; x.lineWidth=1; x.strokeRect(ix-0.5, iy-0.5, dw+1, dh+1);   // edge of the scan on white
+  // crop outline, at the crop's source coordinates
+  const lw=Math.max(2, Math.round(Math.max(dw,dh)/400));
+  const P=G.corners.map(([u,v])=>[ix+u*sc, iy+v*sc]);
+  if(G.cropped){
+    x.save(); x.strokeStyle=S1_OUTLINE; x.lineWidth=lw; x.lineJoin='miter';
+    x.beginPath(); P.forEach(([u,v],i)=>i?x.lineTo(u,v):x.moveTo(u,v)); x.closePath(); x.stroke();
+    // the panel letter at the outline's top-left corner, inside the region
+    x.font=`bold ${Math.round(fs*1.4)}px ${fam}`; x.textBaseline='top'; x.textAlign='left';
+    x.lineWidth=Math.max(2,Math.round(fs*0.2)); x.strokeStyle='rgba(255,255,255,.9)';
+    x.strokeText(String(im.label||''), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.fillStyle=S1_OUTLINE; x.fillText(String(im.label||''), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.restore();
+  }
+  G.splices.filter(s=>s.mapped).forEach(s=>{
+    x.save(); x.strokeStyle=S1_SPLICE; x.lineWidth=lw; x.setLineDash([lw*4,lw*3]);
+    x.beginPath(); x.moveTo(ix+s.p1[0]*sc, iy+s.p1[1]*sc); x.lineTo(ix+s.p2[0]*sc, iy+s.p2[1]*sc); x.stroke(); x.restore();
+  });
+  return {canvas:c, items, geom:G, scale:sc, imgX:ix, imgY:iy, imgW:dw, imgH:dh, lineWidth:lw, outline:P};
+}
+const S1_OUTLINE='#ff00ff', S1_SPLICE='#00a0ff';   // magenta and blue: neither occurs in a grey blot
+
+async function _s1PdfBytes(ims, opts){
+  const pages=[];
+  for(const im of ims){
+    const p=_s1PageCanvas(im, {...(opts||{}), forPdf:true});
+    const dpi=Math.max(72, p.canvas.width/8);       // an ~8-inch-wide page whatever the scan size
+    pages.push(await _pdfPageFor(p.canvas, dpi, {lossless:true, textItems:p.items, ptPerUnit:72/dpi}));
+  }
+  return _pdfAssemble(pages);
+}
+// The PNG sheet: the pages stacked. Capped at ~60 MP like the figure exports; the PDF
+// keeps every page at its own full size.
+function _s1SheetCanvas(ims, opts){
+  const pages=ims.map(im=>_s1PageCanvas(im, opts));
+  const gap=24, W=Math.max(...pages.map(p=>p.canvas.width));
+  const H=pages.reduce((s,p)=>s+p.canvas.height,0)+gap*(pages.length-1);
+  const k=Math.min(1, Math.sqrt(60e6/(W*H)));
+  const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(W*k)); c.height=Math.max(1,Math.round(H*k));
+  const x=c.getContext('2d'); x.fillStyle='#e6e6e6'; x.fillRect(0,0,c.width,c.height);
+  x.imageSmoothingEnabled=true; x.imageSmoothingQuality='high';
+  let y=0; const at=[];
+  pages.forEach(p=>{ x.drawImage(p.canvas, 0, y*k, p.canvas.width*k, p.canvas.height*k); at.push(y*k); y+=p.canvas.height+gap; });
+  c._s1={pages, scale:k, offsets:at};
+  return c;
+}
+async function exportS1(ims, fmt, opts){
+  ims=(ims||_s1Panels().filter(_s1Selected));
+  if(!ims.length){ toast('No panels chosen for the uncropped-originals sheet','warn'); return; }
+  if(fmt==='png'){
+    const c=_s1SheetCanvas(ims, opts);
+    const blob=await new Promise(r=>c.toBlob(r,'image/png'));
+    dl(URL.createObjectURL(blob), S1_FILENAME+'.png');
+    toast(c._s1.scale<1?`S1 sheet PNG saved at ${Math.round(c._s1.scale*100)}% to stay under 60 MP — the PDF keeps full size`:`S1 sheet saved: ${ims.length} panel${ims.length>1?'s':''}`, c._s1.scale<1?'warn':'ok');
+  } else {
+    const bytes=await _s1PdfBytes(ims, opts);
+    dl(URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})), S1_FILENAME+'.pdf');
+    toast(`S1 sheet saved: ${ims.length} page${ims.length>1?'s':''}, one per panel`,'ok');
+  }
+  logAction('exportS1',{panels:ims.map(im=>im.label), fmt, applyDisplay:!!(opts&&opts.applyDisplay)});
+}
+function openS1Dialog(){
+  if(layoutMode==='freeform'){ toast('The uncropped-originals sheet covers grid panels — switch to a grid layout','warn'); return; }
+  const P=_s1Panels();
+  if(!P.length){ toast('Add a blot or gel image first','warn'); return; }
+  document.getElementById('s1-modal-bg')?.remove();
+  const bg=document.createElement('div'); bg.id='s1-modal-bg'; bg.className='modal-bg open';
+  bg.innerHTML=`<div class="modal" style="max-width:520px;padding:22px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">Uncropped originals (S1)</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">One page per ticked panel: the whole source image with the region used in the figure outlined, the file name, the crop in source pixels, any tilt and splice markers. Journals ask for this for every blot and gel. Ticked to begin with: panels that are cropped or carry a splice marker or lane labels.</div>
+    <div id="s1-list" style="max-height:240px;overflow:auto;font-size:11px">${P.map(im=>{ const r=_s1Reasons(im);
+      return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${im.id}" ${_s1Selected(im)?'checked':''}>
+        <b>${esc(im.label||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px" title="Off: the file's own pixels, which is what journals ask for. On: as the figure shows them. Either way the page says which."><input type="checkbox" id="s1-display"> Show with the figure's display adjustments</label>
+    <div style="display:flex;gap:6px;margin-top:14px">
+      <button class="btn btn-primary" id="s1-pdf" style="flex:1;justify-content:center">⬇ PDF (one page per panel)</button>
+      <button class="btn" id="s1-png" style="flex:1;justify-content:center">⬇ PNG sheet</button>
+      <button class="btn" id="s1-cancel" style="justify-content:center">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  const go=fmt=>{
+    const ticks=[...bg.querySelectorAll('.s1-tick')];
+    const want=new Map(ticks.map(t=>[String(t.dataset.id), t.checked]));
+    // The choice is kept on the panel (so the submission package follows it) — one undo
+    // step for the whole dialog, and none if nothing changed.
+    const changed=P.filter(im=>want.get(String(im.id))!==_s1Selected(im));
+    if(changed.length){ pushUndo(); changed.forEach(im=>{ im.s1=want.get(String(im.id)); }); }
+    const ims=P.filter(im=>want.get(String(im.id)));
+    const applyDisplay=bg.querySelector('#s1-display').checked;
+    bg.remove();
+    exportS1(ims, fmt, {applyDisplay});
+  };
+  bg.querySelector('#s1-pdf').onclick=()=>go('pdf');
+  bg.querySelector('#s1-png').onclick=()=>go('png');
+  bg.querySelector('#s1-cancel').onclick=()=>bg.remove();
 }
 
 function exportMeasurements(){
