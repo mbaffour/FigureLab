@@ -445,10 +445,11 @@ test('TIFF import: a multi-page TIFF adds every page as a panel', async ({ page 
     const f = new File([new Uint8Array(mpBytes)], 'stack.tif', { type: 'image/tiff' });
     addFiles([f]);
     await new Promise(resolve => { const iv = setInterval(() => { if (images.length >= 3) { clearInterval(iv); resolve(); } }, 40); setTimeout(() => { clearInterval(iv); resolve(); }, 5000); });
-    return { added: images.length - before, names: images.slice(-3).map(im => im && im.name) };
+    return { added: images.length - before, names: images.slice(-3).map(im => im && _sourceName(im)) };
   }, mpBytes);
   expect(r.added).toBe(3);                                // 3 pages → 3 panels
-  expect(r.names.every(n => /_p\d+\.png$/.test(n))).toBe(true);
+  // Each page cites the file the author has and its page (it was "stack_p1.png").
+  expect(r.names).toEqual(['stack.tif (page 1 of 3)', 'stack.tif (page 2 of 3)', 'stack.tif (page 3 of 3)']);
 });
 
 test('scale auto-calibration: reads µm/px from ImageJ/OME/cm-resolution metadata (and ignores print DPI)', async ({ page }) => {
@@ -595,7 +596,7 @@ test('TIFF import: addFiles routes .tif through the decoder into the crop pipeli
     return { name: queued && queued.name, isPng: !!(queued && /^data:image\/png/.test(queued.src || '')) };
   }, bytes);
   expect(r.isPng).toBe(true);            // TIFF was decoded and rasterized to a PNG the pipeline can use
-  expect(r.name).toMatch(/\.png$/);
+  expect(r.name).toBe('scan.tif');       // but the panel still cites the TIFF, not a PNG that never existed
 });
 
 test('SVG import stays vector: source retained, round-trips, and SVG export re-embeds vector', async ({ page }) => {

@@ -130,7 +130,7 @@ test('the deep figure audit says the rows hug their panels, not that they are un
 
 test('the R and Python scripts rebuild the hugged rows, not uniform panel-height rows', async ({ page }) => {
   // Without the fix both scripts carried only PANEL_H = 300: there is no ROW_H in
-  // either, and the Python figure height was ROWS*PANEL_H, so every toContain fails.
+  // either and every panel was built 300 tall, so the ROW_H and cell checks fail.
   const errors = await loadApp(page);
   await blotPair(page);
   const r = await page.evaluate(() => {
@@ -146,13 +146,14 @@ test('the R and Python scripts rebuild the hugged rows, not uniform panel-height
     return out;
   });
   expect(r.py).toContain('ROW_H        = [90, 45]');
-  expect(r.py).toContain('height_ratios=ROW_H');
-  expect(r.py).toContain('(sum(ROW_H)+(ROWS-1)*GAP_V)/DPI');
-  expect(r.py).toContain('process(Image.open(fpath),p,ROW_H[r])');
-  expect(r.py).not.toContain('resize((PANEL_W,PANEL_H)');
   expect(r.R).toContain('ROW_H <- c(90,45)');
-  expect(r.R).toContain('paste0(PANEL_W,"x",ROW_H[r]');
-  expect(r.R).not.toContain('paste0(PANEL_W,"x",PANEL_H');
+  // The scripts place each panel in the cell the renderer drew, so the hugged rows are
+  // the cells' heights (2.0 rebuilt the grid from ROW_H; the cells now carry it).
+  const cells = JSON.parse(JSON.parse(/PANELS = json\.loads\(("(?:[^"\\]|\\.)*")\)/.exec(r.py)[1])).map(p => p.cell[3]);
+  expect(cells).toEqual([90, 45]);
+  expect(r.py).not.toContain('resize((PANEL_W,PANEL_H)');
+  expect(r.R).toMatch(/cell = c\([\d.]+, [\d.]+, 300, 90\)/);
+  expect(r.R).toMatch(/cell = c\([\d.]+, [\d.]+, 300, 45\)/);
   // parens still balance in the R script
   expect((r.R.match(/\(/g) || []).length).toBe((r.R.match(/\)/g) || []).length);
   expect(errors).toEqual([]);

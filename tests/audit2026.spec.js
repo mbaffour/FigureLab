@@ -227,14 +227,16 @@ test('FL-2: the caption reports µm/px and never invents a magnification', async
   await seedPanels(page, 2);
   const cap = await page.evaluate(() => {
     // A 100x oil objective on a 6.5 µm camera pixel. The old code printed this as "15×".
-    images.forEach(im => { im.umPerPx = 0.065; im.sbOn = true; im.sbUm = 10; im.sbUnit = 'µm'; });
+    // A 2 µm bar: at 0.065 µm/px a 10 µm bar is 154 source px, longer than these
+    // 100 px panels can draw, and the caption now names only bars that are drawn.
+    images.forEach(im => { im.umPerPx = 0.065; im.sbOn = true; im.sbUm = 2; im.sbUnit = 'µm'; });
     render(); generateCaption();
     return document.getElementById('caption-out').value;
   });
   expect(cap).not.toMatch(/\d\s*×\)/);       // no fabricated magnification
   expect(cap).not.toContain('15×');
   expect(cap).toContain('0.065 µm per pixel');
-  expect(cap).toContain('Scale bar, 10 µm');
+  expect(cap).toContain('Scale bar, 2 µm');
   expect(errors).toEqual([]);
 });
 

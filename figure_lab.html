@@ -2005,7 +2005,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li><b>Pop out to free layout</b> — convert a grid into freely-movable panels in one click, then drag &amp; arrange by hand.</li>
   <li><b>Format painter</b> — copy one object’s look (colour, fill, stroke, font) and apply it to others.</li>
   <li><b>Opens TIFF files</b> — a built-in decoder finally opens <code>.tif/.tiff</code> that browsers can’t decode: uncompressed, LZW, PackBits, Deflate &amp; JPEG-compressed; 8/16-bit &amp; float; grayscale, RGB, RGBA, CMYK &amp; palette; strips or tiles; little/big-endian; and <b>multi-page</b> TIFFs (every page added as a panel). 16-bit is linearly scaled to 8-bit for display.</li>
-  <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape).</li>
+  <li><b>SVG stays vector</b> — imported SVGs keep their vector source, so they stay crisp at any size and <b>re-export as vector</b> in SVG output (editable in Illustrator/Inkscape), in the grid and in freeform. That holds while nothing changes which pixels are shown: a crop, a tilt, a turn other than a right angle, a display adjustment or LUT, merged channels or a shape clip writes the panel as pixels instead, and the Save dialog names the panel and the reason.</li>
   <li><b>Scale auto-calibration</b> — importing a TIFF with pixel-size metadata (OME-TIFF, ImageJ, Zeiss LSM, cm-resolution) sets µm/px automatically, so the scale bar is calibrated with no clicking (print-DPI is ignored; you can override).</li>
   <li><b>Save dialog</b> — every export opens a dialog to set the file name, format &amp; DPI first; on Chrome/Edge you pick the folder in your system’s native Save window.</li>
   <li><b>Duplicate</b> (<kbd>Ctrl</kbd>+<kbd>D</kbd>), <b>lock</b>, and multi-object layer ordering for Freeform objects.</li>
@@ -2184,7 +2184,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h3 class="help-h">Export &amp; print quality</h3>
 <details class="faq-item"><summary class="faq-q">What DPI should I use for journal submission?</summary><div class="faq-a"><p class="help-p">Use <b>300 DPI</b> for photographic / greyscale images and <b>600–1200 DPI</b> for line art and combination figures (charts, blots with sharp text). The DPI selector offers 72 / 150 / 300 / 600 / 1200. FigureLab re-renders the figure at the true target-DPI pixel count (supersampled), so text, lines, and scale bars stay crisp — it is not merely tagging the DPI.</p><div class="help-callout help-tip"><b>Tip</b> The export health check warns you if you try to export below 300 DPI.</div></div></details>
 <details class="faq-item"><summary class="faq-q">What is the difference between PDF and PDF (lossless)?</summary><div class="faq-a"><p class="help-p">The standard PDF embeds the figure as a JPEG-compressed raster — small, but lossy, which can add ringing artefacts around sharp edges. A lossless PDF uses Flate (non-lossy) compression instead. Prefer lossless for <b>line art, western blots, and sharp text</b>, where JPEG artefacts are visible and some journals reject JPEG-in-PDF for line art. For photographic panels the standard PDF is usually fine.</p></div></details>
-<details class="faq-item"><summary class="faq-q">My exported PNG opens at the wrong size or DPI in Photoshop / ImageJ — why?</summary><div class="faq-a"><p class="help-p">This is fixed. FigureLab now writes a standard <b>pHYs</b> resolution chunk into the PNG, which is what Photoshop, GIMP, and ImageJ/FIJI actually read for physical resolution. Older versions embedded the DPI only as a text field, so editors reported the browser default (72 DPI) at a giant pixel size. Re-export and the true DPI will be reported correctly.</p></div></details>
+<details class="faq-item"><summary class="faq-q">My exported PNG opens at the wrong size or DPI in Photoshop / ImageJ — why?</summary><div class="faq-a"><p class="help-p">This is fixed. FigureLab now writes a standard <b>pHYs</b> resolution chunk into the PNG, which is what Photoshop, GIMP, and ImageJ/FIJI actually read for physical resolution. Older versions embedded the DPI only as a text field, so editors reported the browser default (72 DPI) at a giant pixel size. Re-export and the true DPI will be reported correctly. JPEG exports carry the DPI in their JFIF header. WebP has no standard field for it, so a WebP opens at your software's default DPI — use PNG or TIFF for print.</p></div></details>
 <details class="faq-item"><summary class="faq-q">The figure looks blurry when zoomed or after export — what do I do?</summary><div class="faq-a"><p class="help-p">Export at a higher DPI (300–600, or 1200 for line art): raster exports are re-rendered at the real pixel count, not upscaled, so more DPI gives text, lines and scale bars genuinely more detail. An image panel cannot print more detail than its source pixels, though: a 512 px field stretched across a column is enlarged at any DPI. Each image-list row shows the ppi a panel actually prints at, and the Save dialog and the compliance check name any panel below 300 ppi. On screen, FigureLab keeps a separate high-resolution preview layer matched to your display (HiDPI/Retina) so labels and annotations stay sharp when you zoom in — the underlying measurement buffer is left untouched so quantification stays exact.</p><div class="help-callout help-tip"><b>Tip</b> Very large renders are capped at about 60 megapixels to stay within browser memory; if you hit the cap, a toast tells you and the export is scaled down rather than crashing.</div></div></details>
 <details class="faq-item"><summary class="faq-q">How do I get a clean white background for print?</summary><div class="faq-a"><p class="help-p">For journal submission, use TIFF at 300–600 DPI with a white background. You can also press <span class="help-ui">Ctrl + P</span> for a print-ready view that hides all the app chrome.</p></div></details>
 
@@ -3203,22 +3203,27 @@ async function _loadTIFFFile(f, fail){
     const total=first.pages||1;
     let pages=Math.min(total, 60);
     if(total>60 && confirm(`"${f.name}" has ${total} pages. Add all ${total} as panels?\n\nA long stack is slow to open and heavy on memory. Cancel adds the first 60.`)) pages=total;
-    const base=f.name.replace(/\.tiff?$/i,'');
+    // The panel keeps the name of the file the author has. Every TIFF used to become
+    // "<name>.png" here, so the metadata CSV, PANEL_HISTORY and the session cited a
+    // PNG that never existed — "16-bit PNG source" for a 16-bit TIFF. The stored pixels
+    // are a PNG data URL, but that is an internal copy, not the source. A page of a
+    // multi-page file records which page, and of how many (_sourceName).
     const toImg=_tiffResToImg;
-    const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
-                         deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||''});
+    const calibOf=(res,p)=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
+                         deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||'',
+                         page:p, pages:p?total:undefined});
     const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
     if(pages>1){
       for(let p=0;p<pages;p++){
         const res = p===0 ? first : await decodeTIFF(buf,p);
-        const it = await toImg(res, `${base}_p${p+1}.png`);
-        if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res), res.raw);   // add each page directly
+        const it = await toImg(res, f.name);
+        if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res,p+1), res.raw);   // add each page directly
       }
       toast(pages<total
         ? `Opened "${f.name}" — the first ${pages} of ${total} pages added; pages ${pages+1}–${total} were left out (${first.width}×${first.height})${calNote(first)}`
         : `Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})${calNote(first)}`, pages<total?'warn':'ok');
     } else {
-      const it = await toImg(first, base+'.png');
+      const it = await toImg(first, f.name);
       if(!it){ fail(); return; }
       _preCropQueue.push({img:it.img, src:it.src, name:it.name, calib:calibOf(first), raw:first.raw}); _drainPreCrop();
       toast(`Opened "${f.name}" (${first.width}×${first.height}${first.note?' · '+first.note:''}${calNote(first)})`,'ok');
@@ -3470,6 +3475,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
   const cdt=(calib&&calib.deltaT!=null)?calib.deltaT:null;   // seconds into its own series
   const cat=(calib&&calib.acqTime!=null)?calib.acqTime:null; // absolute epoch ms
   const cts=(calib&&calib.timeSource)||'';
+  const cpg=(calib&&calib.page>0)?{srcPage:calib.page, srcPages:calib.pages||undefined}:{};
   // only keep native samples that actually match the committed pixels
   if(raw && (raw.w!==img.naturalWidth || raw.h!==img.naturalHeight)) raw=null;
   if(layoutMode==='freeform'){
@@ -3483,13 +3489,13 @@ function _commitImage(img,src,name,svgSource,calib,raw){
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
       umPerPx:cu, sbUm:10, sbUnit:'µm', sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
-      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts,
+      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts, ...cpg,
       svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
       svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null,
       _metaUmPerPx:cu, _metaCalibSource:cs,
-      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts,
+      _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts, ...cpg,
       label:nextLabel(),sbOn:true,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
@@ -3497,7 +3503,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
       borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
       lblDX:0,lblDY:0,sbDX:0,sbDY:0};
     pushUndo();
-    if(images.some(im=>im&&im.name===name)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
+    if(!cpg.srcPage && images.some(im=>im&&im.name===name&&!im.srcPage)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
     // A figure opened without its pixels (share link, settings-only file, oversized
     // autosave) puts the file into the panel saved for it. The share link used to apply
     // its list by position, so the first blank cell shifted every later panel's
@@ -3534,6 +3540,13 @@ function _flushGridGrowNote(){
   if(!n) return;
   if(n.out>0) toast(`${n.out} panel${n.out>1?'s':''} ${n.out>1?'fall':'falls'} outside the grid${n.to>n.from?` even at ${n.cols} × ${n.to}`:` (${n.cols} × ${n.to})`} — listed but not drawn; add columns or use Fit grid`,'warn');
   else if(n.to>n.from) toast(`Grid grown to ${n.cols} × ${n.to} so every panel is drawn`,'ok');
+}
+// The source a panel cites: the file's own name, and for a page of a multi-page TIFF
+// the page and the page count — "stack.tif (page 3 of 70)".
+function _sourceName(im){
+  if(!im) return '';
+  const n=im.name||'';
+  return im.srcPage ? `${n} (page ${im.srcPage}${im.srcPages?` of ${im.srcPages}`:''})` : n;
 }
 function nextLabel(){
   const used = new Set(images.map(i=>i&&i.label));
@@ -4344,11 +4357,15 @@ function _refreshPreflight(){
   // LZW's ratio depends on the picture — a white background shrinks to almost nothing,
   // a photograph barely — so the dialog gives the uncompressed ceiling, not a guess.
   const estTxt=lzw ? `≤ ${_fmtBytes(est)} uncompressed; LZW makes it smaller by an amount that depends on the picture` : '≈ '+_fmtBytes(est);
+  const _vp=fmt==='svg'?_svgVectorPlan():null;
   const vectorNote = fmt==='svg'
     ? 'Labels, scale bars & annotations export as <b>vector</b> — sharp at any zoom.'
+      +(_vp.vector.length?` Imported SVG panel${_vp.vector.length>1?'s':''} ${_vp.vector.map(v=>esc(formatLabel(v.im.label)||'?')).join(', ')} stay <b>vector</b>.`:'')
+      +_vp.raster.map(r=>` Panel ${esc(formatLabel(r.im.label)||'?')} was imported as SVG but is written as <b>pixels</b>: ${esc(r.why.join('; '))}.`).join('')
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
+  if(fmt==='webp') warns.push({t:'warn',m:`WebP has no standard print-resolution field, so the file cannot carry ${dpi} DPI: it opens at your software's default size. Use PNG or TIFF for print.`});
   if(capped) warns.push({t:'warn',m:'Export exceeds ~60 MP and will be scaled down to fit browser memory.'});
   if(fmt==='tiff'&&!lzw&&_lastPresetName==='plos') warns.push({t:'warn',m:'PLOS asks for LZW-compressed TIFF — tick Compress (LZW) above.'});
   const bg=gv('bg-color'); const white=(bg.toLowerCase()==='#ffffff'||bg==='#fff');
@@ -4451,6 +4468,11 @@ function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // p
 // and carries the reason; this is what turns a silent omission into a failed check.
 // Only panels inside the current grid are considered — panels beyond cols×rows are
 // not rendered, so their flag is stale.
+// Whether render() drew this panel's scale bar: the renderer's own condition, plus
+// the out-of-range reason it records. Read after a render — `_sbSkip` is set there.
+function _scaleBarDrawn(im){
+  return !!(im && im.sbOn && im.umPerPx>0 && im.sbUm>0 && !im._sbSkip);
+}
 function _scaleBarsNotDrawn(){
   const out=[];
   _figurePanels().forEach(im=>{
@@ -5810,11 +5832,11 @@ function exportBlotMetadata(){
   if(!images.length){ toast('Add images first','warn'); return; }
   const rows=[['Panel','Label','Grayscale','Inverted','Brightness','Contrast','Gamma','Levels','Note']];
   images.forEach((im,i)=>{ if(!im) return; rows.push([i+1,im.label,im.grayscale?'yes':'no',im.invert?'yes':'no',
-    im.brightness,im.contrast,im.gamma||1,`${im.blackPt||0}-${im.whitePt||255}`,(im.captionNote||'').replace(/[,\n]/g,'; ')]); });
+    im.brightness,im.contrast,im.gamma||1,`${im.blackPt||0}-${im.whitePt||255}`,im.captionNote||'']); });
   const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').replace(/\n/g,' ');
   const csv=`# FigureLab blot/gel metadata — ${new Date().toISOString()}\n`+
     `# Keep the uncropped original scan on file. Disclose all processing in your methods.\n`+
-    `# Figure notes: ${notes}\n`+rows.map(r=>r.join(',')).join('\n');
+    `# Figure notes: ${notes}\n`+rows.map(r=>_csvRow(r)).join('\n');
   dl(blobUrl(csv), (gv('export-name')||'blot')+'-blot-metadata.csv');
   toast('Blot metadata CSV exported','ok');
 }
@@ -6382,7 +6404,7 @@ function gelCSV(idx){
   const nm=formatLabel(im.label)||String(idx+1), rows=_gelRows(a), sat=_gelSatCount(a);
   const f=a.frame, fit=a.ladder&&a.ladder.fit;
   const H=[
-    `# FigureLab v${APP_VERSION} — gel/blot lane and band densitometry, panel ${nm}${im.name?` (${im.name})`:''}`,
+    `# FigureLab v${APP_VERSION} — gel/blot lane and band densitometry, panel ${nm}${im.name?` (${_sourceName(im)})`:''}`,
     `# Source pixels: ${a.sourceLabel}${a.source==='raw'?' (native samples retained at import)':a.colour?' (colour image; Rec. 601 luma of the stored RGB)':''}, read inside the panel crop before any brightness/contrast/gamma/levels/LUT/invert`,
     `# Crop frame: x ${f.sx.toFixed(1)}–${(f.sx+f.sw).toFixed(1)}, y ${f.sy.toFixed(1)}–${(f.sy+f.sh).toFixed(1)} source px${f.angle?`; tilted ${(+f.angle).toFixed(1)}°, read by nearest neighbour (no interpolation); coordinates are crop-frame pixels`:'; coordinates are source pixels'}`,
     `# Polarity: ${_gelPolText(a.polarity)} (${a.polaritySetBy==='user'?'set by the user; the image suggested '+_gelPolText(a.polarityGuess):'guessed from the image: median vs 1%/99% tails'})`,
@@ -6394,7 +6416,7 @@ function gelCSV(idx){
     `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?a.ladder.error:'none'}`,
     `# Edited by hand: ${a.edits||0} edit(s)`,
   ];
-  const q=v=>v==null?'':(typeof v==='number'?(Number.isInteger(v)?String(v):v.toPrecision(6)):String(v).replace(/[,\n]/g,';'));
+  const q=v=>v==null?'':(typeof v==='number'?(Number.isInteger(v)?String(v):v.toPrecision(6)):_csvCell(v));
   const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand'];
   const body=rows.map(r=>[r.lane,r.band,r.x0,r.x1,r.inferred?'yes':'',r.y0,r.y1,r.yc,r.rf,r.volume,r.pctLane,r.relRef,r.normLC,r.normLCRef,
     r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':''].map(q).join(','));
@@ -7317,6 +7339,19 @@ function renderTutorialList(){
 // auto-launched modal). Users start it from the ✦ button or the command palette.
 
 
+// One CSV field, RFC 4180: a field holding a comma, a double quote or a line break is
+// wrapped in double quotes with its own quotes doubled. Every CSV the app writes goes
+// through this. The metadata CSV wrote names and labels bare, so "cells, day 3.png"
+// became two fields and every column after it — µm/px, brightness, the crop — was
+// read against the wrong heading; other writers swapped commas for semicolons, which
+// keeps the columns but changes the author's text. `always` quotes a text column
+// whatever it holds, as the metadata and measurement CSVs have always done.
+function _csvCell(v, always){
+  const s=v==null?'':String(v);
+  return (always||/[",\r\n]/.test(s)) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function _csvRow(cells, always){ return cells.map(v=>_csvCell(v, always)).join(','); }
+
 function exportCSV(){
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   // CropAngle + Resampling are stated as their own columns rather than folded into a
@@ -7325,21 +7360,21 @@ function exportCSV(){
   const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta';
   const lines=[header];
   _figurePanels().forEach((im,i)=>{
-    lines.push([i+1,im.name,im.label,im.umPerPx||0,im.sbUm||0,
+    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(im.label),im.umPerPx||0,im.sbUm||0,
       im.brightness,im.contrast,im.gamma||1,im.grayscale?1:0,im.invert?1:0,
-      im.lut||'none',im.blackPt||0,im.whitePt||255,
+      _csvCell(im.lut||'none'),im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,
       (im.cropAngle?'resampled (bilinear)':'none'),
       // An inset's magnification is a number a reader needs and an author usually
       // states from memory; it is derived here rather than typed.
-      (im.insetOf?(_findPanelById(im.insetOf)?.label||'?'):''),
+      _csvCell(im.insetOf?(_findPanelById(im.insetOf)?.label||'?'):''),
       (im.insetOf?(_insetMag(im)+'×'):''),
       // The physical size of the region shown, from the crop and the calibration.
-      `"${_fovText(im)||''}"`,
+      _csvCell(_fovText(im)||'',true),
       // Whatever acquisition time the file carried, as it was read — never inferred.
-      `"${im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():'')}"`,
-      `"${(im.captionNote||'').replace(/"/g,'""')}"`,
-      `"${(im.metaNote||'').replace(/"/g,'""')}"`].join(','));
+      _csvCell(im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():''),true),
+      _csvCell(im.captionNote||'',true),
+      _csvCell(im.metaNote||'',true)].join(','));
   });
   dl(blobUrl(lines.join('\n')), (gv('export-name')||'figurelab')+'-metadata.csv');
   toast('CSV exported','ok');
@@ -7798,8 +7833,13 @@ function render(targetCanvas, exportScale, opts){
         // and 180° the two boxes are identical, so nothing about an unturned panel moves.
         const ow=Math.round(dw*_ca+dh*_sa), oh=Math.round(dw*_sa+dh*_ca);
         const ox=px+Math.round((apw-ow)/2), oy=py+Math.round((aph-oh)/2);
-        if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=ox; _pb.iy=oy; _pb.iw=ow; _pb.ih=oh; } }
+        if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=ox; _pb.iy=oy; _pb.iw=ow; _pb.ih=oh; _pb.dx=dx; _pb.dy=dy; _pb.dw=dw; _pb.dh=dh; } }
         ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph);
+        // An imported SVG the SVG export writes as vector: its picture is left out of the
+        // raster, and the box it occupies is made transparent so the vector, placed
+        // UNDER the raster, shows through with the panel's letter and bar still on top.
+        const _vecHole=!!(opts && opts.vectorPanels && opts.vectorPanels.has(imgIdx));
+        if(_vecHole) ctx.clearRect(ox,oy,ow,oh);
         // Crop-to-shape clip
         const cshape=im.cropShape||'rect';
         if(cshape!=='rect'){
@@ -7815,7 +7855,8 @@ function render(targetCanvas, exportScale, opts){
         }
         // Apply adjustments (or composite if extra channels)
         let srcImg;
-        if(im.channels && im.channels.length>0){
+        if(_vecHole){ /* nothing to process: the picture is written as vector */ }
+        else if(im.channels && im.channels.length>0){
           srcImg=applyComposite(im, sx, sy, sw, sh, _cd.rotated?_cd.img:null);
         } else {
           const adj=applyAdjust(im, sx, sy, sw, sh, _cd.rotated?_cd.img:null);
@@ -7827,7 +7868,8 @@ function render(targetCanvas, exportScale, opts){
           ctx.translate(dx+dw/2, dy+dh/2);
           ctx.rotate((im.rotate||0)*Math.PI/180);
           ctx.scale(im.flipH?-1:1, im.flipV?-1:1);
-          if(srcImg){
+          if(_vecHole){ /* written as vector by the SVG export */ }
+          else if(srcImg){
             ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, -dw/2,-dh/2,dw,dh);
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, -dw/2,-dh/2,dw,dh);
@@ -7839,7 +7881,8 @@ function render(targetCanvas, exportScale, opts){
           _drawInsetFrames(ctx, im, imgIdx, -dw/2, -dh/2, dw, dh, lblSz, lblClr, isExport,
             {cx:dx+dw/2, cy:dy+dh/2, rot:im.rotate||0, flipH:!!im.flipH, flipV:!!im.flipV});
         } else {
-          if(srcImg){
+          if(_vecHole){ /* written as vector by the SVG export */ }
+          else if(srcImg){
             ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, dx,dy,dw,dh);
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, dx,dy,dw,dh);
@@ -7893,7 +7936,7 @@ function render(targetCanvas, exportScale, opts){
           }
         }
         // Scale bar
-        im._sbSkip=null;
+        im._sbSkip=null; im._sbRect=null;
         if(im.sbOn && im.umPerPx>0 && im.sbUm>0){
           // NOT rounded to an integer. Everything here is drawn in logical units and
           // scaled once by S at the end, so rounding happened BEFORE supersampling —
@@ -7914,6 +7957,7 @@ function render(targetCanvas, exportScale, opts){
             // bar and the text line above it together, so both come out the same ink.
             const barInk=sbAuto?_autoInk(ctx,S,sbX,sbY-16,barPx,sbH+16,sbClr):sbClr;
             ctx.fillStyle=barInk; ctx.fillRect(sbX,sbY,barPx,sbH);
+            im._sbRect={x:sbX, y:sbY, w:barPx, h:sbH, ink:barInk};
             if(!isExport) _sbBars.push({idx:imgIdx, left:sbX, right:sbX+barPx, top:sbY, bottom:sbY+sbH, scale:(dw/sw)});
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*ow/300));
@@ -12691,6 +12735,22 @@ function renderExportCanvas(dpi, opts){
 
 let _exporting=false;
 // toDataURL returns "data:," (not an exception) when the canvas is too large.
+// The browser's JPEG carries a JFIF header with no physical resolution (units 0,
+// density 1:1), so Word and Photoshop placed a 300-dpi export at 72 or 96 dpi — three
+// or four times the printed width chosen. Write the DPI into the JFIF APP0 segment
+// (units 1 = dots per inch), or add the segment if the encoder left it out.
+function _jpegWithDensity(dataURL, dpi){
+  const bin=atob(dataURL.slice(dataURL.indexOf(',')+1));
+  let b=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i);
+  const d=Math.max(1,Math.min(65535,Math.round(+dpi||0)));
+  const isJfif=b[2]===0xFF&&b[3]===0xE0&&b[6]===0x4A&&b[7]===0x46&&b[8]===0x49&&b[9]===0x46&&b[10]===0;
+  if(!isJfif){
+    const app0=new Uint8Array([0xFF,0xE0,0,16,0x4A,0x46,0x49,0x46,0,1,1,0,0,0,0,0,0,0]);
+    b=_concatBytes([b.subarray(0,2),app0,b.subarray(2)]);
+  }
+  b[13]=1; b[14]=d>>8; b[15]=d&255; b[16]=d>>8; b[17]=d&255;
+  return URL.createObjectURL(new Blob([b],{type:'image/jpeg'}));
+}
 function _safeDataURL(canvas, type, q){
   const url=canvas.toDataURL(type,q);
   if(!url || url.length<32) throw new Error('canvas too large');
@@ -12815,7 +12875,7 @@ async function doExport(fmt){
       ? renderExportCanvas(dpi)
       : document.getElementById('fig-canvas');
     if(fmt==='png')  { await exportPNGWithMeta(name, canvas._effDpi||dpi, canvas); }
-    if(fmt==='jpeg') { dl(_safeDataURL(canvas,'image/jpeg',0.95), `${name}.jpg`); }
+    if(fmt==='jpeg') { dl(_jpegWithDensity(_safeDataURL(canvas,'image/jpeg',0.95), canvas._effDpi||dpi), `${name}.jpg`); }
     if(fmt==='webp') { dl(_safeDataURL(canvas,'image/webp',0.92), `${name}.webp`); }
     if(fmt==='svg')  exportSVG(name, dpi, document.getElementById('fig-canvas'));
     if(fmt==='tiff') {
@@ -12826,7 +12886,8 @@ async function doExport(fmt){
     }
     logAction('export',{format:fmt,dpi,name});
     const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
-    toast(`Saved ${name}.${_ext}`, 'ok');
+    if(fmt==='webp') toast(`Saved ${name}.webp — WebP has no print-resolution field, so it opens at your software's default DPI: set the size by hand, or use PNG/TIFF`, 'warn');
+    else toast(`Saved ${name}.${_ext}`, 'ok');
   } catch(err){
     console.error('Export failed',err);
     const big=/too large|size|memory|quota/i.test(err&&err.message||'');
@@ -12854,10 +12915,13 @@ function _zipMake(files){
     const nb=enc.encode(f.name);
     const data=(typeof f.data==='string')?enc.encode(f.data):f.data;
     const crc=crc32(data,0,data.length);
-    const lfh=_concatBytes([u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),
+    // Names are written as UTF-8; bit 11 says so, or unzip tools read "µ" or an
+    // accented export name as CP437.
+    const gp=/[^\x00-\x7f]/.test(f.name)?0x0800:0;
+    const lfh=_concatBytes([u32(0x04034b50),u16(20),u16(gp),u16(0),u16(0),u16(0),u32(crc),
       u32(data.length),u32(data.length),u16(nb.length),u16(0),nb]);
     parts.push(lfh,data);
-    central.push(_concatBytes([u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),
+    central.push(_concatBytes([u32(0x02014b50),u16(20),u16(20),u16(gp),u16(0),u16(0),u16(0),u32(crc),
       u32(data.length),u32(data.length),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset),nb]));
     offset+=lfh.length+data.length;
   }
@@ -13097,7 +13161,7 @@ function _panelHistory(im){
   const ops=[];
   const src=im.img||im._imgEl;
   const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
-  ops.push({op:'import', file:im.name||'(unnamed)', pixels:dims,
+  ops.push({op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims,
     nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:'not retained (8-bit display)'});
   const cropped=(im.cropT||im.cropL||im.cropB||im.cropR);
   if(cropped||im.cropAngle){
@@ -13132,7 +13196,7 @@ function _panelHistory(im){
       magnification:_insetMag(im)+'×',
       note:'Re-derived from the parent panel’s source on every render; display settings are the parent’s.'});
   }
-  return {panel:im.label||'(unlabelled)', source:im.name||'(unnamed)', operations:ops};
+  return {panel:im.label||'(unlabelled)', source:_sourceName(im)||'(unnamed)', operations:ops};
 }
 function _panelHistoryText(){
   const hist=images.filter(Boolean).map(_panelHistory);
@@ -13168,6 +13232,9 @@ async function exportSubmissionPackage(){
   const figc=document.getElementById('fig-canvas');
   toast('Building submission package…','ok');
   render();
+  // The texts FigureLab would write for the figure as it is now, taken from this
+  // render, before the export renders below replace the frame the Methods reads.
+  const freshCap=_captionText(), freshMeth=generateMethodsParagraph();
   try{
     const rc=()=> renderExportCanvas(dpi);   // supersample grid AND freeform (true target DPI)
     const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
@@ -13195,12 +13262,24 @@ async function exportSubmissionPackage(){
     add(await _captureDownload(()=>exportReproLog(),'reproducibility log'));
     add(await _captureDownload(()=>exportR(),'R script'));
     add(await _captureDownload(()=>exportPython(),'Python script'));
-    // caption + notes
-    if(!gv('caption-out').trim()){ generateCaption(); }
-    const cap=gv('caption-out').trim(); if(cap) files.push({name:name+'-caption.txt', data:cap});
-    // The Methods paragraph, as the caption: the author's edited text if there is one.
-    const meth=gv('methods-out').trim()||generateMethodsParagraph();
-    files.push({name:name+'-methods.txt', data:meth});
+    // Caption and Methods. The package used to ship whatever the boxes held, so a
+    // caption generated before a panel was hidden still described it, and omitted a
+    // brightness change made since. Now: text the app wrote and nobody touched is
+    // rewritten for the figure being exported; the author's own words are kept, but
+    // when the figure has changed since the text they edited was generated, the README
+    // and the dialog say so and FigureLab's current text ships beside it.
+    const textChecks=[];
+    for(const [kind,fresh,label] of [['caption',freshCap,'caption'],['methods',freshMeth,'Methods paragraph']]){
+      const t=_packageText(kind, fresh);
+      if(!t.text) continue;
+      const fn=`${name}-${kind}.txt`;
+      files.push({name:fn, data:t.text});
+      if(t.state==='stale'||t.state==='unverified'){
+        const gn=`${name}-${kind}-generated.txt`, gf={name:gn, data:fresh};
+        files.push(gf);
+        textChecks.push({kind, label, state:t.state, _f:files[files.length-2], _g:gf});
+      }
+    }
     const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
     if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
     // Attribution obligations ship with the figure, so a co-author assembling the
@@ -13226,6 +13305,8 @@ async function exportSubmissionPackage(){
       // dpi/96 then reads the wrong region entirely.
       const big=renderExportCanvas(dpi);
       const sc=big._exportScale || big.width/(canvasLogicalW||big.width);
+      const nShown=(panelBounds||[]).filter(b=>images[b.idx]).length;
+      let pos=0;
       for(const b of (panelBounds||[])){
         if(!images[b.idx]) continue;   // skip empty grid cells
         const pc=document.createElement('canvas');
@@ -13233,15 +13314,18 @@ async function exportSubmissionPackage(){
         pc.getContext('2d').drawImage(big, b.x*sc,b.y*sc,b.w*sc,b.h*sc, 0,0,pc.width,pc.height);
         const blob=await new Promise(r=>pc.toBlob(r,'image/png'));
         if(blob){ const buf=new Uint8Array(await blob.arrayBuffer());
-          const lbl=(images[b.idx]&&images[b.idx].label)||b.idx;
-          files.push({name:`panels/panel_${lbl}.png`, data:buf}); }
+          // Its place in the figure first, so two panels with one label are two files and
+          // the files sort in reading order; then the label, made safe for a file name.
+          pos++;
+          const lbl=String((images[b.idx]&&images[b.idx].label)||'').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
+          files.push({name:`panels/panel_${String(pos).padStart(String(nShown).length,'0')}${lbl?'_'+lbl:''}.png`, data:buf}); }
       }
     }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
     // Per-chart Source Data CSVs — the exact user data behind each plotted chart
     // (a mandatory requirement at Nature/EMBO). Writes the retained rows verbatim.
     (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart&&e.chart.data&&(e.chart.data.rows||[]).length).forEach((el,ci)=>{
       const D=el.chart.data;
-      const q=v=>{ const s=String(v??''); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+      const q=v=>_csvCell(v);
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
       (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between groups ${(+a.a)+1} and ${(+a.b)+1} — author-supplied from their own test, NOT computed by FigureLab`));
@@ -13249,21 +13333,35 @@ async function exportSubmissionPackage(){
       const safe=(el.label||('chart_'+(ci+1))).replace(/[^\w.-]+/g,'_');
       files.push({name:`source-data/${safe}.csv`, data:csv});
     });
+    // Entry names, once, over everything: a label or an export name is free text, and
+    // used raw it collided (two "WT" panels — extraction keeps one) or made folders
+    // ("WT/KO", "../x"). The README lists the names as they are in the ZIP.
+    _zipEntryNames(files, ['README.txt']);
+    textChecks.forEach(c=>{ c.file=c._f.name; c.generated=c._g.name; });
     // manifest
     const _prov=await _provenanceHash();
     const skipped=_captureSkips.slice();
-    files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov,skipped)});
+    files.push({name:'README.txt', data:_packageManifest(name,dpi,files,_prov,skipped,textChecks)});
     const zip=_zipMake(files);
     dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), name+'-submission-package.zip');
     logAction('submissionPackage',{files:files.length, skipped:skipped.map(s=>s.label)});
     // An incomplete package must say so. The toast used to report success whatever
     // was missing, and a dropped TIFF is then found by the journal, not the author.
-    if(skipped.length){
+    // The dialog is for an edit the figure has since moved away from; text FigureLab did
+    // not write here (typed or pasted from the start) gets the toast and the README note,
+    // not a dialog on every export.
+    if(textChecks.length && !skipped.length){
+      toast(`Submission package built — check the ${textChecks.map(c=>c.label).join(' and ')}: it may not match the figure (see README.txt)`,'warn');
+      if(textChecks.some(c=>c.state==='stale')) showInfoModal('⚠ Check the caption and Methods',
+        `<div style="font-size:11px;line-height:1.6">${_textCheckHtml(textChecks)}
+          <p style="color:var(--muted)">The same note is in the package's README.txt.</p></div>`);
+    } else if(skipped.length){
       toast(`Submission package built, but ${skipped.length} artefact(s) could not be generated`,'warn');
       showInfoModal('⚠ Submission package is incomplete',
         `<div style="font-size:11px;line-height:1.6">
           <p style="margin-bottom:6px">${files.length} file(s) were zipped, but these could not be generated and are <b>not</b> in the package:</p>
           <ul style="margin:0 0 8px 16px">${skipped.map(s=>`<li><b>${esc(s.label)}</b> — ${esc(s.why)}</li>`).join('')}</ul>
+          ${textChecks.length?_textCheckHtml(textChecks):''}
           <p style="color:var(--muted)">A lower export DPI usually resolves size/memory failures. The same list is recorded in the package's README.txt.</p>
         </div>`);
     } else {
@@ -13271,7 +13369,63 @@ async function exportSubmissionPackage(){
     }
   }catch(e){ toast('Package failed: '+(e&&e.message||e),'err'); }
 }
-function _packageManifest(name,dpi,files,provHash,skipped){
+// What the package ships for the caption or Methods box, and why.
+//   current      — FigureLab's text for the figure as exported
+//   regenerated  — the box held text the app wrote for an earlier state, untouched;
+//                  it is replaced (in the box too) by the text for this figure
+//   edited       — the author's words; the figure has not changed since the text
+//                  they edited was generated, so there is nothing to flag
+//   stale        — the author's words, but the figure has changed since: kept, flagged
+//   unverified   — text the app did not write in this session (typed, pasted, loaded)
+//                  that differs from what it would write now: kept, flagged
+function _packageText(kind, fresh){
+  fresh=(fresh||'').trim();
+  const box=gv(kind==='caption'?'caption-out':'methods-out').trim();
+  const gen=_genText[kind]==null?null:String(_genText[kind]).trim();
+  if(!box || box===gen){
+    if(fresh && box!==fresh) _setGeneratedText(kind, fresh);
+    return {text:fresh, state:(box&&box!==fresh)?'regenerated':'current'};
+  }
+  if(!fresh || box===fresh) return {text:box, state:'current'};
+  if(gen==null) return {text:box, state:'unverified'};
+  return {text:box, state:gen===fresh?'edited':'stale'};
+}
+function _textCheckLines(checks){
+  return checks.map(c=>c.state==='stale'
+    ? `  - ${c.file} is your edited ${c.label}. The figure has changed since FigureLab\n    wrote the text you edited, so it may describe the figure as it was.\n    FigureLab's ${c.label} for the figure as exported is in ${c.generated}.`
+    : `  - ${c.file} is ${c.label} text FigureLab did not write here (typed, pasted or\n    loaded), and it differs from FigureLab's ${c.label} for the figure as\n    exported, which is in ${c.generated}. Check it against the figure.`).join('\n');
+}
+function _textCheckHtml(checks){
+  return `<p style="margin-bottom:6px">Kept as you wrote it, but it may not describe the figure in this package:</p>
+    <ul style="margin:0 0 8px 16px">${checks.map(c=>`<li><b>${esc(c.file)}</b> — ${c.state==='stale'
+      ?`the figure has changed since FigureLab wrote the ${esc(c.label)} you edited`
+      :`not written by FigureLab here, and different from its ${esc(c.label)} for this figure`}; FigureLab's current text is in <b>${esc(c.generated)}</b></li>`).join('')}</ul>`;
+}
+// Make every ZIP entry name safe and unique, in place. Only the package's own folders
+// survive as folders; any other slash or backslash in a name becomes "_", as do characters
+// Windows or macOS refuse in a file name. Names are compared case-insensitively —
+// "WT.png" and "wt.png" are one file once extracted on either system — and a repeat
+// gets _2, _3 before its extension. `reserved` names are kept free for later entries.
+function _zipEntryNames(files, reserved){
+  const FOLDERS=new Set(['panels','source-data']);
+  const clean=s=>String(s).replace(/[\x00-\x1f\x7f\\/:*?"<>|]+/g,'_').replace(/^[\s.]+|[\s.]+$/g,'')||'file';
+  const seen=new Set((reserved||[]).map(n=>n.toLowerCase()));
+  for(const f of files){
+    const parts=String(f.name).split('/');
+    let nm = (parts.length>1 && FOLDERS.has(parts[0]))
+      ? parts[0]+'/'+clean(parts.slice(1).join('_'))
+      : clean(parts.join('_'));
+    if(seen.has(nm.toLowerCase())){
+      const m=/^(.*?)(\.[^./]+)?$/.exec(nm); let k=2;
+      while(seen.has(`${m[1]}_${k}${m[2]||''}`.toLowerCase())) k++;
+      nm=`${m[1]}_${k}${m[2]||''}`;
+    }
+    seen.add(nm.toLowerCase());
+    f.name=nm;
+  }
+  return files;
+}
+function _packageManifest(name,dpi,files,provHash,skipped,textChecks){
   const list=files.map(f=>'  - '+f.name).join('\n');
   // A missing artefact is stated here as well as in the UI, because the ZIP outlives
   // the toast that announced it — a co-author opening this months later has to be
@@ -13295,7 +13449,11 @@ Contents
 --------
 ${list}
   - README.txt (this file)
-${missing}
+${missing}${(textChecks&&textChecks.length)?`
+CHECK THESE TEXTS
+-----------------
+${_textCheckLines(textChecks)}
+`:''}
 Notes
 -----
 - Raster figures are rendered at the true target-DPI pixel count (supersampled).
@@ -13445,6 +13603,39 @@ ${pics}${titleSp}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMa
 // (exportPNGwithDPI removed — superseded by embedPNGMetadata, which writes a
 //  spec-correct pHYs chunk and the tEXt metadata in one pass. See exportPNGWithMeta.)
 
+// Which imported-SVG grid panels the SVG export can write as vector, and why the rest
+// are written as pixels. Help promised "SVG stays vector", but only freeform kept it:
+// in the grid, the default layout, every SVG panel went into the raster. A panel stays
+// vector when what the figure shows of it can be stated as a placement — a scale, a
+// right-angle turn, a flip. A crop, a tilt, a display adjustment, merged channels, a
+// background key or a shape clip change which pixels are shown, so those panels are
+// written as the raster the preview shows, and the export says so.
+function _svgPanelVectorWhy(im){
+  if(!im||!im.isVector||!im.svgSource) return null;
+  const why=[];
+  if(im.insetOf) why.push('it is a linked inset (a crop of its parent)');
+  if(im.cropT||im.cropL||im.cropB||im.cropR) why.push('it is cropped');
+  if(im.cropAngle) why.push('its crop is tilted');
+  if(((+im.rotate||0)%90+90)%90) why.push('it is turned by an angle that is not a right angle');
+  if((im.brightness??1)!==1||(im.contrast??1)!==1||(im.gamma||1)!==1||(im.blackPt||0)>0||(im.whitePt??255)<255
+     ||im.grayscale||im.invert||(im.lut&&im.lut!=='none')) why.push('display adjustments change its pixels');
+  if(im.channels&&im.channels.length) why.push('it merges channels');
+  if(im.bgKey&&im.bgKey.on) why.push('its background is keyed out');
+  if((im.cropShape||'rect')!=='rect') why.push(`it is clipped to a ${im.cropShape}`);
+  const root=(/<svg\b[^>]*>/i.exec(im.svgSource)||[''])[0];
+  if(!/\bviewBox\s*=/i.test(root) && !(/\bwidth\s*=/i.test(root)&&/\bheight\s*=/i.test(root)))
+    why.push('the SVG file states neither a viewBox nor a width and height, so its scale in the cell cannot be written');
+  return why;
+}
+function _svgVectorPlan(){
+  const out={vector:[], raster:[]};
+  if(layoutMode==='freeform') return out;
+  _figurePanels().forEach(im=>{
+    const why=_svgPanelVectorWhy(im); if(!why) return;
+    (why.length?out.raster:out.vector).push({im, why});
+  });
+  return out;
+}
 function exportSVG(name, dpi, canvas){
   // Logical figure dimensions (coordinate space for the vector layer).
   const Lw=canvasLogicalW||canvas.width, Lh=canvasLogicalH||canvas.height;
@@ -13460,13 +13651,21 @@ function exportSVG(name, dpi, canvas){
   let S=_exportScaleFor(dpi);
   const MAXPX=60e6; if(Lw*Lh*S*S>MAXPX) S=Math.max(1, Math.sqrt(MAXPX/(Lw*Lh)));
   const off=document.createElement('canvas');
+  // Imported-SVG grid panels that can stay vector, placed from this frame's geometry.
+  render();
+  const plan=_svgVectorPlan();
+  const vecIdx=new Set(), vecPanels=[];
+  plan.vector.forEach(({im})=>{
+    const i=images.indexOf(im), b=panelBounds.find(p=>p.idx===i);
+    if(b && b.dw>0 && b.dh>0){ vecIdx.add(i); vecPanels.push({im, b}); }
+  });
   const savedAnns=annotations; annotations=[];
   // skipCharts: charts are re-emitted as true vector below, so keep them off the raster
   // (otherwise the antialiased raster edges double up under the vector <g>).
   // skipInsetFrames: inset outlines, their letters and connector lines are re-emitted
   // as vector below, like the labels, so they stay editable and never pixelate.
   // skipPanelLegends: a channel key pinned to a panel is re-emitted as vector below too.
-  render(off, S, {skipLabels:true, skipCharts:true, skipInsetFrames:true, skipPanelLegends:true});   // fills figTextItems (logical coords), no text on raster
+  render(off, S, {skipLabels:true, skipCharts:true, skipInsetFrames:true, skipPanelLegends:true, vectorPanels:vecIdx});   // fills figTextItems (logical coords), no text on raster
   annotations=savedAnns;
   const items=figTextItems.slice();
   const frames=_lastFrames.slice(), cells=_lastCells, connectorsOn=gc('inset-connectors');
@@ -13643,8 +13842,23 @@ function exportSVG(name, dpi, canvas){
       }
     });
   }
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
+  // Grid panels kept as vector go UNDER the raster, which is transparent over their
+  // picture, so the letter, tag and scale bar drawn on the panel stay on top. The cell
+  // colour goes first: the raster that used to supply it has a hole there now.
+  const bgC=gv('bg-color')||'#ffffff';
+  const gridVec=vecPanels.map(({im,b})=>{
+    const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(im.svgSource);
+    const t=`translate(${f2(b.dx+b.dw/2)} ${f2(b.dy+b.dh/2)})${im.rotate?` rotate(${+im.rotate})`:''}${(im.flipH||im.flipV)?` scale(${im.flipH?-1:1} ${im.flipV?-1:1})`:''}`;
+    return `<!-- Panel ${esc(im.label||'?')}: ${esc(_sourceName(im)||'SVG')}, written as vector -->`
+      +`<rect x="${f2(b.ix)}" y="${f2(b.iy)}" width="${f2(b.iw)}" height="${f2(b.ih)}" fill="${esc(bgC)}"/>`
+      +`<g transform="${t}"><image x="${f2(-b.dw/2)}" y="${f2(-b.dh/2)}" width="${f2(b.dw)}" height="${f2(b.dh)}" preserveAspectRatio="none" xlink:href="${uri}"/></g>`;
+  }).join('\n  ');
+  // A panel imported as SVG but written as pixels says why, in the file itself.
+  const rasterNote=plan.raster.map(({im,why})=>
+    `<!-- Panel ${esc(im.label||'?')} (${esc(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels in the raster below: ${esc(why.join('; '))}. -->`).join('\n  ');
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  ${gridVec}\n  ${rasterNote}\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
+  if(plan.raster.length) toast(`SVG saved — ${plan.raster.length} SVG panel${plan.raster.length>1?'s are':' is'} written as pixels (${plan.raster.map(r=>formatLabel(r.im.label)||'?').join(', ')}): ${plan.raster[0].why[0]}${plan.raster.length>1?' …':''}`,'warn');
 }
 
 function exportTIFF(name, dpi, canvas, preScaled, opts){
@@ -13804,6 +14018,16 @@ function _pdfTextOps(items, k, hPt){
     if(!fonts.has(base)) fonts.set(base,'F'+(fonts.size+1));
     return fonts.get(base);
   };
+  // PDF colour operators carry no alpha, so a translucent fill needs a graphics state
+  // with /ca (fill) and /CA (stroke) set. The label chip is black at 45% in the
+  // preview, PNG, TIFF and SVG; written as a bare "rg" it came out solid black here.
+  const gstates=new Map();                // alpha (3 dp) → resource key
+  const gs=a=>{
+    if(!(a<0.999)) return '';
+    const k=(+a).toFixed(3);
+    if(!gstates.has(k)) gstates.set(k,'GS'+(gstates.size+1));
+    return `/${gstates.get(k)} gs `;
+  };
   const X=x=>(x*k).toFixed(3), Y=y=>(hPt-y*k).toFixed(3);
   let ops='';
   for(const it of items){
@@ -13812,7 +14036,7 @@ function _pdfTextOps(items, k, hPt){
     // label chip behind the text
     if(it.bg){
       const c=_pdfColor(it.bg.fill);
-      if(c.a>0.02) ops+=`q ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `
+      if(c.a>0.02) ops+=`q ${gs(c.a)}${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `
         +`${X(it.bg.x)} ${(hPt-(it.bg.y+it.bg.h)*k).toFixed(3)} ${(it.bg.w*k).toFixed(3)} ${(it.bg.h*k).toFixed(3)} re f Q\n`;
     }
     mc.font=it.font;
@@ -13828,6 +14052,8 @@ function _pdfTextOps(items, k, hPt){
     const c=_pdfColor(it.fill);
     const key=fkey(_pdfFontFor(it.font));
     const size=(it.fs*k).toFixed(3);
+    const tgs=gs(c.a);
+    if(tgs) ops+=`q ${tgs}`;              // a gs cannot sit inside BT…ET
     ops+=`BT /${key} ${size} Tf ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
     if(it.rot){
       // canvas rotate(-90°) runs the text upward on screen; in PDF's y-up space
@@ -13839,9 +14065,9 @@ function _pdfTextOps(items, k, hPt){
     } else {
       ops+=`1 0 0 1 ${X(ax)} ${Y(ay)} Tm `;
     }
-    ops+=`(${_pdfStr(bytes)}) Tj ET\n`;
+    ops+=`(${_pdfStr(bytes)}) Tj ET${tgs?' Q':''}\n`;
   }
-  return {ops, fonts};
+  return {ops, fonts, gstates};
 }
 
 // Render the figure with every typesettable label held OUT of the raster, then
@@ -13898,7 +14124,7 @@ async function _pdfPageFor(canvas, dpi, opts){
   const img=await _pdfImageBytes(canvas, !!opts.lossless);
   const text=(opts.textItems && opts.textItems.length)
     ? _pdfTextOps(opts.textItems, +opts.ptPerUnit || (W*72/dpi)/(canvasLogicalW||W), hPt)
-    : {ops:'', fonts:new Map()};
+    : {ops:'', fonts:new Map(), gstates:new Map()};
   return { W, H, dpi, img, text };
 }
 
@@ -13925,8 +14151,11 @@ function _pdfAssemble(pages){
     const wPt=(pg.W*72/pg.dpi).toFixed(3), hPt=(pg.H*72/pg.dpi).toFixed(3);
     const fontRes = pg.text.fonts.size
       ? ' /Font << '+[...pg.text.fonts].map(([base,key])=>`/${key} ${fontIdByBase.get(base)} 0 R`).join(' ')+' >>' : '';
+    const gsMap=pg.text.gstates||new Map();
+    const gsRes = gsMap.size
+      ? ' /ExtGState << '+[...gsMap].map(([a,key])=>`/${key} << /Type /ExtGState /ca ${a} /CA ${a} >>`).join(' ')+' >>' : '';
     offs[pageId(p)]=sz();
-    push(`${pageId(p)} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents ${csId(p)} 0 R /Resources << /XObject << /Im0 ${imId(p)} 0 R >>${fontRes} >> >>\nendobj\n`);
+    push(`${pageId(p)} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt} ${hPt}] /Contents ${csId(p)} 0 R /Resources << /XObject << /Im0 ${imId(p)} 0 R >>${fontRes}${gsRes} >> >>\nendobj\n`);
     offs[imId(p)]=sz();
     push(`${imId(p)} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pg.W} /Height ${pg.H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${pg.img.filter} /Length ${pg.img.bytes.length} >>\nstream\n`);
     push(pg.img.bytes); push('\nendstream\nendobj\n');
@@ -14095,13 +14324,30 @@ function _adjustmentsUniform(shown){
   return shown.every(im=>_sameAdjustments(im,shown[0]));
 }
 
+// Text the app wrote into the caption and Methods boxes, as it wrote it. A box that
+// still holds exactly this was not edited by the author; one that differs was. The
+// submission package uses that to decide whether it may regenerate the text for the
+// figure as it is now, or must keep the author's words and say they may be out of date.
+const _genText={caption:null, methods:null};
+function _setGeneratedText(kind, text){
+  _genText[kind]=text;
+  document.getElementById(kind==='caption'?'caption-out':'methods-out').value=text;
+}
 function generateCaption(){
-  const cols=gi('cols'), rows=gi('rows');
   // Guard and log on the panels the caption describes. The old count was
   // min(images, cols*rows), which logged 4 for a figure whose spanning panel
   // leaves 3 drawn, and let a figure with every panel hidden through the guard.
   const n=_figurePanels().length;
   if(!n){ toast('No images to caption','warn'); return; }
+  render();                     // _sbSkip is set by the render: whether each bar was drawn
+  _setGeneratedText('caption', _captionText());
+  logAction('generateCaption',{panels:n});
+  toast('Caption generated — copy and paste!','ok');
+}
+// The caption for the figure as last rendered. No DOM, no toast: the submission
+// package calls it to compare against what the box holds.
+function _captionText(){
+  if(!_figurePanels().length) return '';
   const parts=_figurePanels().map(im=>{
     const note=im.captionNote?.trim();
     const meta=im.metaNote?.trim();
@@ -14140,9 +14386,11 @@ function generateCaption(){
     // printed as a magnification — for a 100× objective on a 6.5 µm camera pixel it
     // claimed 15×. A wrong magnification in a legend is a correction-grade error, and
     // no quantity in this app can yield the real one.
-    if(im.sbOn&&im.sbUm>0){
-      const calHint=im.umPerPx>0?` (${(+im.umPerPx.toPrecision(3))} µm per pixel)`:'';
-      s+=` Scale bar, ${_sbLabel(im)}${calHint}.`;
+    // Only a bar the renderer drew. The caption tested sbOn and the length alone, so an
+    // uncalibrated panel, or one whose bar was too long or too short to draw, was
+    // captioned "Scale bar, 10 µm" over a panel with no bar on it.
+    if(_scaleBarDrawn(im)){
+      s+=` Scale bar, ${_sbLabel(im)} (${(+im.umPerPx.toPrecision(3))} µm per pixel).`;
     }
     // The field of view actually shown — the cropped region in physical units — which a
     // methods section needs and a reader cannot recover from a scale bar alone.
@@ -14174,10 +14422,7 @@ function generateCaption(){
       : ' Adjustment settings differ between panels, as stated per panel above.';
   }
   const title=gv('fig-title').trim();
-  const cap=(title?`Figure. ${title}. `:'')+preamble+parts.join(' ')+uniformity;
-  document.getElementById('caption-out').value=cap;
-  logAction('generateCaption',{panels:n});
-  toast('Caption generated — copy and paste!','ok');
+  return (title?`Figure. ${title}. `:'')+preamble+parts.join(' ')+uniformity;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -14301,7 +14546,7 @@ function writeMethodsParagraph(){
   const n=_methodsPanels().length;
   if(!n){ toast('No image panels to describe','warn'); return; }
   render();                     // the resolution sentence reads this frame's panel cells
-  document.getElementById('methods-out').value=generateMethodsParagraph();
+  _setGeneratedText('methods', generateMethodsParagraph());
   logAction('methodsParagraph',{panels:n});
   toast('Methods paragraph written — check it, then paste it into your Methods','ok');
 }
@@ -14583,6 +14828,10 @@ function _resetFigureState(opts){
   labelOffsets={ title:{dx:0,dy:0}, col:{}, row:{}, group:{} };
   if(layoutMode!=='grid'){ const lm=document.getElementById('layout-mode'); if(lm) lm.value='grid'; setLayoutMode('grid'); }
   ['fig-notes','caption-out','methods-out'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  // Forget what FigureLab last wrote into those boxes, or a loaded figure's caption
+  // is compared with the PREVIOUS figure's generated text and the package calls it
+  // "your edited caption" when it is simply a caption that was not written here.
+  if(typeof _genText!=='undefined'){ _genText.caption=null; _genText.methods=null; }
   _figAltText='';
   _pendingPanels=[];
   selectedPanel=-1; selectedAnnotation=-1; selectedPanelAnn=null; selectedElems.clear();
@@ -14899,7 +15148,7 @@ ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height =
 }
 
 // ═══════════════════════════════════════════════════════════════
-// R SCRIPT
+// R AND PYTHON ASSEMBLY SCRIPTS
 // ═══════════════════════════════════════════════════════════════
 // One height per row, from the geometry the renderer uses. The scripts used to emit
 // only PANEL_H, so with rows hugging their panels they rebuilt a taller figure with
@@ -14909,133 +15158,471 @@ function _scriptRowHeights(rows){
   if(!G) return Array(n).fill(gi('panel-h'));
   return Array.isArray(G.ph) ? G.ph.slice(0,n) : Array(n).fill(G.ph);
 }
+// A string literal both languages read back exactly: quotes and backslashes escaped,
+// anything outside printable ASCII written as an escape, so a label or a file name
+// can never end the string or a comment and become code. R reads \U{…} for a
+// character beyond the BMP and refuses a NUL; Python reads \UXXXXXXXX.
+function _scriptStr(s, lang){
+  const hex=(n,w)=>n.toString(16).padStart(w,'0');
+  let o='"';
+  for(const ch of String(s==null?'':s)){
+    const cp=ch.codePointAt(0);
+    if(ch==='"') o+='\\"';
+    else if(ch==='\\') o+='\\\\';
+    else if(ch==='\n') o+='\\n';
+    else if(ch==='\r') o+='\\r';
+    else if(ch==='\t') o+='\\t';
+    else if(cp<0x20||cp===0x7f){ if(!(lang==='R'&&cp===0)) o+='\\x'+hex(cp,2); }
+    else if(cp<0x7f) o+=ch;
+    else if(cp<=0xffff) o+=(cp>=0xd800&&cp<=0xdfff)?'\\ufffd':'\\u'+hex(cp,4);
+    else o+=lang==='R'?'\\U{'+hex(cp,1)+'}':'\\U'+hex(cp,8);
+  }
+  return o+'"';
+}
+// Text for a "#" comment line: no line breaks, so nothing after it is read as code.
+const _scriptCmt = s => String(s==null?'':s).replace(/[\x00-\x1f\x7f\u2028\u2029]+/g,' ');
+// An R literal for plain data. Python takes the same data as JSON (json.loads), which
+// is why "sb_on": true — a JavaScript literal Python cannot read — no longer appears.
+function _rLit(v){
+  if(v==null) return 'NULL';
+  if(typeof v==='boolean') return v?'TRUE':'FALSE';
+  if(typeof v==='number') return Number.isFinite(v)?String(+v.toPrecision(12)):'NA';
+  if(typeof v==='string') return _scriptStr(v,'R');
+  if(Array.isArray(v)) return (v.length&&v.every(x=>typeof x==='number'))
+    ? `c(${v.map(_rLit).join(', ')})` : `list(${v.map(_rLit).join(', ')})`;
+  return `list(${Object.entries(v).map(([k,x])=>`${k} = ${_rLit(x)}`).join(', ')})`;
+}
+function _scriptColor(css){
+  const c=_pdfColor(css);
+  return [Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255),Math.round((c.a==null?1:c.a)*255)];
+}
+// The figure as FigureLab drew it, for both scripts: the panels _figureCells places (a
+// hidden panel is not among them, a blank cell is a blank), each with its cell and the
+// box its picture fills from this frame's render, its crop and its processing; the
+// figure's text at the positions it was drawn; and, by name, what neither script draws.
+// The scripts used to list every image in images[] — hidden ones included — and laid
+// files from a sorted folder into a uniform grid, so they rebuilt a different figure.
+function _scriptFigure(){
+  const name=gv('export-name')||'figure';
+  const out={name, grid:layoutMode!=='freeform', panels:[], blanks:[], hidden:[], notReproduced:[], text:[]};
+  if(!out.grid) return out;
+  render();                    // panelBounds, _sbSkip/_sbRect and figTextItems from this frame
+  const dpi=getExportDPI(), cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const r3=v=>Math.round((+v||0)*1000)/1000;
+  Object.assign(out,{W:r3(canvasLogicalW), H:r3(canvasLogicalH), scale:r3(_exportScaleFor(dpi)), dpi,
+    mm:getTargetWidthMm(), cols, rows, panelW:gi('panel-w'), panelH:gi('panel-h'),
+    rowH:_scriptRowHeights(rows), gapH:gi('gap-h'), gapV:gi('gap-v'), bg:gv('bg-color')||'#ffffff'});
+  _figureCells().forEach(cell=>{
+    const im=cell.im;
+    if(!im){ out.blanks.push(`row ${cell.r+1}, column ${cell.c+1}`); return; }
+    const lbl=formatLabel(im.label)||im.label||'?';
+    const b=panelBounds.find(p=>p.idx===cell.idx);
+    if(!b||!(b.dw>0&&b.dh>0)){ out.notReproduced.push(`panel ${lbl}: nothing is drawn (its crop is empty)`); return; }
+    const src=im.img||im._imgEl;
+    const iw=src?(src.naturalWidth||src.width||0):0, ih=src?(src.naturalHeight||src.height||0):0;
+    const nr=[];
+    if(im.channels&&im.channels.length) nr.push('its merged channels (only its base image is drawn)');
+    if(im.insetOf) nr.push('its link to its parent (it is drawn from its own image)');
+    if(im.bgKey&&im.bgKey.on) nr.push('its keyed-out background');
+    if((im.cropShape||'rect')!=='rect') nr.push(`its ${im.cropShape} clip`);
+    if(im.cbar) nr.push('its intensity bar');
+    if(im.panelAnns&&im.panelAnns.length) nr.push('its panel annotations');
+    if(im.borderW>0) nr.push('its border');
+    nr.forEach(n=>out.notReproduced.push(`panel ${lbl}: ${n}`));
+    const ic=im._importCrop;
+    const sb=(_scaleBarDrawn(im)&&im._sbRect)?im._sbRect:null;
+    out.panels.push({label:lbl, file:im.name||'', page:im.srcPage||null, source:_sourceName(im),
+      row:cell.r+1, col:cell.c+1, col_span:cell.cs, row_span:cell.rs,
+      cell:[b.x,b.y,b.w,b.h].map(r3), box:[b.dx,b.dy,b.dw,b.dh].map(r3), stored_size:[iw,ih],
+      import_crop:ic?{x:r3(ic.x), y:r3(ic.y), w:r3(ic.w), h:r3(ic.h), angle:+ic.ang||0, iw:ic.iw, ih:ic.ih}:null,
+      crop_pct:[+im.cropT||0,+im.cropL||0,+im.cropB||0,+im.cropR||0], crop_angle:+im.cropAngle||0,
+      rotate:+im.rotate||0, flip_h:!!im.flipH, flip_v:!!im.flipV,
+      brightness:im.brightness??1, contrast:im.contrast??1, gamma:im.gamma||1,
+      black_pt:im.blackPt||0, white_pt:im.whitePt??255, grayscale:!!im.grayscale, invert:!!im.invert,
+      lut:im.lut||'none',
+      scale_bar:sb?{x:r3(sb.x), y:r3(sb.y), w:r3(sb.w), h:r3(sb.h), ink:_scriptColor(sb.ink), um:im.sbUm}:null,
+      not_reproduced:nr});
+  });
+  images.forEach(im=>{ if(im&&im.excluded) out.hidden.push(`${formatLabel(im.label)||im.label||'?'} (${_sourceName(im)||'unnamed'})`); });
+  const placed=new Set(_figurePanels());
+  images.forEach(im=>{ if(im&&!im.excluded&&!placed.has(im)) out.notReproduced.push(`panel ${formatLabel(im.label)||'?'}: not in the figure (no grid cell left for it)`); });
+  if(annotations.length) out.notReproduced.push(`${annotations.length} annotation(s) — arrows, shapes, text boxes, rulers`);
+  if(figGroups.some(g=>String(g.label||'').trim())) out.notReproduced.push('the group bands\' brackets (their names are drawn)');
+  if((gi('panel-border-w')||0)>0) out.notReproduced.push('panel borders');
+  if(images.some(im=>im&&im.insetOf)) out.notReproduced.push('inset outlines and connector lines');
+  out.text=figTextItems.filter(t=>t&&t.str).map(t=>({text:String(t.str), x:r3(t.x), y:r3(t.y), size:r3(t.fs),
+    bold:/\bbold\b|\b[6-9]00\b/.test(t.font||''), fill:_scriptColor(t.fill), align:t.align||'left',
+    baseline:t.baseline||'alphabetic', rot:t.rot?1:0, bbox:[t.bbox.x,t.bbox.y,t.bbox.w,t.bbox.h].map(r3),
+    chip:t.bg?{x:r3(t.bg.x), y:r3(t.bg.y), w:r3(t.bg.w), h:r3(t.bg.h), r:r3(t.bg.r||0), fill:_scriptColor(t.bg.fill)}:null}));
+  return out;
+}
+// The header both scripts share: what figure this is, and which source file is which
+// panel, in comment form so a reader sees it before any code.
+function _scriptHeader(F, lang){
+  const L=[];
+  const today=new Date().toISOString().slice(0,10);
+  L.push(`FigureLab ${lang==='R'?'R':'Python'} script — generated ${today} for figure ${JSON.stringify(_scriptCmt(F.name))}, FigureLab v${APP_VERSION}`);
+  if(!F.grid){
+    L.push('This figure uses the freeform layout. This script does not place its image objects:');
+    L.push('the exported figure is the record of them. Any charts in it are reproduced below.');
+    return L.map(l=>'# '+l).join('\n')+'\n';
+  }
+  L.push(`Rebuilds the figure from your source images as FigureLab drew it: ${F.panels.length} panel(s) on a ${F.cols} × ${F.rows} grid,`);
+  L.push('each placed in its cell, cropped, adjusted, flipped and turned as in the figure.');
+  F.panels.forEach(p=>L.push(`  Panel ${_scriptCmt(p.label)} ← ${_scriptCmt(p.source||'(unnamed)')} — row ${p.row}, column ${p.col}`
+    +(p.col_span>1?`, ${p.col_span} columns wide`:'')+(p.row_span>1?`, ${p.row_span} rows tall`:'')));
+  if(F.hidden.length) L.push('  Hidden, so not drawn: '+_scriptCmt(F.hidden.join('; ')));
+  if(F.blanks.length) L.push('  Blank cells: '+F.blanks.join('; '));
+  if(F.notReproduced.length){
+    L.push('Not drawn by this script (see the exported figure):');
+    F.notReproduced.forEach(n=>L.push('  - '+_scriptCmt(n)));
+  }
+  L.push('The exported PNG/TIFF/PDF is the figure of record; this script documents how each panel');
+  L.push('was processed and rebuilds it from the original files. Typefaces depend on this machine.');
+  L.push(lang==='R'
+    ? `Usage: Rscript ${_scriptCmt(F.name)}_assemble.R /folder/with/the/source/images   (needs install.packages("magick"))`
+    : `Usage: python3 ${_scriptCmt(F.name)}_assemble.py /folder/with/the/source/images   (needs: pip install Pillow numpy)`);
+  return L.map(l=>'# '+l).join('\n')+'\n';
+}
 function exportR(){
-  const cols=gi('cols'),rows=gi('rows');
-  const RH=_scriptRowHeights(rows);
-  const cfg=images.filter(Boolean).map(im=>`  list(label="${im.label}",sb_on=${im.sbOn},um_per_px=${im.umPerPx||0},sb_um=${im.sbUm},brightness=${im.brightness},contrast=${im.contrast},crop=c(${im.cropT},${im.cropL},${im.cropB},${im.cropR}))`).join(',\n');
-  const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
-  const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
-  const script=`# FigureLab R Script — generated ${new Date().toISOString().slice(0,10)}
-# Requirements: install.packages("magick")
-library(magick)
+  const F=_scriptFigure();
+  let script=_scriptHeader(F,'R');
+  if(F.grid){
+    script+=`suppressPackageStartupMessages(library(magick))
 
-input_dir   <- "path/to/your/images"   # <- CHANGE THIS
-output_file <- "${gv('export-name')||'figure'}.tiff"
-COLS <- ${cols}; ROWS <- ${rows}
-PANEL_W <- ${gi('panel-w')}; PANEL_H <- ${gi('panel-h')}
-ROW_H <- c(${RH.join(',')})   # one height per row; below PANEL_H where rows hug their panels
-GAP_H <- ${gi('gap-h')}; GAP_V <- ${gi('gap-v')}
-DPI  <- ${gi('export-dpi')||300}
-BG   <- "${gv('bg-color')}"
-COL_LABELS <- c(${cLbls})
-ROW_LABELS <- c(${rLbls})
-PANELS <- list(\n${cfg}\n)
-
-add_scale_bar<-function(img,um_per_px,sb_um,color="${gv('sb-color')}",bar_h=${gi('sb-h')},panel_h=PANEL_H){
-  if(um_per_px<=0) return(img)
-  info<-image_info(img); bar_px<-round((sb_um/um_per_px)*(PANEL_W/info$width))
-  pad<-max(6L,round(PANEL_W*0.04)); x2<-PANEL_W-pad; x1<-x2-bar_px; y2<-panel_h-pad; y1<-y2-bar_h
-  img<-image_draw(img); rect(x1,y1,x2,y2,col=color,border=NA)
-  text((x1+x2)/2,y1-3,paste0(sb_um,"µm"),col=color,cex=.7,adj=c(.5,1)); dev.off(); img
-}
-add_label<-function(img,lbl,color="${gv('label-color')}",sz=${gi('label-size')}){
-  image_annotate(img,lbl,gravity="NorthWest",location="+8+8",size=sz,color=color,weight=700)
-}
-
-files<-list.files(input_dir,pattern="\\.(png|tif|tiff|jpg|jpeg)$",full.names=TRUE,ignore.case=TRUE)
-stopifnot(length(files)>=COLS*ROWS)
-panels<-lapply(seq_len(COLS*ROWS),function(i){
-  p<-if(i<=length(PANELS)) PANELS[[i]] else list(label=LETTERS[i],sb_on=FALSE,um_per_px=0,sb_um=10,brightness=1,contrast=1,crop=c(0,0,0,0))
-  img<-image_read(files[[i]])
-  if(!is.null(p$brightness)&&p$brightness!=1) img<-image_modulate(img,brightness=p$brightness*100)
-  if(isTRUE(p$sb_on)) img<-add_scale_bar(img,p$um_per_px,p$sb_um,panel_h=ROW_H[(i-1)%/%COLS+1])
-  img<-add_label(img,p$label)
-  img
-})
-# image_montage tiles every cell at one size, so each row is tiled at its own height
-# and the rows are stacked; with equal ROW_H this is the same as one montage.
-row_imgs<-lapply(seq_len(ROWS),function(r){
-  image_montage(do.call(c,panels[((r-1)*COLS+1):(r*COLS)]),
-    geometry=paste0(PANEL_W,"x",ROW_H[r],"+",GAP_H,"+",GAP_V),tile=paste0(COLS,"x1"),bg=BG)
-})
-montage<-image_append(do.call(c,row_imgs),stack=TRUE)
-image_write(montage,output_file,format="tiff",density=as.character(DPI))
-cat("Saved:",output_file,"\\n")`;
+args <- commandArgs(trailingOnly = TRUE)
+input_dir   <- if (length(args) > 0) args[1] else "path/to/your/images"   # <- or set it here
+output_file <- ${_scriptStr(F.name+'.tiff','R')}
+FIG_W <- ${F.W}; FIG_H <- ${F.H}     # the figure in FigureLab's layout units
+SCALE <- ${F.scale}                 # output pixels per layout unit: ${F.dpi} dpi${F.mm>0?`, ${F.mm} mm wide`:', no printed width set'}
+DPI   <- ${F.dpi}
+BG    <- ${_scriptStr(F.bg,'R')}
+COLS <- ${F.cols}; ROWS <- ${F.rows}
+PANEL_W <- ${F.panelW}; PANEL_H <- ${F.panelH}
+ROW_H <- c(${F.rowH.join(',')})   # one height per row; below PANEL_H where rows hug their panels
+GAP_H <- ${F.gapH}; GAP_V <- ${F.gapV}
+# Each panel: its source file (and page), its cell, the box its picture fills before
+# any turn (x, y, w, h in layout units), its crop and its processing.
+PANELS <- ${_rLit(F.panels)}
+TEXT <- ${_rLit(F.text)}
+NOT_REPRODUCED <- ${_rLit(F.notReproduced)}
+`+_R_ASSEMBLE;
+  }
   const chartR=_charts().map((el,i)=>_chartRSnippet(el,i)).join('\n');
   const full=chartR ? script+'\n\n# ══════════════════════════════════════════════════════════\n# CHARTS — reproduce the data plots in this figure\n# ══════════════════════════════════════════════════════════\n'+chartR : script;
   dl(blobUrl(full), (gv('export-name')||'figure')+'_assemble.R');
   toast('R script saved','ok');
 }
-
-// ═══════════════════════════════════════════════════════════════
-// PYTHON SCRIPT
-// ═══════════════════════════════════════════════════════════════
 function exportPython(){
-  const cols=gi('cols'),rows=gi('rows');
-  const RH=_scriptRowHeights(rows);
-  const cfg=images.filter(Boolean).map(im=>`    {"label":"${im.label}","sb_on":${im.sbOn},"um_per_px":${im.umPerPx||0},"sb_um":${im.sbUm},"brightness":${im.brightness},"contrast":${im.contrast},"crop":[${im.cropT},${im.cropL},${im.cropB},${im.cropR}]},`).join('\n');
-  const cLbls=axisLabelValues('col').map(v=>`"${v}"`).join(',');
-  const rLbls=axisLabelValues('row').map(v=>`"${v}"`).join(',');
-  const script=`# FigureLab Python Script — generated ${new Date().toISOString().slice(0,10)}
-# pip install Pillow matplotlib tifffile numpy
+  const F=_scriptFigure();
+  let script=_scriptHeader(F,'Python');
+  if(F.grid){
+    const J=v=>`json.loads(${_scriptStr(JSON.stringify(v),'Python')})`;
+    script+=`import json
+import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageOps
-import matplotlib.pyplot as plt, matplotlib.gridspec as gs
+
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-input_dir   = Path("path/to/your/images")  # <- CHANGE THIS
-output_file = Path("${gv('export-name')||'figure'}.tiff")
-COLS, ROWS   = ${cols}, ${rows}
-PANEL_W, PANEL_H = ${gi('panel-w')}, ${gi('panel-h')}
-ROW_H        = [${RH.join(', ')}]  # one height per row; below PANEL_H where rows hug their panels
-GAP_H, GAP_V = ${gi('gap-h')}, ${gi('gap-v')}
-DPI          = ${gi('export-dpi')||300}
-BG           = "${gv('bg-color')}"
-COL_LABELS   = [${cLbls}]
-ROW_LABELS   = [${rLbls}]
-PANELS = [
-${cfg}
-]
-
-def process(img, p, ph=PANEL_H):
-    cT,cL,cB,cR = p.get("crop",[0,0,0,0])
-    w,h = img.size
-    img = img.crop([int(cL/100*w),int(cT/100*h),int((1-cR/100)*w),int((1-cB/100)*h)])
-    img = img.resize((PANEL_W,ph),Image.LANCZOS).convert("RGB")
-    if p.get("brightness",1)!=1: img=ImageEnhance.Brightness(img).enhance(p["brightness"])
-    if p.get("contrast",1)!=1:   img=ImageEnhance.Contrast(img).enhance(p["contrast"])
-    if p.get("sb_on") and p.get("um_per_px",0)>0:
-        draw=ImageDraw.Draw(img); um,ppm=p["sb_um"],p["um_per_px"]
-        bar=int((um/ppm)*(PANEL_W/img.size[0])); pad=max(6,int(PANEL_W*.04))
-        x2,y2=PANEL_W-pad,ph-pad; x1,y1=x2-bar,y2-${gi('sb-h')}
-        draw.rectangle([x1,y1,x2,y2],fill="${gv('sb-color')}")
-        try: font=ImageFont.truetype("arial.ttf",int(PANEL_W*.04))
-        except: font=ImageFont.load_default()
-        draw.text(((x1+x2)//2,y1-3),f"{um}\u00b5m",fill="${gv('sb-color')}",font=font,anchor="mb")
-    try: font=ImageFont.truetype("arialbd.ttf",${gi('label-size')})
-    except: font=ImageFont.load_default()
-    ImageDraw.Draw(img).text((8,8),p.get("label","?"),fill="${gv('label-color')}",font=font)
-    return img
-
-exts={".png",".tif",".tiff",".jpg",".jpeg"}
-files=sorted(p for p in input_dir.iterdir() if p.suffix.lower() in exts)
-assert len(files)>=COLS*ROWS, f"Need {COLS*ROWS} files, found {len(files)}"
-
-fig=plt.figure(figsize=((COLS*PANEL_W+(COLS-1)*GAP_H)/DPI,(sum(ROW_H)+(ROWS-1)*GAP_V)/DPI),dpi=DPI,facecolor=BG)
-GS=gs.GridSpec(ROWS,COLS,height_ratios=ROW_H,hspace=GAP_V/(sum(ROW_H)/ROWS),wspace=GAP_H/PANEL_W,left=.05,right=.99,top=.97,bottom=.01)
-for idx,fpath in enumerate(files[:COLS*ROWS]):
-    r,c=divmod(idx,COLS); ax=fig.add_subplot(GS[r,c])
-    p=PANELS[idx] if idx<len(PANELS) else {"label":chr(65+idx)}
-    ax.imshow(np.array(process(Image.open(fpath),p,ROW_H[r]))); ax.axis("off")
-    if r==0 and c<len(COL_LABELS): ax.set_title(COL_LABELS[c],fontsize=${gi('axis-fs')},pad=4)
-    if c==0 and r<len(ROW_LABELS): ax.set_ylabel(ROW_LABELS[r],fontsize=${gi('axis-fs')},rotation=90,labelpad=6)
-plt.savefig(output_file,dpi=DPI,bbox_inches="tight",facecolor=BG,format="tiff")
-print(f"Saved: {output_file}")`;
+input_dir   = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("path/to/your/images")  # <- or set it here
+output_file = Path(${_scriptStr(F.name+'.tiff','Python')})
+FIG_W, FIG_H = ${F.W}, ${F.H}  # the figure in FigureLab's layout units
+SCALE        = ${F.scale}  # output pixels per layout unit: ${F.dpi} dpi${F.mm>0?`, ${F.mm} mm wide`:', no printed width set'}
+DPI          = ${F.dpi}
+BG           = ${_scriptStr(F.bg,'Python')}
+COLS, ROWS   = ${F.cols}, ${F.rows}
+PANEL_W, PANEL_H = ${F.panelW}, ${F.panelH}
+ROW_H        = [${F.rowH.join(', ')}]  # one height per row; below PANEL_H where rows hug their panels
+GAP_H, GAP_V = ${F.gapH}, ${F.gapV}
+# Each panel: its source file (and page), its cell, the box its picture fills before
+# any turn (x, y, w, h in layout units), its crop and its processing.
+PANELS = ${J(F.panels)}
+TEXT = ${J(F.text)}
+NOT_REPRODUCED = ${J(F.notReproduced)}
+`+_PY_ASSEMBLE;
+  }
   const chartPy=_charts().map((el,i)=>_chartPythonSnippet(el,i)).join('\n');
   const full=chartPy ? script+'\n\n# ══════════════════════════════════════════════════════════\n# CHARTS — reproduce the data plots in this figure\n# ══════════════════════════════════════════════════════════\n'+chartPy : script;
   dl(blobUrl(full), (gv('export-name')||'figure')+'_assemble.py');
   toast('Python script saved','ok');
 }
+// The fixed part of each script: it reads the data the export writes above it.
+const _PY_ASSEMBLE=`
+# ── Everything below works from the data above; edit those, not this. ──
+
+LUTS = {  # the pseudocolour tables FigureLab uses, on an 8-bit grey value i
+    "fire":    lambda i: (np.minimum(255, i * 3), np.clip((i - 85) * 3, 0, 255), np.clip((i - 170) * 3, 0, 255)),
+    "green":   lambda i: (i * 0, i, i * 0),
+    "cyan":    lambda i: (i * 0, i, i),
+    "magenta": lambda i: (i, i * 0, i),
+    "yellow":  lambda i: (i, i, i * 0),
+    "blue":    lambda i: (np.round(i * .28), np.round(i * .53), np.minimum(255, i)),
+}
+
+
+def fail(msg):
+    sys.exit("FigureLab script: " + msg)
+
+
+def to_8bit(img):
+    # More than 8 bits per sample is reduced by scaling the file's own minimum to
+    # maximum. FigureLab's 8-bit display copy of such a file may have been mapped
+    # differently, so check these panels against the exported figure.
+    if img.mode in ("I", "I;16", "I;16B", "I;16L", "F"):
+        a = np.asarray(img, dtype=np.float64)
+        lo, hi = float(a.min()), float(a.max())
+        a = (a - lo) * (255.0 / (hi - lo)) if hi > lo else a * 0
+        img = Image.fromarray(np.clip(np.round(a), 0, 255).astype(np.uint8))
+    return img.convert("RGB")
+
+
+def frame_crop(img, x, y, w, h, angle):
+    # A crop in a frame turned by \`angle\` degrees about the image centre, as
+    # FigureLab's tilted crop: the image is turned back by the angle, then cut.
+    if angle:
+        img = img.rotate(angle, resample=Image.BICUBIC, center=(img.width / 2, img.height / 2))
+    return img.crop((round(x), round(y), round(x + w), round(y + h)))
+
+
+def adjust(img, p):
+    # The order FigureLab applies them: brightness, contrast, grey, invert (as the
+    # browser's CSS filters do), then black/white point, pseudocolour LUT, gamma.
+    # Transparency (the corners a tilted crop takes from outside the image) is kept.
+    alpha = img.getchannel("A")
+    a = np.asarray(img.convert("RGB"), dtype=np.float64)
+    if p["brightness"] != 1:
+        a = np.clip(a * p["brightness"], 0, 255)
+    if p["contrast"] != 1:
+        a = np.clip((a - 127.5) * p["contrast"] + 127.5, 0, 255)
+    lut = LUTS.get(p["lut"])
+    if p["grayscale"] or lut:
+        y = a[..., 0] * 0.2126 + a[..., 1] * 0.7152 + a[..., 2] * 0.0722
+        a = np.repeat(y[..., None], 3, axis=2)
+    if p["invert"]:
+        a = 255 - a
+    a = np.round(a)
+    bp, wp, g = p["black_pt"], p["white_pt"], p["gamma"]
+    levels = bp > 0 or wp < 255
+    if levels or lut or g != 1:
+        gtab = np.round(np.power(np.arange(256) / 255.0, 1.0 / g) * 255) if g != 1 else np.arange(256)
+        v = a[..., 0]
+        if levels:
+            v = np.round(np.clip((v - bp) * 255.0 / max(1, wp - bp), 0, 255))
+        if lut:
+            r, gg, b = LUTS[p["lut"]](v)
+            a = np.stack([gtab[np.asarray(c, dtype=np.int64)] for c in (r, gg, b)], axis=2)
+        elif levels:
+            # FigureLab reads the levels from the first channel and writes it to all
+            # three, so a colour panel with levels set is shown in grey.
+            a = np.repeat(gtab[v.astype(np.int64)][..., None], 3, axis=2)
+        else:
+            a = gtab[a.astype(np.int64)]
+    out = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).convert("RGBA")
+    out.putalpha(alpha)
+    return out
+
+
+def font(size, bold):
+    names = (["DejaVuSans-Bold.ttf", "Arial Bold.ttf", "arialbd.ttf"] if bold else
+             ["DejaVuSans.ttf", "Arial.ttf", "arial.ttf"])
+    for n in names:
+        try:
+            return ImageFont.truetype(n, size)
+        except OSError:
+            pass
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def S(v):
+    return int(round(v * SCALE))
+
+
+def main():
+    out = Image.new("RGBA", (S(FIG_W), S(FIG_H)), BG)
+    missing = [p["file"] for p in PANELS if not (input_dir / p["file"]).is_file()]
+    if missing:
+        fail("these source files are not in %s: %s" % (input_dir, ", ".join(sorted(set(missing)))))
+    for p in PANELS:
+        path = input_dir / p["file"]
+        if path.suffix.lower() == ".svg":
+            fail("panel %s comes from %s, an SVG; render it to PNG at its own size and point the "
+                 "panel's \\"file\\" at that" % (p["label"], p["file"]))
+        img = Image.open(path)
+        if p["page"]:
+            img.seek(p["page"] - 1)
+        img = ImageOps.exif_transpose(img) if img.mode in ("RGB", "RGBA", "L", "P", "CMYK") else img
+        img = to_8bit(img).convert("RGBA")
+        ic = p["import_crop"]
+        if ic:
+            if img.size != (ic["iw"], ic["ih"]):
+                fail("%s is %dx%d px; panel %s was imported from a %dx%d px file"
+                     % (p["file"], img.width, img.height, p["label"], ic["iw"], ic["ih"]))
+            img = frame_crop(img, ic["x"], ic["y"], ic["w"], ic["h"], ic["angle"])
+        if img.size != tuple(p["stored_size"]):
+            fail("%s is %dx%d px; panel %s holds %dx%d px — is this the file it came from?"
+                 % (p["file"], img.width, img.height, p["label"], p["stored_size"][0], p["stored_size"][1]))
+        t, l, b, r = p["crop_pct"]
+        iw, ih = img.size
+        img = frame_crop(img, l / 100 * iw, t / 100 * ih, iw * (1 - (l + r) / 100), ih * (1 - (t + b) / 100),
+                         p["crop_angle"])
+        img = adjust(img, p)
+        bx, by, bw, bh = p["box"]
+        img = img.resize((max(1, S(bw)), max(1, S(bh))), Image.LANCZOS).convert("RGBA")
+        if p["flip_h"]:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+        if p["flip_v"]:
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+        if p["rotate"]:
+            img = img.rotate(-p["rotate"], resample=Image.BICUBIC, expand=True)
+        cx, cy = S(bx + bw / 2), S(by + bh / 2)
+        out.alpha_composite(img, (cx - img.width // 2, cy - img.height // 2))
+        sb = p["scale_bar"]
+        if sb:
+            ImageDraw.Draw(out).rectangle([S(sb["x"]), S(sb["y"]), S(sb["x"] + sb["w"]) - 1,
+                                           S(sb["y"] + sb["h"]) - 1], fill=tuple(sb["ink"]))
+    # Text: panel letters, scale-bar lengths, headings, at the positions FigureLab drew
+    # them. The typeface is whatever this machine has, so widths differ slightly.
+    for t in TEXT:
+        f = font(max(1, S(t["size"])), t["bold"])
+        if t["chip"]:
+            c = t["chip"]
+            layer = Image.new("RGBA", out.size, (0, 0, 0, 0))
+            ImageDraw.Draw(layer).rounded_rectangle(
+                [S(c["x"]), S(c["y"]), S(c["x"] + c["w"]), S(c["y"] + c["h"])], radius=S(c["r"]), fill=tuple(c["fill"]))
+            out.alpha_composite(layer)
+        anchor = ({"center": "m", "right": "r", "end": "r"}.get(t["align"], "l")
+                  + {"top": "t", "middle": "m"}.get(t["baseline"], "s"))
+        if t["rot"]:
+            tw = int(f.getlength(t["text"])) + 4
+            layer = Image.new("RGBA", (tw * 2, tw * 2), (0, 0, 0, 0))
+            ImageDraw.Draw(layer).text((tw, tw), t["text"], font=f, fill=tuple(t["fill"]), anchor=anchor)
+            layer = layer.rotate(90, resample=Image.BICUBIC)
+            out.alpha_composite(layer, (S(t["x"]) - tw, S(t["y"]) - tw))
+        else:
+            ImageDraw.Draw(out).text((S(t["x"]), S(t["y"])), t["text"], font=f, fill=tuple(t["fill"]), anchor=anchor)
+    out.convert("RGB").save(output_file, dpi=(DPI, DPI))
+    print("Saved: %s (%d x %d px, %d dpi)" % (output_file, out.width, out.height, DPI))
+    if NOT_REPRODUCED:
+        print("Not drawn by this script — see the exported figure for: " + "; ".join(NOT_REPRODUCED))
+
+
+if __name__ == "__main__":
+    main()
+`;
+const _R_ASSEMBLE=`
+# ── Everything below works from the data above; edit those, not this. ──
+
+S <- function(v) as.integer(round(v * SCALE))
+off <- function(x, y) paste0(ifelse(x < 0, "-", "+"), abs(x), ifelse(y < 0, "-", "+"), abs(y))
+geom <- function(w, h, x = NULL, y = NULL) {
+  g <- paste0(max(1L, w), "x", max(1L, h))
+  if (!is.null(x)) g <- paste0(g, off(x, y))
+  g
+}
+hexa <- function(c) sprintf("#%02X%02X%02X%02X", c[1], c[2], c[3], c[4])
+
+# A crop in a frame turned by \`angle\` degrees about the image centre, as FigureLab's
+# tilted crop: the image is turned back by the angle (counter-clockwise), then cut.
+# Where a tilted crop reaches outside the image, FigureLab shows the background;
+# ImageMagick fills those corners from its own virtual-pixel setting instead.
+frame_crop <- function(img, x, y, w, h, angle) {
+  if (angle != 0) img <- image_distort(img, "ScaleRotateTranslate", c(-angle))
+  image_crop(img, geom(round(w), round(h), round(x), round(y)))
+}
+
+# The pseudocolour tables FigureLab uses, as fx expressions on a grey value u (0..1).
+LUT_FX <- list(
+  fire    = c(R = "min(1,u*3)", G = "max(0,min(1,(u-85/255)*3))", B = "max(0,min(1,(u-170/255)*3))"),
+  green   = c(R = "0", G = "u", B = "0"),
+  cyan    = c(R = "0", G = "u", B = "u"),
+  magenta = c(R = "u", G = "0", B = "u"),
+  yellow  = c(R = "u", G = "u", B = "0"),
+  blue    = c(R = "u*0.28", G = "u*0.53", B = "u")
+)
+
+# The order FigureLab applies them: brightness, contrast, grey, invert, then
+# black/white point, pseudocolour LUT, gamma. ImageMagick computes in its own
+# precision, so values can differ from FigureLab's 8-bit ones by a level or two.
+adjust <- function(img, p) {
+  if (p$brightness != 1) img <- image_fx(img, sprintf("u*%g", p$brightness))
+  if (p$contrast != 1) img <- image_fx(img, sprintf("(u-0.5)*%g+0.5", p$contrast))
+  lut <- LUT_FX[[p$lut]]
+  if (isTRUE(p$grayscale) || !is.null(lut)) {
+    img <- image_fx(img, "0.2126*u.r+0.7152*u.g+0.0722*u.b")
+  }
+  if (isTRUE(p$invert)) img <- image_negate(img)
+  levels <- p$black_pt > 0 || p$white_pt < 255
+  if (levels) {
+    # FigureLab reads the levels from the first channel and writes it to all three.
+    img <- image_fx(img, sprintf("max(0,min(1,(u.r-%g)*255/%g))", p$black_pt / 255, max(1, p$white_pt - p$black_pt)))
+  }
+  if (!is.null(lut)) {
+    # The image is grey here, so each channel's u is the grey value.
+    img <- image_fx(img, lut[["R"]], channel = "Red")
+    img <- image_fx(img, lut[["G"]], channel = "Green")
+    img <- image_fx(img, lut[["B"]], channel = "Blue")
+  }
+  if (p$gamma != 1) img <- image_fx(img, sprintf("u^(1/%g)", p$gamma))
+  img
+}
+
+out <- image_blank(S(FIG_W), S(FIG_H), color = BG)
+missing <- Filter(function(p) !file.exists(file.path(input_dir, p$file)), PANELS)
+if (length(missing) > 0)
+  stop("these source files are not in ", input_dir, ": ", paste(unique(sapply(missing, \`[[\`, "file")), collapse = ", "))
+for (p in PANELS) {
+  path <- file.path(input_dir, p$file)
+  img <- image_read(path)
+  if (!is.null(p$page)) img <- img[p$page]
+  img <- image_orient(img)
+  img <- image_convert(img, colorspace = "sRGB", depth = 8)
+  ic <- p$import_crop
+  if (!is.null(ic)) img <- frame_crop(img, ic$x, ic$y, ic$w, ic$h, ic$angle)
+  info <- image_info(img)
+  if (info$width != p$stored_size[1] || info$height != p$stored_size[2])
+    stop(sprintf("%s is %dx%d px; panel %s holds %dx%d px - is this the file it came from?",
+                 p$file, info$width, info$height, p$label, p$stored_size[1], p$stored_size[2]))
+  cp <- p$crop_pct; iw <- info$width; ih <- info$height
+  img <- frame_crop(img, cp[2] / 100 * iw, cp[1] / 100 * ih, iw * (1 - (cp[2] + cp[4]) / 100),
+                    ih * (1 - (cp[1] + cp[3]) / 100), p$crop_angle)
+  img <- adjust(img, p)
+  b <- p$box
+  img <- image_resize(img, paste0(geom(S(b[3]), S(b[4])), "!"))
+  if (isTRUE(p$flip_h)) img <- image_flop(img)
+  if (isTRUE(p$flip_v)) img <- image_flip(img)
+  if (p$rotate != 0) img <- image_rotate(image_background(img, "none"), p$rotate)
+  ri <- image_info(img)
+  cx <- S(b[1] + b[3] / 2); cy <- S(b[2] + b[4] / 2)
+  out <- image_composite(out, img, offset = off(cx - ri$width %/% 2, cy - ri$height %/% 2))
+  sb <- p$scale_bar
+  if (!is.null(sb)) {
+    bar <- image_blank(max(1L, S(sb$w)), max(1L, S(sb$h)), color = hexa(sb$ink))
+    out <- image_composite(out, bar, offset = off(S(sb$x), S(sb$y)))
+  }
+}
+# Text: panel letters, scale-bar lengths, headings, placed at the top-left of the box
+# FigureLab drew each in. The typeface is whatever this machine has.
+for (t in TEXT) {
+  if (!is.null(t$chip)) {
+    ch <- t$chip
+    chip <- image_blank(max(1L, S(ch$w)), max(1L, S(ch$h)), color = hexa(ch$fill))
+    out <- image_composite(out, chip, offset = off(S(ch$x), S(ch$y)))
+  }
+  bb <- t$bbox
+  at <- off(S(bb[1]), S(if (t$rot != 0) bb[2] + bb[4] else bb[2]))
+  out <- image_annotate(out, t$text, gravity = "northwest", size = S(t$size), color = hexa(t$fill),
+                        weight = if (isTRUE(t$bold)) 700 else 400, degrees = if (t$rot != 0) -90 else 0,
+                        location = at)
+}
+image_write(out, output_file, format = "tiff", density = paste0(DPI, "x", DPI))
+cat("Saved:", output_file, "\\n")
+if (length(NOT_REPRODUCED) > 0)
+  cat("Not drawn by this script - see the exported figure for:", paste(NOT_REPRODUCED, collapse = "; "), "\\n")
+`;
 
 // ═══════════════════════════════════════════════════════════════
 // DIALOGS — one behaviour for all of them
@@ -15408,7 +15995,8 @@ const _includedCount = () => images.filter(im=>im && !im.excluded).length;
 // the top draws A, B, C; the caption, CSV and manifest still said D). So this reads
 // the same walk of the cells render() and autoRowHeights() read, _gridPlacements():
 // an empty slot consumes one cell, a span consumes all of its cells, and whatever is
-// left over has no place.
+// left over has no place. The assembly scripts take every cell of that walk.
+const _figureCells = () => _gridPlacements().map(p=>({r:p.r, c:p.c, cs:p.cs, rs:p.rs, idx:p.im?p.imgIdx:-1, im:p.im||null}));
 const _figurePanels = () => _gridPlacements().filter(p=>p.im).map(p=>p.im);
 
 function togglePanelExcluded(idx){
@@ -20808,7 +21396,7 @@ document.addEventListener('change', e=>{
 function exportRulerCSV(){
   const rows=_rulerRows();
   if(!rows.length){ toast('No rulers on the figure — draw one with ⊢ Ruler','warn'); return; }
-  const q=v=>{ const s=String(v??''); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const q=v=>_csvCell(v);
   const head=[`# FigureLab v${APP_VERSION} ruler lengths — ${new Date().toISOString()}`,
     "# Each length is measured between the ruler's ends mapped back to SOURCE pixels through the panel's display scale, crop and tilt, times that panel's µm/px.",
     '# An end is placed on the figure, so it is only as fine as one figure pixel (see "Source px per figure px"); enlarge the panel to place ends more finely.',
@@ -20816,7 +21404,7 @@ function exportRulerCSV(){
   const seen=new Set();
   rows.forEach(r=>{ const im=r.m.im; if(!im||seen.has(im)) return; seen.add(im);
     const c=_calibSourceOf(im);
-    head.push(`# Calibration, panel ${im.label||'?'} (${im.name||'unnamed'}): `
+    head.push(`# Calibration, panel ${im.label||'?'} (${_sourceName(im)||'unnamed'}): `
       +(c.kind==='none'?'uncalibrated — no lengths reported':`${+(+im.umPerPx).toPrecision(6)} µm/px, ${c.text}`));
   });
   const f3=v=>v==null?'':(+v).toFixed(3);
@@ -20916,7 +21504,7 @@ function _s1PageCanvas(im, opts){
   const pt=([x,y])=>`(${r1(x)}, ${r1(y)})`;
   const L=[];   // [text, bold?]
   L.push([`Panel ${im.label||'?'} — uncropped original`, true]);
-  L.push([`Source file: ${im.name||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
+  L.push([`Source file: ${_sourceName(im)||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
   if(!G.cropped) L.push(['Not cropped: the whole image is used in the figure.']);
   else if(G.rotated) L.push([`Crop: a ${r1(G.sw)} × ${r1(G.sh)} px region tilted ${r1(G.angle)}° about the image centre. Corners (source px) TL ${pt(G.corners[0])}, TR ${pt(G.corners[1])}, BR ${pt(G.corners[2])}, BL ${pt(G.corners[3])}.`]);
   else L.push([`Crop (source px): x ${r1(G.sx)}–${r1(G.sx+G.sw)}, y ${r1(G.sy)}–${r1(G.sy+G.sh)} (${r1(G.sw)} × ${r1(G.sh)} px), outlined.`]);
@@ -21079,7 +21667,7 @@ function exportMeasurements(){
   const csv='# The "Measured on" column states, per row, which pixels produced the numbers.\n'
     +'# Rows measured on the 8-bit display: '+_MEASURE_DISCLAIMER+'\n'
     +(anyRaw?'# Rows measured on raw: '+_RAW_MEASURE_NOTE+' SD uses an n-1 denominator.\n':'')
-    +rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+    +rows.map(r=>_csvRow(r,true)).join('\n');
   dl(blobUrl(csv),'figurelab-measurements.csv');
 }
 
