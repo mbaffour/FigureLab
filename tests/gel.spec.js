@@ -184,6 +184,24 @@ test('16-bit raw: native samples are measured, recorded as such, and clip at the
   expect(r12.clipHi).toBe(4095);
   expect(r12.note).toMatch(/12-bit/);
   expect(r12.sat).toEqual([[true], [false], [false]]);
+
+  // Float data has no ceiling of its own: none is invented, and the "none" survives JSON.
+  const rf = await page.evaluate(async () => {
+    const W = 200, H = 120, d = new Float32Array(W * H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++)
+      d[j * W + i] = 0.1 + ((i >= 40 && i < 90) || (i >= 120 && i < 170) ? 2.5 * Math.exp(-((j + 0.5 - 60) ** 2) / 18) : 0) + (Math.abs(Math.sin(i * 12.9898 + j * 78.233) * 43758.5453) % 1) * 0.01;
+    const c = document.createElement('canvas'); c.width = W; c.height = H; const src = c.toDataURL('image/png');
+    let mn = Infinity, mx = -Infinity; for (const v of d) { if (v < mn) mn = v; if (v > mx) mx = v; }
+    await new Promise(r => { const img = new Image(); img.onload = () => { _commitImage(img, src, 'f.tif', null, null,
+      { data: d, w: W, h: H, bps: 32, spp: 1, min: mn, max: mx, format: 3, full: mx }); r(); }; img.src = src; });
+    const i = images.length - 1; runGelAnalysis(i);
+    const a = JSON.parse(JSON.stringify(images[i].gelAnalysis));
+    return { label: a.sourceLabel, hi: a.clipHi, lo: a.clipLo, lanes: a.lanes.length };
+  });
+  expect(rf.label).toBe('32-bit float source samples');
+  expect(rf.hi).toBeNull();
+  expect(rf.lo).toBeNull();
+  expect(rf.lanes).toBe(2);
   expect(errors).toEqual([]);
 });
 
@@ -383,6 +401,8 @@ test('a crop change makes the analysis stale: no Methods claim, a compliance war
   expect(r.withA).toMatch(/8-bit image pixels/);
   expect(r.withA).toMatch(/rolling-minimum background \(window \d+ px\)/);
   expect(r.withA).toMatch(/1 band was saturated/);
+  expect(r.withA).toMatch(/lane 4 being inferred from the lane pitch/);
+  expect(r.withA).toMatch(/lanes were detected from the column intensity profile/);
   expect(r.png).toContain('⚠');
   expect(r.png).toMatch(/1 saturated band/);
   expect(r.jpg).toMatch(/lossy-compressed import/);
@@ -500,5 +520,35 @@ test('refuses panels it cannot map exactly, and is reachable from the sidebar, d
   expect(r.q2).toMatch(/molecular weight|Analyse lanes/i);
   expect(r.q3).toMatch(/Analyse lanes & bands/);
   expect(r.q4).toMatch(/Analyse lanes & bands/);
+  expect(errors).toEqual([]);
+});
+
+test('a short loading-control strip: the background window widens to fit the bands; a short one is warned', async ({ page }) => {
+  const errors = await setup(page);
+  // 70 px tall, bands ~17 rows: the H/6 default (13 px) would ride up every band.
+  await make(page, { w: 400, h: 70, pol: 'dark', bg: 230, noise: 2, name: 'actin.png',
+    lanes: [40, 80, 40, 80].map((amp, k) => ({ x0: 30 + 90 * k, x1: 30 + 90 * k + 50, bands: [{ y: 35, s: 4, amp }] })) });
+  const r = await page.evaluate(() => {
+    runGelAnalysis(0);
+    const a = images[0].gelAnalysis, tall = _gelTallestBand(a);
+    const auto = { win: a.baseline.window, from: a.baseline.widenedFrom, tall, short: _gelWindowShort(a),
+      vols: a.lanes.map(L => L.bands.map(b => b.volume)) };
+    runGelAnalysis(0, { window: 13 });
+    const b = images[0].gelAnalysis;
+    checkCompliance();
+    const row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(t => /Densitometry/.test(t)) || '';
+    return { auto, userWin: b.baseline.window, userShort: _gelWindowShort(b), csv: gelCSV(0), row };
+  });
+  expect(r.auto.from).toBe(13);
+  expect(r.auto.win).toBeGreaterThanOrEqual(2 * r.auto.tall);
+  expect(r.auto.short).toBe(false);
+  expect(r.auto.vols.map(v => v.length)).toEqual([1, 1, 1, 1]);
+  r.auto.vols.forEach(v => expect(v[0]).toBeGreaterThan(0));
+  const ratio = r.auto.vols[1][0] / r.auto.vols[0][0];
+  expect(ratio).toBeGreaterThan(1.8); expect(ratio).toBeLessThan(2.2);
+  expect(r.userWin).toBe(13);                 // a window the user typed is theirs
+  expect(r.userShort).toBe(true);
+  expect(r.csv).toMatch(/WARNING: the window is barely taller than the tallest band/);
+  expect(r.row).toMatch(/barely taller than the bands/);
   expect(errors).toEqual([]);
 });

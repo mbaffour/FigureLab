@@ -5966,6 +5966,11 @@ function _gelBaseline(R,win){
   return sm;
 }
 function _gelDefaultWindow(H){ let w=Math.max(7,Math.round(H/6)); if(!(w%2)) w++; return w; }
+function _gelTallestBand(a){ let t=0; a.lanes.forEach(L=>L.bands.forEach(b=>{ if(b.y1-b.y0>t) t=b.y1-b.y0; })); return t; }
+// The opening only finds the background under a band if the window is well taller
+// than the band; one barely taller rides up the band's flanks, and the volume comes
+// out low — or negative, on a 70 px loading-control strip.
+function _gelWindowShort(a){ return a.baseline.window<2*_gelTallestBand(a); }
 // Row profile over the central ~65% of the lane: the edges of a lane smile and bleed.
 function _gelLaneProfile(S,W,H,c0,c1){
   const inset=Math.floor((c1-c0+1)*0.175), a=c0+inset, b=Math.max(a,c1-inset);
@@ -6063,7 +6068,8 @@ function _gelAnalyse(im,opts){
   const a={v:1, app:APP_VERSION, created:new Date().toISOString(), cropKey:_gelCropKey(im),
     frame:{sx:fr.sx,sy:fr.sy,sw:fr.sw,sh:fr.sh,W:fr.W,H:fr.H,angle:fr.angle},
     source:fr.raw?'raw':'8bit', sourceLabel:fr.sourceLabel, depth:fr.depth, colour:fr.colour,
-    full:fr.full, clipHi:fr.clipHi, clipLo:fr.clipLo, clipNote:fr.clipNote,
+    // ±Infinity (float data with no known ceiling) does not survive JSON; null says the same.
+    full:fr.full, clipHi:isFinite(fr.clipHi)?fr.clipHi:null, clipLo:isFinite(fr.clipLo)?fr.clipLo:null, clipNote:fr.clipNote,
     polarity:pol, polarityGuess:guess.polarity, polaritySetBy:(pol!==guess.polarity)?'user':'image',
     polarityStats:{median:guess.median, p1:guess.lo, p99:guess.hi},
     laneMode:N?'forced':'auto', laneCount:N||null,
@@ -6071,6 +6077,18 @@ function _gelAnalyse(im,opts){
     lanes:lanes.map(L=>({x0:fr.sx+L.c0, x1:fr.sx+L.c1+1, inferred:!!L.inferred, bands:[]})),
     refLane:null, loading:null, ladder:null, edits:0 };
   _gelDetectBands(a,{fr,S});
+  // With no window given, a band that nearly fills the default one widens it to 2.5×
+  // the tallest band, and detection runs again; the widening is recorded.
+  if(!(+opts.window>0)){
+    for(let pass=0;pass<4;pass++){
+      let need=Math.ceil(2.5*_gelTallestBand(a)); if(!(need%2)) need++;
+      need=Math.min(need, fr.H%2?fr.H:fr.H-1);
+      if(need<=a.baseline.window) break;
+      if(!a.baseline.widenedFrom) a.baseline.widenedFrom=a.baseline.window;
+      a.baseline.window=need;
+      _gelDetectBands(a,{fr,S});
+    }
+  }
   return a;
 }
 
@@ -6256,7 +6274,7 @@ function gelSetPolarity(idx,pol){
 function _gelPolText(p){ return p==='dark'?'dark bands on a light background':'light bands on a dark background'; }
 function _gelClipText(a){
   const end=a.polarity==='dark'?a.clipLo:a.clipHi;
-  return (isFinite(end)?`at ${end}`:'(no ceiling known for this data)')+(a.polarity==='dark'?' — the floor, which dark bands run toward':' — the ceiling, which light bands run toward')+(a.clipNote&&a.polarity!=='dark'?`; ${a.clipNote}`:'');
+  return ((typeof end==='number'&&isFinite(end))?`at ${end}`:'(no ceiling known for this data)')+(a.polarity==='dark'?' — the floor, which dark bands run toward':' — the ceiling, which light bands run toward')+(a.clipNote&&a.polarity!=='dark'?`; ${a.clipNote}`:'');
 }
 function gelCSV(idx){
   const im=images[idx], a=im&&im.gelAnalysis; if(!a) return '';
@@ -6267,7 +6285,7 @@ function gelCSV(idx){
     `# Source pixels: ${a.sourceLabel}${a.source==='raw'?' (native samples retained at import)':a.colour?' (colour image; Rec. 601 luma of the stored RGB)':''}, read inside the panel crop before any brightness/contrast/gamma/levels/LUT/invert`,
     `# Crop frame: x ${f.sx.toFixed(1)}–${(f.sx+f.sw).toFixed(1)}, y ${f.sy.toFixed(1)}–${(f.sy+f.sh).toFixed(1)} source px${f.angle?`; tilted ${(+f.angle).toFixed(1)}°, read by nearest neighbour (no interpolation); coordinates are crop-frame pixels`:'; coordinates are source pixels'}`,
     `# Polarity: ${_gelPolText(a.polarity)} (${a.polaritySetBy==='user'?'set by the user; the image suggested '+_gelPolText(a.polarityGuess):'guessed from the image: median vs 1%/99% tails'})`,
-    `# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px, subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak`,
+    `# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px${a.baseline.widenedFrom?` (widened from ${a.baseline.widenedFrom} px to 2.5× the tallest band)`:''}, subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak${_gelWindowShort(a)?' — WARNING: the window is barely taller than the tallest band, so the background rides up the bands and volumes are underestimated; widen it':''}`,
     `# Lanes: ${a.laneMode==='forced'?`${a.laneCount} forced (evenly pitched best fit)`:'detected from the column profile'}; ${a.lanes.length} lane(s)${a.lanes.some(L=>L.inferred)?`, ${a.lanes.filter(L=>L.inferred).length} inferred from the lane pitch (no signal)`:''}`,
     `# Saturated bands: ${sat}${sat?` — clipped ${_gelClipText(a)}; their volumes are underestimates and are excluded from every ratio`:''}`,
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
@@ -6341,9 +6359,12 @@ function _gelMethodsSentences(P){
   P.forEach(im=>{
     if(!_gelFresh(im)) return;
     const a=im.gelAnalysis, nm=formatLabel(im.label)||'(unlabelled)', sat=_gelSatCount(a);
+    const inf=a.lanes.map((L,i)=>L.inferred?String(i+1):null).filter(Boolean);
     let s=`Band densitometry of panel ${nm} was performed in FigureLab on the ${a.sourceLabel} inside the panel's crop, read before any display adjustment`
       +(a.frame.angle?` (the tilted crop was read by nearest neighbour, without interpolation)`:'')
-      +`: lanes and bands were detected from column and row intensity profiles${a.edits?' and then edited by hand':''}, and each band's volume was integrated over the lane width above a rolling-minimum background (window ${a.baseline.window} px)`;
+      +`: ${a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the column intensity profile (the lane count set by hand)`:'lanes were detected from the column intensity profile'}`
+      +(inf.length?`, ${inf.length===1?'lane':'lanes'} ${_listAnd(inf)} being inferred from the lane pitch as ${inf.length===1?'it carries':'they carry'} no detectable signal`:'')
+      +`, bands were detected from row intensity profiles${a.edits?', the result was then edited by hand':''}, and each band's volume was integrated over the lane width above a rolling-minimum background (window ${a.baseline.window} px)`;
     const norm=[];
     if(a.loading) norm.push(`normalised to the loading control in panel ${a.loading.label}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
@@ -6372,6 +6393,7 @@ function _gelComplianceRow(shown){
     const a=im.gelAnalysis, nm=esc(formatLabel(im.label)||'?'), sat=_gelSatCount(a);
     if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: the crop changed after the analysis — it is stale; re-detect before reporting`); return; }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
+    if(_gelWindowShort(a)){ warn=true; notes.push(`${nm}: the background window (${a.baseline.window} px) is barely taller than the bands — volumes are underestimated; widen it`); }
     if(a.loading){ const lc=images[a.loading.idx];
       if(!lc||_gelCropKey(lc)!==a.loading.cropKey){ warn=true; notes.push(`${nm}: the loading-control panel ${esc(a.loading.label)} changed after it was measured — set the loading control again`); } }
     if(a.source!=='raw'){
@@ -6536,7 +6558,8 @@ function _gelRenderModal(){
   if(!a){ ban.innerHTML='<span style="color:var(--warn)">No analysis on this panel — press ↻ Re-detect.</span>'; tb.innerHTML=''; fitEl.textContent=''; return; }
   const sat=_gelSatCount(a), fresh=_gelFresh(im);
   ban.innerHTML=`<b>Source:</b> ${esc(a.sourceLabel)}${a.source==='raw'?' (native samples kept at import)':''}${a.frame.angle?` · tilted crop ${(+a.frame.angle).toFixed(1)}°, read by nearest neighbour`:''}
-    · <b>background:</b> rolling minimum, ${a.baseline.window} px · <b>${a.lanes.length}</b> lane(s)
+    · <b>background:</b> rolling minimum, ${a.baseline.window} px${a.baseline.widenedFrom?' (widened to fit the bands)':''} · <b>${a.lanes.length}</b> lane(s)
+    ${_gelWindowShort(a)?'<div style="color:var(--warn);margin-top:3px">⚠ The background window is barely taller than the tallest band — the background rides up the bands and volumes come out low. Widen it and re-detect.</div>':''}
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
     ${fresh?'':'<div style="color:var(--warn);margin-top:3px">⚠ The crop changed since this analysis — it is stale. Press ↻ Re-detect.</div>'}
     ${a.loading?`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(a.loading.label)}</b>, lanes paired by order (${esc(a.loading.from)}).</div>`:''}
