@@ -3196,7 +3196,13 @@ async function _loadTIFFFile(f, fail){
   try{
     const buf=new Uint8Array(await f.arrayBuffer());
     const first=await decodeTIFF(buf, 0);
-    const pages=Math.min(first.pages||1, 60);
+    // A long stack is cut to 60 panels by default, which keeps a browser tab within
+    // memory. It used to be cut without a word: a 70-page stack came in as 60 panels
+    // and a toast that read "60 pages added". Past 60 it asks, and if the answer is the
+    // first 60 the toast names the pages left out.
+    const total=first.pages||1;
+    let pages=Math.min(total, 60);
+    if(total>60 && confirm(`"${f.name}" has ${total} pages. Add all ${total} as panels?\n\nA long stack is slow to open and heavy on memory. Cancel adds the first 60.`)) pages=total;
     const base=f.name.replace(/\.tiff?$/i,'');
     const toImg=_tiffResToImg;
     const calibOf=res=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
@@ -3208,7 +3214,9 @@ async function _loadTIFFFile(f, fail){
         const it = await toImg(res, `${base}_p${p+1}.png`);
         if(it) _commitImage(it.img, it.src, it.name, null, calibOf(res), res.raw);   // add each page directly
       }
-      toast(`Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})${calNote(first)}`,'ok');
+      toast(pages<total
+        ? `Opened "${f.name}" — the first ${pages} of ${total} pages added; pages ${pages+1}–${total} were left out (${first.width}×${first.height})${calNote(first)}`
+        : `Opened "${f.name}" — ${pages} pages added (${first.width}×${first.height})${calNote(first)}`, pages<total?'warn':'ok');
     } else {
       const it = await toImg(first, base+'.png');
       if(!it){ fail(); return; }
@@ -3248,23 +3256,51 @@ function _loadSVGFile(f, fail, done){
 // a small PNG overtook a large TIFF, and a 12-panel drop landed shuffled. Panel
 // letters are handed out at commit, so B could end up sitting left of A. Serial
 // dispatch costs a little wall-clock on big drops and is worth it.
+//
+// A drop that mixes images with a CSV or a GenBank file used to split the images
+// between two layouts. The chart and gene-map loaders switch to the freeform canvas
+// the moment they read their file, so the images before the CSV became grid panels
+// (now out of sight) and the ones after it freeform objects, with the chart editor
+// open mid-import. Now the images go first, all into the layout you are in, and
+// the data files after them. In the grid they are added to the freeform canvas
+// without switching to it, and one toast says where they went. A drop of data files
+// alone switches and opens its editor, as it always has.
+const _fileKind = f => {
+  const n=(f.name||'').toLowerCase();
+  if(/\.(gb|gbk|genbank|fasta|fa|fna)$/.test(n)) return 'seq';
+  if(f.type==='text/csv'||f.type==='text/tab-separated-values'||n.endsWith('.csv')||n.endsWith('.tsv')) return 'data';
+  return 'image';
+};
 async function addFiles(fileList){
-  for(const f of Array.from(fileList)){
-    try{ await _addOneFile(f); }catch(e){ /* each loader reports its own failure */ }
+  const all=Array.from(fileList);
+  const pics=all.filter(f=>_fileKind(f)==='image'), data=all.filter(f=>_fileKind(f)!=='image');
+  const holdMode = pics.length>0 && data.length>0 && layoutMode!=='freeform';
+  _gridGrowBatch++;
+  try{
+    for(const f of pics){
+      try{ await _addOneFile(f); }catch(e){ /* each loader reports its own failure */ }
+    }
+  } finally { if(--_gridGrowBatch===0) _flushGridGrowNote(); }
+  let charts=0, maps=0;
+  for(const f of data){
+    try{ if(await _addOneFile(f, {holdMode})) (_fileKind(f)==='seq' ? maps++ : charts++); }catch(e){}
+  }
+  if(holdMode && charts+maps){
+    const what=[charts?`${charts} chart${charts>1?'s':''}`:'', maps?`${maps} gene map${maps>1?'s':''}`:''].filter(Boolean).join(' and ');
+    toast(`${pics.length} image${pics.length>1?'s':''} added to the grid; ${what} from the same drop ${charts+maps>1?'are':'is'} on the freeform canvas — switch Layout to Freeform to place ${charts+maps>1?'them':'it'}`,'ok');
   }
 }
-function _addOneFile(f){
+function _addOneFile(f, opts){
   return new Promise(done=>{
     const nameL=(f.name||'').toLowerCase();
     const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
-    const isData=f.type==='text/csv'||f.type==='text/tab-separated-values'||nameL.endsWith('.csv')||nameL.endsWith('.tsv');
-    const isSeq=/\.(gb|gbk|genbank|fasta|fa|fna)$/.test(nameL);
+    const kind=_fileKind(f);
     const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
-    // Charts and gene maps do not become grid panels, so they keep the old
-    // fire-and-forget path.
-    if(isSeq){ _loadGeneFile(f, fail); done(); return; }
-    if(isData){ _loadDataFile(f, fail); done(); return; }
+    // Charts and gene maps do not become grid panels. They are waited for like the
+    // images, so a drop finishes in the order it was given.
+    if(kind==='seq'){ _loadGeneFile(f, fail, opts).then(done, ()=>done(false)); return; }
+    if(kind==='data'){ _loadDataFile(f, fail, opts).then(done, ()=>done(false)); return; }
     if(isTIFF){ _loadTIFFFile(f, fail).then(done, done); return; }
     if(isSVG){ _loadSVGFile(f, fail, done); return; }
     const reader=new FileReader();
@@ -3466,15 +3502,46 @@ function _commitImage(img,src,name,svgSource,calib,raw){
     // autosave) puts the file into the panel saved for it. The share link used to apply
     // its list by position, so the first blank cell shifted every later panel's
     // settings onto the next image.
-    if(!_fillPendingPanel(newImg)) images.push(newImg);
+    if(!_fillPendingPanel(newImg)){
+      images.push(newImg);
+      _growGridToFit();                      // inside this import's undo step
+    }
     logAction('addImage',{name,mode:layoutMode});
     renderImgList(); scheduleRender();
   }
 }
+// An import past the last cell used to be listed and never drawn: eight images in a
+// 3 x 2 grid drew six, and only the status bar's panel count hinted that two were
+// missing. The grid now grows by whole rows as each image arrives, inside that
+// image's own undo step, up to the 12 rows multi-crop stops at. Past that the panels
+// left without a cell are counted in a warning and marked in the list. A drop
+// gathers its growth into one toast (_gridGrowBatch is set by addFiles).
+let _gridGrowBatch=0, _gridGrowNote=null;
+function _growGridToFit(){
+  if(layoutMode==='freeform') return;
+  const cols=Math.max(1,gi('cols')), from=Math.max(1,gi('rows'));
+  let rows=from;
+  while(rows<12 && _gridPlacements(cols,rows).unplaced>0) rows++;
+  const out=_gridPlacements(cols,rows).unplaced;
+  if(rows!==from){ sv('rows',rows); onLayoutChange(); }
+  if(rows===from && !out) return;
+  const n=_gridGrowNote||(_gridGrowNote={cols, from, to:from, out:0});
+  n.cols=cols; n.to=rows; n.out=out;
+  if(!_gridGrowBatch) _flushGridGrowNote();
+}
+function _flushGridGrowNote(){
+  const n=_gridGrowNote; _gridGrowNote=null;
+  if(!n) return;
+  if(n.out>0) toast(`${n.out} panel${n.out>1?'s':''} ${n.out>1?'fall':'falls'} outside the grid${n.to>n.from?` even at ${n.cols} × ${n.to}`:` (${n.cols} × ${n.to})`} — listed but not drawn; add columns or use Fit grid`,'warn');
+  else if(n.to>n.from) toast(`Grid grown to ${n.cols} × ${n.to} so every panel is drawn`,'ok');
+}
 function nextLabel(){
   const used = new Set(images.map(i=>i&&i.label));
   for(let i=0;i<26;i++){ const l=ALPHABET[i]; if(!used.has(l)) return l; }
-  return String(images.length+1);
+  // Past Z the labels are numbers, and like the letters the first free one is used.
+  // This returned images.length+1 whether or not a panel already had it, so in a
+  // 30-panel figure a delete and an add left two panels labelled 30.
+  for(let n=27;;n++) if(!used.has(String(n))) return String(n);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3502,22 +3569,30 @@ function _detectChannel(name){
 function _naturalCmp(a,b){
   return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:'base'});
 }
+// A blank cell is a place in the grid, not a panel. These used to read every slot as
+// a panel, so with a blank in the grid they threw on it: Sort changed nothing, and
+// Parse names and Auto-channels stopped at the blank, leaving the panels after it
+// untouched behind an undo step for the half that was done. The blanks now keep their
+// slots and the panels sort into the slots around them.
 function sortImagesByName(){
-  if(images.length<2){ toast('Nothing to sort','warn'); return; }
+  const slots=[]; images.forEach((im,i)=>{ if(im) slots.push(i); });
+  if(slots.length<2){ toast('Nothing to sort','warn'); return; }
   pushUndo();
-  images.sort((a,b)=>_naturalCmp(a.name,b.name));
+  const sorted=slots.map(i=>images[i]).sort((a,b)=>_naturalCmp(a.name,b.name));
+  slots.forEach((at,k)=>{ images[at]=sorted[k]; });
   // labels are positional — relabel A,B,C… in the new order
-  let i=0; images.forEach(im=>{ im.label = i<26 ? ALPHABET[i] : String(i+1); i++; });
+  sorted.forEach((im,k)=>{ im.label=_letterLabel(k); });
   renderImgList(); renderMiniGrid(); scheduleRender();
   toast('Panels sorted by filename','ok');
 }
 function parseFilenames(){
-  if(!images.length){ toast('Add images first','warn'); return; }
+  if(!images.some(Boolean)){ toast('Add images first','warn'); return; }
   const pat=(gv('fname-pattern')||'').trim();
   const fields = pat ? pat.split(/[_\-\s]+/).filter(Boolean) : null;
   pushUndo();
   let n=0;
   images.forEach(im=>{
+    if(!im) return;                                   // a blank cell
     const base=(im.name||'').replace(/\.[^.]+$/,'');
     const toks=base.split(/[_\-\s.]+/).filter(Boolean);
     if(fields){
@@ -3595,10 +3670,10 @@ function duplicateGridLine(kind){
 }
 
 function autoDetectChannels(){
-  if(!images.length){ toast('Add images first','warn'); return; }
+  if(!images.some(Boolean)){ toast('Add images first','warn'); return; }
   pushUndo();
   let n=0;
-  images.forEach(im=>{ const ch=_detectChannel(im.name); if(ch&&ch.lut){ im.lut=ch.lut; n++; }
+  images.forEach(im=>{ if(!im) return; const ch=_detectChannel(im.name); if(ch&&ch.lut){ im.lut=ch.lut; n++; }
     else if(ch&&ch.lut===null&&/bright|phase|dic|\bbf\b/.test((im.name||'').toLowerCase())){ im.grayscale=true; n++; } });
   renderImgList(); if(typeof renderChList==='function') renderChList(); scheduleRender();
   toast(n?`Assigned channels to ${n} panel${n>1?'s':''} from filenames`:'No channel names detected in filenames','ok');
@@ -4416,12 +4491,28 @@ function _listViewState(list){
   return {open, ticked, scroller, top:scroller?scroller.scrollTop:0};
 }
 
+// A span cut short because another panel's span holds the cells it asks for (see
+// _gridPlacements) is said on the panel's row, so a narrower panel than the one you
+// set is never a mystery. Refreshed in place as a span is typed: one span can cut
+// another, and rebuilding the list would take the focus out of the box.
+function _syncSpanNotes(){
+  const cut=new Map();
+  if(layoutMode!=='freeform') _gridPlacements().forEach(p=>{ if(p.im&&p.want) cut.set(p.imgIdx,p); });
+  document.querySelectorAll('#img-list .f-span-note').forEach(el=>{
+    const p=cut.get(+el.dataset.span);
+    el.textContent = p ? `⚠ span cut to ${p.cs} × ${p.rs}` : '';
+    el.title = p ? `Set to ${p.want.cs} × ${p.want.rs} cells, but another panel's span already holds some of them, so this panel is drawn ${p.cs} × ${p.rs} and the two never overlap.` : '';
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════
 // IMAGE LIST
 // ═══════════════════════════════════════════════════════════════
 function renderImgList(){
   {  // "6 of 18" while a subset is shown, so the hidden ones are never a surprise
-    const tot=images.filter(Boolean).length, shown=_includedCount();
+    // Counts what the figure DRAWS: a panel past the last cell is no more in the
+    // figure than a hidden one, and the badge used to count it as shown.
+    const tot=images.filter(Boolean).length, shown=layoutMode==='freeform' ? _includedCount() : _figurePanels().length;
     document.getElementById('img-count').textContent = shown<tot ? `${shown} of ${tot}` : tot;
     const tools=document.getElementById('img-tools'), hint=document.getElementById('img-empty-hint');
     if(tools) tools.style.display=tot?'':'none';
@@ -4437,6 +4528,7 @@ function renderImgList(){
   list.innerHTML = '';
   const _keys=_panelKeys();
   const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
+  const _placed=layoutMode==='freeform' ? null : new Set(_gridPlacements().filter(p=>p.im).map(p=>p.imgIdx));
   images.forEach((im, idx) => {
     if(!im){
       // An empty grid slot — inserted on purpose as a spacer, or left by a ragged
@@ -4470,6 +4562,7 @@ function renderImgList(){
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
+        ${_placed&&!im.excluded&&!_placed.has(idx)?`<span class="f-offgrid" style="font-size:9px;color:var(--warn);flex-shrink:0" title="The grid has no cell left for this panel, so the figure does not draw it. Add rows or columns, or use Fit grid.">⚠ outside the grid</span>`:''}
         ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
         ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'+(layoutMode==='freeform'?'':' — '+(_hiddenLeavesGap()?'its cell stays blank':'the panels after it move up')+'; change this under Grid › Hidden panels leave a gap')}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
@@ -4484,6 +4577,7 @@ function renderImgList(){
         ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
         ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
+        <span class="f-span-note" data-span="${idx}" style="color:var(--warn)"></span>
       </div>
       <div class="img-settings" id="settings-${idx}">
         <div class="sec-lbl">Scale bar</div>
@@ -4772,8 +4866,8 @@ function renderImgList(){
     item.querySelector('.f-bdrw').addEventListener('input',e=>{ images[idx].borderW=parseInt(e.target.value)||0; scheduleRender(); });
     item.querySelector('.f-bdrc').addEventListener('input',e=>{ images[idx].borderC=e.target.value; scheduleRender(); });
     item.querySelector('.f-bdri').addEventListener('input',e=>{ images[idx].borderInset=parseInt(e.target.value)||0; scheduleRender(); });
-    item.querySelector('.f-colspan').addEventListener('input',e=>{ images[idx].colSpan=Math.max(1,parseInt(e.target.value)||1); scheduleRender(); });
-    item.querySelector('.f-rowspan').addEventListener('input',e=>{ images[idx].rowSpan=Math.max(1,parseInt(e.target.value)||1); scheduleRender(); });
+    item.querySelector('.f-colspan').addEventListener('input',e=>{ images[idx].colSpan=Math.max(1,parseInt(e.target.value)||1); _syncSpanNotes(); scheduleRender(); });
+    item.querySelector('.f-rowspan').addEventListener('input',e=>{ images[idx].rowSpan=Math.max(1,parseInt(e.target.value)||1); _syncSpanNotes(); scheduleRender(); });
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
@@ -4889,6 +4983,7 @@ function renderImgList(){
   // Fill the ppi readouts from the last frame's geometry. Arithmetic only: this list is
   // rebuilt on every mutation, so it must never render.
   _syncPanelPpi();
+  _syncSpanNotes();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4982,6 +5077,7 @@ function onLayoutChange(){
   const lblBtn=document.getElementById('labels-toggle-btn');
   if(lblBtn) lblBtn.classList.toggle('active', showC||showR);
   _syncHiddenGapNote();
+  _syncSpanNotes();                // a smaller grid can cut a span, a larger one restore it
   renderMiniGrid(); scheduleRender();
 }
 
@@ -7297,23 +7393,54 @@ function _panelOuterH(im, apw, aphMax){
   const sc=Math.min(apw/(sw*ca+sh*sa), aphMax/(sw*sa+sh*ca));   // as _panelFitScale
   return (sw*sc)*sa+(sh*sc)*ca;
 }
+// Where every panel goes: the ONE walk of the grid's cells. The draw loop, the hugged
+// row heights and _figurePanels() each walked the cells themselves, and each clipped a
+// span only against the grid's edge. A column span in the second row therefore claimed
+// the cell a row span from the first row already held, and both were drawn there, the
+// later panel over the earlier, in the preview and in every export, while the caption
+// still described the covered panel as whole. A span now takes only free cells: it runs
+// along its row up to the first taken cell, then down only while every one of its
+// columns is free, so no two panels can ever share a cell. A span cut short by another
+// panel keeps what it asked for in .want, and the panel list says so. Each entry is one
+// cell walked: seq is its place in _gridOrder() (an empty cell is a place too), and
+// .unplaced counts the panels left with no cell at all.
+// A hidden panel that keeps its place ("Hidden panels leave a gap") keeps ALL of it:
+// its blank takes the span the panel had. It used to keep one cell, so hiding a
+// panel across two columns slid every later panel one cell back, under the wrong
+// heading — the very move the gap exists to prevent.
+function _gridPlacements(cols, rows){
+  cols=cols||Math.max(1,gi('cols')); rows=rows||Math.max(1,gi('rows'));
+  const order=_gridOrder(), taken=new Set(), out=[];
+  let seq=0;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    if(taken.has(r*cols+c)) continue;
+    const imgIdx = seq<order.length ? order[seq] : -1;
+    const im = imgIdx>=0 ? images[imgIdx] : null;
+    const held = im || (order.gapOf && order.gapOf[seq]!=null ? images[order.gapOf[seq]] : null);
+    const wantCs=Math.max(1,(held&&held.colSpan)||1), wantRs=Math.max(1,(held&&held.rowSpan)||1);
+    let cs=1; while(cs<wantCs && c+cs<cols && !taken.has(r*cols+c+cs)) cs++;
+    let rs=1;
+    while(rs<wantRs && r+rs<rows){
+      let free=true; for(let k=0;k<cs;k++) if(taken.has((r+rs)*cols+c+k)){ free=false; break; }
+      if(!free) break; rs++;
+    }
+    for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) taken.add((r+dr)*cols+c+dc);
+    // Shortened by another panel, not merely by the edge of the grid.
+    const cut = cs<Math.min(wantCs,cols-c) || rs<Math.min(wantRs,rows-r);
+    out.push({r, c, cs, rs, seq, imgIdx, im, want: cut ? {cs:wantCs, rs:wantRs} : null});
+    seq++;
+  }
+  out.unplaced=Math.max(0, order.length-seq);
+  return out;
+}
 // One height per row: the tallest panel in it, never more than the panel height
 // the user set. Shrinking only, so a row can never push the figure taller than
 // the uniform layout would — and a panel that was width-limited keeps exactly
 // the size it already had, which is why one pass is enough.
 function autoRowHeights(rows, cols, pw, ph, gH, gV){
   const H=new Array(rows).fill(0);
-  const order=_gridOrder();
-  const occupied=new Set();
   const spans=[];
-  let seq=0;
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
-    if(occupied.has(`${r}_${c}`)) continue;
-    const imgIdx = seq<order.length ? order[seq] : -1;
-    const im = imgIdx>=0 ? images[imgIdx] : null;
-    const cs=Math.min((im&&im.colSpan)||1, cols-c), rs=Math.min((im&&im.rowSpan)||1, rows-r);
-    for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
-    seq++;
+  for(const {r, c, cs, rs, im} of _gridPlacements(cols, rows)){
     // A cell with no image has no ink to hold the row open. Pinning it to ph meant any
     // ragged last row (five blots in a 3 x 2 grid) and any row with an inserted blank
     // kept exactly the dead space this option exists to remove. A row made only of
@@ -7595,7 +7722,6 @@ function render(targetCanvas, exportScale, opts){
 
   // Panels — span-aware layout
   {
-    const occupied=new Set();
     // Cells are filled from the INCLUDED panels only, so hiding one closes the gap
     // instead of leaving a hole. seq walks the cells; imgIdx stays the true index
     // into images[] that panelBounds, scale bars and every hit-test rely on.
@@ -7606,15 +7732,15 @@ function render(targetCanvas, exportScale, opts){
     // stopped; without it page 2 re-used page 1's row labels. (Panel letters are the
     // panels' own stored labels, so they always carried over.)
     const seqBase=_pageCtx?_pageCtx.seqOffset:0;
+    // Where each cell goes comes from _gridPlacements(), the same walk the row heights
+    // and the caption read, so a span the grid cannot hold is cut the same way in all.
+    const _cells=_gridPlacements(cols, rows);
     let seq=0, imgIdx=-1;
     for(let r=0;r<rows;r++){
-      for(let c=0;c<cols;c++){
-        if(occupied.has(`${r}_${c}`)) continue;
-        imgIdx = seq<_order.length ? _order[seq] : -1;
-        const im = imgIdx>=0 ? images[imgIdx] : null;
-        const cs=Math.min((im?.colSpan||1),cols-c);
-        const rs=Math.min((im?.rowSpan||1),rows-r);
-        for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
+      for(const _cell of _cells){
+        if(_cell.r!==r) continue;
+        const c=_cell.c, cs=_cell.cs, rs=_cell.rs, im=_cell.im;
+        imgIdx=_cell.imgIdx; seq=_cell.seq;
         const px=rowLblW+mLeft + colOffset(c,pw,gH);
         const py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
         const apw=cs*pw+spanGapsW(c,cs,gH), aph=_rhSpan(ph,r,rs)+spanGapsH(r,rs,gV);
@@ -7625,7 +7751,7 @@ function render(targetCanvas, exportScale, opts){
           // the cell number are editing aids — they used to be drawn into every export
           // that had a trailing empty cell (five panels in a 3 × 2 grid), so the
           // journal got a faint dashed box with a "6" in it.
-          if(isExport){ seq++; continue; }
+          if(isExport) continue;
           ctx.fillStyle=luma(bgColor)<128?'rgba(255,255,255,.05)':'rgba(0,0,0,.04)';
           ctx.fillRect(px,py,apw,aph);
           ctx.save();
@@ -7641,13 +7767,13 @@ function render(targetCanvas, exportScale, opts){
               ctx.fillText(`${formatLabel(gim.label)||'panel'} hidden`, px+apw/2, py+aph/2); }
             else ctx.fillText(String(seq+seqBase+1), px+apw/2, py+aph/2); }
           ctx.restore();
-          seq++; continue;
+          continue;
         }
         // Apply crop to get source rect. A tilted crop resolves to a straightened
         // canvas plus a full-frame rect, so everything below is identical either way.
         const _cd=_cropDraw(im);
         const sx=_cd.sx, sy=_cd.sy, sw=_cd.sw, sh=_cd.sh;
-        if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); seq++; continue; }
+        if(sw<1||sh<1){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); continue; }
         // Contain-fit. A quarter turn swaps which way the picture lies, so the fit has
         // to be computed against the TURNED extent. It was not: a 2:1 image turned 90°
         // into a matching 1:2 cell was fitted as though it were still lying the other
@@ -7706,16 +7832,19 @@ function render(targetCanvas, exportScale, opts){
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, -dw/2,-dh/2,dw,dh);
           }
-          // Inside the same transform, so the outline turns and flips with the picture.
-          _drawInsetFrames(ctx, im, imgIdx, -dw/2, -dh/2, dw, dh, lblSz, lblClr, isExport, true);
           ctx.restore();
+          // Outside the transform, handed the turn and the flip as a mapping: the outline
+          // still lands on the region where the turned picture shows it, its letter stays
+          // upright, and it is recorded in figure space for the SVG and the frame drag.
+          _drawInsetFrames(ctx, im, imgIdx, -dw/2, -dh/2, dw, dh, lblSz, lblClr, isExport,
+            {cx:dx+dw/2, cy:dy+dh/2, rot:im.rotate||0, flipH:!!im.flipH, flipV:!!im.flipV});
         } else {
           if(srcImg){
             ctx.drawImage(srcImg, 0,0,srcImg.width,srcImg.height, dx,dy,dw,dh);
           } else {
             ctx.drawImage(_cd.img, sx,sy,sw,sh, dx,dy,dw,dh);
           }
-          _drawInsetFrames(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, isExport, false);
+          _drawInsetFrames(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, isExport, null);
         }
         // Restore after clip
         if(cshape!=='rect') ctx.restore();
@@ -7817,7 +7946,6 @@ function render(targetCanvas, exportScale, opts){
         // skipPanelLegends is set only by the SVG export, which re-emits the key as text.
         // It is not tied to skipLabels: the PDF passes a function there and re-emits no key.
         drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight', skipLegend:!!(opts&&opts.skipPanelLegends)});
-        seq++;
       }
     }
   }
@@ -7825,8 +7953,7 @@ function render(targetCanvas, exportScale, opts){
   // Connector lines from each inset's outline on the parent to the inset's own cell —
   // the way a zoom-in is conventionally linked to its overview. Two lines join the two
   // corners of the outline that face the inset to the matching corners of its cell.
-  // Only when the inset sits in another cell; an outline with no visible inset, or
-  // one inside a rotated parent (not recorded), gets none.
+  // Only when the inset sits in another cell; an outline with no visible inset gets none.
   if(gc('inset-connectors')&&_frameSink&&_frameSink.length&&!_skipFrameDraw){
     for(const f of _frameSink){
       const cell=_cellRects.get(f.insetIdx); if(!cell) continue;
@@ -10101,6 +10228,13 @@ function checkCompliance(){
   const _shownPanels=_figurePanels();
   const panelsWithImages=_shownPanels.length;
   const panelsWithLabels=_shownPanels.filter(im=>im.label).length;
+  // Two panels under one label make every "(B)" in the caption point at two pictures.
+  // The labelled count above passed them, so a figure with two 30s read "30/30
+  // panels labelled". Compared as printed, so a typed "3" and a lettered C collide
+  // under the 1 2 3 format.
+  const _lblN=new Map();
+  _shownPanels.forEach(im=>{ const l=formatLabel(im.label); if(l) _lblN.set(l,(_lblN.get(l)||0)+1); });
+  const _dupLbls=[..._lblN].filter(([,n])=>n>1).map(([l,n])=>`${l} (${n} panels)`);
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
   // Only the panels the reader sees: a hidden (or spanned-out) uncalibrated panel
   // used to fail this line and offer Calibrate for a panel that is not in the figure,
@@ -10150,6 +10284,8 @@ function checkCompliance(){
       fix:bgIsWhite?null:{a:'white',t:'Make white'}},
     {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
       note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
+    {label:'Panel labels unique', ok:_dupLbls.length===0, warn:false,
+      note:_dupLbls.length ? `${esc(_dupLbls.join(', '))} — the same label on more than one panel; rename one in the panel list or use Relabel A, B, C` : 'Every panel has its own label ✓'},
     {label:'Scale-bar calibration', ok:uncal===0, warn:false, note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:'All calibrated ✓',
       fix:uncal?{a:'calibrate',t:'Calibrate'}:null},
     // A calibrated bar that falls outside the drawable range is simply not painted —
@@ -10453,8 +10589,13 @@ function _insetDragApply(x,y){
   const st=_insetDragState; if(!st) return;
   const o=images[st.insetIdx]; if(!o||!o.insetRect) return;
   const r0=st.r0;
-  const nx=Math.max(0,Math.min(1-r0.w, r0.x+(x-st.startX)/st.dw));
-  const ny=Math.max(0,Math.min(1-r0.h, r0.y+(y-st.startY)/st.dh));
+  // On a turned or flipped parent the pointer's move is taken back through the turn
+  // first, so the region moves in the picture the way the outline moves on screen.
+  let mx=x-st.startX, my=y-st.startY;
+  if(st.lin){ const [a,b,c,d]=st.lin, det=a*d-b*c;
+    if(Math.abs(det)>1e-9){ const ux=( d*mx-c*my)/det, uy=(-b*mx+a*my)/det; mx=ux; my=uy; } }
+  const nx=Math.max(0,Math.min(1-r0.w, r0.x+mx/st.dw));
+  const ny=Math.max(0,Math.min(1-r0.h, r0.y+my/st.dh));
   if(Math.abs(nx-o.insetRect.x)>1e-6||Math.abs(ny-o.insetRect.y)>1e-6) st.moved=true;
   o.insetRect={x:nx,y:ny,w:r0.w,h:r0.h};
   scheduleRender(0);
@@ -11367,7 +11508,7 @@ annCanvas.addEventListener('mousedown', e=>{
     const f=_insetFrameHitAt(x,y);
     if(f && images[f.insetIdx] && images[f.insetIdx].insetRect){
       const r0={...images[f.insetIdx].insetRect};
-      _insetDragState={insetIdx:f.insetIdx, startX:x, startY:y, r0, dw:f.w/r0.w, dh:f.h/r0.h, preSnap:snapshotState(), moved:false};
+      _insetDragState={insetIdx:f.insetIdx, startX:x, startY:y, r0, dw:f.dw||f.w/r0.w, dh:f.dh||f.h/r0.h, lin:f.lin||null, preSnap:snapshotState(), moved:false};
       annCanvas.style.cursor='move'; return;
     }
   }
@@ -12821,26 +12962,56 @@ function addLinkedInset(fx,fy,fw,fh){
 // a reader expects, so the eye can go from the overview to the detail. insetRect is a
 // fraction of the parent's VISIBLE crop, and (x0,y0,dw,dh) is exactly where that crop
 // was just drawn, so the outline needs no other geometry. Recorded per render (like
-// _sbBars) for tests and for a future drag; not recorded inside a rotate/flip
-// transform, where the numbers would be in the transformed space.
+// _sbBars) for tests, the SVG export and the frame drag.
+// A turned or flipped parent passes xf, the transform its picture was drawn under, with
+// (x0,y0,dw,dh) in that picture's own frame. The outline used to be drawn INSIDE that
+// transform, so its letter came out mirrored or on its side, and it was recorded
+// nowhere, so the SVG export, which re-draws outlines as vector, had none to draw. Now
+// the region's corners are mapped to figure space and the outline drawn there: a flip
+// or a quarter turn gives an upright rectangle, a free tilt a turned quadrilateral.
+// .lin is the transform's linear part, which the frame drag inverts so a drag on a
+// mirrored outline still moves it with the pointer.
 function _insetFramesOn(){ const el=document.getElementById('inset-frames'); return el?el.checked:true; }
-function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr, isExport, transformed){
+function _insetFrameMap(xf){
+  if(!xf) return null;
+  const t=(xf.rot||0)*Math.PI/180;
+  let co=Math.cos(t), si=Math.sin(t);
+  if(Math.abs(co)<1e-9) co=0; if(Math.abs(si)<1e-9) si=0;   // cos(90 deg) is 6e-17, not 0
+  const sx=xf.flipH?-1:1, sy=xf.flipV?-1:1;
+  // translate(cx,cy) . rotate(t) . scale(sx,sy): X = cx + a*x + c*y, Y = cy + b*x + d*y
+  return {a:co*sx, b:si*sx, c:-si*sy, d:co*sy, cx:xf.cx, cy:xf.cy};
+}
+function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr, isExport, xf){
   if(!parent||!parent.id||!_insetFramesOn()) return;
+  const M=_insetFrameMap(xf);
+  const at=(x,y)=>[M.cx+M.a*x+M.c*y, M.cy+M.b*x+M.d*y];
+  // A flip or a quarter turn keeps every edge horizontal or vertical.
+  const square=!M || (M.b===0&&M.c===0) || (M.a===0&&M.d===0);
   for(let k=0;k<images.length;k++){
     const o=images[k];
     if(!o||o.insetOf!==parent.id||!o.insetRect||o.excluded) continue;
     const r=o.insetRect;
-    const fx=x0+r.x*dw, fy=y0+r.y*dh, fw=r.w*dw, fh=r.h*dh;
-    if(fw<2||fh<2) continue;
-    if(!isExport&&!transformed) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh});
+    const lx=x0+r.x*dw, ly=y0+r.y*dh, lw=r.w*dw, lh=r.h*dh;
+    if(lw<2||lh<2) continue;
+    let fx=lx, fy=ly, fw=lw, fh=lh, pts=null;
+    if(M){
+      const q=[at(lx,ly), at(lx+lw,ly), at(lx+lw,ly+lh), at(lx,ly+lh)];
+      const xs=q.map(p=>p[0]), ys=q.map(p=>p[1]);
+      fx=Math.min(...xs); fy=Math.min(...ys); fw=Math.max(...xs)-fx; fh=Math.max(...ys)-fy;
+      if(!square) pts=q;
+    }
+    const lin=M?[M.a,M.b,M.c,M.d]:null;
+    if(!isExport) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, dw, dh, lin});
     const letter=formatLabel(o.label);
     const fs=Math.max(7,Math.round((lblSz||12)*0.75));
-    if(_frameSink&&!transformed) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, ink:lblClr||'#fff', letter, fs});
+    if(_frameSink) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, pts, ink:lblClr||'#fff', letter, fs});
     if(_skipFrameDraw) continue;                       // the SVG export draws these itself
     ctx.save();
     ctx.setLineDash([]);
-    ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=3.5; ctx.strokeRect(fx,fy,fw,fh);
-    ctx.strokeStyle=lblClr||'#fff';     ctx.lineWidth=1.5; ctx.strokeRect(fx,fy,fw,fh);
+    const outline=()=>{ if(pts){ ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let j=1;j<4;j++) ctx.lineTo(pts[j][0],pts[j][1]); ctx.closePath(); ctx.stroke(); }
+                        else ctx.strokeRect(fx,fy,fw,fh); };
+    ctx.strokeStyle='rgba(0,0,0,.55)'; ctx.lineWidth=3.5; outline();
+    ctx.strokeStyle=lblClr||'#fff';     ctx.lineWidth=1.5; outline();
     if(letter){
       ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
       const tw=ctx.measureText(letter).width;
@@ -13321,7 +13492,10 @@ function exportSVG(name, dpi, canvas){
   const f2=v=>(+v).toFixed(2);
   frames.forEach(f=>{
     const font=`bold ${f.fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
-    frameSVG+=`<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" stroke="rgba(0,0,0,0.55)" stroke-width="3.5" fill="none"/>`
+    if(f.pts){ const pp=f.pts.map(p=>`${f2(p[0])},${f2(p[1])}`).join(' ');   // a tilted parent's outline
+      frameSVG+=`<polygon points="${pp}" stroke="rgba(0,0,0,0.55)" stroke-width="3.5" fill="none"/>`
+               +`<polygon points="${pp}" stroke="${f.ink}" stroke-width="1.5" fill="none"/>`; }
+    else frameSVG+=`<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" stroke="rgba(0,0,0,0.55)" stroke-width="3.5" fill="none"/>`
              +`<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" stroke="${f.ink}" stroke-width="1.5" fill="none"/>`;
     if(f.letter){
       const inside=f.h>=f.fs+8;
@@ -15231,23 +15405,11 @@ const _includedCount = () => images.filter(im=>im && !im.excluded).length;
 // Slicing _gridOrder() to cols*rows entries was still wrong once a panel spans: a
 // span eats several cells, so fewer panels are placed than there are cells, and the
 // slice went on describing a panel the export never drew (a 2 x 2 grid with A across
-// the top draws A, B, C; the caption, CSV and manifest still said D). So this walks
-// the cells exactly as render() and autoRowHeights() do: an empty slot consumes one
-// cell, a span consumes all of its cells, and whatever is left over has no place.
-const _figurePanels = () => {
-  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
-  const order=_gridOrder(), occupied=new Set(), out=[];
-  let seq=0;
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
-    if(occupied.has(`${r}_${c}`)) continue;
-    const im = seq<order.length ? images[order[seq]] : null;
-    seq++;
-    const cs=Math.min((im&&im.colSpan)||1, cols-c), rs=Math.min((im&&im.rowSpan)||1, rows-r);
-    for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) if(dr>0||dc>0) occupied.add(`${r+dr}_${c+dc}`);
-    if(im) out.push(im);
-  }
-  return out;
-};
+// the top draws A, B, C; the caption, CSV and manifest still said D). So this reads
+// the same walk of the cells render() and autoRowHeights() read, _gridPlacements():
+// an empty slot consumes one cell, a span consumes all of its cells, and whatever is
+// left over has no place.
+const _figurePanels = () => _gridPlacements().filter(p=>p.im).map(p=>p.im);
 
 function togglePanelExcluded(idx){
   const im=images[idx]; if(!im) return;
@@ -17724,19 +17886,26 @@ function addChartElement(kind){
   openChartModal();
 }
 
-// Load a dropped/selected CSV/TSV file into a new chart element.
-function _loadDataFile(f, fail){
+// Load a dropped/selected CSV/TSV file into a new chart element. Resolves true once the
+// chart is added. opts.holdMode (a drop that also held images, in the grid) adds it to
+// the freeform canvas without switching to it or opening the editor over the grid.
+function _loadDataFile(f, fail, opts){
+  const hold=!!(opts&&opts.holdMode);
+  return new Promise(settle=>{
   const reader=new FileReader();
   reader.onload=ev=>{
+    let added=false;
+    try{
     const parsed=_parseDelimited(ev.target.result);
     if(!parsed.columns.length || !parsed.rows.length){ (fail||toast)('That file had no readable rows','err'); return; }
     // Guess a sensible default: first non-numeric column as x, remaining numeric columns as y.
     const firstRow=parsed.rows[0]||[];
     let xCol=firstRow.findIndex(v=>typeof v!=='number'); if(xCol<0) xCol=0;
     const yCols=parsed.columns.map((_,i)=>i).filter(i=>i!==xCol && parsed.rows.some(r=>typeof r[i]==='number'));
-    if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
-    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
-    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    if(layoutMode!=='freeform' && !hold){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+    // Held in the grid, canvasLogicalW is the GRID figure's width, not the canvas's.
+    const W=(!hold&&canvasLogicalW)||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=(!hold&&canvasLogicalH)||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=380,h=280, ch=_defaultChart('bar');
     ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name};
     ch.mapping={xCol, yCols:yCols.length?yCols:[Math.min(1,parsed.columns.length-1)], seriesCol:null, errCol:null};
@@ -17744,12 +17913,16 @@ function _loadDataFile(f, fail){
     addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:(f.name||'chart')});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
-    updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+    updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
     toast(`Imported ${parsed.rows.length} rows from ${f.name}`,'ok');
-    openChartModal();
+    if(!hold) openChartModal();
+    added=true;
+    } finally { settle(added); }
   };
-  reader.onerror=()=>(fail||toast)('Could not read the data file','err');
+  reader.onerror=()=>{ (fail||toast)('Could not read the data file','err'); settle(false); };
+  reader.onabort=()=>settle(false);
   reader.readAsText(f);
+  });
 }
 
 // ── Chart editor modal ─────────────────────────────────────────
@@ -18400,16 +18573,21 @@ function _parseFASTA(text){
 }
 
 // Load a dropped/selected .gb/.gbk/.fasta into a new gene map.
-function _loadGeneFile(f, fail){
+// Resolves true once the map is added; opts.holdMode as for _loadDataFile.
+function _loadGeneFile(f, fail, opts){
+  const hold=!!(opts&&opts.holdMode);
+  return new Promise(settle=>{
   const reader=new FileReader();
   reader.onload=ev=>{
+    let added=false;
+    try{
     const txt=ev.target.result;
     const isFasta=/^\s*>/.test(txt) && !/^LOCUS/im.test(txt);
     const parsed=isFasta?_parseFASTA(txt):_parseGenBank(txt);
     if(!parsed.length){ (fail||toast)(`"${f.name}" had no readable LOCUS length or sequence`,'err'); return; }
-    if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
-    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
-    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    if(layoutMode!=='freeform' && !hold){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+    const W=(!hold&&canvasLogicalW)||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=(!hold&&canvasLogicalH)||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const circ=parsed.topology==='circular';
     const w=circ?380:560, h=circ?380:200;
     const map=_defaultGenemap();
@@ -18419,13 +18597,17 @@ function _loadGeneFile(f, fail){
       map, label:(parsed.name||f.name)});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
-    updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+    updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
     toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
     _gbImportNotes(parsed);
-    openGenemapModal();
+    if(!hold) openGenemapModal();
+    added=true;
+    } finally { settle(added); }
   };
-  reader.onerror=()=>(fail||toast)('Could not read the sequence file','err');
+  reader.onerror=()=>{ (fail||toast)('Could not read the sequence file','err'); settle(false); };
+  reader.onabort=()=>settle(false);
   reader.readAsText(f);
+  });
 }
 
 // ── Gene-map editor modal ───────────────────────────────────────
@@ -21894,11 +22076,17 @@ function shareSession(){
 // PANEL COMPARISON VIEW
 // ═══════════════════════════════════════════════════════════════
 function openPanelComparison(){
-  if(images.length < 2){ toast('Need at least 2 panels to compare','warn'); return; }
+  // The panels only, each by its true index: a blank cell threw here, and the right
+  // side's default was picked by rewriting the option text, which dropped the first
+  // option's value and could land on a blank.
+  const filled=images.map((im,i)=>({im,i})).filter(o=>o.im);
+  if(filled.length < 2){ toast('Need at least 2 panels to compare','warn'); return; }
   render();
 
   // Build selector options
-  const opts = images.map((im,i)=>`<option value="${i}">Panel ${im.label} — ${esc(im.name)}</option>`).join('');
+  const opt = (o,sel)=>`<option value="${o.i}"${sel?' selected':''}>Panel ${esc(formatLabel(o.im.label))} — ${esc(o.im.name)}</option>`;
+  const opts = filled.map(o=>opt(o,false)).join('');
+  const optsRight = filled.map((o,k)=>opt(o,k===1)).join('');
 
   const modal = document.createElement('div');
   modal.className = 'modal-bg open';
@@ -21912,7 +22100,7 @@ function openPanelComparison(){
           <select id="cmp-left" style="margin-left:6px">${opts}</select>
         </label>
         <label style="font-size:11px;color:var(--muted)">Right
-          <select id="cmp-right" style="margin-left:6px">${opts.replace('value="0"','').replace('value="1"','value="1" selected')}</select>
+          <select id="cmp-right" style="margin-left:6px">${optsRight}</select>
         </label>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)">
           <input type="checkbox" id="cmp-sync" checked> Sync zoom
