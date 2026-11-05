@@ -3751,19 +3751,20 @@ function duplicateGridLine(kind){
   // their originals' ids — the S1 sheet then drew the original's splice marker on the
   // copy's page, and one tick in its dialog decided both panels.
   const copies=[];
-  const dup=im=>{ if(!im) return null;
+  const dup=im=>{ if(!im||_isWaitMark(im)) return null;   // a waiting cell's copy is a blank cell
     const p=cloneImageForUndo(im); p.id=Date.now()+Math.random(); p.label=''; copies.push(p); return p; };
-  if(kind==='row'){
-    const line=[]; for(let i=0;i<cols;i++) line.push(images[r*cols+i]);
-    images.splice((r+1)*cols,0,...line.map(dup));
-    sv('rows',rows+1);
-  } else {
-    for(let i=rows-1;i>=0;i--){
-      const src=images[i*cols+c];
-      images.splice(i*cols+c+1,0,dup(src));
+  _withWaiting(()=>{
+    if(kind==='row'){
+      const line=[]; for(let i=0;i<cols;i++) line.push(images[r*cols+i]);
+      images.splice((r+1)*cols,0,...line.map(dup));
+    } else {
+      for(let i=rows-1;i>=0;i--){
+        const src=images[i*cols+c];
+        images.splice(i*cols+c+1,0,dup(src));
+      }
     }
-    sv('cols',cols+1);
-  }
+  });
+  if(kind==='row') sv('rows',rows+1); else sv('cols',cols+1);
   copies.forEach(p=>{ p.label=nextLabel(); });
   onLayoutChange(); renderImgList(); scheduleRender(0);
   toast(`Duplicated the ${kind}`,'ok');
@@ -4572,10 +4573,13 @@ async function _saveFromDialog(){
 // Swap two image slots while keeping labels POSITIONAL (label belongs to slot, not image)
 function swapImages(i, j){
   pushUndo();
-  const li=images[i]?.label??null, lj=images[j]?.label??null;
-  [images[i],images[j]]=[images[j],images[i]];
-  if(images[i]) images[i].label=li??nextLabel();
-  if(images[j]) images[j].label=lj??nextLabel();
+  _withWaiting(()=>{
+    const real=k=>images[k]&&!_isWaitMark(images[k]);
+    const li=real(i)?images[i].label??null:null, lj=real(j)?images[j].label??null:null;
+    [images[i],images[j]]=[images[j],images[i]];
+    if(real(i)) images[i].label=li??nextLabel();
+    if(real(j)) images[j].label=lj??nextLabel();
+  });
 }
 
 // Scale-bar unit helpers. sbUm is always stored in µm; sbUnit is the display unit.
@@ -4693,12 +4697,21 @@ function renderImgList(){
       // An empty grid slot — inserted on purpose as a spacer, or left by a ragged
       // multi-crop or a panel drag. It used to be invisible here, so it could not be
       // removed except by dragging a panel into it.
-      const row=document.createElement('div'); row.className='img-item blank-slot';
+      // A panel waiting for its file is named as one: it was listed as a removable
+      // "blank cell", and removing it left its record behind for the next file.
+      const wp=_waitingAt(idx), wr=wp&&wp.rec||{};
+      const what=wp ? (wp.inset
+        ? `⧗ inset${wr.label?` ${esc(wr.label)}`:''} — comes back with its panel's file`
+        : `⧗ waiting for ${esc(wr.name||'its image file')}${wr.srcPage?` (page ${esc(wr.srcPage)})`:''}${wr.label?` — panel ${esc(wr.label)}`:''}`)
+        : `▭ blank cell (slot ${idx+1})`;
+      const tip=wp ? 'Forget this waiting panel and its settings' : 'Remove this blank cell';
+      const row=document.createElement('div'); row.className='img-item blank-slot'+(wp?' waiting-slot':'');
       row.style.cssText='display:flex;align-items:center;gap:6px;opacity:.75';
-      row.innerHTML=`<span style="flex:1;color:var(--muted);font-size:11px">▭ blank cell (slot ${idx+1})</span>`
-        +`<button class="icon-btn del" aria-label="Remove this blank cell" title="Remove this blank cell" data-delblank="${idx}">×</button>`;
+      if(wp) row.title='Drop the file again and it goes back into this cell with its saved label, crop and adjustments';
+      row.innerHTML=`<span style="flex:1;color:var(--muted);font-size:11px">${what}</span>`
+        +`<button class="icon-btn del" aria-label="${tip}" title="${tip}" data-delblank="${idx}">×</button>`;
       row.querySelector('[data-delblank]').addEventListener('click',()=>{
-        pushUndo(); images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
+        pushUndo(); _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
       });
       list.appendChild(row);
       return;
@@ -4884,14 +4897,14 @@ function renderImgList(){
       if(cw) cw.addEventListener('click', e=>{ e.stopPropagation(); openCalib(+cw.dataset.calib); }); }
     item.querySelector('[data-del]').addEventListener('click', ()=>{
       pushUndo();
-      images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
+      _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     item.querySelector('[data-dup]').addEventListener('click', ()=>{
       pushUndo();
       const clone = {...images[idx], id:Date.now()+Math.random(), label:nextLabel(),
         channels:(images[idx].channels||[]).map(ch=>({...ch})),
         panelAnns:(images[idx].panelAnns||[]).map(a=>({...a})), _adjCache:undefined,_adjKey:undefined};
-      images.splice(idx+1, 0, clone);
+      _withWaiting(()=>images.splice(idx+1, 0, clone));
       renderImgList(); renderMiniGrid(); scheduleRender();
     });
     gear.addEventListener('click', ()=>{
@@ -5882,7 +5895,7 @@ function splitChannelRow(srcIdx){
   const merge={...im, id:im.id, captionNote:'Merge',
     channels:im.channels.map(c=>({...c})), _adjCache:undefined, _adjKey:undefined};
   parts.push(merge);
-  images.splice(srcIdx,1,...parts);
+  _withWaiting(()=>images.splice(srcIdx,1,...parts));
   // It is called splitChannelRow and its button promises "a row of separate
   // single-channel panels plus a merge" — and it never touched the grid. A 2x2 figure
   // stayed 2x2, and the toast sent you to Auto-arrange, which lays 3 panels out as 2x2,
@@ -11462,7 +11475,7 @@ function snapshotState(opts){
     controls:_collectFigControls({layout:{},style:{}}),
     measurements:JSON.parse(JSON.stringify(measurements)),
     notes:gv('fig-notes'), caption:gv('caption-out'), methods:gv('methods-out'), altText:_figAltText,
-    labelOffsets:JSON.parse(JSON.stringify(labelOffsets)) };
+    labelOffsets:JSON.parse(JSON.stringify(labelOffsets)), reproLog:reproLog.map(e=>({...e})) };
   return snap;
 }
 function restoreState(s){
@@ -11478,6 +11491,7 @@ function restoreState(s){
     measurements=JSON.parse(JSON.stringify(s.fig.measurements||[]));
     sv('fig-notes',s.fig.notes||''); sv('caption-out',s.fig.caption||''); sv('methods-out',s.fig.methods||'');
     _figAltText=s.fig.altText||'';
+    if(Array.isArray(s.fig.reproLog)) reproLog=s.fig.reproLog.map(e=>({...e}));
     _syncFigureLists();
   }
   if(Array.isArray(s.pending)) _pendingPanels=s.pending.map(p=>({...p}));
@@ -12662,10 +12676,13 @@ annCanvas.addEventListener('mouseup', e=>{
         toast('Cannot move a locked panel','warn'); drawAnnOverlay(); return;
       }
       // Pad images[] if drop target is beyond current length
-      while(images.length<=Math.max(srcIdx,dropIdx)) images.push(null);
-      swapImages(srcIdx, dropIdx);
-      // Remove trailing nulls
-      while(images.length && images[images.length-1]===null) images.pop();
+      // Pad, swap and trim as one edit: a waiting cell at the end is not a trailing blank.
+      _withWaiting(()=>{
+        while(images.length<=Math.max(srcIdx,dropIdx)) images.push(null);
+        swapImages(srcIdx, dropIdx);
+        // Remove trailing nulls
+        while(images.length && images[images.length-1]===null) images.pop();
+      });
       renderImgList(); renderMiniGrid(); scheduleRender(0);
       toast('Panels swapped','ok');
     }
@@ -12829,7 +12846,7 @@ function showPanelMenu(idx, cx, cy){
       const clone={...im,id:Date.now()+Math.random(),label:nextLabel(),
         channels:(im.channels||[]).map(ch=>({...ch})),
         panelAnns:(im.panelAnns||[]).map(a=>({...a})),_adjCache:undefined,_adjKey:undefined};
-      images.splice(idx+1,0,clone); renderImgList(); renderMiniGrid(); scheduleRender();
+      _withWaiting(()=>images.splice(idx+1,0,clone)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     row('⚙  Open settings', ()=>{
       const idx=here(); if(idx<0) return;
@@ -12844,7 +12861,7 @@ function showPanelMenu(idx, cx, cy){
     row('✕  Remove panel', ()=>{
       const idx=here(); if(idx<0) return;
       pushUndo();
-      images.splice(idx,1); renderImgList(); renderMiniGrid(); scheduleRender();
+      _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
     }, true);
   } else {
     row('＋  Add image here', ()=>{ document.getElementById('file-input').click(); });
@@ -13226,6 +13243,7 @@ function confirmNewFigure(){
     if(typeof _tutAbort==='function') _tutAbort('Tutorial ended — you started a new figure.');
     pushUndo({boundary:true});
     _resetFigureState();
+    logAction('newFigure');
     panelBounds=[];
     hideAnnFloat(); renderImgList(); renderMiniGrid();
     annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height);
@@ -14223,20 +14241,32 @@ function _textCheckHtml(checks){
 // Windows or macOS refuse in a file name. Names are compared case-insensitively —
 // "WT.png" and "wt.png" are one file once extracted on either system — and a repeat
 // gets _2, _3 before its extension. `reserved` names are kept free for later entries.
+// A name is cut to 100 characters (and 240 UTF-8 bytes), extension and _2 included: a
+// panel label of a few hundred characters made an entry unzip could not write ("File
+// name too long") and the panel was simply missing from the extracted package. A
+// Windows device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or without an
+// extension) is prefixed with "_", and no name ends in a dot or a space.
 function _zipEntryNames(files, reserved){
   const FOLDERS=new Set(['panels','source-data']);
+  const MAX_CH=100, MAX_B=240, enc=new TextEncoder();
+  const DEVICE=/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
   const clean=s=>String(s).replace(/[\x00-\x1f\x7f\\/:*?"<>|]+/g,'_').replace(/^[\s.]+|[\s.]+$/g,'')||'file';
+  // stem + tail within the limits, cut from the end of the stem.
+  const fit=(stem, tail)=>{
+    const cs=Array.from(stem), tb=enc.encode(tail).length, tl=Array.from(tail).length;
+    while(cs.length>1 && (cs.length+tl>MAX_CH || enc.encode(cs.join('')).length+tb>MAX_B)) cs.pop();
+    let s=cs.join('').replace(/[\s.]+$/,'')||'file';
+    if(DEVICE.test(s+tail)) s='_'+s;
+    return s+tail;
+  };
+  const split=nm=>{ const m=/^(.*?)(\.[^./\s]{1,12})?$/.exec(nm); return [m[1]||'file', m[2]||'']; };
   const seen=new Set((reserved||[]).map(n=>n.toLowerCase()));
   for(const f of files){
     const parts=String(f.name).split('/');
-    let nm = (parts.length>1 && FOLDERS.has(parts[0]))
-      ? parts[0]+'/'+clean(parts.slice(1).join('_'))
-      : clean(parts.join('_'));
-    if(seen.has(nm.toLowerCase())){
-      const m=/^(.*?)(\.[^./]+)?$/.exec(nm); let k=2;
-      while(seen.has(`${m[1]}_${k}${m[2]||''}`.toLowerCase())) k++;
-      nm=`${m[1]}_${k}${m[2]||''}`;
-    }
+    const folder=(parts.length>1 && FOLDERS.has(parts[0])) ? parts[0]+'/' : '';
+    const [stem, ext]=split(clean(folder ? parts.slice(1).join('_') : parts.join('_')));
+    let nm=folder+fit(stem, ext);
+    for(let k=2; seen.has(nm.toLowerCase()); k++) nm=folder+fit(stem, `_${k}${ext}`);
     seen.add(nm.toLowerCase());
     f.name=nm;
   }
@@ -15558,8 +15588,13 @@ const _CHANNEL_TRANSIENT=new Set(['img','raw','src','_adjCache','_adjKey','_crop
 // Facts about the file's pixels. When a saved record is put back onto a file dropped
 // later, these are read off that file, never the record: a share link or a
 // settings-only save has no pixels to vouch for them.
-const _PANEL_FROM_FILE=['name','isVector','svgSource','_metaUmPerPx','_metaCalibSource',
+const _PANEL_FROM_FILE=['name','srcPage','srcPages','isVector','svgSource','_metaUmPerPx','_metaCalibSource',
   '_metaDeltaT','_metaAcqTime','_metaTimeSource','_importCrop','_projection'];
+// Which file — and which page of it — a record belongs to. A share link keeps these
+// while it drops every other fact about the file: without the page, a multi-page TIFF
+// dropped on a link filled its panels by file name alone, and a panel showed page 2's
+// pixels while citing "page 3 of 3".
+const _PANEL_IDENTITY=new Set(['name','srcPage','srcPages']);
 // Written exactly as the file has always written them.
 const _PANEL_SAVE_DEFAULTS={sbUnit:'µm',cropShape:'rect',cropAngle:0,tag:'',lut:'none',blackPt:0,
   whitePt:255,gamma:1,rotate:0,flipH:false,flipV:false,locked:false,excluded:false,group:'',
@@ -15587,10 +15622,92 @@ function _panelRecord(im, mode){
     const o={}; for(const k of Object.keys(c)) if(!_CHANNEL_TRANSIENT.has(k)&&c[k]!==undefined) o[k]=c[k];
     if(mode==='bundle') o.src=c.src; return o; });
   if(mode==='share'){
-    for(const k of _PANEL_FROM_FILE) if(k!=='name') delete r[k];
+    for(const k of _PANEL_FROM_FILE) if(!_PANEL_IDENTITY.has(k)) delete r[k];
     delete r.gelAnalysis;      // densitometry is a measurement of pixels the link does not carry
   }
   return r;
+}
+// A panel still waiting for its file is written back exactly as it was loaded: its
+// record, in its cell. Every writer used to map images[] alone, where that cell is
+// empty, so the next autosave, Save session or share link stored a blank cell — and the
+// restore's own undo step schedules an autosave, so a partial recovery lost every
+// waiting panel's label, crop and note 2.5 s later with nothing done by the user.
+function _waitingRecord(p, mode){
+  const r=JSON.parse(JSON.stringify(p.rec));
+  if(mode!=='bundle'){ delete r.src; delete r.svgSource; (r.channels||[]).forEach(c=>{ if(c) delete c.src; }); }
+  if(mode==='share'){
+    for(const k of _PANEL_FROM_FILE) if(!_PANEL_IDENTITY.has(k)) delete r[k];
+    delete r.gelAnalysis; r.channels=[];
+  }
+  return r;
+}
+// images[] as records, with each waiting panel's record in the cell it waits in.
+function _panelRecords(mode){
+  const out=images.map(im=>_panelRecord(im, mode));
+  _pendingPanels.forEach(p=>{
+    if(p.slot<out.length && out[p.slot]) return;      // its cell was filled meanwhile
+    while(out.length<p.slot) out.push(null);
+    out[p.slot]=_waitingRecord(p, mode);
+  });
+  return out;
+}
+// A waiting panel holds an empty cell, and a grid edit before it — a cell removed,
+// inserted or duplicated, two panels swapped, the hidden ones deleted — has to move it
+// with its neighbours, as it moves a panel. It used to keep the slot number it was
+// loaded with, so the file dropped later went into the wrong cell or past the end of
+// the grid. While `fn` edits images[], each waiting cell holds a marker; afterwards the
+// record takes its marker's new place, and a record whose cell was removed is forgotten
+// with it — it used to linger and hand its settings to the next unrelated file.
+let _waitDepth=0;
+const _isWaitMark=v=>!!(v&&v._waitMark);
+function _withWaiting(fn){
+  if(_waitDepth || !_pendingPanels.length) return fn();
+  const marks=new Map();
+  _pendingPanels.forEach(p=>{
+    if(p.slot<images.length && images[p.slot]!==null) return;
+    while(images.length<=p.slot) images.push(null);
+    const m={_waitMark:p}; images[p.slot]=m; marks.set(p,m);
+  });
+  _waitDepth++;
+  try{ return fn(); }
+  finally{
+    _waitDepth--;
+    const gone=[];
+    marks.forEach((m,p)=>{ const i=images.indexOf(m); if(i<0) gone.push(p); else p.slot=i; });
+    for(let i=0;i<images.length;i++) if(_isWaitMark(images[i])) images[i]=null;
+    gone.forEach(_forgetWaiting);
+  }
+}
+// Drop a waiting record, and the linked insets that could only ever come back with it.
+function _forgetWaiting(p){
+  const i=_pendingPanels.indexOf(p); if(i>=0) _pendingPanels.splice(i,1);
+  if(!p.inset && p.rec && p.rec.id!=null)
+    _pendingPanels.filter(q=>q.inset&&q.rec&&q.rec.insetOf===p.rec.id).forEach(_forgetWaiting);
+}
+const _waitingAt=idx=>_pendingPanels.find(p=>p.slot===idx)||null;
+// Records that share one id — the old Duplicate row wrote such pairs — are split here,
+// before anything binds by id. The split used to happen later, when the list was
+// rebuilt: the id stayed on the first record, so an inset of the SECOND panel re-bound
+// to the first and showed the other image while still citing its own file. Each inset is
+// now kept on the record it was cut from — the one whose file name it carries — and the
+// first record otherwise, which is the panel the saving build itself resolved the id to
+// (a splice marker therefore stays where it was). Returns a new list; records that
+// change are copies.
+function _splitSharedIds(list){
+  const at=new Map();
+  list.forEach((d,i)=>{ if(d&&d.id!=null){ if(!at.has(d.id)) at.set(d.id,[]); at.get(d.id).push(i); } });
+  const out=list.slice(), taken=new Set(at.keys());
+  for(const [id, slots] of at){
+    if(slots.length<2) continue;
+    const ids=slots.map((s,k)=>{ if(!k) return id; let n; do{ n=Date.now()+Math.random(); }while(taken.has(n)); taken.add(n); return n; });
+    slots.forEach((s,k)=>{ if(k) out[s]={...out[s], id:ids[k]}; });
+    out.forEach((d,i)=>{
+      if(!d||d.insetOf!==id||slots.includes(i)) return;
+      const k=slots.findIndex(s=>list[s].name!=null&&list[s].name===d.name);
+      if(k>0) out[i]={...d, insetOf:ids[k]};
+    });
+  }
+  return out;
 }
 // A saved record as a live panel (no pixels yet). Files from before panels were saved
 // with their id get one, so an inset can bind to them from now on.
@@ -15612,7 +15729,11 @@ function _placeInSlot(im, slot){
 function _fillPendingPanel(newImg){
   const free=_pendingPanels.filter(p=>!p.inset);
   if(!free.length) return false;
-  const p=free.find(q=>q.rec&&q.rec.name===newImg.name)||free[0];
+  // By file name AND page: the pages of one TIFF share its name. A page no record asks
+  // for is a panel of its own, not the next record that happens to carry its name.
+  const same=q=>q.rec&&q.rec.name===newImg.name;
+  let p=free.find(q=>same(q)&&(q.rec.srcPage||0)===(newImg.srcPage||0));
+  if(!p){ if(free.some(same)) return false; p=free[0]; }
   _pendingPanels.splice(_pendingPanels.indexOf(p),1);
   const rec=p.rec, fromFile={};
   _PANEL_FROM_FILE.forEach(k=>{ fromFile[k]=newImg[k]; });
@@ -15631,6 +15752,9 @@ function _fillPendingPanel(newImg){
     _placeInSlot(_panelFromRecord(q.rec), q.slot);
   });
   syncLinkedInsets();
+  // A cell inserted before it can have moved it past the last row. Only then: a figure
+  // that already had a panel past the grid when it was saved comes back as it was.
+  if(layoutMode!=='freeform' && !newImg.excluded && !_gridPlacements().some(q=>q.im===newImg)) _growGridToFit();
   const left=_pendingPanels.filter(q=>!q.inset).length;
   const who=newImg.label?`panel ${newImg.label}`:'its saved panel';
   if(rec.name && rec.name!==newImg.name) toast(`"${newImg.name}" took ${who}'s place — that panel was saved from "${rec.name}"`,'warn');
@@ -15661,6 +15785,8 @@ function _resetFigureState(opts){
   if(typeof _genText!=='undefined'){ _genText.caption=null; _genText.methods=null; }
   _figAltText='';
   _pendingPanels=[];
+  // A style file applied to the panels on screen is not a new figure; its log goes on.
+  if(!opts.keepImages) reproLog=[];
   selectedPanel=-1; selectedAnnotation=-1; selectedPanelAnn=null; selectedElems.clear();
   if(typeof hideAnnFloat==='function') hideAnnFloat();
   resetAxisLabels([], []);
@@ -15701,7 +15827,7 @@ function serializeSession(bundleImages, mode){
       colGaps, rowGaps, advancedSpacing },
     style:{ figGroups:JSON.parse(JSON.stringify(figGroups)) },
     // An empty slot is saved as null so a blank cell keeps its place in the grid.
-    images:images.map(im=>_panelRecord(im, pmode)),
+    images:_panelRecords(pmode),
     annotations,
     measurements,
     notes:document.getElementById('fig-notes')?.value||'',
@@ -15791,8 +15917,9 @@ function applySession(s,_opts){
         _normalizeElemIds(freeformElements);   // legacy numeric ids → strings, refs remapped
       }
       if(Array.isArray(s.images)){
-        const byId=new Map(); s.images.forEach(d=>{ if(d&&d.id!=null) byId.set(d.id,d); });
-        images=s.images.map((d,i)=>{
+        const recs=_splitSharedIds(s.images);
+        const byId=new Map(); recs.forEach(d=>{ if(d&&d.id!=null) byId.set(d.id,d); });
+        images=recs.map((d,i)=>{
           if(!d) return null;                          // a blank cell keeps its place
           const im=_panelFromRecord(d);
           if(d.src){
@@ -15814,7 +15941,7 @@ function applySession(s,_opts){
         const waiting=_pendingPanels.filter(p=>!p.inset);
         if(waiting.length && _opts.origin!=='share'){
           const why=_opts.origin==='autosave'
-            ? 'Browser storage could not hold their pixels, so the autosave kept each panel’s settings but not its image.'
+            ? 'Browser storage could not hold their pixels (or the panel was still waiting for its file when the copy was made), so the autosave kept each panel’s settings but not its image.'
             : 'This file has each panel’s settings but not its image (it was saved as settings only).';
           showInfoModal(`${waiting.length} panel${waiting.length>1?'s':''} need${waiting.length>1?'':'s'} the image file again`,
             `<p style="font-size:11px;margin-bottom:8px">${why}</p>
@@ -16883,7 +17010,7 @@ function insertBlankCell(){
   if(layoutMode==='freeform'){ toast('Blank cells apply to the grid','warn'); return; }
   pushUndo();
   const at=(selectedPanel>=0&&selectedPanel<images.length)?selectedPanel+1:images.length;
-  images.splice(at,0,null);
+  _withWaiting(()=>images.splice(at,0,null));
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('insertBlankCell',{slot:at+1});
   toast(`Blank cell inserted at slot ${at+1} — remove it from the image list`,'ok');
@@ -16928,7 +17055,7 @@ function projectTickedPanels(mode){
     // What it is, as state, so the Methods paragraph can say so without parsing a note
     // the author is free to rewrite.
     p._projection={mode, n:sel.length};
-    images.splice(sel[sel.length-1]+1,0,p);
+    _withWaiting(()=>images.splice(sel[sel.length-1]+1,0,p));
     renderImgList(); renderMiniGrid(); scheduleRender(0);
     logAction('projectPanels',{mode,panels:sel.length,from:labels});
     toast(`${mode==='max'?'Max':'Mean'} projection of ${sel.length} panels added as ${formatLabel(p.label)}`,'ok');
@@ -16983,7 +17110,7 @@ function mergeTickedPanels(){
   const fresh=nextLabel();
   if(base.label){ p.label=base.label; base.label=fresh; } else p.label=fresh;
   sel.forEach(i=>{ images[i].excluded=true; });
-  images.splice(sel[sel.length-1]+1,0,p);
+  _withWaiting(()=>images.splice(sel[sel.length-1]+1,0,p));
   document.querySelectorAll('#img-list .panel-pick:checked').forEach(cb=>{ cb.checked=false; });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('mergeTicked',{from:labels, into:formatLabel(p.label)});
@@ -17017,7 +17144,7 @@ function deleteHiddenPanels(){
     'They are removed from the session. Undo still works, but a saved file written afterwards will not contain them.',
     ()=>{
       pushUndo();
-      images=images.filter(im=>!(im&&im.excluded));
+      _withWaiting(()=>{ images=images.filter(im=>!(im&&im.excluded)); });
       renderImgList(); renderMiniGrid(); onLayoutChange();
       toast(`${n} hidden panel${n===1?'':'s'} deleted`,'ok');
     });
@@ -20504,12 +20631,20 @@ const BUILTIN_TEMPLATES={
   singlecol:  {mode:'grid',cols:1,rows:4,panelW:400,panelH:280,gapH:0,gapV:6,mTop:30,mLeft:50},
 };
 
+// A built-in template is one undo step and replaces the spacing as a saved one does
+// (loadTemplate): it used to record no step, so Ctrl+Z skipped it and undid the edit
+// before it, and it left the per-gutter overrides in place, so its own gaps did nothing.
 function applyTemplate(name){
   const t=BUILTIN_TEMPLATES[name]; if(!t) return;
+  pushUndo();
   if(t.mode==='grid'){
     document.getElementById('layout-mode').value='grid'; setLayoutMode('grid');
     sv('cols',t.cols); sv('rows',t.rows); sv('panel-w',t.panelW); sv('panel-h',t.panelH);
     sv('gap-h',t.gapH); sv('gap-v',t.gapV); sv('m-top',t.mTop); sv('m-left',t.mLeft);
+    colGaps=null; rowGaps=null; advancedSpacing=false;
+    const asEl=document.getElementById('advanced-spacing'); if(asEl) asEl.checked=false;
+    sc('auto-row-h',!!t.autoRowH);
+    sv('hidden-gap',_hiddenGapFrom(t.hiddenGap, null));
   }
   onLayoutChange(); scheduleRender(0);
   toast(`Template applied: ${name}`,'ok');
@@ -22627,12 +22762,16 @@ function openS1Dialog(){
 
 function exportMeasurements(){
   if(!measurements.length){ toast('No measurements yet','warn'); return; }
-  const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Line Values']];
+  // A value of 0 is a value: `m.minV||''` wrote a black region's Min and Max, and a
+  // measurement at x = 0, as empty cells. A count's result — the number of objects, at
+  // the threshold it used — had no column at all, so its row carried only the area.
+  const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values']];
   measurements.forEach(m=>{
-    rows.push([m.type,m.label,m.source||'8-bit display',m.x||'',m.y||'',m.w||'',m.h||'',
-      m.meanGray||'',m.minV||'',m.maxV||'',m.intDens||'',
-      m.rawMean||'',m.rawMin||'',m.rawMax||'',m.rawSD||'',m.rawIntDens||'',
-      m.area||'',m.areaUm||'',m.values||'']);
+    const v=k=>m[k]??'';
+    rows.push([m.type,m.label,m.source||'8-bit display',v('x'),v('y'),v('w'),v('h'),
+      v('meanGray'),v('minV'),v('maxV'),v('intDens'),
+      v('rawMean'),v('rawMin'),v('rawMax'),v('rawSD'),v('rawIntDens'),
+      v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'']);
   });
   const anyRaw=measurements.some(m=>/^raw /.test(m.source||''));
   const csv='# The "Measured on" column states, per row, which pixels produced the numbers.\n'
@@ -22667,7 +22806,10 @@ function autosaveNow(){
   const put=o=>localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(o));
   const s=serializeSession(true);
   let unstored=[];
-  try{ put({t, bundle:true, s}); }
+  // Panels still waiting for their file are in s as records without pixels; the copy is
+  // marked partial so the recovery bar says those files have to be dropped again.
+  const waiting=_pendingPanels.filter(p=>!p.inset).map(p=>(p.rec&&p.rec.name)||'(unnamed)');
+  try{ put(waiting.length?{t, bundle:'partial', unstored, waiting, s}:{t, bundle:true, s}); }
   catch(e){
     // Storage is full. Keep every panel's record and drop pixels, largest first, until
     // it fits. It used to fall back to settings-only for every image, and recovery then
@@ -22677,7 +22819,7 @@ function autosaveNow(){
     for(const [i] of order){
       const d=s.images[i]; delete d.src; delete d.svgSource; (d.channels||[]).forEach(c=>{ delete c.src; });
       unstored.push(d.name||'(unnamed)');
-      try{ put({t, bundle:'partial', unstored, s}); ok=true; break; }catch(e2){}
+      try{ put({t, bundle:'partial', unstored, waiting, s}); ok=true; break; }catch(e2){}
     }
     if(!ok){
       try{ const s2=serializeSession(false); unstored=s2.images.filter(Boolean).map(d=>d.name||'(unnamed)');
@@ -22718,7 +22860,9 @@ function checkAutosave(){
     padding:10px 18px;display:flex;gap:10px;align-items:center;z-index:9999;
     font-size:12px;font-family:var(--mono);box-shadow:0 4px 20px rgba(0,0,0,.4)`;
   const nU=Array.isArray(data.unstored)?data.unstored.length:0;
-  const note=data.bundle===true?'':(nU?` (${nU} image${nU>1?'s':''} too large to store — drop ${nU>1?'them':'it'} again after restoring)`:' (images not stored — re-drop)');
+  // Panels that were already waiting for their file when the copy was made.
+  const nW=(data.bundle!==false&&Array.isArray(data.waiting))?data.waiting.length:0, nA=nU+nW;
+  const note=data.bundle===true?'':(nA?` (${nA} image${nA>1?'s':''} ${nW?(nU?'not stored':'still to be dropped'):'too large to store'} — drop ${nA>1?'them':'it'} again after restoring)`:' (images not stored — re-drop)');
   bar.innerHTML=`<span>↺ Recover unsaved session from ${when}?${note}</span>
     <button class="btn btn-primary" style="padding:3px 10px">Restore</button>
     <button class="btn" style="padding:3px 10px">Dismiss</button>`;
@@ -22889,7 +23033,12 @@ function batchExportPanels(){
 // ═══════════════════════════════════════════════════════════════
 // REPRODUCIBILITY LOG
 // ═══════════════════════════════════════════════════════════════
-let reproLog=[];
+// One figure's steps. A figure boundary (_resetFigureState) starts it again, so the log
+// and the submission package describe the figure they ship with — they used to list
+// every earlier figure's imports, by file name, under the new figure's title. Opening
+// a session starts an empty log: the file does not carry one. `var` because
+// _resetFigureState can run before this line does.
+var reproLog=[];
 function logAction(type, params={}){
   reproLog.push({ts:new Date().toISOString(), action:type, ...params});
 }
@@ -23506,26 +23655,35 @@ async function exportMultiPagePDF(opts){
   const losslessEl = document.getElementById('pdf-multi-lossless');
   const lossless = opts.lossless != null ? !!opts.lossless : (losslessEl ? losslessEl.checked : true);
 
-  // Snapshot layout state
-  const origRows = gi('rows');
   const totalPages = Math.ceil(rows / rpp);
 
   // Render each page-worth of rows into its own export canvas and turn it into a
-  // PDF page straight away, while its labels and layout are still current.
+  // PDF page straight away, while its labels and layout are still current. The pages
+  // are cut from the figure as it was when the export began.
+  // Still by list position, rpp × cols entries a page, not by the grid rows that
+  // _gridPlacements lays out: a panel spanning rows can straddle a page break, and a
+  // page laid out on its own would then not match the figure.
+  const all = images.slice();
   const pages = [];
   for(let page = 0; page < totalPages; page++){
     const pageRows = Math.min(rpp, rows - page * rpp);
-    const pageImages = images.slice(page * rpp * cols, (page * rpp + pageRows) * cols);
+    const pageImages = all.slice(page * rpp * cols, (page * rpp + pageRows) * cols);
 
-    // Temporarily swap row count and images to re-render just this page.
-    // The restore MUST be in a finally: any throw between the swap and the restore
-    // (an over-large canvas, an OOM, a render error) used to leave images[] holding
-    // one page's slice and the user's other panels gone from the live session, with
-    // no undo entry for the swap.
-    const origImages = images.splice(0, images.length, ...pageImages);
+    // The page is drawn with images[] and the row count standing in for this page,
+    // and both are put back BEFORE the await below, in the same synchronous block. The
+    // swap used to span the await, so whatever ran meanwhile saw one page as the whole
+    // figure: the selection was forgotten, a Ctrl+Z put a one-page figure on the redo
+    // stack (Ctrl+Y then deleted half the panels) and an autosave stored one page.
+    // The restore MUST be in a finally: a throw between the swap and the restore (an
+    // over-large canvas, an OOM, a render error) used to leave images[] holding one
+    // page's slice.
+    const live = images, rowsEl = document.getElementById('rows'), liveRows = rowsEl.value;
+    const selIdx = _selIdx, selPid = _selPid;      // render() reads the selection, which re-resolves by id
+    let c, items, eff, ptPerUnit;
+    images = pageImages;
     _pageCtx = { rowOffset: page * rpp, seqOffset: page * rpp * cols };
     try{
-      document.getElementById('rows').value = pageRows;
+      rowsEl.value = pageRows;
       // render(), not onLayoutChange(): the latter rebuilds the row-label inputs for
       // the swapped row count, which threw away the user's labels for every row past
       // this page — permanently, since the restore then found nothing to restore.
@@ -23537,20 +23695,22 @@ async function exportMultiPagePDF(opts){
       // too small (83 mm instead of 261 mm at 300 DPI) and ignored the printed-width
       // target entirely. Typesettable labels are held out of the raster and laid
       // down as real text, exactly as _exportPDFWithText does for one page.
-      const c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
-      const items = figTextItems.slice();
+      c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
+      items = figTextItems.slice();
       // Page size from the resolution the page canvas ACTUALLY carries (the printed
       // width when one is set, the 60 MP-capped DPI when the cap fired) — the same
-      // number the single-page PDF puts in its /MediaBox.
-      const eff = c._effDpi || dpi;
-      const ptPerUnit = (c.width*72/eff)/(canvasLogicalW||c.width);
-      pages.push(await _pdfPageFor(c, eff, { lossless, textItems: items, ptPerUnit }));
+      // number the single-page PDF puts in its /MediaBox. Read here: the restoring
+      // render below sets canvasLogicalW back to the whole figure's.
+      eff = c._effDpi || dpi;
+      ptPerUnit = (c.width*72/eff)/(canvasLogicalW||c.width);
     } finally {
       _pageCtx = null;
-      images.splice(0, images.length, ...origImages);
-      document.getElementById('rows').value = origRows;
+      images = live;
+      rowsEl.value = liveRows;
+      _selIdx = selIdx; _selPid = selPid;
       render();
     }
+    pages.push(await _pdfPageFor(c, eff, { lossless, textItems: items, ptPerUnit }));
   }
   onLayoutChange();   // row count is back to the original, so the label inputs are kept
 
