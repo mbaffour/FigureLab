@@ -99,7 +99,10 @@ test('splitting with a blank cell in the grid does not throw', async ({ page }) 
   expect(r.threw).toBeNull();
   expect(r.nulls).toBe(1);                         // the blank cell is kept
   expect(new Set(r.labels).size).toBe(r.labels.length);
-  expect(r.labels).toEqual(['A', 'B', 'C', 'D']);
+  // Another panel is shown beside the split, so it keeps its letter (B) and the merge
+  // keeps its own (A); only the two new channel panels take letters, the free C and D.
+  // (This used to pin the whole figure re-lettered A–D, the R2-13 defect.)
+  expect(r.labels).toEqual(['C', 'D', 'A', 'B']);
   expect(errors).toEqual([]);
 });
 

@@ -40,13 +40,16 @@ test('an ROI over the letterbox never reports raw values from cropped-away pixel
     const map = _panelSourceMap(pb, images[0]);
     const ctx = document.getElementById('fig-canvas').getContext('2d');
     const gap = (pb.x + pb.w) - (map.dx + map.dw);
+    const n0 = measurements.length;
     measureAndShowROI(ctx, map.dx + map.dw + 4, map.dy + 5, Math.max(6, gap - 8), 20);
-    const m = measurements[measurements.length - 1];
-    return { source: m.source, gap, html: document.getElementById('roi-results').innerHTML };
+    return { added: measurements.length - n0, gap, html: document.getElementById('roi-results').innerHTML };
   });
   expect(r.gap).toBeGreaterThan(10);          // there really is a letterbox to click on
-  expect(r.source).toBe('8-bit display');     // NOT "raw 16-bit" — the fabricated reading
+  // NOT "raw 16-bit" — the fabricated reading — and since round 2 not the 8-bit display
+  // of the background either: a selection wholly off the picture measures nothing.
+  expect(r.added).toBe(0);
   expect(r.html).not.toContain('Raw mean');
+  expect(r.html).toContain('nothing was measured');
   expect(errors).toEqual([]);
 });
 
@@ -96,7 +99,10 @@ test('um2 is withheld when the panel cannot be mapped back to source pixels', as
     measureAndShowROI(ctx, map.dx + 2, map.dy + 2, 20, 20);
     const okUm = measurements[measurements.length - 1].areaUm;
     images[0].cropShape = 'circle'; render();   // a shaped crop has no exact rect inverse
-    measureAndShowROI(ctx, panelBounds[0].x + 20, panelBounds[0].y + 20, 20, 20);
+    // Inside the circle: its box's corners are background, and since round 2 a selection
+    // there measures nothing at all.
+    const pb = panelBounds[0];
+    measureAndShowROI(ctx, pb.ix + pb.iw / 2 - 10, pb.iy + pb.ih / 2 - 10, 20, 20);
     return { okUm, badUm: measurements[measurements.length - 1].areaUm,
              html: document.getElementById('roi-results').innerHTML };
   });

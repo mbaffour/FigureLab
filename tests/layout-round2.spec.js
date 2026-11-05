@@ -268,9 +268,11 @@ test('F11 importing more images than the grid holds grows the grid, and past the
   expect(a.drawn).toBe(8);
   expect(a.badge).toBe('8');
   expect(a.toasts.some(t => /grid.*3 × 3/i.test(t.m))).toBe(true);
-  // One Ctrl+Z takes back the last image and nothing it did not cause.
+  // One Ctrl+Z takes back the drop — all eight images and the row the grid grew for
+  // them — and nothing it did not cause. (It used to take back the last image only: a
+  // drop was one undo step per image, R2-08.)
   const u = await page.evaluate(() => { undo(); return { n: images.length, rows: gi('rows'), drawn: _figurePanels().length }; });
-  expect(u).toEqual({ n: 7, rows: 3, drawn: 7 });
+  expect(u).toEqual({ n: 0, rows: 2, drawn: 0 });
   // Past the 12-row cap the grid stops growing and the rest are named, not dropped silently.
   await page.evaluate(() => { images = []; sv('cols', 3); sv('rows', 2); onLayoutChange(); renderImgList(); });
   const b = await files(40);

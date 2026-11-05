@@ -2591,7 +2591,6 @@ let dragSrc         = null;
 let _dragFromHandle = false;   // true only when drag started from ⠿ handle
 let renderTimer = null;
 let activeTool  = 'none';
-let counterN    = 0;    // cell counter: number of marks placed so far
 
 // Annotation drawing state
 let annState = { drawing:false, x0:0, y0:0 };
@@ -3340,20 +3339,40 @@ async function addFiles(fileList){
   const all=Array.from(fileList);
   const pics=all.filter(f=>_fileKind(f)==='image'), data=all.filter(f=>_fileKind(f)!=='image');
   const holdMode = pics.length>0 && data.length>0 && layoutMode!=='freeform';
-  _gridGrowBatch++;
+  // The whole drop is one undo step (_importUndo). A nested call — a loader that hands
+  // files back to addFiles — stays inside the outer drop's step.
+  const outerStep=_importStep===null;
+  if(outerStep) _importStep='pending';
   try{
-    for(const f of pics){
-      try{ await _addOneFile(f); }catch(e){ /* each loader reports its own failure */ }
+    _gridGrowBatch++;
+    try{
+      for(const f of pics){
+        try{ await _addOneFile(f); }catch(e){ /* each loader reports its own failure */ }
+      }
+    } finally { if(--_gridGrowBatch===0) _flushGridGrowNote(); }
+    let charts=0, maps=0;
+    for(const f of data){
+      try{ if(await _addOneFile(f, {holdMode})) (_fileKind(f)==='seq' ? maps++ : charts++); }catch(e){}
     }
-  } finally { if(--_gridGrowBatch===0) _flushGridGrowNote(); }
-  let charts=0, maps=0;
-  for(const f of data){
-    try{ if(await _addOneFile(f, {holdMode})) (_fileKind(f)==='seq' ? maps++ : charts++); }catch(e){}
-  }
-  if(holdMode && charts+maps){
-    const what=[charts?`${charts} chart${charts>1?'s':''}`:'', maps?`${maps} gene map${maps>1?'s':''}`:''].filter(Boolean).join(' and ');
-    toast(`${pics.length} image${pics.length>1?'s':''} added to the grid; ${what} from the same drop ${charts+maps>1?'are':'is'} on the freeform canvas — switch Layout to Freeform to place ${charts+maps>1?'them':'it'}`,'ok');
-  }
+    if(holdMode && charts+maps){
+      const what=[charts?`${charts} chart${charts>1?'s':''}`:'', maps?`${maps} gene map${maps>1?'s':''}`:''].filter(Boolean).join(' and ');
+      toast(`${pics.length} image${pics.length>1?'s':''} added to the grid; ${what} from the same drop ${charts+maps>1?'are':'is'} on the freeform canvas — switch Layout to Freeform to place ${charts+maps>1?'them':'it'}`,'ok');
+    }
+  } finally { if(outerStep) _importStep=null; }
+}
+// One drop is one undo step. Every image used to record its own: a 70-page TIFF took
+// 70 presses of Ctrl+Z to take back, and with the history capped at 80 steps it pushed
+// most of the edits made before it out of reach. addFiles opens a step as 'pending';
+// the first panel or object the drop adds records the snapshot (taken before anything
+// in the drop changed the figure, so the grid growth is inside it too) and marks it
+// 'taken', and the rest add to that step. A drop where every file fails records
+// nothing. Outside a drop each import records its own step, as before — pasting one
+// image, or the crop-on-import editor committing one picture at a time.
+let _importStep=null;
+function _importUndo(){
+  if(_importStep==='taken'){ if(typeof scheduleAutosave==='function') scheduleAutosave(); return; }
+  pushUndo();
+  if(_importStep==='pending') _importStep='taken';
 }
 function _addOneFile(f, opts){
   return new Promise(done=>{
@@ -3562,7 +3581,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
       borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
       lblDX:0,lblDY:0,sbDX:0,sbDY:0};
-    pushUndo();
+    _importUndo();
     if(!cpg.srcPage && images.some(im=>im&&im.name===name&&!im.srcPage)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
     // A figure opened without its pixels (share link, settings-only file, oversized
     // autosave) puts the file into the panel saved for it. The share link used to apply
@@ -5864,14 +5883,6 @@ function splitChannelRow(srcIdx){
     channels:im.channels.map(c=>({...c})), _adjCache:undefined, _adjKey:undefined};
   parts.push(merge);
   images.splice(srcIdx,1,...parts);
-  // Letter what the reader sees, then the hidden panels, as relabelPanels does. The
-  // positional pass threw on a blank cell (a null slot), and beside hidden panels (the
-  // sources of a Merge channels) it lettered the visible row D, E, F.
-  let n=0;
-  images.forEach(p=>{ if(p&&!p.excluded) p.label=_letterLabel(n++); });
-  images.forEach(p=>{ if(p&&p.excluded) p.label=_letterLabel(n++); });
-  // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
-  const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
   // It is called splitChannelRow and its button promises "a row of separate
   // single-channel panels plus a merge" — and it never touched the grid. A 2x2 figure
   // stayed 2x2, and the toast sent you to Auto-arrange, which lays 3 panels out as 2x2,
@@ -5880,12 +5891,30 @@ function splitChannelRow(srcIdx){
   // When other panels are present, leave their layout alone and say so instead.
   const visible=images.filter(im2=>im2&&!im2.excluded);
   const madeRow = visible.length===parts.length;
+  // Letters. When the split row is the whole figure the reader sees, it is lettered
+  // A, B, C… along the row and the hidden panels after it, as relabelPanels does (the
+  // positional pass threw on a blank cell, and beside the hidden sources of a Merge
+  // channels it lettered the visible row D, E, F). When other panels are shown, they
+  // are the author's and keep their labels: the split used to re-letter the whole
+  // figure, so a WT and a KO beside the merge became A and B without a word. Then the
+  // merge — the panel that was there, same id — keeps its letter too, and only the new
+  // channel panels take letters, the first ones no other panel uses.
+  if(madeRow){
+    let n=0;
+    images.forEach(p=>{ if(p&&!p.excluded) p.label=_letterLabel(n++); });
+    images.forEach(p=>{ if(p&&p.excluded) p.label=_letterLabel(n++); });
+  } else {
+    parts.forEach(p=>{ if(p!==merge) p.label=null; });   // free the placeholder first
+    parts.forEach(p=>{ if(p!==merge) p.label=nextLabel(); });
+  }
+  // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
+  const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
   if(madeRow){ sv('cols',parts.length); sv('rows',1); onLayoutChange(); }
   renderImgList(); renderMiniGrid(); scheduleRender();
   logAction('splitChannels',{from:im.label,into:parts.length,row:madeRow});
   toast(madeRow
     ? `Split into a row of ${parts.length}: each channel, then the merge`
-    : `Split into ${parts.length} panels (channels + merge), named by channel — the other panels kept their places, so the grid was left as it is`,'ok');
+    : `Split into ${parts.length} panels (channels + merge), named by channel — the other panels kept their places and labels, so the grid was left as it is`,'ok');
 }
 
 // Gel/blot splice marker — a visible lane-divider line (journal integrity
@@ -7986,7 +8015,9 @@ function _gridPlacements(cols, rows){
     for(let dr=0;dr<rs;dr++) for(let dc=0;dc<cs;dc++) taken.add((r+dr)*cols+c+dc);
     // Shortened by another panel, not merely by the edge of the grid.
     const cut = cs<Math.min(wantCs,cols-c) || rs<Math.min(wantRs,rows-r);
-    out.push({r, c, cs, rs, seq, imgIdx, im, want: cut ? {cs:wantCs, rs:wantRs} : null});
+    // held: the panel this cell is drawn for, or — for the blank a hidden panel leaves —
+    // the hidden panel, so the row heights can keep its height as well as its columns.
+    out.push({r, c, cs, rs, seq, imgIdx, im, held, want: cut ? {cs:wantCs, rs:wantRs} : null});
     seq++;
   }
   out.unplaced=Math.max(0, order.length-seq);
@@ -7999,15 +8030,22 @@ function _gridPlacements(cols, rows){
 function autoRowHeights(rows, cols, pw, ph, gH, gV){
   const H=new Array(rows).fill(0);
   const spans=[];
-  for(const {r, c, cs, rs, im} of _gridPlacements(cols, rows)){
+  for(const {r, c, cs, rs, im, held} of _gridPlacements(cols, rows)){
     // A cell with no image has no ink to hold the row open. Pinning it to ph meant any
     // ragged last row (five blots in a 3 x 2 grid) and any row with an inserted blank
     // kept exactly the dead space this option exists to remove. A row made only of
     // empty cells still falls back to ph through H[r]||ph below.
-    if(!im) continue;
+    // The blank a hidden panel leaves ("Hidden panels leave a gap") is the exception: it
+    // holds its rows at the height the panel takes when shown. It used to count as an
+    // empty cell, so with rows hugging the gap kept the hidden panel's columns but not
+    // its height — hiding a tall panel shrank the rows it spanned and every panel below
+    // moved up, the very move the gap exists to prevent. Now hiding a panel in gap mode
+    // moves nothing, with or without rows hugging.
+    const p=im||held;
+    if(!p) continue;
     const apw=cs*pw+spanGapsW(c,cs,gH);
     const aph=rs*ph+spanGapsH(r,rs,gV);
-    const need=_panelOuterH(im, apw, aph);
+    const need=_panelOuterH(p, apw, aph);
     if(rs>1){ spans.push({r,rs,need}); continue; }  // measured after the single rows settle
     H[r]=Math.max(H[r], need);
   }
@@ -11106,7 +11144,7 @@ function setTool(tool){
   // Counter display
   const cntDisp=document.getElementById('counter-display');
   if(cntDisp) cntDisp.style.display=(tool==='counter')?'inline-block':'none';
-  if(tool==='counter') counterN=0;
+  if(tool==='counter') _syncCounterChip();
   // Cell count threshold row
   const ctr=document.getElementById('count-thresh-row');
   if(ctr) ctr.style.display=(tool==='measure-count')?'flex':'none';
@@ -11490,6 +11528,9 @@ const _isBoundary = st => !!(st.length && st[st.length-1].fig);
 function undo(){
   _flushPendingUndo();
   if(!undoStack.length){ toast('Nothing to undo','warn'); return; }
+  // Ctrl+Z while a drop is still arriving takes back what came so far; the rest of the
+  // drop then starts a step of its own rather than joining one that is gone.
+  if(_importStep==='taken') _importStep='pending';
   redoStack.push(snapshotState({boundary:_isBoundary(undoStack)}));
   restoreState(undoStack.pop());
   toast(`Undo (${undoStack.length} left)`,'ok');
@@ -11500,6 +11541,7 @@ function redo(){
   // it ends the redo history.
   _flushPendingUndo();
   if(!redoStack.length){ toast('Nothing to redo','warn'); return; }
+  if(_importStep==='taken') _importStep='pending';
   undoStack.push(snapshotState({boundary:_isBoundary(redoStack)}));
   restoreState(redoStack.pop());
   toast('Redo','ok');
@@ -12222,12 +12264,9 @@ annCanvas.addEventListener('mousedown', e=>{
       return;
     }
     if(activeTool==='counter'){
-      counterN++;
-      const cntDisp=document.getElementById('counter-display');
-      if(cntDisp) cntDisp.textContent=`Count: ${counterN}`;
       pushUndo();
-      annotations.push({type:'counter', xf:x/W, yf:y/H, n:counterN, color:gv('ann-color'), width:2});
-      renderAnnotationList(); scheduleRender(0);
+      annotations.push({type:'counter', xf:x/W, yf:y/H, n:_counterNext(), color:gv('ann-color'), width:2});
+      renderAnnotationList(); scheduleRender(0);   // renderAnnotationList updates the chip
       return;
     }
     annState={drawing:true,x0:x,y0:y};
@@ -13074,7 +13113,22 @@ function drawShape(ctx, type, x1,y1,x2,y2, color, width, annObj){
   }
 }
 
+// The Counter's number is the marks on the figure, not a running total. It was a
+// global that only went up: after Ctrl+Z the chip still said "Count: 3" over two marks
+// and the next mark was numbered 4, and picking the tool again restarted it at 1 over
+// the marks already there (1, 2, 4, 1). The marks are figure-level annotations, one
+// series per figure, so the chip counts them and a new mark takes the highest number
+// plus one: undo, redo, deleting a mark and re-selecting the tool all agree with what
+// is drawn, and no number is used twice. Deleting mark 2 of 3 leaves 1 and 3 and a
+// count of 2; the next mark is 4.
+function _counterMarks(){ return annotations.filter(a=>a&&a.type==='counter'); }
+function _counterNext(){ return _counterMarks().reduce((m,a)=>Math.max(m,+a.n||0),0)+1; }
+function _syncCounterChip(){
+  const el=document.getElementById('counter-display');
+  if(el) el.textContent=`Count: ${_counterMarks().length}`;
+}
 function renderAnnotationList(){
+  _syncCounterChip();
   // Count includes panel annotations
   const panelAnnCount = images.reduce((s,im)=>s+(im?.panelAnns?.length||0),0);
   document.getElementById('ann-count').textContent=annotations.length+panelAnnCount;
@@ -17115,7 +17169,7 @@ function ungroupSelectedElems(){
 }
 
 function addFreeformElement(props){
-  pushUndo();
+  _importUndo();   // an object added by a drop shares the drop's one step
   freeformElements.push({
     id:_uidElem(),
     type:'rect', x:100, y:100, w:200, h:200,
@@ -21939,28 +21993,87 @@ function _fmtRaw(v,raw){ return raw.format===3 ? (+v).toPrecision(6) : (+v).toFi
 
 // The measurement context for a figure-canvas point: panel, exact source mapping
 // (when available), and whether raw samples can be read through it.
-function _measureCtx(fx,fy){
-  const hit=_measurePanelAt(fx,fy);
+function _measureCtx(fx,fy){ return _measureCtxOf(_measurePanelAt(fx,fy)); }
+function _measureCtxOf(hit){
   if(!hit) return {pb:null,im:null,map:null,raw:null};
   const map=_panelSourceMap(hit.pb,hit.im);
   const raw=(map && hit.im.raw && hit.im.raw.data && hit.im.raw.w===(hit.im.img||hit.im._imgEl||{}).naturalWidth) ? hit.im.raw : null;
   return {pb:hit.pb, im:hit.im, map, raw};
 }
+// The part of an ROI or Count selection that lies on a panel's picture.
+//
+// A grid cell is larger than the picture contain-fitted into it, and the bars around
+// the picture are the figure's background. The display path read every pixel of the
+// drag, bars included: a 100 x 50 black image with one white disc, dragged over from
+// cell edge to cell edge, measured a mean of 130 instead of about 10, an area of
+// 9604 µm² for a 5000 µm² image, and counted 3 objects — the disc and the two white
+// bars. Only the raw path clipped, and only to the crop window. Now both paths measure
+// the selection cut to the drawn picture (the box render() records on panelBounds as
+// ix/iy/iw/ih, which is the crop as drawn, turned with the panel), and a circle or
+// ellipse crop or a free turn also drop the corners of that box that are background.
+// The panel is the one the selection covers most, not the one under its top-left
+// corner. Returns null when the selection is over no panel at all (measured as drawn,
+// as before), {empty:true} when it touches the cell but not the picture.
+function _measureClip(rx,ry,rw,rh){
+  let best=null, bestA=0;
+  for(const pb of panelBounds){
+    const im = layoutMode==='freeform' ? freeformElements[pb.idx] : images[pb.idx];
+    if(!im) continue;
+    const a=Math.max(0,Math.min(rx+rw,pb.x+pb.w)-Math.max(rx,pb.x))*Math.max(0,Math.min(ry+rh,pb.y+pb.h)-Math.max(ry,pb.y));
+    if(a>bestA){ bestA=a; best={pb,im}; }
+  }
+  if(!best) return null;
+  const {pb,im}=best;
+  let bx,by,bw,bh;
+  if(layoutMode==='freeform'){ bx=pb.x; by=pb.y; bw=pb.w; bh=pb.h; }   // freeform stretches the picture to its box
+  else if(pb.iw>0&&pb.ih>0){ bx=pb.ix; by=pb.iy; bw=pb.iw; bh=pb.ih; }
+  else return {pb, im, empty:true};                                      // nothing drawn in this cell
+  const x0=Math.max(rx,bx), y0=Math.max(ry,by), x1=Math.min(rx+rw,bx+bw), y1=Math.min(ry+rh,by+bh);
+  if(x1-x0<1||y1-y0<1) return {pb, im, empty:true};
+  const clipped = x0>rx+0.5 || y0>ry+0.5 || x1<rx+rw-0.5 || y1<ry+rh-0.5;
+  // A picture that does not fill its box: a shaped crop, or a turn that is not a
+  // quarter turn. on(fx,fy) says whether a figure point is on the picture.
+  let on=null;
+  if(layoutMode!=='freeform'){
+    const shape=im.cropShape||'rect', rot=(((im.rotate||0)%360)+360)%360;
+    const cx=bx+bw/2, cy=by+bh/2;
+    if(shape==='circle'){ const r=Math.min(bw,bh)/2; on=(fx,fy)=>Math.hypot(fx-cx,fy-cy)<=r; }
+    else if(shape!=='rect'){ on=(fx,fy)=>((fx-cx)/(bw/2))**2+((fy-cy)/(bh/2))**2<=1; }
+    else if(rot%90 && pb.dw>0 && pb.dh>0){
+      const t=-rot*Math.PI/180, c=Math.cos(t), s=Math.sin(t), ux=pb.dx+pb.dw/2, uy=pb.dy+pb.dh/2;
+      on=(fx,fy)=>{ const u=(fx-ux)*c-(fy-uy)*s, v=(fx-ux)*s+(fy-uy)*c; return Math.abs(u)<=pb.dw/2 && Math.abs(v)<=pb.dh/2; };
+    }
+  }
+  return {pb, im, x:x0, y:y0, w:x1-x0, h:y1-y0, clipped, on};
+}
+// What the results panel says when a selection missed the picture altogether.
+function _measureMissed(title){
+  const res=document.getElementById('roi-results');
+  res.className='show';
+  res.innerHTML=`<b>${title}</b><br><span style="color:var(--warn,#c98a00)">The selection lies on the background around the picture, not on the image — nothing was measured. Drag over the image itself.</span>`;
+  toast('Nothing measured — the selection is on the background around the picture, not on the image','warn');
+}
 function measureAndShowROI(ctx,rx,ry,rw,rh){
-  const data=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh))).data;
-  let sumR=0,sumG=0,sumB=0,minV=255,maxV=0;
-  const n=data.length/4;
+  const clip=_measureClip(rx,ry,rw,rh);
+  if(clip&&clip.empty){ _measureMissed('ROI Measurement'); return; }
+  if(clip){ rx=clip.x; ry=clip.y; rw=clip.w; rh=clip.h; }
+  const X0=Math.round(rx), Y0=Math.round(ry), RW=Math.max(1,Math.round(rw)), RH=Math.max(1,Math.round(rh));
+  const data=ctx.getImageData(X0,Y0,RW,RH).data;
+  let sumR=0,sumG=0,sumB=0,minV=255,maxV=0,n=0;
+  const on=clip&&clip.on;
   for(let i=0;i<data.length;i+=4){
+    if(on){ const k=i>>2; if(!on(X0+(k%RW)+0.5, Y0+Math.floor(k/RW)+0.5)) continue; }
     const v=(data[i]+data[i+1]+data[i+2])/3;
-    sumR+=data[i]; sumG+=data[i+1]; sumB+=data[i+2];
+    sumR+=data[i]; sumG+=data[i+1]; sumB+=data[i+2]; n++;
     if(v<minV)minV=v; if(v>maxV)maxV=v;
   }
+  if(!n){ _measureMissed('ROI Measurement'); return; }
   const meanR=sumR/n, meanG=sumG/n, meanB=sumB/n;
   const meanGray=(meanR+meanG+meanB)/3;
-  const area=rw*rh;
+  const area=rw*rh*(n/(data.length/4));   // a shaped or turned picture: only its own pixels
   const intDens=meanGray*area;
   // Panel, exact source mapping, and raw samples (when all three are available)
-  const {pb,im,map,raw}=_measureCtx(rx,ry);
+  const {pb,im,map,raw}=clip ? _measureCtxOf(clip) : _measureCtx(rx,ry);
   const umPerPx=im?.umPerPx||0;
   // With an exact mapping the ROI's area is known in SOURCE pixels, which is the
   // space µm/px is calibrated in. Without one there is NO honest conversion —
@@ -21982,6 +22095,8 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     // report the pixels actually summed, so the area and the sample count agree
     if(rawStat){ clipped=rawStat.n < Math.floor(srcArea)-1; srcArea=rawStat.n; }
   }
+  clipped = clipped || !!(clip&&clip.clipped) || (!!on && n<data.length/4);
+  const clipNote = clipped ? `<span style="color:var(--warn,#c98a00)">Selection extended past the panel image — only the ${rawStat?`${rawStat.n} source pixel(s)`:`${Math.round(srcArea!=null?srcArea:area)} ${srcArea!=null?'source':'figure'} px²`} on the picture were measured, not the background around it.</span><br>` : '';
   const areaUm=(umPerPx>0&&srcArea!=null)?(srcArea*umPerPx*umPerPx).toFixed(2):null;
   const noAreaUm=umPerPx>0&&srcArea==null;
 
@@ -21992,7 +22107,6 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     Raw min: ${_fmtRaw(rawStat.min,raw)} · max: ${_fmtRaw(rawStat.max,raw)} · SD: ${_fmtRaw(rawStat.sd,raw)}<br>
     Raw integrated density: ${rawStat.sum.toPrecision(8)}<br>
     ${rawStat.atFull?`<span style="color:var(--warn,#c98a00)">${(rawStat.atFull/rawStat.n*100).toFixed(1)}% of pixels are saturated at the sensor maximum</span><br>`:''}
-    ${clipped?`<span style="color:var(--warn,#c98a00)">Selection extended past the panel image — only the ${rawStat.n} pixel(s) inside it were measured.</span><br>`:''}
     <span style="color:var(--muted);font-size:10px">Display mean ${meanGray.toFixed(1)} · min ${minV.toFixed(0)} · max ${maxV.toFixed(0)} (8-bit)</span>
     <div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_RAW_MEASURE_NOTE}</div>` : `
     Mean intensity: ${meanGray.toFixed(1)} <span style="color:var(--muted)">(R:${meanR.toFixed(0)} G:${meanG.toFixed(0)} B:${meanB.toFixed(0)})</span><br>
@@ -22002,11 +22116,13 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
   res.innerHTML=`<b>ROI Measurement</b><br>
     Area: ${Math.round(srcArea!=null?srcArea:area)} ${srcArea!=null?'source':'figure'} px²${areaUm?` (${areaUm} µm²)`:''}<br>
     ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — this panel is rotated, flipped, shape-cropped or a channel merge, so figure pixels can't be mapped back to calibrated source pixels.</span><br>`:''}
-    ${rawHtml}`;
+    ${clipNote}${rawHtml}`;
 
   pushUndo();
+  // x/y/w/h are the region measured — the selection cut to the picture — and clipped
+  // records that the drag was larger.
   measurements.push({type:'roi',label:`ROI ${measurements.length+1}`,
-    x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
+    x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
     meanGray:meanGray.toFixed(2),minV,maxV,
     area:Math.round(srcArea!=null?srcArea:area),intDens:intDens.toFixed(0),areaUm,
     source:rawStat?`raw ${_rawDepth(raw)}`:'8-bit display',
@@ -22799,8 +22915,14 @@ function exportReproLog(){
 // ═══════════════════════════════════════════════════════════════
 function countCellsROI(ctx,rx,ry,rw,rh){
   const thresh=parseInt(document.getElementById('count-threshold').value)||128;
-  const {im,map,raw}=_measureCtx(rx,ry);
-  let W,H,mask,rawThresh=0,usedRaw=false,clipped=false;
+  // Cut to the picture first (_measureClip): the background bars around a letterboxed
+  // panel were thresholded with it, and white bars counted as objects.
+  const clip=_measureClip(rx,ry,rw,rh);
+  if(clip&&clip.empty){ _measureMissed('Cell Count'); return; }
+  if(clip){ rx=clip.x; ry=clip.y; rw=clip.w; rh=clip.h; }
+  const on=clip&&clip.on;
+  const {im,map,raw}=clip ? _measureCtxOf(clip) : _measureCtx(rx,ry);
+  let W,H,mask,rawThresh=0,usedRaw=false,clipped=!!(clip&&clip.clipped),inPx=0;
   if(raw){
     // Segment the native samples at the panel's own resolution. The slider is 0–255,
     // so scale it onto the raw range — the equivalent level is reported to the user.
@@ -22813,7 +22935,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     const y0=Math.max(ly0,Math.floor(Math.min(v0,v1))), y1=Math.min(ly1,Math.ceil(Math.max(v0,v1))-1);
     if(x1>=x0&&y1>=y0){
       W=x1-x0+1; H=y1-y0+1; usedRaw=true;
-      clipped = W*H < Math.floor((rw*map.kx)*(rh*map.ky))-1;
+      clipped = clipped || W*H < Math.floor((rw*map.kx)*(rh*map.ky))-1;
       rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1);
       mask=new Uint8Array(W*H);
       for(let y=0;y<H;y++) for(let x=0;x<W;x++)
@@ -22821,14 +22943,20 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     }
   }
   if(!usedRaw){
-    const idata=ctx.getImageData(Math.round(rx),Math.round(ry),Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
+    const X0=Math.round(rx), Y0=Math.round(ry);
+    const idata=ctx.getImageData(X0,Y0,Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
     const d=idata.data; W=idata.width; H=idata.height;
-    // Build binary mask (above threshold = foreground)
+    // Build binary mask (above threshold = foreground); a pixel off a shaped or turned
+    // picture is background, never foreground.
     mask=new Uint8Array(W*H);
     for(let i=0;i<d.length;i+=4){
+      const k=i/4;
+      if(on && !on(X0+(k%W)+0.5, Y0+Math.floor(k/W)+0.5)) continue;
+      inPx++;
       const gray=(d[i]+d[i+1]+d[i+2])/3;
-      mask[i/4]=gray>=thresh?1:0;
+      mask[k]=gray>=thresh?1:0;
     }
+    if(on){ if(!inPx){ _measureMissed('Cell Count'); return; } if(inPx<W*H) clipped=true; }
   }
   // Connected-component labeling (4-connectivity flood fill)
   const labels=new Int32Array(W*H);
@@ -22853,7 +22981,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
       }
     }
   }
-  const area=W*H;                          // pixels actually segmented (source px on the raw path)
+  const area=(!usedRaw&&on)?inPx:W*H;      // pixels actually segmented (source px on the raw path)
   const fgPx=mask.reduce((s,v)=>s+v,0);
   const umPerPx=im?.umPerPx||0;
   // µm/px is calibrated in SOURCE pixels — only convert when we segmented those.
@@ -22866,13 +22994,13 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${usedRaw?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
     ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — figure pixels can't be mapped back to calibrated source pixels for this panel.</span><br>`:''}
-    ${clipped?`<span style="color:var(--warn,#c98a00);font-size:10px">Selection extended past the panel image — only the visible part was counted.</span><br>`:''}
+    ${clipped?`<span style="color:var(--warn,#c98a00);font-size:10px">Selection extended past the panel image — only the part on the picture was counted, not the background around it.</span><br>`:''}
     <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
     ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
          :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
   pushUndo();
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
-    x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
+    x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
     count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',
     source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
   _renderMeasList();
