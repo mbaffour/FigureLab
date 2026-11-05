@@ -11455,7 +11455,9 @@ function applyLayoutSnapshot(o){
 function snapshotState(opts){
   const snap={
     pending: _pendingPanels.map(p=>({...p})),
-    images: images.map(cloneImageForUndo),
+    // A step recorded inside _withWaiting (a panel drag's swap) sees the waiting cells'
+    // markers; the step holds them as the empty cells they are.
+    images: images.map(im=>_isWaitMark(im)?null:cloneImageForUndo(im)),
     annotations: annotations.map(a=>({...a})),
     freeformElements: freeformElements.map(cloneElemForUndo),
     layout: captureLayout(),
@@ -15659,7 +15661,7 @@ function _panelRecords(mode){
 // record takes its marker's new place, and a record whose cell was removed is forgotten
 // with it — it used to linger and hand its settings to the next unrelated file.
 let _waitDepth=0;
-const _isWaitMark=v=>!!(v&&v._waitMark);
+function _isWaitMark(v){ return !!(v&&v._waitMark); }
 function _withWaiting(fn){
   if(_waitDepth || !_pendingPanels.length) return fn();
   const marks=new Map();

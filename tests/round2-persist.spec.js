@@ -10,7 +10,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
-const { loadApp, APP_URL } = require('./helpers');
+const { loadApp, APP_URL, gesture, panelCenter } = require('./helpers');
 
 const MULTI = fs.readFileSync(path.join(__dirname, 'fixtures', 'tiff', 'multipage.tif')).toString('base64');
 
@@ -150,6 +150,26 @@ test('a waiting panel follows its neighbours when a cell before it is removed or
   // Without the fix KO keeps slot 1 and fills the blank just inserted: [WT, KO, null, RES].
   expect(b.imgs).toEqual(['WT', null, 'KO', 'RES']);
   expect(b.drawn).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('dragging a panel past a waiting cell and undoing it leaves an empty cell, not a marker', async ({ page }) => {
+  const errors = await loadApp(page);
+  const S = await settingsFile(page);
+  await openWaiting(page, S);
+  await page.evaluate(() => render());
+  const from = await panelCenter(page, 0), to = await panelCenter(page, 2);
+  await gesture(page, 'drag', [from, [(from[0] + to[0]) / 2, from[1]], to]);      // WT onto RES, across KO's cell
+  const dragged = await page.evaluate(() => ({ imgs: images.map(i => i && i.name), waiting: _pendingPanels.map(p => p.slot) }));
+  expect(dragged).toEqual({ imgs: ['c.png', null, 'a.png'], waiting: [1] });
+  // The swap records its step inside the edit that holds the waiting cell's marker.
+  // Without the snapshot treating it as the empty cell it is, Ctrl+Z put a pixel-less
+  // marker object into the figure.
+  await page.evaluate(() => undo());
+  const undone = await page.evaluate(() => { render(); return { imgs: images.map(i => i && i.name), marker: images.some(i => i && i._waitMark), waiting: _pendingPanels.map(p => p.slot) }; });
+  expect(undone).toEqual({ imgs: ['a.png', null, 'c.png'], marker: false, waiting: [1] });
+  await commit(page, [{ name: 'b.png', fill: '#3c3' }]);
+  expect(await panels(page)).toEqual([['a.png', 'WT', 0], ['b.png', 'KO', 90], ['c.png', 'RES', 0]]);
   expect(errors).toEqual([]);
 });
 
