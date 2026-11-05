@@ -5989,7 +5989,44 @@ function _gelCropKey(im){
   const iw=s?(s.naturalWidth||s.width||0):0, ih=s?(s.naturalHeight||s.height||0):0;
   return [iw,ih,+im.cropT||0,+im.cropL||0,+im.cropB||0,+im.cropR||0,+im.cropAngle||0,im.cropShape||'rect'].join('|');
 }
-function _gelFresh(im){ return !!(im&&im.gelAnalysis&&im.gelAnalysis.cropKey===_gelCropKey(im)); }
+// The crop key cannot see a panel whose image was replaced by another of the same size:
+// the old numbers stayed "current", and one edit then mixed two images in one table. An
+// analysis also records a fingerprint of the bitmap inside its crop — always the bitmap,
+// which a saved session keeps, even when native samples were measured.
+const _gelFPCache=new WeakMap();
+function _gelFingerprint(im){
+  const src=im&&(im.img||im._imgEl); if(!src) return null;
+  const iw=src.naturalWidth||src.width||0, ih=src.naturalHeight||src.height||0;
+  if(!iw||!ih||src.complete===false) return null;
+  const key=_gelCropKey(im), hit=_gelFPCache.get(src);
+  if(hit&&hit.key===key) return hit.fp;
+  let fp=null;
+  try{
+    const g=_cropGeom(im), q=g.rotated?g.corners():[[g.sx,g.sy],[g.sx+g.sw,g.sy+g.sh]];
+    const bx0=Math.max(0,Math.floor(Math.min(...q.map(p=>p[0])))), by0=Math.max(0,Math.floor(Math.min(...q.map(p=>p[1]))));
+    const bx1=Math.min(iw,Math.ceil(Math.max(...q.map(p=>p[0])))), by1=Math.min(ih,Math.ceil(Math.max(...q.map(p=>p[1]))));
+    if(bx1>bx0&&by1>by0){
+      const bw=bx1-bx0, bh=by1-by0, c=document.createElement('canvas'); c.width=bw; c.height=bh;
+      const x=c.getContext('2d',{willReadFrequently:true}); x.imageSmoothingEnabled=false;
+      x.drawImage(src,bx0,by0,bw,bh,0,0,bw,bh);
+      const d=x.getImageData(0,0,bw,bh).data, n=bw*bh, step=Math.max(1,Math.floor(n/20011));
+      let h=2166136261>>>0; const mix=v=>{ h=Math.imul(h^v,16777619)>>>0; };
+      mix(iw); mix(ih); mix(bw); mix(bh);
+      for(let k=0;k<n;k+=step){ const o=k*4; mix(d[o]|(d[o+1]<<8)|(d[o+2]<<16)); }
+      fp=h.toString(36);
+    }
+  }catch(err){ fp=null; }
+  _gelFPCache.set(src,{key,fp});
+  return fp;
+}
+function _gelStaleWhy(im){
+  const a=im&&im.gelAnalysis; if(!a) return null;
+  if(a.cropKey!==_gelCropKey(im)) return 'crop';
+  if(a.fp!=null){ const fp=_gelFingerprint(im); if(fp!=null&&fp!==a.fp) return 'image'; }
+  return null;
+}
+function _gelFresh(im){ return !!(im&&im.gelAnalysis)&&!_gelStaleWhy(im); }
+function _gelStaleText(im){ return _gelStaleWhy(im)==='image'?"The panel's image was replaced since this analysis":'The crop changed since this analysis'; }
 
 // Where an exact pixel mapping is impossible, refuse rather than measure the wrong pixels.
 function _gelRefusal(im){
@@ -6045,7 +6082,7 @@ function _gelFrame(im){
   }
   // Where the data clips. Bands saturate toward one end of the range: light bands at
   // the ceiling, dark bands (a blot, Coomassie) at zero.
-  let full, clipHi, clipLo=0, clipNote='', sourceLabel, depth;
+  let full, clipHi, clipLo=0, clipNote='', clipNoteLo='', sourceLabel, depth;
   if(raw){
     const isF=raw.format===3;
     depth=_rawDepth(raw); sourceLabel=depth+' source samples';
@@ -6062,23 +6099,58 @@ function _gelFrame(im){
         clipHi=raw.max; clipNote=`${k}-bit ceiling (${raw.max}) inside a ${raw.bps}-bit file`; break; }
     }
   } else { full=255; clipHi=255; depth='8-bit'; sourceLabel='8-bit image pixels'; }
+  // A camera or an export can clip below the file's ceiling: 12-bit data scaled into 16
+  // bits tops out at 65520, an 8-bit export at 250. Clipping shows in the samples as a
+  // pile-up at the extreme value, far above the counts of the values just inside it,
+  // where an unclipped band thins out. Both ends are checked; each polarity reads its own.
+  if(!(raw&&raw.format===3)){
+    const ph=_gelPileUp(V,true), pl=_gelPileUp(V,false);
+    if(ph&&ph.v<clipHi){ clipHi=ph.v; clipNote=`a pile-up of ${ph.n} samples at ${ph.v}, below the ${depth} ceiling — clipped there`; }
+    if(pl&&pl.v>clipLo){ clipLo=pl.v; clipNoteLo=`a pile-up of ${pl.n} samples at ${pl.v}, above zero — clipped there`; }
+  }
   const fr={V,W,H,sx:g.sx,sy:g.sy,sw:g.sw,sh:g.sh,rotated:g.rotated,angle:(+im.cropAngle||0),
-    raw:!!raw, rawRef:raw, src, sourceLabel, depth, full, clipHi, clipLo, clipNote, colour};
+    raw:!!raw, rawRef:raw, src, sourceLabel, depth, full, clipHi, clipLo, clipNote, clipNoteLo, colour};
   if(_gelFrameCache.size>6) _gelFrameCache.clear();
   _gelFrameCache.set(key,fr);
   return fr;
 }
 
-// Polarity from the samples, not from the display's invert flag: the background is
-// the bulk of the image, so the median sits on it, and the bands are the longer tail.
+// The extreme value at one end of the samples, if it is a clip: at least 8 samples (and
+// 1 in 10 000) sit on it, four times as many as on the occupied values just inside it.
+function _gelPileUp(V,hi){
+  let ext=hi?-Infinity:Infinity, n=0;
+  for(let i=0;i<V.length;i++){ const v=V[i]; if(!(v===v)) continue; n++; if(hi?v>ext:v<ext) ext=v; }
+  if(!n||!isFinite(ext)) return null;
+  // Counts of the values within 2% of the range of the extreme.
+  let other=hi?Infinity:-Infinity; for(let i=0;i<V.length;i++){ const v=V[i]; if(v===v&&(hi?v<other:v>other)) other=v; }
+  const span=Math.max(1e-9,Math.abs(ext-other)*0.02), cnt=new Map();
+  for(let i=0;i<V.length;i++){ const v=V[i]; if(v===v&&Math.abs(v-ext)<=span) cnt.set(v,(cnt.get(v)||0)+1); }
+  const at=cnt.get(ext)||0;
+  const near=[...cnt.keys()].filter(v=>v!==ext).sort((x,y)=>hi?y-x:x-y).slice(0,3).map(v=>cnt.get(v));
+  const ref=near.length?near.reduce((s,c)=>s+c,0)/near.length:0;
+  return (at>=Math.max(8,1e-4*n)&&at>=4*ref)?{v:ext,n:at}:null;
+}
+
+// Polarity from the samples, not from the display's invert flag: the bands are the long
+// tail on one side of the background. Where the background is matters. The median sits
+// on it only while bands cover less than half the crop; a heavily loaded blot put the
+// median among the bands and was read as light on dark. The crop's border — above the
+// wells, below the front, beside the outer lanes — is background far more often, so it
+// casts the vote, and when it and the median disagree the guess is marked uncertain.
 function _gelGuessPolarity(fr){
-  const V=fr.V, step=Math.max(1,Math.floor(V.length/200000)), a=[];
+  const V=fr.V, W=fr.W, H=fr.H, step=Math.max(1,Math.floor(V.length/200000)), a=[];
   for(let i=0;i<V.length;i+=step){ const v=V[i]; if(v===v) a.push(v); }
-  if(!a.length) return {polarity:'dark',median:0,lo:0,hi:0};
+  if(!a.length) return {polarity:'dark',median:0,lo:0,hi:0,border:0,uncertain:true};
   a.sort((x,y)=>x-y);
   const q=f=>a[Math.min(a.length-1,Math.max(0,Math.floor(f*(a.length-1))))];
-  const med=q(0.5), lo=q(0.01), hi=q(0.99);
-  return {polarity:(med-lo)>(hi-med)?'dark':'light', median:med, lo, hi};
+  const med=q(0.5), lo=q(0.002), hi=q(0.998);
+  const bw=Math.max(2,Math.round(0.03*W)), bh=Math.max(2,Math.round(0.03*H)), ring=[];
+  for(let j=0;j<H;j++){ const edgeRow=j<bh||j>=H-bh;
+    for(let i=0;i<W;i++){ if(!edgeRow&&i>=bw&&i<W-bw) continue; const v=V[j*W+i]; if(v===v) ring.push(v); } }
+  const border=ring.length?_gelMedian(ring):med;
+  const vote=b=>(b-lo)>(hi-b)?'dark':'light';
+  const pol=vote(border), margin=Math.abs((border-lo)-(hi-border))/((hi-lo)||1);
+  return {polarity:pol, median:med, lo, hi, border, uncertain:vote(med)!==pol||margin<0.2};
 }
 // Signal that rises with the amount of protein / DNA, whichever way the image runs.
 function _gelSignal(fr,pol){
@@ -6126,76 +6198,201 @@ function _gelPeaks(a,minProm,minSep){
 }
 
 // Lanes from the column profile. Returns local column spans [c0,c1] (inclusive).
-function _gelColumnProfile(S,W,H){
+function _gelColumnProfile(S,W,H,rows){
   const p=new Float64Array(W);
-  for(let i=0;i<W;i++){ let s=0,c=0; for(let j=0;j<H;j++){ const v=S[j*W+i]; if(v===v){ s+=v; c++; } } p[i]=c?s/c:NaN; }
+  for(let i=0;i<W;i++){ let s=0,c=0; for(let j=0;j<H;j++){ if(rows&&!rows[j]) continue; const v=S[j*W+i]; if(v===v){ s+=v; c++; } } p[i]=c?s/c:NaN; }
   return _gelFillNaN(p);
 }
+// The rows that carry bands: their contrast across the columns stands well clear of the
+// rows that carry only background. A western's one band per lane is a few rows of a tall
+// crop, and averaging every row drowns the lanes in noise (a faint blot came back as
+// eight lanes, or none). A ramp or a scratch adds the same contrast to every row, so the
+// median absorbs it. With fewer than three such rows (smears, a total-protein stain) the
+// whole height is used.
+function _gelBandRows(S,W,H){
+  const c=new Float64Array(H);
+  for(let j=0;j<H;j++){ let s=0,s2=0,n=0; for(let i=0;i<W;i++){ const v=S[j*W+i]; if(v===v){ s+=v; s2+=v*v; n++; } }
+    c[j]=n>1?(s2-s*s/n)/(n-1):0; }
+  const med=_gelMedian(c), mad=1.4826*_gelMedian(Array.from(c,v=>Math.abs(v-med)));
+  const sel=new Uint8Array(H); let k=0;
+  for(let j=0;j<H;j++) if(c[j]>med+Math.max(4*mad,1e-9)){ for(let d=-2;d<=2;d++) if(j+d>=0&&j+d<H) sel[j+d]=1; }
+  for(let j=0;j<H;j++) k+=sel[j];
+  return (k>=3&&k<H)?sel:null;
+}
+// Weighted least-squares polynomial (degree 1 or 2) on x scaled to [-1,1].
+function _gelPolyFit(y,keep,deg){
+  const n=y.length, m=deg+1, A=[], b=new Array(m).fill(0);
+  for(let r=0;r<m;r++) A.push(new Array(m).fill(0));
+  for(let i=0;i<n;i++){ if(!keep[i]) continue; const x=n>1?2*i/(n-1)-1:0, p=[1,x,x*x];
+    for(let r=0;r<m;r++){ b[r]+=p[r]*y[i]; for(let c=0;c<m;c++) A[r][c]+=p[r]*p[c]; } }
+  for(let c=0;c<m;c++){ let piv=c; for(let r=c+1;r<m;r++) if(Math.abs(A[r][c])>Math.abs(A[piv][c])) piv=r;
+    [A[c],A[piv]]=[A[piv],A[c]]; [b[c],b[piv]]=[b[piv],b[c]];
+    if(Math.abs(A[c][c])<1e-12) return null;
+    for(let r=0;r<m;r++){ if(r===c) continue; const f=A[r][c]/A[c][c]; for(let k=c;k<m;k++) A[r][k]-=f*A[c][k]; b[r]-=f*b[c]; } }
+  const co=b.map((v,i)=>v/A[i][i]), out=new Float64Array(n);
+  for(let i=0;i<n;i++){ const x=n>1?2*i/(n-1)-1:0; out[i]=co[0]+co[1]*x+(m>2?co[2]*x*x:0); }
+  return out;
+}
+// The background under the lanes: a smooth curve through the gaps between them, found by
+// refitting to the columns that sit within noise of the curve. Uneven illumination or a
+// stain gradient tilts the whole profile, and a lane is only a small step on that slope —
+// on the raw profile a 60-level ramp hid six lanes in one. A rolling minimum would follow
+// a ramp too, but not within half a window of the crop's edges.
+function _gelProfileBackground(prof,sig){
+  const n=prof.length, keep=new Uint8Array(n).fill(1);
+  let fit=null;
+  for(let it=0;it<25;it++){
+    let deg=1;
+    // A curve needs gaps across the crop to pin it; with gaps on one side only, a
+    // parabola would swing through the lanes it cannot see.
+    const thirds=[0,0,0]; for(let i=0;i<n;i++) if(keep[i]) thirds[Math.min(2,Math.floor(3*i/n))]++;
+    if(thirds.every(c=>c>=Math.max(3,0.03*n))) deg=2;
+    const f=_gelPolyFit(prof,keep,deg)||_gelPolyFit(prof,keep,0);
+    if(!f) break;
+    fit=f;
+    const res=Array.from(prof,(v,i)=>v-fit[i]);
+    let next=res.map(r=>r<=3*sig?1:0);
+    if(next.reduce((s,v)=>s+v,0)<Math.max(4,0.15*n)){
+      const cut=res.slice().sort((x,y)=>x-y)[Math.max(3,Math.floor(0.15*n))-1];
+      next=res.map(r=>r<=cut?1:0);
+    }
+    let same=true; for(let i=0;i<n;i++) if(next[i]!==keep[i]){ same=false; keep[i]=next[i]; }
+    if(same) break;
+  }
+  return fit||new Float64Array(n);
+}
+// Lanes are runs of the flattened profile that rise clear of the noise and fall back to
+// the background between them. A noise bump on a lane's flat top is not a lane (that
+// split one real lane in two); two touching lanes are split only where the valley between
+// them falls at least half way to the background. Runs much narrower than the lanes
+// beside them are a scratch or a dust line, set aside and reported, never numbered — and
+// never allowed to set the lane pitch.
 function _gelFindLanes(S,W,H,forceN){
-  const prof=_gelSmooth(_gelColumnProfile(S,W,H),Math.max(1,Math.round(W/300)));
-  let mn=Infinity,mx=-Infinity; for(const v of prof){ if(v<mn) mn=v; if(v>mx) mx=v; }
-  const range=mx-mn, noise=_gelNoise(prof);
-  const minW=Math.max(4,Math.round(W*0.02));
-  let lanes=[];
-  if(range>0){
-    const pk=_gelPeaks(prof,Math.max(0.08*range,4*noise),minW);
-    pk.forEach((p,k)=>{
-      const lo=k>0?pk[k-1].i:0, hi=k<pk.length-1?pk[k+1].i:W-1;
-      let lv=p.i; for(let i=lo;i<=p.i;i++) if(prof[i]<prof[lv]) lv=i;
-      let rv=p.i; for(let i=p.i;i<=hi;i++) if(prof[i]<prof[rv]) rv=i;
-      // The lane edge is where the profile falls 85% of the way to the valley beside it,
-      // or the valley itself when two lanes touch.
-      const tl=prof[lv]+0.15*(p.v-prof[lv]), tr=prof[rv]+0.15*(p.v-prof[rv]);
-      let c0=p.i; while(c0>lv&&prof[c0-1]>tl) c0--;
-      let c1=p.i; while(c1<rv&&prof[c1+1]>tr) c1++;
-      if(c1-c0+1>=Math.max(3,minW/2)) lanes.push({c0,c1});
-    });
-    // An empty lane leaves no peak, and numbering would silently skip it. When the
-    // detected lanes keep a regular pitch and one gap is a whole multiple of it, the
-    // missing lanes are inferred there — and marked as inferred, never as detected.
-    if(lanes.length>=3&&!forceN){
-      const cs=lanes.map(L=>(L.c0+L.c1+1)/2), d=[];
-      for(let i=0;i<cs.length-1;i++) d.push(cs[i+1]-cs[i]);
-      const dmin=Math.min(...d), unit=_gelMedian(d.filter(x=>x<1.5*dmin));
-      const ks=d.map(x=>Math.round(x/unit));
-      const regular=d.every((x,i)=>ks[i]>=1&&ks[i]<=4&&Math.abs(x/unit-ks[i])<0.2);
-      if(regular&&ks.filter(k=>k===1).length>=2&&ks.some(k=>k>1)){
-        const lw=Math.round(_gelMedian(lanes.map(L=>L.c1-L.c0+1)));
-        const out=[];
-        lanes.forEach((L,i)=>{ out.push(L);
-          if(i<ks.length&&ks[i]>1) for(let m=1;m<ks[i];m++){
-            const c=cs[i]+m*d[i]/ks[i];
-            out.push({c0:Math.max(0,Math.round(c-lw/2)), c1:Math.min(W-1,Math.round(c+lw/2)-1), inferred:true}); } });
-        lanes=out;
+  const raw=_gelColumnProfile(S,W,H,_gelBandRows(S,W,H)), r=Math.max(1,Math.round(W/300));
+  const prof=_gelSmooth(raw,r);
+  // Noise of the unsmoothed profile, scaled to the smoothing: the noise of a smoothed
+  // profile measured from its own differences comes out far too small.
+  const sig=Math.max(1e-9,_gelNoise(raw)/Math.sqrt(2*r+1));
+  const bg=_gelProfileBackground(prof,sig);
+  const flat=new Float64Array(W); for(let i=0;i<W;i++) flat[i]=prof[i]-bg[i];
+  const info={pitch:null, rejected:[], inferredGap:0, inferredEnd:0, mode:forceN?(forceN===1?'whole':'forced'):'auto', noise:sig};
+  // Runs above twice the noise (a lane's noisy top must not dip out of its own run);
+  // only a run whose top clears six times the noise is kept, further down.
+  const lo=4*sig, floor=2*sig;
+  const runs=[];
+  for(let i=0;i<W;){ if(flat[i]>floor){ let j=i; while(j+1<W&&flat[j+1]>floor) j++; runs.push([i,j]); i=j+1; } else i++; }
+  // Split a run only at a deep valley between two tops.
+  const segs=[];
+  runs.forEach(([a,b])=>{
+    if(b-a<2){ segs.push([a,b]); return; }
+    const seg=flat.slice(a,b+1), pk=_gelPeaks(seg,lo,2);
+    if(pk.length<2){ segs.push([a,b]); return; }
+    let start=a, gTop=pk[0].v, gAt=pk[0].i;
+    for(let k=1;k<pk.length;k++){
+      let vi=gAt; for(let i=gAt;i<=pk[k].i;i++) if(seg[i]<seg[vi]) vi=i;
+      const low=Math.min(gTop,pk[k].v), valley=seg[vi];
+      if(valley<=0.5*low&&low-valley>=lo){ segs.push([start,a+vi]); start=a+vi+1; gTop=pk[k].v; gAt=pk[k].i; }
+      else if(pk[k].v>gTop){ gTop=pk[k].v; gAt=pk[k].i; }
+    }
+    segs.push([start,b]);
+  });
+  // Each segment's lane: from its top, out to where the profile falls to 15% of the top.
+  // A run whose top never clears six times the noise is noise, and is dropped unremarked.
+  let cand=segs.map(([a,b])=>{
+    const vals=Array.from(flat.slice(a,b+1)).sort((x,y)=>x-y), top=vals[Math.floor(0.9*(vals.length-1))];
+    let pi=a; for(let i=a;i<=b;i++) if(flat[i]>flat[pi]) pi=i;
+    const e=Math.max(0.15*top,2*sig);
+    let c0=pi; while(c0>a&&flat[c0-1]>e) c0--;
+    let c1=pi; while(c1<b&&flat[c1+1]>e) c1++;
+    return {c0,c1,top};
+  }).filter(L=>L.c1-L.c0+1>=3&&L.top>=6*sig);
+  // A rise into the crop's edge with no top of its own — a background that clips there,
+  // or a sliver of a lane the crop cuts — is not a lane that can be measured.
+  cand=cand.filter(L=>{
+    if(L.c0>0&&L.c1<W-1) return true;
+    const n=L.c1-L.c0+1, t=Math.max(1,Math.floor(n/3)), m=(a,b)=>{ let s=0; for(let i=a;i<b;i++) s+=flat[i]; return s/(b-a); };
+    const outer=L.c0===0?m(L.c0,L.c0+t):m(L.c1+1-t,L.c1+1), inner=L.c0===0?m(L.c1+1-t,L.c1+1):m(L.c0,L.c0+t);
+    if(outer>1.5*inner+lo){ info.rejected.push({c0:L.c0,c1:L.c1,why:'edge'}); return false; }
+    return true;
+  });
+  // Too narrow to be a lane beside the others: a scratch, a dust line, a ladder smudge.
+  if(cand.length){
+    const mw=_gelMedian(cand.map(L=>L.c1-L.c0+1));
+    cand=cand.filter(L=>{ if(L.c1-L.c0+1<0.4*mw){ info.rejected.push({c0:L.c0,c1:L.c1,why:'narrow'}); return false; } return true; });
+  }
+  // Too faint beside the others: a smear or a ripple in the gel, not a lane.
+  if(cand.length){
+    const hr=_gelMedian(cand.map(L=>L.top));
+    cand=cand.filter(L=>{ if(L.top<0.1*hr){ info.rejected.push({c0:L.c0,c1:L.c1,why:'faint'}); return false; } return true; });
+  }
+  let lanes=cand.map(L=>({c0:L.c0,c1:L.c1}));
+  // The lane pitch, from detected lanes only. Regular when every gap is a whole multiple
+  // of one unit and at least two neighbours sit one unit apart.
+  if(lanes.length>=3){
+    const cs=lanes.map(L=>(L.c0+L.c1+1)/2), d=[];
+    for(let i=0;i<cs.length-1;i++) d.push(cs[i+1]-cs[i]);
+    const dmin=Math.min(...d), unit0=_gelMedian(d.filter(x=>x<1.5*dmin));
+    const ks=d.map(x=>Math.round(x/unit0));
+    const regular=unit0>0&&d.every((x,i)=>ks[i]>=1&&ks[i]<=4&&Math.abs(x/unit0-ks[i])<0.2);
+    if(regular&&ks.filter(k=>k===1).length>=2){
+      const unit=d.reduce((s,v)=>s+v,0)/ks.reduce((s,v)=>s+v,0);
+      const lw=Math.round(_gelMedian(lanes.map(L=>L.c1-L.c0+1)));
+      const widthsOK=lanes.every(L=>Math.abs((L.c1-L.c0+1)-lw)<=Math.max(3,0.25*lw));
+      info.pitch=unit;
+      // An empty lane leaves no signal, and numbering would silently skip it: a gap that
+      // is a whole multiple of the pitch gets its missing lanes, marked inferred.
+      const out=[];
+      lanes.forEach((L,i)=>{ out.push(L);
+        if(i<ks.length&&ks[i]>1) for(let m=1;m<ks[i];m++){
+          const c=cs[i]+m*d[i]/ks[i];
+          out.push({c0:Math.max(0,Math.round(c-lw/2)), c1:Math.min(W-1,Math.round(c+lw/2)-1), inferred:true}); info.inferredGap++; } });
+      // Empty lanes at either end leave no gap to notice, and every lane after them would
+      // be renumbered. With a confident pitch and room for a whole lane inside the crop,
+      // they are inferred too — and said to be, since a loose crop's margin looks the same.
+      if(!forceN&&widthsOK){
+        const pre=[], post=[];
+        for(let c=cs[0]-unit;c-lw/2>=-0.5;c-=unit) pre.unshift({c0:Math.max(0,Math.round(c-lw/2)), c1:Math.round(c+lw/2)-1, inferred:true, end:true});
+        for(let c=cs[cs.length-1]+unit;c+lw/2<=W+0.5;c+=unit) post.push({c0:Math.round(c-lw/2), c1:Math.min(W-1,Math.round(c+lw/2)-1), inferred:true, end:true});
+        info.inferredEnd=pre.length+post.length;
+        lanes=pre.concat(out,post);
+      } else lanes=out;
+    }
+  }
+  if(!forceN) return {lanes,info};
+  const N=Math.max(1,forceN|0);
+  // One lane: the whole crop. A lane cropped to fill its panel has no edges to find, and
+  // fitting one narrower than the crop measured a sliver of it.
+  if(N===1) return {lanes:[{c0:0,c1:W-1}], info};
+  // A lane count the user gave: the N evenly pitched lanes that best fit the flattened
+  // profile — a comb whose teeth's mean signal, less the mean signal between them, is
+  // largest, searched over pitch, offset and tooth width. Empty lanes cost the fit
+  // nothing, so they keep their place. The profile is capped a little above a typical
+  // lane, so a dark scratch in a gap cannot drag a tooth onto itself.
+  const cap=cand.length?1.5*_gelMedian(cand.map(L=>L.top)):Math.max(...flat);
+  const Q=new Float64Array(W+1); for(let i=0;i<W;i++) Q[i+1]=Q[i]+Math.min(flat[i],cap);
+  const mean=(a,b)=>{ a=Math.max(0,Math.round(a)); b=Math.min(W,Math.round(b)); return b>a?(Q[b]-Q[a])/(b-a):0; };
+  const step=Math.max(0.25,W/1500);
+  let best=null;
+  const pMax=W/N, pMin=Math.max(4,W/(N*3));
+  for(let p=pMax;p>=pMin;p-=step){
+    for(let fw=0.4;fw<=0.951;fw+=0.05){
+      const w=Math.max(2,fw*p), span=(N-1)*p+w;
+      for(let o=0;o+span<=W+1e-9;o+=step){
+        let s=0;
+        for(let k=0;k<N;k++){ const a=o+k*p; s+=mean(a,a+w); if(k<N-1) s-=mean(a+w,a+p); }
+        if(!best||s>best.s) best={s,p,o,w};
       }
     }
   }
-  if(!forceN) return lanes;
-  // A lane count the user gave: the N evenly pitched lanes that best fit the profile —
-  // a comb of N teeth whose summed in-lane signal, minus the signal between them, is
-  // largest. Empty lanes cost the fit nothing, so they keep their place.
-  const N=Math.max(1,forceN|0);
-  const Q=new Float64Array(W+1); for(let i=0;i<W;i++) Q[i+1]=Q[i]+(prof[i]-mn);
-  const mean=(a,b)=>{ a=Math.max(0,Math.round(a)); b=Math.min(W,Math.round(b)); return b>a?(Q[b]-Q[a])/(b-a):0; };
-  const wDet=lanes.length?_gelMedian(lanes.map(L=>L.c1-L.c0+1)):0;
-  const step=Math.max(0.25,W/1500);
-  let best=null;
-  const pMax=W/N, pMin=N>1?Math.max(minW*1.2,W/(N*3)):pMax;
-  for(let p=pMax;p>=pMin;p-=step){
-    const w=N>1?Math.min(wDet>0?wDet:0.7*p,p-1):Math.min(wDet>0?wDet:W*0.9,W);
-    if(w<2) continue;
-    const span=(N-1)*p+w;
-    for(let o=0;o+span<=W+1e-9;o+=step){
-      let s=0;
-      for(let k=0;k<N;k++){ const a=o+k*p; s+=mean(a,a+w); if(k<N-1) s-=mean(a+w,a+p); }
-      if(!best||s>best.s) best={s,p,o,w};
-    }
-  }
-  if(!best) return lanes;
-  const out=[];
+  if(!best) return {lanes,info};
+  info.pitch=best.p;
+  // The fit lands on the smoothed profile's shoulders; each tooth is widened by that blur,
+  // as a detected lane's edges are, so no lane column is left out. A background column
+  // let in adds nothing once the background is subtracted.
+  const out=[], grow=Math.min(r+1,Math.max(0,(best.p-best.w-1)/2));
   for(let k=0;k<N;k++){ const a=best.o+k*best.p;
-    out.push({c0:Math.max(0,Math.round(a)), c1:Math.min(W-1,Math.round(a+best.w)-1)}); }
-  return out;
+    out.push({c0:Math.max(0,Math.round(a-grow)), c1:Math.min(W-1,Math.round(a+best.w+grow)-1)}); }
+  return {lanes:out, info};
 }
 
 // Rolling-ball-like background for a row profile: a morphological opening (rolling
@@ -6228,39 +6425,86 @@ function _gelLaneCols(a,L){ const fr=a.frame;
   return [Math.max(0,Math.round(L.x0-fr.sx)), Math.min(fr.W-1,Math.round(L.x1-fr.sx)-1)]; }
 function _gelLaneModel(a,ctx,L){
   const [c0,c1]=_gelLaneCols(a,L), fr=ctx.fr;
-  const R=_gelLaneProfile(ctx.S,fr.W,fr.H,c0,c1), B=_gelBaseline(R,a.baseline.window);
+  const R=_gelLaneProfile(ctx.S,fr.W,fr.H,c0,c1), B=_gelBaseline(R,a.baseline.window), sig=_gelNoise(R);
+  // A rolling minimum of a noisy profile sits below the background's mean by about one
+  // noise SD, and every row of a band then adds that gap times the lane width: a faint
+  // band came out 9–44% high. The gap is measured on the rows with no band (the rows
+  // within three SDs of the opening) and the background lifted by it — by no more than
+  // the noise could account for, so a real slope in the background is not mistaken for it.
+  const D0=[]; for(let i=0;i<R.length;i++){ const d=R[i]-B[i]; if(d<=3*sig) D0.push(d); }
+  const off=D0.length>=8?Math.max(0,Math.min(2.5*sig,_gelMedian(D0))):0;
+  for(let i=0;i<B.length;i++) B[i]+=off;
   const D=new Float64Array(R.length); for(let i=0;i<R.length;i++) D[i]=R[i]-B[i];
-  return {c0,c1,R,B,D,Ds:_gelSmooth(D,Math.max(1,Math.round(fr.H/150)))};
+  const inset=Math.floor((c1-c0+1)*0.175);
+  // Bands are found on a 3-row smoothing: a wider one turned a resolved doublet 7 px
+  // apart into one band and a shoulder.
+  // The flanks are walked on a 5-row smoothing, so noise on a faint band's flank does
+  // not end the band a row or two early.
+  return {c0,c1,R,B,D,Ds:_gelSmooth(D,1),Dw:_gelSmooth(D,2),sig,off,offSE:D0.length?1.25*sig/Math.sqrt(D0.length):0,
+    nc:Math.max(1,(c1-inset)-(c0+inset)+1)};
 }
 // Volume = Σ (signal − background) over the band's rows × the lane's columns, in source units.
 function _gelQuantBand(a,ctx,m,band){
   const fr=ctx.fr, W=fr.W, r0=Math.max(0,Math.round(band.y0-fr.sy)), r1=Math.min(fr.H-1,Math.round(band.y1-fr.sy)-1);
-  let vol=0, clipped=0, dw=0, dy=0;
+  let vol=0, clipped=0, dw=0, dy=0, outside=0, n=0;
   for(let r=r0;r<=r1;r++){
     const b=m.B[r];
     for(let c=m.c0;c<=m.c1;c++){
-      const s=ctx.S[r*W+c]; if(!(s===s)) continue;
-      vol+=s-b;
+      const s=ctx.S[r*W+c]; if(!(s===s)){ outside++; continue; }
+      vol+=s-b; n++;
       const v=fr.V[r*W+c];
       if(a.polarity==='light'?v>=fr.clipHi:v<=fr.clipLo) clipped++;
     }
     const d=Math.max(0,m.D[r]); dw+=d; dy+=d*(r+0.5);
   }
   band.volume=vol; band.clipped=clipped; band.saturated=clipped>0;
+  // A tilted crop can reach past the image: a band with samples out there is only part
+  // of a band, and is left out of every ratio as a saturated one is.
+  band.outside=outside; band.partial=outside>0;
+  // The volume's uncertainty from the noise alone: each sample's noise, and the
+  // background level's, which every sample of the band shares.
+  if(m.sig!=null){
+    const rows=r1-r0+1, cols=m.c1-m.c0+1, sp=m.sig*Math.sqrt(m.nc);
+    const se=Math.sqrt(sp*sp*n+Math.pow(rows*cols*(m.offSE||0),2));
+    band.se=se; band.nearNoise=!(Math.abs(vol)>10*se);
+  }
   band.yc=fr.sy+(dw>0?dy/dw:(r0+r1+1)/2);
   band.peak=Math.max(...Array.from(m.D.slice(r0,r1+1)));
   return band;
 }
-function _gelBandExtent(Ds,p,sig){
-  const n=Ds.length, cut=GEL_BAND_EDGE*Ds[p];
-  // Walk down each flank to 10% of the peak, or stop at the valley when the next band
-  // starts climbing out of it.
-  let j=p, mn=Ds[p], mi=p;
-  while(j>0){ const nv=Ds[j-1]; if(nv<=cut) break; if(nv>mn+2*sig){ j=mi; break; } j--; if(nv<mn){ mn=nv; mi=j; } }
+// Walk down each flank to 10% of the peak (or into the noise), stopping only at the
+// valley before another peak (lim0/lim1). A shoulder with no peak of its own is walked
+// through rather than left in no band — that dropped a doublet's smaller band — and the
+// band is marked as possibly two merged.
+function _gelBandExtent(Ds,p,sig,lim0,lim1){
+  const n=Ds.length, cut=Math.max(GEL_BAND_EDGE*Ds[p],2*sig);
+  lim0=lim0==null?0:lim0; lim1=lim1==null?n-1:lim1;
+  let j=p, mn=Ds[p], merged=false;
+  while(j>lim0){ const nv=Ds[j-1]; if(nv<=cut) break; if(nv>mn+3*sig) merged=true; j--; if(nv<mn) mn=nv; }
   const r0=j;
-  j=p; mn=Ds[p]; mi=p;
-  while(j<n-1){ const nv=Ds[j+1]; if(nv<=cut) break; if(nv>mn+2*sig){ j=mi; break; } j++; if(nv<mn){ mn=nv; mi=j; } }
-  return [r0,j];
+  j=p; mn=Ds[p];
+  while(j<lim1){ const nv=Ds[j+1]; if(nv<=cut) break; if(nv>mn+3*sig) merged=true; j++; if(nv<mn) mn=nv; }
+  // On a noisy flank the walk can stop a row or two early, cutting a few percent off the
+  // band at random. A band is near enough symmetric that the longer flank's reach is used
+  // on both sides (never past a neighbour): an extra background row adds only noise,
+  // since the background is subtracted at its mean.
+  const hw=Math.max(p-r0,j-p);
+  return [Math.max(lim0,p-hw),Math.min(lim1,p+hw),merged];
+}
+// Two bands closer than the eye resolves still leave two crowns: separate runs of
+// strongly negative curvature, where one band has one. Counted inside a band's rows;
+// the curvature noise is measured on the whole lane, which is mostly background.
+function _gelShoulders(m,r0,r1){
+  const Ds=m.Ds, n=Ds.length;
+  if(!m.d2){ m.d2=new Float64Array(n); for(let i=1;i<n-1;i++) m.d2[i]=Ds[i-1]-2*Ds[i]+Ds[i+1];
+    const med=_gelMedian(m.d2); m.d2sig=Math.max(1e-9,1.4826*_gelMedian(Array.from(m.d2,v=>Math.abs(v-med)))); }
+  let lobes=0, inLobe=false, sawPos=true;
+  for(let i=Math.max(1,r0);i<=Math.min(n-2,r1);i++){
+    const v=m.d2[i];
+    if(v<-4*m.d2sig){ if(!inLobe&&sawPos){ lobes++; sawPos=false; } inLobe=true; }
+    else { inLobe=false; if(v>0) sawPos=true; }
+  }
+  return lobes;
 }
 function _gelDetectBands(a,ctx){
   const fr=ctx.fr;
@@ -6277,9 +6521,16 @@ function _gelDetectBands(a,ctx){
     // A peak on the crop's first or last row has no rising flank: it is a band the crop
     // cuts through, or the strip above a well — neither can be integrated, so neither
     // is offered as a band (the user can still add one by hand).
-    const pk=_gelPeaks(m.Ds,thr,minSep).filter(p=>p.v>=thr&&p.i>0&&p.i<fr.H-1);
+    const all=_gelPeaks(m.Ds,thr,minSep), pk=all.filter(p=>p.v>=thr&&p.i>0&&p.i<fr.H-1);
     const bands=[];
-    pk.forEach(p=>{ const [r0,r1]=_gelBandExtent(m.Ds,p.i,sig); bands.push({y0:fr.sy+r0, y1:fr.sy+r1+1}); });
+    // Neighbouring bands meet at the lowest row between their peaks — every peak counts
+    // as a neighbour, even one on the crop's edge that is not itself offered as a band.
+    const valley=(i0,i1)=>{ let v=i0; for(let i=i0;i<=i1;i++) if(m.Ds[i]<m.Ds[v]) v=i; return v; };
+    pk.forEach(p=>{ const k=all.indexOf(p);
+      const l0=k>0?valley(all[k-1].i,p.i):0, l1=k<all.length-1?valley(p.i,all[k+1].i):fr.H-1;
+      const [r0,r1,merged]=_gelBandExtent(m.Dw,p.i,sig,l0,l1);
+      bands.push({y0:fr.sy+r0, y1:fr.sy+r1+1, merged:(merged||_gelShoulders(m,r0,r1)>1)||undefined,
+        split:(l0>0&&r0===l0&&m.Ds[l0]>2*sig)||(l1<fr.H-1&&r1===l1&&m.Ds[l1]>2*sig)||undefined}); });
     for(let k=1;k<bands.length;k++) if(bands[k].y0<bands[k-1].y1) bands[k].y0=bands[k-1].y1;
     L.bands=bands.filter(b=>b.y1>b.y0).map(b=>_gelQuantBand(a,ctx,m,b));
   });
@@ -6310,17 +6561,20 @@ function _gelAnalyse(im,opts){
   const S=_gelSignal(fr,pol);
   let win=+opts.window>0?Math.round(+opts.window):_gelDefaultWindow(fr.H); if(!(win%2)) win++;
   const N=+opts.laneCount>0?Math.round(+opts.laneCount):0;
-  const lanes=_gelFindLanes(S,fr.W,fr.H,N);
-  const a={v:1, app:APP_VERSION, created:new Date().toISOString(), cropKey:_gelCropKey(im),
+  const found=_gelFindLanes(S,fr.W,fr.H,N), lanes=found.lanes, li=found.info;
+  const a={v:1, app:APP_VERSION, created:new Date().toISOString(), cropKey:_gelCropKey(im), fp:_gelFingerprint(im),
     frame:{sx:fr.sx,sy:fr.sy,sw:fr.sw,sh:fr.sh,W:fr.W,H:fr.H,angle:fr.angle},
     source:fr.raw?'raw':'8bit', sourceLabel:fr.sourceLabel, depth:fr.depth, colour:fr.colour,
     // ±Infinity (float data with no known ceiling) does not survive JSON; null says the same.
-    full:fr.full, clipHi:isFinite(fr.clipHi)?fr.clipHi:null, clipLo:isFinite(fr.clipLo)?fr.clipLo:null, clipNote:fr.clipNote,
+    full:fr.full, clipHi:isFinite(fr.clipHi)?fr.clipHi:null, clipLo:isFinite(fr.clipLo)?fr.clipLo:null, clipNote:pol==='dark'?fr.clipNoteLo:fr.clipNote,
     polarity:pol, polarityGuess:guess.polarity, polaritySetBy:(pol!==guess.polarity)?'user':'image',
-    polarityStats:{median:guess.median, p1:guess.lo, p99:guess.hi},
+    polarityStats:{median:guess.median, border:guess.border, p02:guess.lo, p998:guess.hi}, polarityUncertain:!!guess.uncertain&&pol===guess.polarity,
     laneMode:N?'forced':'auto', laneCount:N||null,
+    // How the lanes were placed, so no lane is ever renumbered without the reader seeing why.
+    laneInfo:{pitch:li.pitch, inferredGap:li.inferredGap, inferredEnd:li.inferredEnd, whole:li.mode==='whole',
+      rejected:li.rejected.map(q=>({x0:fr.sx+q.c0, x1:fr.sx+q.c1+1, why:q.why}))},
     baseline:{method:'rolling minimum', window:win},
-    lanes:lanes.map(L=>({x0:fr.sx+L.c0, x1:fr.sx+L.c1+1, inferred:!!L.inferred, bands:[]})),
+    lanes:lanes.map(L=>({x0:fr.sx+L.c0, x1:fr.sx+L.c1+1, inferred:!!L.inferred, end:L.end?true:undefined, bands:[]})),
     refLane:null, loading:null, ladder:null, edits:0 };
   _gelDetectBands(a,{fr,S});
   // With no window given, a band that nearly fills the default one widens it to 2.5×
@@ -6352,57 +6606,124 @@ function gelMWFit(pts){
           kdaMin:Math.min(...P.map(p=>p.kda)), kdaMax:Math.max(...P.map(p=>p.kda))};
 }
 function _gelRf(a,b){ return (b.yc-a.frame.sy)/a.frame.sh; }
-function _gelParseSizes(s){ return String(s||'').split(/[,;\s]+/).map(x=>parseFloat(x)).filter(v=>v>0); }
+function _gelParseSizes(s){ const r=_gelLadderSizes(s); return r.error?[]:r.sizes; }
+// Marker sizes as typed, top → bottom. Every entry must be a size: "abc" or "-5" is a
+// typo, and skipping it would shift every size after it onto the wrong band. Sizes must
+// fall down the list, since a protein runs further the smaller it is.
+function _gelLadderSizes(s){
+  const txt=String(s==null?'':s).trim();
+  if(!txt) return {error:'Type the marker sizes in kDa, top → bottom', sizes:[]};
+  const toks=(/[,;]/.test(txt)?txt.split(/[,;]+/):txt.split(/\s+/)).map(t=>t.trim()).filter(Boolean);
+  const sizes=[];
+  for(const t of toks){
+    const u=t.replace(/\s*(kda|kd|k)\s*$/i,'');
+    const v=/^\+?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(u)?parseFloat(u):NaN;
+    if(!(v>0&&isFinite(v))) return {error:`"${t}" is not a marker size in kDa — fix it so no size lands on the wrong band`, sizes:[]};
+    sizes.push(v);
+  }
+  for(let i=1;i<sizes.length;i++) if(!(sizes[i]<sizes[i-1])){
+    const rising=sizes.every((v,k)=>k===0||v>sizes[k-1]);
+    return {error:rising?'The sizes rise down the list — type them top → bottom, largest first'
+      :`${sizes[i]} follows ${sizes[i-1]}: marker sizes must fall from the top of the gel to the bottom`, sizes:[]};
+  }
+  return {sizes};
+}
+// The fit is refused, never shipped with a caveat, when the sizes cannot be assigned to
+// the ladder's bands one for one, when log(kDa) would rise with migration, or when the
+// markers do not lie on one log-linear curve (R² < 0.95). A refused fit writes no kDa.
+const GEL_MIN_R2=0.95;
 function _gelApplyLadder(a){
   const Ld=a.ladder; if(!Ld) return;
+  Ld.fit=null; Ld.error=null; Ld.assignError=null;
   const L=a.lanes[Ld.lane];
-  if(!L){ Ld.fit=null; Ld.error='The ladder lane no longer exists'; return; }
-  const sizes=_gelParseSizes(Ld.sizes);
+  if(!L){ Ld.error=Ld.assignError='The ladder lane no longer exists'; return; }
+  const P=_gelLadderSizes(Ld.sizes), sizes=P.sizes;
   const bands=L.bands.slice().sort((x,y)=>x.yc-y.yc);
-  const n=Math.min(sizes.length,bands.length);
-  Ld.assigned=n; Ld.nBands=bands.length; Ld.nSizes=sizes.length;
-  const pts=[]; for(let i=0;i<n;i++) pts.push({rf:_gelRf(a,bands[i]), kda:sizes[i]});
-  const f=gelMWFit(pts);
-  if(f.error){ Ld.fit=null; Ld.error=f.error; } else { Ld.fit=f; Ld.error=null; }
+  Ld.nBands=bands.length; Ld.nSizes=sizes.length; Ld.assigned=0;
+  if(P.error){ Ld.error=Ld.assignError=P.error; return; }
+  if(sizes.length!==bands.length){
+    Ld.assignError=`${sizes.length} size${sizes.length===1?'':'s'} typed for ${bands.length} band${bands.length===1?'':'s'} detected in the ladder lane — they cannot be paired one for one. Delete an extra ladder band, add a missing one, or edit the sizes`;
+    Ld.error=sizes.length<3?`At least 3 ladder markers are needed for a molecular-weight fit (${sizes.length} typed)`:Ld.assignError;
+    return;
+  }
+  Ld.assigned=sizes.length;
+  if(sizes.length<3){ Ld.error=`At least 3 ladder markers are needed for a molecular-weight fit (${sizes.length} typed)`; return; }
+  const f=gelMWFit(bands.map((b,i)=>({rf:_gelRf(a,b), kda:sizes[i]})));
+  if(f.error){ Ld.error=f.error; return; }
+  if(!(f.slope<0)){ Ld.error=`The fit has log(kDa) rising with migration (slope ${f.slope.toFixed(3)}) — the sizes or the ladder bands are mis-assigned`; return; }
+  if(!(f.r2>=GEL_MIN_R2)){ Ld.error=`The markers do not lie on one log-linear curve (R² = ${f.r2.toFixed(3)}, below ${GEL_MIN_R2}) — check the sizes and the ladder lane's bands; no molecular weights are estimated`; return; }
+  Ld.fit=f;
 }
 
 // The loading control's per-lane value: the summed volume of its detected bands,
-// paired to this panel's lanes by order.
+// paired to this panel's lanes by order. Pairing by order is only meaningful when the
+// two panels have the same number of lanes; forcing the control's lanes to this
+// panel's count once picked actin lanes 2–5 for target lanes 1–4. The control is held
+// by panel id, so reordering panels cannot swap it for whatever lands in its slot.
 function _gelLoadingFrom(lcIdx,nLanes){
   const lc=images[lcIdx]; if(!lc) return {error:'No such panel'};
+  const lab=formatLabel(lc.label)||String(lcIdx+1);
   let la=null, from='detected for this pairing';
-  if(_gelFresh(lc)&&lc.gelAnalysis.lanes.length===nLanes){ la=lc.gelAnalysis; from='its own analysis'; }
-  else { la=_gelAnalyse(lc,{laneCount:nLanes}); if(la.error) return la; }
-  return { idx:lcIdx, label:formatLabel(lc.label)||String(lcIdx+1), name:lc.name||'', from,
-    sourceLabel:la.sourceLabel, polarity:la.polarity, cropKey:_gelCropKey(lc),
+  if(_gelFresh(lc)&&lc.gelAnalysis.lanes.length){ la=lc.gelAnalysis; from='its own analysis'; }
+  else { la=_gelAnalyse(lc); if(la.error) return la; }
+  if(la.lanes.length!==nLanes) return {error:`panel ${lab} has ${la.lanes.length} lane${la.lanes.length===1?'':'s'} (${from}) and this panel has ${nLanes} — lanes are paired by order, so the counts must match. Open panel ${lab}'s analysis, set its lane count, and pick it again`};
+  return { id:lc.id, idx:lcIdx, label:lab, name:lc.name||'', from,
+    sourceLabel:la.sourceLabel, polarity:la.polarity, cropKey:_gelCropKey(lc), fp:_gelFingerprint(lc),
+    stamp:from==='its own analysis'?_gelStamp(la):null,
     lanes:la.lanes.map(L=>({x0:L.x0,x1:L.x1,nBands:L.bands.length,
-      saturated:L.bands.some(b=>b.saturated), volume:L.bands.reduce((s,b)=>s+b.volume,0)})) };
+      saturated:L.bands.some(b=>b.saturated||b.partial), volume:L.bands.reduce((s,b)=>s+b.volume,0)})) };
 }
+function _gelStamp(a){ return JSON.stringify(a.lanes.map(L=>L.bands.map(b=>Math.round(b.volume)))); }
+// Where the loading control is now (by id), or -1.
+function _gelLoadingIdx(a){
+  if(!a||!a.loading) return -1;
+  if(a.loading.id!=null) return images.findIndex(p=>p&&p.id===a.loading.id);
+  return images[a.loading.idx]?a.loading.idx:-1;
+}
+// Why the loading-control values can no longer be used, or null.
+function _gelLoadingStale(a,im){
+  if(!a||!a.loading) return null;
+  const li=_gelLoadingIdx(a), lc=images[li];
+  if(!lc) return `the loading-control panel ${a.loading.label} is no longer in the figure`;
+  if(im&&lc===im) return 'the loading control is now this panel itself';
+  if(_gelCropKey(lc)!==a.loading.cropKey) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-cropped after it was measured`;
+  const fp=_gelFingerprint(lc);
+  if(fp!=null&&a.loading.fp!=null&&fp!==a.loading.fp) return `the loading-control panel ${formatLabel(lc.label)||li+1} has a different image now`;
+  if(a.loading.stamp&&!(lc.gelAnalysis&&_gelStamp(lc.gelAnalysis)===a.loading.stamp)) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
+  return null;
+}
+function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; return lc?(formatLabel(lc.label)||String(_gelLoadingIdx(a)+1)):a.loading.label; }
 
 // Everything the table, the CSV and the Methods sentence read.
-function _gelRows(a){
+// A band that cannot be quantified — saturated, or partly outside the image — is
+// reported, but no ratio is computed with it.
+function _gelUnq(b){ return !!(b&&(b.saturated||b.partial)); }
+function _gelRows(a,im){
+  im=im||images.find(p=>p&&p.gelAnalysis===a);
   const rows=[];
-  const sat=b=>b&&b.saturated;
   const match=(li,b)=>{ const L=a.lanes[li]; if(!L) return null;
     const tol=Math.max((b.y1-b.y0)/2,0.03*a.frame.sh);
     let best=null; L.bands.forEach(o=>{ const d=Math.abs(o.yc-b.yc); if(d<=tol&&(!best||d<best.d)) best={o,d}; });
     return best&&best.o; };
-  const lcv=li=>{ const l=a.loading&&a.loading.lanes[li]; return (l&&!l.saturated&&l.volume>0)?l.volume:null; };
+  const lcOK=a.loading&&!_gelLoadingStale(a,im);
+  const lcv=li=>{ const l=lcOK&&a.loading.lanes[li]; return (l&&!l.saturated&&l.volume>0)?l.volume:null; };
   const fit=a.ladder&&a.ladder.fit;
+  const markers=a.ladder&&!a.ladder.assignError?_gelParseSizes(a.ladder.sizes):[];
   a.lanes.forEach((L,li)=>{
-    const tot=L.bands.reduce((s,b)=>s+b.volume,0), laneSat=L.bands.some(sat);
+    const tot=L.bands.reduce((s,b)=>s+b.volume,0), laneBad=L.bands.some(_gelUnq);
     const sorted=L.bands.slice().sort((x,y)=>x.yc-y.yc);
     L.bands.forEach((b,bi)=>{
       const r={lane:li+1, laneIdx:li, band:bi+1, bandIdx:bi, x0:L.x0, x1:L.x1, inferred:!!L.inferred,
         y0:b.y0, y1:b.y1, yc:b.yc, rf:_gelRf(a,b), volume:b.volume, saturated:!!b.saturated, clipped:b.clipped||0,
+        partial:!!b.partial, merged:!!b.merged, split:!!b.split, nearNoise:!!b.nearNoise, se:b.se,
         manual:!!b.manual, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null};
-      // A saturated band is an underestimate, and so is every share computed with it.
-      if(!laneSat&&tot>0) r.pctLane=100*b.volume/tot;
-      if(a.refLane!=null&&!b.saturated){ const o=match(a.refLane,b); if(o&&!o.saturated&&o.volume>0) r.relRef=b.volume/o.volume; }
-      if(a.loading&&!b.saturated){ const v=lcv(li); if(v) r.normLC=b.volume/v;
+      // A saturated or cut band is an underestimate, and so is every share computed with it.
+      if(!laneBad&&tot>0) r.pctLane=100*b.volume/tot;
+      if(a.refLane!=null&&!_gelUnq(b)){ const o=match(a.refLane,b); if(o&&!_gelUnq(o)&&o.volume>0) r.relRef=b.volume/o.volume; }
+      if(lcOK&&!_gelUnq(b)){ const v=lcv(li); if(v) r.normLC=b.volume/v;
         if(a.refLane!=null&&r.normLC!=null){ const o=match(a.refLane,b), vr=lcv(a.refLane);
-          if(o&&!o.saturated&&vr&&o.volume>0) r.normLCRef=r.normLC/(o.volume/vr); } }
-      if(a.ladder&&li===a.ladder.lane){ const k=sorted.indexOf(b), s=_gelParseSizes(a.ladder.sizes); if(k<s.length) r.marker=s[k]; }
+          if(o&&!_gelUnq(o)&&vr&&o.volume>0) r.normLCRef=r.normLC/(o.volume/vr); } }
+      if(a.ladder&&li===a.ladder.lane){ const k=sorted.indexOf(b); if(k<markers.length) r.marker=markers[k]; }
       if(fit&&!(a.ladder&&li===a.ladder.lane)){ r.kda=Math.pow(10,fit.intercept+fit.slope*r.rf);
         r.extrapolated=r.rf<fit.rfMin-1e-9||r.rf>fit.rfMax+1e-9; }
       rows.push(r);
@@ -6411,10 +6732,23 @@ function _gelRows(a){
   return rows;
 }
 function _gelSatCount(a){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.saturated).length,0):0; }
+function _gelFlagCount(a,k){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b[k]).length,0):0; }
+// How the lanes were placed, in words: every inferred lane, and every feature set aside.
+function _gelLaneNote(a){
+  const I=a.laneInfo||{}, parts=[], ls=xs=>`lane${xs.length>1?'s':''} ${_listAnd(xs.map(String))}`;
+  const gap=a.lanes.map((L,i)=>L.inferred&&!L.end?i+1:0).filter(Boolean), end=a.lanes.map((L,i)=>L.inferred&&L.end?i+1:0).filter(Boolean);
+  const p=I.pitch?`${I.pitch.toFixed(1)} px `:'';
+  if(I.whole) parts.push('the whole crop width was measured as one lane');
+  if(gap.length) parts.push(`${ls(gap)} inferred between detected lanes from the ${p}lane pitch (no signal)`);
+  if(end.length) parts.push(`${ls(end)} inferred at the end of the gel from the ${p}lane pitch (no signal) — if that is margin rather than an empty lane, set the lane count`);
+  (I.rejected||[]).forEach(q=>parts.push(`${q.why==='narrow'?'a feature too narrow for a lane (a scratch or streak?)':q.why==='edge'?'a rise into the crop edge':'a feature too faint for a lane'} at x ${Math.round(q.x0)}–${Math.round(q.x1)} was not counted as a lane`));
+  return parts.join('; ');
+}
 
 // ── Mutations: each one is exactly one undo step ───────────────
 function _gelPanelIdx(idx){
   if(idx!=null&&images[idx]) return idx;
+  if(typeof idx==='number'&&idx<0) return -1;      // the dialog's panel is gone: never fall back to another
   if(selectedPanel>=0&&images[selectedPanel]&&(images[selectedPanel].img||images[selectedPanel]._imgEl)) return selectedPanel;
   return images.findIndex(im=>im&&(im.img||im._imgEl));
 }
@@ -6426,21 +6760,28 @@ function runGelAnalysis(idx,opts){
   const a=_gelAnalyse(im,opts);
   if(a.error){ toast(a.error,'warn'); return false; }
   // Settings the user chose survive a re-detection; the lanes and bands do not.
+  let dropped=null;
   if(prev){
     if(prev.refLane!=null&&prev.refLane<a.lanes.length) a.refLane=prev.refLane;
     if(prev.ladder&&prev.ladder.lane<a.lanes.length) a.ladder={lane:prev.ladder.lane, sizes:prev.ladder.sizes};
-    if(prev.loading&&images[prev.loading.idx]){ const lc=_gelLoadingFrom(prev.loading.idx,a.lanes.length); if(!lc.error) a.loading=lc; }
+    // The loading control follows its panel by id. It is dropped — and said to be — when
+    // that panel is gone, is now this panel, or no longer pairs lane for lane.
+    if(prev.loading){ const li=_gelLoadingIdx(prev);
+      const lc=(li>=0&&images[li]!==im)?_gelLoadingFrom(li,a.lanes.length):{error:li<0?'its panel is no longer in the figure':'it is now this panel itself'};
+      if(lc.error) dropped=`Loading control dropped: ${lc.error}`; else a.loading=lc; }
   }
   _gelApplyLadder(a);
   pushUndo();
   im.gelAnalysis=a;
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
+  if(!a.lanes.length) toast(`No lanes found in panel ${formatLabel(im.label)||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
+  else if(dropped) toast(dropped,'warn');
   _gelRefresh();
   return true;
 }
 function _gelEdit(idx,fn){
   const im=images[idx]; if(!im||!im.gelAnalysis){ toast('Analyse the panel first','warn'); return false; }
-  if(!_gelFresh(im)){ toast('The crop changed since this analysis — press ↻ Re-detect','warn'); return false; }
+  if(!_gelFresh(im)){ toast(_gelStaleText(im)+' — press ↻ Re-detect','warn'); return false; }
   const a=JSON.parse(JSON.stringify(im.gelAnalysis));   // never edit an object an undo snapshot may share
   const ctx=_gelCtx(im,a); if(ctx.error){ toast(ctx.error,'warn'); return false; }
   if(fn(a,ctx)===false) return false;
@@ -6480,7 +6821,7 @@ function gelAddBand(idx,li,y){
     const reach=Math.max(3,Math.round(fr.H*0.015));
     let p=r; for(let k=Math.max(0,r-reach);k<=Math.min(fr.H-1,r+reach);k++) if(m.Ds[k]>m.Ds[p]) p=k;
     let r0,r1;
-    if(m.Ds[p]>0){ [r0,r1]=_gelBandExtent(m.Ds,p,Math.max(1e-9,_gelNoise(m.R))); }
+    if(m.Ds[p]>0){ [r0,r1]=_gelBandExtent(m.Dw,p,Math.max(1e-9,m.sig)); }
     else { const h=Math.max(2,Math.round(fr.H*0.01)); r0=r-h; r1=r+h; }
     let y0=fr.sy+Math.max(0,r0), y1=fr.sy+Math.min(fr.H,r1+1);
     // Never overlap a band that is already there: the same pixels would be counted twice.
@@ -6497,7 +6838,7 @@ function gelSetRefLane(idx,li){
 function gelSetLoading(idx,lcIdx){
   return _gelEdit(idx,a=>{
     if(lcIdx==null||lcIdx<0){ if(!a.loading) return false; a.loading=null; return; }
-    if(lcIdx===idx){ toast('Pick a different panel as the loading control','warn'); return false; }
+    if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel as the loading control','warn'); return false; }
     const lc=_gelLoadingFrom(lcIdx,a.lanes.length);
     if(lc.error){ toast(`Loading control: ${lc.error}`,'warn'); return false; }
     a.loading=lc;
@@ -6520,31 +6861,40 @@ function gelSetPolarity(idx,pol){
 function _gelPolText(p){ return p==='dark'?'dark bands on a light background':'light bands on a dark background'; }
 function _gelClipText(a){
   const end=a.polarity==='dark'?a.clipLo:a.clipHi;
-  return ((typeof end==='number'&&isFinite(end))?`at ${end}`:'(no ceiling known for this data)')+(a.polarity==='dark'?' — the floor, which dark bands run toward':' — the ceiling, which light bands run toward')+(a.clipNote&&a.polarity!=='dark'?`; ${a.clipNote}`:'');
+  return ((typeof end==='number'&&isFinite(end))?`at ${end}`:'(no ceiling known for this data)')+(a.polarity==='dark'?' — the floor, which dark bands run toward':' — the ceiling, which light bands run toward')+(a.clipNote?`; ${a.clipNote}`:'');
 }
 function gelCSV(idx){
   const im=images[idx], a=im&&im.gelAnalysis; if(!a) return '';
   const nm=formatLabel(im.label)||String(idx+1), rows=_gelRows(a), sat=_gelSatCount(a);
   const f=a.frame, fit=a.ladder&&a.ladder.fit;
+  const lcStale=_gelLoadingStale(a,im), lcLab=a.loading?_gelLoadingLabel(a):'';
+  const part=_gelFlagCount(a,'partial'), note=_gelLaneNote(a);
   const H=[
     `# FigureLab v${APP_VERSION} — gel/blot lane and band densitometry, panel ${nm}${im.name?` (${_sourceName(im)})`:''}`,
+    // A stale analysis is still exportable, but the file says so before anything else.
+    ...(_gelFresh(im)?[]:[`# STALE: ${_gelStaleText(im)} — these numbers describe the panel as it was measured, not as it is now; re-detect before reporting them`]),
+    ...(lcStale?[`# STALE: the loading-control normalisation — ${lcStale}; no normalised values are given`]:[]),
     `# Source pixels: ${a.sourceLabel}${a.source==='raw'?' (native samples retained at import)':a.colour?' (colour image; Rec. 601 luma of the stored RGB)':''}, read inside the panel crop before any brightness/contrast/gamma/levels/LUT/invert`,
     `# Crop frame: x ${f.sx.toFixed(1)}–${(f.sx+f.sw).toFixed(1)}, y ${f.sy.toFixed(1)}–${(f.sy+f.sh).toFixed(1)} source px${f.angle?`; tilted ${(+f.angle).toFixed(1)}°, read by nearest neighbour (no interpolation); coordinates are crop-frame pixels`:'; coordinates are source pixels'}`,
-    `# Polarity: ${_gelPolText(a.polarity)} (${a.polaritySetBy==='user'?'set by the user; the image suggested '+_gelPolText(a.polarityGuess):'guessed from the image: median vs 1%/99% tails'})`,
-    `# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px${a.baseline.widenedFrom?` (widened from ${a.baseline.widenedFrom} px to 2.5× the tallest band)`:''}, subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak${_gelWindowShort(a)?' — WARNING: the window is barely taller than the tallest band, so the background rides up the bands and volumes are underestimated; widen it':''}`,
-    `# Lanes: ${a.laneMode==='forced'?`${a.laneCount} forced (evenly pitched best fit)`:'detected from the column profile'}; ${a.lanes.length} lane(s)${a.lanes.some(L=>L.inferred)?`, ${a.lanes.filter(L=>L.inferred).length} inferred from the lane pitch (no signal)`:''}`,
+    `# Polarity: ${_gelPolText(a.polarity)} (${a.polaritySetBy==='user'?'set by the user; the image suggested '+_gelPolText(a.polarityGuess):'guessed from the image: the crop border\'s level against the 0.2%/99.8% tails'+(a.polarityUncertain?' — UNCERTAIN: the image median points the other way; check it':'')})`,
+    `# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px${a.baseline.widenedFrom?` (widened from ${a.baseline.widenedFrom} px to 2.5× the tallest band)`:''}, lifted by the median residual of the band-free rows (the opening's noise bias), subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak${_gelWindowShort(a)?' — WARNING: the window is barely taller than the tallest band, so the background rides up the bands and volumes are underestimated; widen it':''}`,
+    `# Lanes: ${!a.lanes.length?'NONE FOUND — nothing was measured; set the lane count (1 for a crop that is one lane) and re-detect':a.laneInfo&&a.laneInfo.whole?'1 forced: the whole crop width':a.laneMode==='forced'?`${a.laneCount} forced (evenly pitched best fit to the background-flattened column profile)`:'detected from the background-flattened column profile'}${a.lanes.length?`; ${a.lanes.length} lane(s) at x ${a.lanes.map((L,i)=>`${i+1}: ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' (inferred)':''}`).join(', ')}`:''}${note?`; ${note}`:''}`,
     `# Saturated bands: ${sat}${sat?` — clipped ${_gelClipText(a)}; their volumes are underestimates and are excluded from every ratio`:''}`,
+    `# Bands partly outside the image: ${part}${part?' — the tilted crop reaches past the image there; their volumes are partial and are excluded from every ratio':''}`,
+    `# Band flags: merged? = a shoulder or a second crown inside one band (its volume is the total of what may be two bands); split = two touching bands divided at the valley between them; near noise = the volume is under 10 noise SEs (volume_noise_se)`,
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
-    `# Loading control: ${a.loading?`panel ${a.loading.label}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}); lane value = summed band volume`:'none'}`,
-    `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?a.ladder.error:'none'}`,
+    `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume`}`,
+    `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?`REFUSED — ${a.ladder.error}; no molecular weights are given`:'none'}`,
     `# Edited by hand: ${a.edits||0} edit(s)`,
   ];
   const q=v=>v==null?'':(typeof v==='number'?(Number.isInteger(v)?String(v):v.toPrecision(6)):_csvCell(v));
-  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand'];
+  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se'];
   const body=rows.map(r=>[r.lane,r.band,r.x0,r.x1,r.inferred?'yes':'',r.y0,r.y1,r.yc,r.rf,r.volume,r.pctLane,r.relRef,r.normLC,r.normLCRef,
-    r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':''].map(q).join(','));
+    r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':'',
+    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se].map(q).join(','));
   // Lanes with no bands still get a row, or an empty lane would vanish from the table.
-  a.lanes.forEach((L,li)=>{ if(!L.bands.length) body.push([li+1,'',L.x0,L.x1,L.inferred?'yes':'','','','','','0'].map(q).join(',')+',,,,,,,,,,'); });
+  a.lanes.forEach((L,li)=>{ if(!L.bands.length){ const v=new Array(cols.length).fill('');
+    v[0]=li+1; v[2]=L.x0; v[3]=L.x1; v[4]=L.inferred?'yes':''; v[9]='0'; body.push(v.map(q).join(',')); } });
   return H.join('\n')+'\n'+cols.join(',')+'\n'+body.join('\n')+'\n';
 }
 function exportGelCSV(idx){
@@ -6565,8 +6915,9 @@ function _gelFigMap(idx){
 function gelPlaceLaneNumbers(idx){
   idx=_gelPanelIdx(idx); const im=images[idx], a=im&&im.gelAnalysis;
   if(!a){ toast('Analyse the panel first','warn'); return false; }
-  if(!_gelFresh(im)){ toast('The crop changed since this analysis — re-detect first','warn'); return false; }
+  if(!_gelFresh(im)){ toast(_gelStaleText(im)+' — re-detect first','warn'); return false; }
   const M=_gelFigMap(idx); if(!M){ toast('This panel is not on the canvas, or cannot be mapped exactly','warn'); return false; }
+  if(!a.lanes.length){ toast('No lanes were found, so there is nothing to number — set the lane count and re-detect','warn'); return false; }
   pushUndo();
   const fs=16, top=M.map.dy;
   // Same rule as addLaneLabels: above the blot when the margin has room, else just inside.
@@ -6576,17 +6927,22 @@ function gelPlaceLaneNumbers(idx){
     annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
-  toast(`Placed ${a.lanes.length} lane numbers on the detected lanes of panel ${formatLabel(im.label)}`,'ok');
+  // An inferred lane shifts the numbers after it: say so where the numbers are placed.
+  const inf=a.lanes.map((L,i)=>L.inferred?i+1:0).filter(Boolean);
+  toast(`Placed ${a.lanes.length} lane numbers on the lanes of panel ${formatLabel(im.label)}`+(inf.length?` — lane${inf.length>1?'s':''} ${_listAnd(inf.map(String))} inferred from the lane pitch, with no signal; check ${inf.length>1?'they are lanes':'it is a lane'}, not margin`:''),inf.length?'warn':'ok');
   return true;
 }
 function gelPlaceMWLabels(idx){
   idx=_gelPanelIdx(idx); const im=images[idx], a=im&&im.gelAnalysis;
   if(!a){ toast('Analyse the panel first','warn'); return false; }
   if(!a.ladder||!a.lanes[a.ladder.lane]){ toast('Pick the ladder lane and its marker sizes first','warn'); return false; }
-  if(!_gelFresh(im)){ toast('The crop changed since this analysis — re-detect first','warn'); return false; }
+  if(!_gelFresh(im)){ toast(_gelStaleText(im)+' — re-detect first','warn'); return false; }
   const M=_gelFigMap(idx); if(!M){ toast('This panel is not on the canvas, or cannot be mapped exactly','warn'); return false; }
   const sizes=_gelParseSizes(a.ladder.sizes), bands=a.lanes[a.ladder.lane].bands.slice().sort((x,y)=>x.yc-y.yc);
-  const n=Math.min(sizes.length,bands.length);
+  // Sizes that cannot be paired one for one with the ladder's bands would label the wrong bands.
+  const why=a.ladder.assignError||(_gelLadderSizes(a.ladder.sizes).error)||(sizes.length!==bands.length?`${sizes.length} sizes for ${bands.length} ladder bands`:null);
+  if(why){ toast(`MW labels not placed: ${why}`,'warn'); return false; }
+  const n=sizes.length;
   if(!n){ toast('The ladder lane has no bands to label','warn'); return false; }
   pushUndo();
   const fs=13, left=M.map.dx;
@@ -6595,7 +6951,7 @@ function gelPlaceMWLabels(idx){
     annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false}); }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
-  toast(`Placed ${n} MW labels on the ladder bands of panel ${formatLabel(im.label)}`+(sizes.length!==bands.length?` — ${sizes.length} sizes for ${bands.length} bands, so only the first ${n} were placed`:''),'ok');
+  toast(`Placed ${n} MW labels on the ladder bands of panel ${formatLabel(im.label)}`,'ok');
   return true;
 }
 
@@ -6604,21 +6960,29 @@ function _gelMethodsSentences(P){
   const out=[];
   P.forEach(im=>{
     if(!_gelFresh(im)) return;
-    const a=im.gelAnalysis, nm=formatLabel(im.label)||'(unlabelled)', sat=_gelSatCount(a);
+    const a=im.gelAnalysis;
+    // No lanes, nothing measured: no sentence claims densitometry was done.
+    if(!a.lanes.length) return;
+    const nm=formatLabel(im.label)||'(unlabelled)', sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     const inf=a.lanes.map((L,i)=>L.inferred?String(i+1):null).filter(Boolean);
+    const lanes=a.laneInfo&&a.laneInfo.whole?'the whole crop width was measured as one lane (the lane count set by hand)'
+      :a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the background-flattened column intensity profile (the lane count set by hand)`
+      :'lanes were detected from the column intensity profile';
     let s=`Band densitometry of panel ${nm} was performed in FigureLab on the ${a.sourceLabel} inside the panel's crop, read before any display adjustment`
       +(a.frame.angle?` (the tilted crop was read by nearest neighbour, without interpolation)`:'')
-      +`: ${a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the column intensity profile (the lane count set by hand)`:'lanes were detected from the column intensity profile'}`
+      +`: ${lanes}`
       +(inf.length?`, ${inf.length===1?'lane':'lanes'} ${_listAnd(inf)} being inferred from the lane pitch as ${inf.length===1?'it carries':'they carry'} no detectable signal`:'')
       +`, bands were detected from row intensity profiles${a.edits?', the result was then edited by hand':''}, and each band's volume was integrated over the lane width above a rolling-minimum background (window ${a.baseline.window} px)`;
     const norm=[];
-    if(a.loading) norm.push(`normalised to the loading control in panel ${a.loading.label}, lanes paired by order`);
+    // A loading control that changed or vanished after it was measured is not claimed.
+    if(a.loading&&!_gelLoadingStale(a,im)) norm.push(`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
     s+=(norm.length?'; volumes were '+_listAnd(norm):'')+'.';
     const fit=a.ladder&&a.ladder.fit;
     if(fit) s+=` Molecular weights were estimated from a log-linear fit of the ladder in lane ${a.ladder.lane+1} (${fit.n} markers, R² = ${fit.r2.toFixed(3)}).`;
     s+=sat?` ${sat} band${sat===1?' was':'s were'} saturated (clipped at the ${a.polarity==='dark'?'floor':'ceiling'} of the data) and could not be quantified.`
           :' No band was saturated.';
+    if(part) s+=` ${part} band${part===1?' lay':'s lay'} partly outside the image and ${part===1?'was':'were'} not quantified.`;
     out.push(s);
   });
   return out;
@@ -6636,12 +7000,16 @@ function _gelComplianceRow(shown){
   if(!P.length) return null;
   const notes=[]; let warn=false;
   P.forEach(im=>{
-    const a=im.gelAnalysis, nm=esc(formatLabel(im.label)||'?'), sat=_gelSatCount(a);
-    if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: the crop changed after the analysis — it is stale; re-detect before reporting`); return; }
+    const a=im.gelAnalysis, nm=esc(formatLabel(im.label)||'?'), sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
+    if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting`); return; }
+    if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
+    if(part){ warn=true; notes.push(`${nm}: ${part} band${part===1?'':'s'} partly outside the image — not quantified`); }
     if(_gelWindowShort(a)){ warn=true; notes.push(`${nm}: the background window (${a.baseline.window} px) is barely taller than the bands — volumes are underestimated; widen it`); }
-    if(a.loading){ const lc=images[a.loading.idx];
-      if(!lc||_gelCropKey(lc)!==a.loading.cropKey){ warn=true; notes.push(`${nm}: the loading-control panel ${esc(a.loading.label)} changed after it was measured — set the loading control again`); } }
+    if(a.polarityUncertain&&a.polaritySetBy!=='user'){ warn=true; notes.push(`${nm}: the band polarity was guessed with low confidence — check the Bands setting`); }
+    if(a.lanes.some(L=>L.inferred&&L.end)){ warn=true; notes.push(`${nm}: end lane${a.lanes.filter(L=>L.inferred&&L.end).length>1?'s':''} inferred from the lane pitch — check the lane numbering`); }
+    const lcWhy=_gelLoadingStale(a,im);
+    if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the loading control again`); }
     if(a.source!=='raw'){
       const k=_gelImportKind(im);
       if(k==='lossy'){ warn=true; notes.push(`${nm}: quantified on 8-bit pixels of a lossy-compressed import (${esc(im.name||'')}) — compression alters band intensities; quantify the original acquisition file`); }
@@ -6653,8 +7021,15 @@ function _gelComplianceRow(shown){
 }
 
 // ── The analysis dialog ────────────────────────────────────────
-let _gelUI=null;    // {idx, k, sel:{li,bi}|null, drag}
+let _gelUI=null;    // {id, idx (found from id), k, sel:{li,bi}|null, drag}
 function _gelRefresh(){ if(_gelUI&&document.getElementById('gel-modal-bg')) _gelRenderModal(); }
+// The dialog holds its panel by id: an undo can remove the panel or move it to another
+// slot under the open dialog. Gone, the dialog closes rather than act on another panel.
+function _gelGone(){
+  if(!_gelUI||_gelUI.idx>=0) return false;
+  closeGelAnalysis(); toast('The analysed panel is no longer in the figure — the analysis dialog was closed','warn');
+  return true;
+}
 function closeGelAnalysis(){ const m=document.getElementById('gel-modal-bg'); if(m) m.remove(); _gelUI=null; }
 function openGelAnalysis(idx){
   idx=_gelPanelIdx(idx);
@@ -6663,7 +7038,7 @@ function openGelAnalysis(idx){
   const why=_gelRefusal(im); if(why){ toast(why,'warn'); return false; }
   if(!_gelFresh(im)&&!runGelAnalysis(idx)) return false;   // detect: one undo step
   closeGelAnalysis();
-  _gelUI={idx, k:1, sel:null, drag:null};
+  _gelUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, k:1, sel:null, drag:null};
   const m=document.createElement('div'); m.id='gel-modal-bg'; m.className='modal-bg open';
   const lab=formatLabel(im.label)||String(idx+1);
   const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">panel ${esc(formatLabel(p.label)||String(i+1))}</option>`:'').join('');
@@ -6755,7 +7130,7 @@ function _gelWireCanvas(){
   cv.addEventListener('pointercancel',end);
 }
 function _gelDraw(){
-  const cv=document.getElementById('gel-canvas'); if(!cv||!_gelUI) return;
+  const cv=document.getElementById('gel-canvas'); if(!cv||!_gelUI||_gelGone()) return;
   const im=images[_gelUI.idx], a=im&&im.gelAnalysis;
   const ctx=cv.getContext('2d');
   const fr=_gelFrame(im);
@@ -6787,29 +7162,36 @@ function _gelDraw(){
     ctx.textAlign='center'; ctx.textBaseline='top'; lab(String(li+1),X((x0+x1)/2),3,'#22d3ee'); ctx.textAlign='left';
     L.bands.forEach((b,bi)=>{
       const sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===bi;
-      ctx.save(); ctx.strokeStyle=b.saturated?'#ef4444':'#facc15'; ctx.lineWidth=sel?3:1.5; if(b.manual) ctx.setLineDash([3,3]);
+      ctx.save(); ctx.strokeStyle=b.saturated?'#ef4444':b.partial?'#fb923c':'#facc15'; ctx.lineWidth=sel?3:1.5; if(b.manual) ctx.setLineDash([3,3]);
       ctx.strokeRect(X(x0)+1.5,Y(b.y0),(x1-x0)*k-3,Math.max(2,(b.y1-b.y0)*k)); ctx.restore();
       if(b.saturated){ ctx.textBaseline='bottom'; lab('SAT',X(x0)+3,Y(b.y0)-1,'#ef4444'); }
+      else if(b.partial){ ctx.textBaseline='bottom'; lab('CUT',X(x0)+3,Y(b.y0)-1,'#fb923c'); }
+      else if(b.merged){ ctx.textBaseline='bottom'; lab('2?',X(x0)+3,Y(b.y0)-1,'#facc15'); }
     });
   });
-  if(a.ladder&&a.lanes[a.ladder.lane]){ const s=_gelParseSizes(a.ladder.sizes), L=a.lanes[a.ladder.lane];
+  if(a.ladder&&!a.ladder.assignError&&a.lanes[a.ladder.lane]){ const s=_gelParseSizes(a.ladder.sizes), L=a.lanes[a.ladder.lane];
     L.bands.slice().sort((x,y)=>x.yc-y.yc).forEach((b,i)=>{ if(i<s.length){ ctx.textBaseline='middle'; ctx.textAlign='right'; lab(String(s[i]),X(L.x0)-3,Y(b.yc),'#facc15'); ctx.textAlign='left'; } }); }
 }
 function _gelFmt(v,d){ return v==null?'—':(Math.abs(v)>=1e5?v.toExponential(3):v.toFixed(d==null?2:d)); }
 function _gelRenderModal(){
-  if(!_gelUI) return;
+  if(!_gelUI||_gelGone()) return;
   const im=images[_gelUI.idx], a=im&&im.gelAnalysis;
   const ban=document.getElementById('gel-banner'), tb=document.getElementById('gel-table'), fitEl=document.getElementById('gel-fit');
   if(!ban) return;
   _gelDraw();
   if(!a){ ban.innerHTML='<span style="color:var(--warn)">No analysis on this panel — press ↻ Re-detect.</span>'; tb.innerHTML=''; fitEl.textContent=''; return; }
-  const sat=_gelSatCount(a), fresh=_gelFresh(im);
+  const sat=_gelSatCount(a), fresh=_gelFresh(im), lcWhy=_gelLoadingStale(a,im), note=_gelLaneNote(a);
   ban.innerHTML=`<b>Source:</b> ${esc(a.sourceLabel)}${a.source==='raw'?' (native samples kept at import)':''}${a.frame.angle?` · tilted crop ${(+a.frame.angle).toFixed(1)}°, read by nearest neighbour`:''}
     · <b>background:</b> rolling minimum, ${a.baseline.window} px${a.baseline.widenedFrom?' (widened to fit the bands)':''} · <b>${a.lanes.length}</b> lane(s)
+    ${a.lanes.length?`<div style="color:var(--muted);margin-top:2px" title="Lane spans in source pixels — dashed on the preview where inferred">Lanes at x: ${a.lanes.map((L,i)=>`<b>${i+1}</b> ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' <i>inferred</i>':''}`).join(' · ')}</div>`
+      :'<div style="color:var(--warn);margin-top:3px">⚠ No lanes found — nothing is measured. If the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting.</div>'}
+    ${note?`<div style="color:${a.lanes.some(L=>L.inferred&&L.end)||(a.laneInfo&&a.laneInfo.rejected.length)?'var(--warn)':'var(--muted)'};margin-top:2px">${a.lanes.some(L=>L.inferred&&L.end)?'⚠ ':''}${esc(note.charAt(0).toUpperCase()+note.slice(1))}.</div>`:''}
+    ${a.polarityUncertain&&a.polaritySetBy!=='user'?'<div style="color:var(--warn);margin-top:2px">⚠ The band polarity is a low-confidence guess (the crop border and the image median disagree) — check the Bands setting.</div>':''}
     ${_gelWindowShort(a)?'<div style="color:var(--warn);margin-top:3px">⚠ The background window is barely taller than the tallest band — the background rides up the bands and volumes come out low. Widen it and re-detect.</div>':''}
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
-    ${fresh?'':'<div style="color:var(--warn);margin-top:3px">⚠ The crop changed since this analysis — it is stale. Press ↻ Re-detect.</div>'}
-    ${a.loading?`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(a.loading.label)}</b>, lanes paired by order (${esc(a.loading.from)}).</div>`:''}
+    ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
+    ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
+      :`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(_gelLoadingLabel(a))}</b>, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`):''}
     ${a.refLane!=null?`<div>Reference lane: <b>${a.refLane+1}</b>.</div>`:''}`;
   const pol=document.getElementById('gel-pol'); pol.value=a.polarity;
   document.getElementById('gel-pol-guess').textContent=`guessed from the image: ${a.polarityGuess==='dark'?'dark on light':'light on dark'}${a.polaritySetBy==='user'?' · set by you':''}`;
@@ -6819,10 +7201,10 @@ function _gelRenderModal(){
   document.getElementById('gel-ref').innerHTML=opts(a.refLane);
   document.getElementById('gel-ladder-lane').innerHTML=opts(a.ladder?a.ladder.lane:null);
   if(a.ladder) document.getElementById('gel-ladder-sizes').value=a.ladder.sizes;
-  document.getElementById('gel-lc').value=a.loading?String(a.loading.idx):'';
+  document.getElementById('gel-lc').value=a.loading&&_gelLoadingIdx(a)>=0?String(_gelLoadingIdx(a)):'';
   const fit=a.ladder&&a.ladder.fit;
-  fitEl.innerHTML=a.ladder?(fit?`MW fit: log<sub>10</sub>(kDa) = ${fit.intercept.toFixed(3)} ${fit.slope<0?'−':'+'} ${Math.abs(fit.slope).toFixed(3)}·Rf · ${fit.n} markers in lane ${a.ladder.lane+1} · R² = ${fit.r2.toFixed(4)}${a.ladder.nSizes!==a.ladder.nBands?` · ${a.ladder.nSizes} sizes for ${a.ladder.nBands} bands: the first ${a.ladder.assigned} assigned`:''}`
-    :`<span style="color:var(--warn)">${esc(a.ladder.error||'')}</span>`):'';
+  fitEl.innerHTML=a.ladder?(fit?`MW fit: log<sub>10</sub>(kDa) = ${fit.intercept.toFixed(3)} ${fit.slope<0?'−':'+'} ${Math.abs(fit.slope).toFixed(3)}·Rf · ${fit.n} markers in lane ${a.ladder.lane+1} · R² = ${fit.r2.toFixed(4)}`
+    :`<span style="color:var(--warn)">⚠ No molecular weights: ${esc(a.ladder.error||'')}</span>`):'';
   const rows=_gelRows(a);
   const th=s=>`<th style="text-align:right;padding:2px 5px;border-bottom:1px solid var(--border);white-space:nowrap">${s}</th>`;
   const td=(s,st)=>`<td style="text-align:right;padding:2px 5px;${st||''}">${s}</td>`;
@@ -6832,7 +7214,15 @@ function _gelRenderModal(){
     if(!R.length) html+=`<tr>${td(li+1)}${td('—')}<td colspan="${a.loading&&a.refLane!=null?8:7}" style="padding:2px 5px;color:var(--muted)">no bands${L.inferred?' — lane inferred from the lane pitch':''}</td></tr>`;
     R.forEach(r=>{
       const sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===r.bandIdx;
-      const flag=r.saturated?'<span style="color:var(--danger)" title="A sample in this band reached the clip value: the volume is an underestimate and is excluded from every ratio">SATURATED</span>':(r.manual?'<span title="Added by hand">hand</span>':'');
+      const clipAt=a.polarity==='dark'?a.clipLo:a.clipHi;
+      const fl=[];
+      if(r.saturated) fl.push(`<span style="color:var(--danger)" title="${r.clipped} samples in this band reached the clip value: the volume is an underestimate and is excluded from every ratio">SATURATED (clipped at ${clipAt})</span>`);
+      if(r.partial) fl.push('<span style="color:var(--warn)" title="Part of this band lies outside the image (the tilted crop reaches past it): the volume is partial and is excluded from every ratio">partly outside image</span>');
+      if(r.merged) fl.push('<span style="color:var(--warn)" title="A shoulder or a second crown inside this band: it may be two bands, and its volume is their total">merged?</span>');
+      if(r.split) fl.push('<span title="Touches its neighbour: the two were divided at the valley between them">split</span>');
+      if(r.nearNoise) fl.push(`<span style="color:var(--warn)" title="The volume is under 10 noise SEs (SE ${_gelFmt(r.se,0)})">near noise</span>`);
+      if(r.manual) fl.push('<span title="Added by hand">hand</span>');
+      const flag=fl.join(' ');
       const kd=r.marker!=null?`<b>${r.marker}</b>`:(r.kda!=null?`${r.kda.toFixed(1)}${r.extrapolated?'<span title="Outside the ladder range — extrapolated">*</span>':''}`:'—');
       html+=`<tr style="${sel?'background:rgba(250,204,21,.15)':''}">${td(r.lane)}${td(r.band)}${td(r.rf.toFixed(3))}${td(_gelFmt(r.volume,0),r.saturated?'color:var(--danger)':'')}${td(_gelFmt(r.pctLane,1))}${td(_gelFmt(r.relRef,3))}${td(_gelFmt(r.normLC,4))}${a.loading&&a.refLane!=null?td(_gelFmt(r.normLCRef,3)):''}${td(kd)}${td(flag)}<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this band (one undo step)" onclick="gelDeleteBand(_gelUI.idx,${li},${r.bandIdx})">✕</button></td></tr>`;
     });
@@ -6840,6 +7230,7 @@ function _gelRenderModal(){
   html+='</table>';
   if(rows.some(r=>r.extrapolated)) html+='<div style="font-size:10px;color:var(--muted);margin-top:3px">* outside the ladder range — extrapolated</div>';
   if(sat) html+='<div style="font-size:10px;color:var(--danger);margin-top:3px">Saturated bands are clipped: their volumes are underestimates, so they and their lanes\' shares are left out of every ratio.</div>';
+  if(rows.some(r=>r.partial)) html+='<div style="font-size:10px;color:var(--warn);margin-top:3px">Bands partly outside the image are partial: they and their lanes\' shares are left out of every ratio.</div>';
   tb.innerHTML=html;
 }
 // While the dialog is open its keys are its own: Delete removes the selected band, not
@@ -21548,12 +21939,19 @@ function _calibSourceOf(im){
 // one source pixel and never ten times finer: at 2 nm/px a capsid reads "62 nm", not
 // "62.37 nm", because the image cannot tell those apart.
 function _rulerFmt(um, umPerPx){
-  const unit = um<1 ? 'nm' : um>=1000 ? 'mm' : 'µm';
-  const f=_sbUnitFactor(unit);                     // µm per unit
-  const v=um/f, px=(umPerPx>0?umPerPx:0)/f;
-  const d = px>0 ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(px)-1e-9))) : 2;
-  const s=v.toFixed(d);
-  return {value:+s, unit, d, text:`${s} ${unit}`};
+  const units=['nm','µm','mm'];
+  let k = um<1 ? 0 : um>=1000 ? 2 : 1, out;
+  // The unit is checked again after rounding: 999.7 nm rounds to "1000 nm", which reads
+  // as 1 µm and should say so.
+  for(;;){
+    const unit=units[k], f=_sbUnitFactor(unit);       // µm per unit
+    const v=um/f, px=(umPerPx>0?umPerPx:0)/f;
+    const d = px>0 ? Math.max(0, Math.min(4, Math.ceil(-Math.log10(px)-1e-9))) : 2;
+    const s=v.toFixed(d);
+    out={value:+s, unit, d, text:`${s} ${unit}`};
+    if(Math.abs(+s)>=1000&&k<units.length-1){ k++; continue; }
+    return out;
+  }
 }
 
 var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image', moved:'moved off its panel'};
@@ -21632,15 +22030,24 @@ function _rulerRows(){
 
 // Repeated measurements: rulers sharing a name on the same panel. Only rulers with an
 // honest length count — an uncalibrated one is not a zero, it is not a measurement.
+// Grouped by the panel itself, not its label: cleared or repeated labels pooled rulers
+// from three images at three pixel sizes into one "panel ?" mean. Where a label does not
+// tell the groups' panels apart, the file name is added to it.
 function _rulerStats(rows){
   const groups=new Map();
   (rows||_rulerRows()).forEach(r=>{
     if(!r.name||r.m.status!=='ok') return;
-    const k=r.panel+'\u0000'+r.name;
-    if(!groups.has(k)) groups.set(k,{name:r.name, panel:r.panel, im:r.m.im, um:[]});
-    groups.get(k).um.push(r.m.um);
+    let byName=groups.get(r.m.im); if(!byName){ byName=new Map(); groups.set(r.m.im,byName); }
+    if(!byName.has(r.name)) byName.set(r.name,{name:r.name, panel:r.panel, im:r.m.im, um:[]});
+    byName.get(r.name).um.push(r.m.um);
   });
-  return [...groups.values()].map(g=>{
+  const all=[]; groups.forEach(byName=>byName.forEach(g=>all.push(g)));
+  const ims=[...groups.keys()], lab=im=>String(im.label||'');
+  all.forEach(g=>{ const l=lab(g.im);
+    if(!l||l==='?'||ims.some(o=>o!==g.im&&lab(o)===l)){
+      const fn=(typeof _sourceName==='function'?_sourceName(g.im):'')||g.im.name||'unnamed image';
+      g.panel=`${l||'?'} (${fn})`; } });
+  return all.map(g=>{
     const n=g.um.length, mean=g.um.reduce((s,v)=>s+v,0)/n;
     const sd=n>1?Math.sqrt(g.um.reduce((s,v)=>s+(v-mean)*(v-mean),0)/(n-1)):null;   // n−1, as the ROI stats
     const f=_rulerFmt(mean, g.im.umPerPx), fac=_sbUnitFactor(f.unit);

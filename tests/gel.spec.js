@@ -12,7 +12,8 @@ const { loadApp } = require('./helpers');
 
 // The generator. `spec.lanes` are in crop-frame coordinates (local to the crop); with a
 // tilted crop every source pixel is mapped into the frame by _cropGeomOf, so the gel is
-// upright in the frame and tilted in the file.
+// upright in the frame and tilted in the file. `bgExpr` adds to the background (a ramp,
+// a scratch: an expression in x, y, W, H); `clip` and `floor` clip the samples.
 const GEN = () => {
   window.__gelMake = (spec) => {
     const W = spec.w, H = spec.h;
@@ -26,14 +27,16 @@ const GEN = () => {
       return s;
     };
     const full = spec.raw ? 65535 : 255;
-    const clip = spec.clip != null ? spec.clip : full;
+    const clip = spec.clip != null ? spec.clip : full, floor = spec.floor || 0;
+    const bgf = spec.bgExpr ? new Function('x', 'y', 'W', 'H', 'return ' + spec.bgExpr) : null;
     const vals = new Float64Array(W * H);
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
       let x = i + 0.5, y = j + 0.5;
       if (geom) { const f = geom.toFrame(x, y); x = f[0] - geom.sx; y = f[1] - geom.sy; }
       const sg = model(x, y), n = spec.noise ? (rnd() - 0.5) * 2 * spec.noise : 0;
-      const v = spec.pol === 'dark' ? spec.bg - sg + n : spec.bg + sg + n;
-      vals[j * W + i] = Math.max(0, Math.min(clip, Math.round(v)));
+      const bg = spec.bg + (bgf ? bgf(x, y, W, H) : 0);
+      const v = spec.pol === 'dark' ? bg - sg + n : bg + sg + n;
+      vals[j * W + i] = Math.max(floor, Math.min(clip, Math.round(v)));
     }
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'), id = x.createImageData(W, H);
@@ -550,5 +553,442 @@ test('a short loading-control strip: the background window widens to fit the ban
   expect(r.userShort).toBe(true);
   expect(r.csv).toMatch(/WARNING: the window is barely taller than the tallest band/);
   expect(r.row).toMatch(/barely taller than the bands/);
+  expect(errors).toEqual([]);
+});
+
+// ── Hardening against an adversarial tester's gels (each with a known truth) ────────
+// Six 50-px lanes at x = 30 + 90k on a 600-px crop; σ-3 bands; truth per band =
+// amp × 50 × 3√(2π). A detected lane runs a few px generous (its edges are taken at 15%
+// of the lane's height on a lightly smoothed profile), so centres are checked, not edges.
+const SIX = (bands) => [0, 1, 2, 3, 4, 5].map(k => ({ ...laneAt(k), bands: typeof bands === 'function' ? bands(k) : bands }));
+const TWO = [{ y: 100, s: 3, amp: 60 }, { y: 200, s: 3, amp: 60 }];
+const VOL = (amp, s = 3, w = LW) => amp * w * s * Math.sqrt(2 * Math.PI);
+// A band integrated to 10% of its peak holds ~97% of the Gaussian; allow -5%..+3%, or
+// ±8% where the noise is a third of the band's height (it is, at amp 20 and ±6 noise).
+const nearTruth = (v, t, tol) => { expect(v / t).toBeGreaterThan(tol ? 1 - tol : 0.95); expect(v / t).toBeLessThan(tol ? 1 + tol : 1.03); };
+const centresOK = (lanes, n = 6) => {
+  expect(lanes.length).toBe(n);
+  lanes.forEach((L, k) => expect(Math.abs((L.x0 + L.x1) / 2 - TRUE_CENTRES[k])).toBeLessThanOrEqual(3));
+};
+const lanesOf = a => a.lanes.map(L => ({ x0: L.x0, x1: L.x1, inferred: L.inferred, end: !!L.end,
+  bands: L.bands.map(b => ({ yc: b.yc, v: b.volume, sat: !!b.saturated, partial: !!b.partial, merged: !!b.merged })) }));
+
+test('noisy blots: one lane per lane, never split, never one in a gap (GEL-01)', async ({ page }) => {
+  const errors = await setup(page);
+  // The tester's case (8 lanes found, lane 6 split) and the worst corners of their sweep.
+  const cases = [{ h: 500, noise: 3, amp: 100, seed: 7 }, { h: 300, noise: 6, amp: 20, seed: 5 }, { h: 300, noise: 3, amp: 40, seed: 5 },
+    { h: 500, noise: 6, amp: 40, seed: 5 }, { h: 120, noise: 6, amp: 20, seed: 5 }];
+  for (const c of cases) {
+    const r = await page.evaluate(async (c) => {
+      images = [];
+      await __gelMake({ w: 600, h: c.h, pol: 'dark', bg: 230, noise: c.noise, seed: c.seed, name: 'blot.png',
+        lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: Math.round(c.h / 3), s: 3, amp: c.amp }] })) });
+      const a = _gelAnalyse(images[0]);
+      return a.lanes.map(L => ({ x0: L.x0, x1: L.x1, inferred: L.inferred, n: L.bands.length, v: L.bands.map(b => b.volume) }));
+    }, c);
+    centresOK(r);
+    r.forEach(L => { expect(L.inferred).toBe(false); expect(L.n).toBe(1); nearTruth(L.v[0], VOL(c.amp), c.amp / c.noise <= 4 ? 0.08 : 0); });
+  }
+  // The toast after placing numbers says six, and they sit over the six real lanes.
+  const t = await page.evaluate(async () => {
+    images = [];
+    await __gelMake({ w: 600, h: 500, pol: 'dark', bg: 230, noise: 3, seed: 7, name: 'blot.png',
+      lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 166, s: 3, amp: 100 }] })) });
+    runGelAnalysis(0);
+    let msg = null; const t0 = window.toast; window.toast = m => { msg = m; }; gelPlaceLaneNumbers(0); window.toast = t0;
+    return msg;
+  });
+  expect(t).toMatch(/^Placed 6 lane numbers/);
+  expect(errors).toEqual([]);
+});
+
+test('an illumination ramp across the gel: six lanes, equal bands, auto and forced (GEL-02)', async ({ page }) => {
+  const errors = await setup(page);
+  for (const ramp of [60, 20]) {
+    const r = await page.evaluate(async (ramp) => {
+      images = [];
+      // 200 → 260 clips at 255 over the last columns: a rise into the edge, not a lane.
+      await __gelMake({ w: 600, h: 300, pol: 'dark', bg: ramp === 60 ? 200 : 220, noise: 1, name: 'ramp.png', bgExpr: `${ramp}*x/W`,
+        lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }, { y: 200, s: 3, amp: 60 }] })) });
+      const L = a => a.lanes.map(L => ({ x0: L.x0, x1: L.x1, inferred: L.inferred, v: L.bands.map(b => b.volume) }));
+      const a = _gelAnalyse(images[0]);
+      return { auto: L(a), forced: L(_gelAnalyse(images[0], { laneCount: 6 })), note: _gelLaneNote(a) };
+    }, ramp);
+    for (const k of ['auto', 'forced']) {
+      centresOK(r[k]);
+      r[k].forEach(L => { expect(L.v.length).toBe(2); L.v.forEach(v => nearTruth(v, VOL(60))); });
+    }
+    if (ramp === 60) expect(r.note).toMatch(/a rise into the crop edge at x 5\d\d–600 was not counted as a lane/);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('empty lanes at either end are inferred from the pitch, and said to be (GEL-04)', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, { w: 600, h: 300, pol: 'dark', bg: 230, noise: 1, name: 'blot.png',
+    lanes: SIX(k => (k === 0 || k === 5) ? [] : [{ y: 100, s: 3, amp: 40 + 20 * k }, { y: 200, s: 3, amp: 60 }]) });
+  const r = await page.evaluate(() => {
+    runGelAnalysis(0); gelSetRefLane(0, 1);
+    const a = images[0].gelAnalysis;
+    let t = null; const t0 = window.toast; window.toast = m => { t = m; }; gelPlaceLaneNumbers(0); window.toast = t0;
+    openGelAnalysis(0); const banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+    checkCompliance(); const row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+    return { lanes: a.lanes.map(L => ({ x0: L.x0, x1: L.x1, inferred: L.inferred, end: !!L.end, n: L.bands.length })),
+      rel: _gelRows(a).filter(x => Math.abs(x.yc - 100) < 4).map(x => x.relRef), toast: t, banner, row,
+      csv: gelCSV(0).split('\n').find(l => l.startsWith('# Lanes')), methods: generateMethodsParagraph() };
+  });
+  centresOK(r.lanes);
+  expect(r.lanes.map(L => [L.inferred, L.end, L.n])).toEqual([[true, true, 0], [false, false, 2], [false, false, 2], [false, false, 2], [false, false, 2], [true, true, 0]]);
+  // lane 2 is reported as lane 2, so the dose series reads 1 : 1.33 : 1.67 : 2 against it
+  [1, 4 / 3, 5 / 3, 2].forEach((t, i) => expect(Math.abs(r.rel[i] - t) / t).toBeLessThan(0.05));
+  expect(r.toast).toMatch(/lanes 1 and 6 inferred from the lane pitch/);
+  expect(r.banner).toMatch(/Lanes at x: 1 2\d–8\d inferred/);
+  expect(r.banner).toMatch(/inferred at the end of the gel/);
+  expect(r.csv).toMatch(/1: 2\d–8\d \(inferred\)/);
+  expect(r.csv).toMatch(/lanes 1 and 6 inferred at the end of the gel/);
+  expect(r.methods).toMatch(/lanes 1 and 6 being inferred from the lane pitch/);
+  expect(r.row).toMatch(/end lanes inferred from the lane pitch/);
+  expect(errors).toEqual([]);
+});
+
+test('a crop that is one lane: auto refuses, Lanes = 1 measures the whole width (GEL-15, GEL-16)', async ({ page }) => {
+  const errors = await setup(page);
+  for (const W of [6, 20, 40, 80]) {
+    const r = await page.evaluate(async (W) => {
+      images = [];
+      await __gelMake({ w: W, h: 200, pol: 'dark', bg: 230, noise: 1, name: 'strip.png', lanes: [{ x0: 0, x1: W, bands: [{ y: 60, s: 3, amp: 60 }, { y: 140, s: 3, amp: 30 }] }] });
+      const toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+      runGelAnalysis(0);
+      const placed = gelPlaceLaneNumbers(0);
+      window.toast = t0;
+      const auto = { n: images[0].gelAnalysis.lanes.length, methods: generateMethodsParagraph(), csv: gelCSV(0) };
+      checkCompliance(); auto.row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+      document.getElementById('info-modal-bg')?.remove();
+      runGelAnalysis(0, { laneCount: 1 });
+      const a = images[0].gelAnalysis;
+      return { auto, toasts, placed, one: { x0: a.lanes[0].x0, x1: a.lanes[0].x1, v: a.lanes[0].bands.map(b => b.volume) },
+        oneMethods: generateMethodsParagraph() };
+    }, W);
+    expect(r.auto.n).toBe(0);
+    expect(r.toasts[0]).toMatch(/No lanes found .* type 1 in Lanes/);
+    expect(r.placed).toBe(false);
+    expect(r.toasts[1]).toMatch(/nothing to number/);
+    expect(r.auto.methods).not.toMatch(/densitometry/i);
+    expect(r.auto.row).toMatch(/no lanes were found/);
+    expect(r.auto.row).not.toMatch(/✓/);
+    expect(r.auto.csv).toMatch(/# Lanes: NONE FOUND/);
+    expect([r.one.x0, r.one.x1]).toEqual([0, W]);
+    if (W >= 20) { expect(r.one.v.length).toBe(2); nearTruth(r.one.v[0], VOL(60, 3, W)); nearTruth(r.one.v[1], VOL(30, 3, W)); }
+    expect(r.oneMethods).toMatch(/the whole crop width was measured as one lane/);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('a thin vertical scratch is set aside, reported, and cannot set the pitch (GEL-18)', async ({ page }) => {
+  const errors = await setup(page);
+  for (const depth of [40, 15]) {
+    const r = await page.evaluate(async (depth) => {
+      images = [];
+      await __gelMake({ w: 600, h: 300, pol: 'dark', bg: 230, noise: 1, name: 'scratch.png', bgExpr: `(x>=97&&x<103)?-${depth}:0`,
+        lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }, { y: 200, s: 3, amp: 60 }] })) });
+      const L = a => a.lanes.map(L => ({ x0: L.x0, x1: L.x1, inferred: L.inferred, v: L.bands.map(b => b.volume) }));
+      const a = _gelAnalyse(images[0]);
+      return { auto: L(a), forced: L(_gelAnalyse(images[0], { laneCount: 6 })), rejected: a.laneInfo.rejected, note: _gelLaneNote(a) };
+    }, depth);
+    for (const k of ['auto', 'forced']) {
+      centresOK(r[k]);
+      r[k].forEach(L => { expect(L.inferred).toBe(false); expect(L.v.length).toBe(2); L.v.forEach(v => nearTruth(v, VOL(60))); });
+    }
+    expect(r.rejected.length).toBe(1);
+    expect(r.rejected[0].x0).toBeGreaterThanOrEqual(93); expect(r.rejected[0].x1).toBeLessThanOrEqual(107);
+    expect(r.note).toMatch(/too narrow for a lane .* at x 9\d–10\d was not counted as a lane/);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('doublets: resolved ones are split at the valley, unresolved ones flagged, and no volume is dropped (GEL-03)', async ({ page }) => {
+  const errors = await setup(page);
+  for (const sep of [7, 5, 3]) {
+    const r = await page.evaluate(async (sep) => {
+      images = [];
+      await __gelMake({ w: 600, h: 300, pol: 'dark', bg: 230, noise: 1, name: 'doublet.png',
+        lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k,
+          bands: k === 2 ? [{ y: 100, s: 2, amp: 60 }, { y: 100 + sep, s: 2, amp: 30 }, { y: 200, s: 3, amp: 60 }] : [{ y: 100, s: 3, amp: 60 }, { y: 200, s: 3, amp: 60 }] })) });
+      const a = _gelAnalyse(images[0]);
+      return a.lanes[2].bands.filter(b => b.yc < 150).map(b => ({ yc: b.yc, v: b.volume, merged: !!b.merged, split: !!b.split }));
+    }, sep);
+    const total = r.reduce((s, b) => s + b.v, 0);
+    nearTruth(total, VOL(60, 2) + VOL(30, 2));          // the minor band's volume is never lost
+    if (sep === 7) {
+      expect(r.length).toBe(2);
+      expect(Math.abs(r[1].yc - 107)).toBeLessThan(1.5);
+      // divided at the valley: each within 20% of its own truth (their flanks overlap)
+      expect(Math.abs(r[0].v / VOL(60, 2) - 1)).toBeLessThan(0.2); expect(Math.abs(r[1].v / VOL(30, 2) - 1)).toBeLessThan(0.2);
+      expect(r[0].split && r[1].split).toBe(true);
+    }
+    if (sep === 5) { expect(r.length).toBe(1); expect(r[0].merged).toBe(true); }
+    if (sep === 3) expect(r.length).toBe(1);             // below the resolution: one band, the total
+  }
+  // ordinary single bands are not flagged
+  const flags = await page.evaluate(async () => {
+    images = []; await __gelMake({ w: 600, h: 300, pol: 'dark', bg: 230, noise: 3, name: 'b.png',
+      lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }, { y: 200, s: 3, amp: 60 }] })) });
+    const a = _gelAnalyse(images[0]); return a.lanes.flatMap(L => L.bands.map(b => !!(b.merged || b.split || b.nearNoise)));
+  });
+  expect(flags.filter(Boolean).length).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('clipping below the format ceiling is saturation: 8-bit at 250, 16-bit at 65520, a dark blot at 6 (GEL-05)', async ({ page }) => {
+  const errors = await setup(page);
+  const specs = [
+    { name: 'clip250.png', w: 400, h: 200, pol: 'light', bg: 20, clip: 250, noise: 2, amps: [600, 100], end: 250 },
+    { name: 'g12in16.tif', w: 400, h: 200, pol: 'light', bg: 1000, raw: true, clip: 65520, noise: 30, amps: [120000, 20000], end: 65520 },
+    { name: 'floor6.png', w: 400, h: 200, pol: 'dark', bg: 230, floor: 6, noise: 2, amps: [600, 100], end: 6 },
+  ];
+  for (const s of specs) {
+    const r = await page.evaluate(async (s) => {
+      images = [];
+      await __gelMake({ ...s, lanes: [0, 1, 2, 3].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 80, s: 3, amp: k === 0 ? s.amps[0] : s.amps[1] }] })) });
+      runGelAnalysis(0); gelSetRefLane(0, 1);
+      const a = images[0].gelAnalysis;
+      openGelAnalysis(0); const table = document.getElementById('gel-table').textContent; closeGelAnalysis();
+      return { clipHi: a.clipHi, clipLo: a.clipLo, sat: a.lanes.map(L => L.bands.map(b => !!b.saturated)), rel0: _gelRows(a)[0].relRef,
+        csv: gelCSV(0).split('\n').find(l => l.startsWith('# Saturated')), methods: generateMethodsParagraph(), table };
+    }, s);
+    expect(s.pol === 'dark' ? r.clipLo : r.clipHi).toBe(s.end);
+    expect(r.sat).toEqual([[true], [false], [false], [false]]);
+    expect(r.rel0).toBeNull();                                  // the clipped band takes part in no ratio
+    expect(r.csv).toMatch(new RegExp(`# Saturated bands: 1 — clipped at ${s.end}.*pile-up`));
+    expect(r.methods).toMatch(/1 band was saturated/);
+    expect(r.table).toContain(`SATURATED (clipped at ${s.end})`);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('the ladder fit refuses a missing or extra marker, reversed or garbled sizes, and a poor fit (GEL-06)', async ({ page }) => {
+  const errors = await setup(page);
+  const H = 400, kd = [250, 130, 100, 70, 55, 35, 25];
+  const yOf = m => H * (0.1 + 0.8 * (Math.log10(250) - Math.log10(m)) / (Math.log10(250) - Math.log10(25)));
+  const sample = [{ x0: 120, x1: 170, bands: [{ y: yOf(60), s: 3, amp: 80 }, { y: yOf(40), s: 3, amp: 80 }] },
+    { x0: 210, x1: 260, bands: [{ y: yOf(150), s: 3, amp: 80 }, { y: yOf(30), s: 3, amp: 80 }] }];
+  const ladder = ms => ({ x0: 30, x1: 80, bands: ms.map(m => ({ y: yOf(m), s: 2.5, amp: 70 })) });
+  const cases = [
+    { name: 'missing', bands: kd.filter(m => m !== 100), sizes: kd.join(','), err: /7 sizes typed for 6 bands/ },
+    { name: 'extra', bands: [180, ...kd], sizes: kd.join(','), err: /7 sizes typed for 8 bands/ },
+    { name: 'reversed', bands: kd, sizes: kd.slice().reverse().join(','), err: /rise down the list/ },
+    { name: 'typo', bands: kd, sizes: '250 kDa, 130kDa, 1e3, -5, abc, 70', err: /"-5" is not a marker size/ },
+    { name: 'outOfOrder', bands: kd, sizes: '250,130,100,55,70,35,25', err: /70 follows 55/ },
+    { name: 'poorFit', bands: kd, sizes: '1000,990,980,970,20,10,5', err: /R² = 0\.\d+, below 0\.95/ },
+  ];
+  for (const c of cases) {
+    const r = await page.evaluate(async ({ c, lanes }) => {
+      images = [];
+      await __gelMake({ w: 300, h: 400, pol: 'dark', bg: 225, noise: 3, name: 'mw.png', lanes });
+      runGelAnalysis(0); gelSetLadder(0, 0, c.sizes);
+      const a = images[0].gelAnalysis;
+      openGelAnalysis(0); const fitText = document.getElementById('gel-fit').textContent; closeGelAnalysis();
+      const placed = gelPlaceMWLabels(0);
+      return { fit: a.ladder.fit, err: a.ladder.error, kda: _gelRows(a).map(x => x.kda).filter(v => v != null), placed,
+        csv: gelCSV(0).split('\n').find(l => l.startsWith('# MW fit')), methods: generateMethodsParagraph(), fitText, markers: _gelRows(a).map(x => x.marker).filter(v => v != null) };
+    }, { c, lanes: [ladder(c.bands), ...sample] });
+    expect(r.fit).toBeNull();
+    expect(r.err).toMatch(c.err);
+    expect(r.kda).toEqual([]);                               // no kDa anywhere from a refused fit
+    expect(r.csv).toMatch(/# MW fit: REFUSED/);
+    expect(r.methods).not.toMatch(/Molecular weights/);
+    expect(r.fitText).toMatch(/No molecular weights/);
+    if (c.name === 'missing' || c.name === 'extra' || c.name === 'reversed') { expect(r.placed).toBe(false); expect(r.markers).toEqual([]); }
+  }
+  // and the right sizes for the gel with its 100 kDa band missing do fit
+  const ok = await page.evaluate(async (lanes) => {
+    images = [];
+    await __gelMake({ w: 300, h: 400, pol: 'dark', bg: 225, noise: 3, name: 'mw.png', lanes });
+    runGelAnalysis(0); gelSetLadder(0, 0, '250, 130, 70, 55, 35, 25');
+    return { r2: images[0].gelAnalysis.ladder.fit.r2, kda: _gelRows(images[0].gelAnalysis).map(x => x.kda).filter(v => v != null) };
+  }, [ladder(kd.filter(m => m !== 100)), ...sample]);
+  expect(ok.r2).toBeGreaterThan(0.98);
+  [60, 40, 150, 30].forEach((m, i) => expect(Math.abs(ok.kda[i] - m) / m).toBeLessThan(0.06));
+  expect(errors).toEqual([]);
+});
+
+test('loading control: refused on a lane-count mismatch, held by panel id, stale when it changes (GEL-07/08/09)', async ({ page }) => {
+  const errors = await setup(page);
+  const mk = (amps, name, w) => ({ w: w || 400, h: 120, pol: 'dark', bg: 228, noise: 1, name,
+    lanes: amps.map((a, k) => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 60, s: 3, amp: a }] })) });
+  const tgt = [40, 80, 80, 120], load = [30, 60, 30, 45];   // normalised 1 : 1 : 2 : 2
+  const r = await page.evaluate(async ({ mk6, mkT, mkL, mkO }) => {
+    const out = {}, toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    const norm = () => _gelRows(images.find(p => p.name === 'target.png').gelAnalysis).map(x => x.normLC);
+    // 1. six actin lanes for four target lanes: refused, both counts named
+    images = []; await __gelMake(mkT); await __gelMake(mk6);
+    runGelAnalysis(0); out.mismatch = { ok: gelSetLoading(0, 1), loading: images[0].gelAnalysis.loading, toast: toasts.pop() };
+    // 2. reorder: the control follows actin.png, not slot 1
+    images = []; await __gelMake(mkT); await __gelMake(mkL); await __gelMake(mkO);
+    runGelAnalysis(0); gelSetLoading(0, 1); const before = norm();
+    swapImages(1, 2); render();
+    out.reorder = { before, after: norm(), methods: generateMethodsParagraph().match(/loading control in panel (\w)/)[1],
+      actinLabel: formatLabel(images.find(p => p.name === 'actin.png').label) };
+    runGelAnalysis(0);
+    out.reorder.redetect = norm();
+    // 3. the target swapped into the control's slot, then re-detected: never its own control
+    images = []; await __gelMake(mkT); await __gelMake(mkL);
+    runGelAnalysis(0); gelSetLoading(0, 1); swapImages(0, 1); render();
+    const ti = images.findIndex(p => p.name === 'target.png'), n0 = toasts.length;
+    out.self = { stillLinked: _gelLoadingIdx(images[ti].gelAnalysis) === images.findIndex(p => p.name === 'actin.png') };
+    runGelAnalysis(ti); out.self.after = norm(); out.self.loading = images[ti].gelAnalysis.loading && images[ti].gelAnalysis.loading.label;
+    // 4. the control re-cropped: stale in the table, CSV, Methods, banner and compliance
+    images = []; await __gelMake(mkT); await __gelMake(mkL);
+    runGelAnalysis(0); gelSetLoading(0, 1); const n1 = norm();
+    images[1].cropL = 30; render();
+    openGelAnalysis(0); const banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+    checkCompliance(); const row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+    document.getElementById('info-modal-bg')?.remove();
+    out.recrop = { n1, after: norm(), banner, row, csv: gelCSV(0), methods: generateMethodsParagraph() };
+    // 5. the control deleted
+    images.splice(1, 1); render();
+    out.deleted = { after: norm(), csv: gelCSV(0).split('\n').find(l => l.startsWith('# Loading')) };
+    window.toast = t0;
+    return out;
+  }, { mk6: mk([30, 60, 30, 45, 60, 60], 'actin6.png', 580), mkT: mk(tgt, 'target.png'), mkL: mk(load, 'actin.png'), mkO: mk([200, 10, 200, 10], 'other.png') });
+  expect(r.mismatch.ok).toBe(false);
+  expect(r.mismatch.loading).toBeNull();
+  expect(r.mismatch.toast).toMatch(/panel B has 6 lanes .* this panel has 4/);
+  const ratio = v => v.map(x => x / v[0]);
+  ratio(r.reorder.before).forEach((x, i) => expect(Math.abs(x - [1, 1, 2, 2][i]) / [1, 1, 2, 2][i]).toBeLessThan(0.1));
+  expect(r.reorder.after).toEqual(r.reorder.before);
+  expect(r.reorder.methods).toBe(r.reorder.actinLabel);
+  expect(r.reorder.methods).toBe('C');
+  ratio(r.reorder.redetect).forEach((x, i) => expect(Math.abs(x - [1, 1, 2, 2][i]) / [1, 1, 2, 2][i]).toBeLessThan(0.1));
+  expect(r.self.stillLinked).toBe(true);
+  expect(r.self.after.every(v => v != null)).toBe(true);   // still divided by actin, not by itself
+  ratio(r.self.after).forEach((x, i) => expect(Math.abs(x - [1, 1, 2, 2][i]) / [1, 1, 2, 2][i]).toBeLessThan(0.1));
+  expect(r.recrop.n1.every(v => v != null)).toBe(true);
+  expect(r.recrop.after.every(v => v == null)).toBe(true);
+  expect(r.recrop.banner).toMatch(/Normalisation is stale: the loading-control panel B was re-cropped/);
+  expect(r.recrop.row).toMatch(/re-cropped after it was measured/);
+  expect(r.recrop.csv).toMatch(/# STALE: the loading-control normalisation/);
+  expect(r.recrop.csv).toMatch(/# Loading control: STALE/);
+  expect(r.recrop.methods).toMatch(/Band densitometry of panel A/);
+  expect(r.recrop.methods).not.toMatch(/normalised to the loading control/);
+  expect(r.deleted.after.every(v => v == null)).toBe(true);
+  expect(r.deleted.csv).toMatch(/STALE — the loading-control panel B is no longer in the figure/);
+  expect(errors).toEqual([]);
+});
+
+test('a replaced image makes the analysis stale, though the size is the same (GEL-17)', async ({ page }) => {
+  const errors = await setup(page);
+  const mk = (amps, name) => ({ w: 400, h: 200, pol: 'dark', bg: 228, noise: 1, name,
+    lanes: amps.map((a, k) => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: a }] })) });
+  const r = await page.evaluate(async ({ m1, m2 }) => {
+    images = []; await __gelMake(m1); await __gelMake(m2);
+    runGelAnalysis(0);
+    const fresh0 = _gelFresh(images[0]);
+    images[0].img = images[1].img; images[0].src = images[1].src; render();   // what pasting into the panel does
+    const n = undoStack.length, edit = gelSetLane(0, 0, images[0].gelAnalysis.lanes[0].x0 + 1, images[0].gelAnalysis.lanes[0].x1);
+    return { fresh0, fresh: _gelFresh(images[0]), edit, steps: undoStack.length - n, methods: generateMethodsParagraph(),
+      csv: gelCSV(0).split('\n').filter(l => l.startsWith('# STALE')) };
+  }, { m1: mk([20, 40, 60, 80], 'blot1.png'), m2: mk([80, 80, 10, 10], 'blot2.png') });
+  expect(r.fresh0).toBe(true);
+  expect(r.fresh).toBe(false);
+  expect(r.edit).toBe(false);
+  expect(r.steps).toBe(0);
+  expect(r.methods).not.toMatch(/densitometry/i);
+  expect(r.csv[0]).toMatch(/# STALE: The panel's image was replaced/);
+  expect(errors).toEqual([]);
+});
+
+test('faint bands: no systematic over-estimate (GEL-12)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const out = [];
+    for (const amp of [3, 6, 12]) for (const seed of [3, 11, 29]) {
+      images = [];
+      await __gelMake({ w: 600, h: 300, pol: 'dark', bg: 230, noise: 1, seed, name: 'f.png',
+        lanes: [0, 1, 2, 3, 4, 5].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: k === 3 ? amp : 150 }, { y: 200, s: 3, amp: 150 }] })) });
+      const L = _gelAnalyse(images[0]).lanes[3];
+      const f = L.bands.find(b => Math.abs(b.yc - 100) < 6), s = L.bands.find(b => Math.abs(b.yc - 200) < 6);
+      out.push({ amp, err: f ? (f.volume / s.volume) / (amp / 150) - 1 : null });
+    }
+    return out;
+  });
+  // Before the fix: +9% to +44% at amp 3, every seed high. Now within ±8%, either side;
+  // a band at 2% of the strongest may fall under the detection bar (not detected, not wrong).
+  const errs = r.filter(x => x.err != null);
+  errs.forEach(x => expect(Math.abs(x.err)).toBeLessThan(x.amp === 3 ? 0.08 : 0.06));
+  expect(errs.filter(x => x.amp >= 6).length).toBe(6);
+  expect(errs.some(x => x.err < 0)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('a heavily loaded dark blot is read dark on light, and the guess is marked uncertain (GEL-13)', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, { w: 400, h: 200, pol: 'dark', bg: 230, noise: 1, name: 'heavy.png',
+    lanes: [0, 1, 2, 3].map(k => ({ x0: 5 + 100 * k, x1: 95 + 100 * k, bands: [{ y: 60, s: 25, amp: 150 }, { y: 140, s: 25, amp: 150 }] })) });
+  const r = await page.evaluate(() => {
+    runGelAnalysis(0); const a = images[0].gelAnalysis;
+    openGelAnalysis(0); const banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+    return { pol: a.polarity, unc: a.polarityUncertain, lanes: a.lanes.map(L => [(L.x0 + L.x1) / 2, L.bands.length]), banner,
+      csv: gelCSV(0).split('\n').find(l => l.startsWith('# Polarity')) };
+  });
+  expect(r.pol).toBe('dark');
+  expect(r.lanes.map(L => L[1])).toEqual([2, 2, 2, 2]);
+  r.lanes.forEach((L, k) => expect(Math.abs(L[0] - (50 + 100 * k))).toBeLessThanOrEqual(3));
+  expect(r.unc).toBe(true);
+  expect(r.banner).toMatch(/polarity is a low-confidence guess/);
+  expect(r.csv).toMatch(/UNCERTAIN/);
+  // the ordinary blots are not marked uncertain
+  const plain = await page.evaluate(async () => { images = []; await __gelMake({ w: 600, h: 300, pol: 'dark', bg: 230, noise: 3, name: 'b.png',
+    lanes: [0, 1, 2].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }] })) }); return _gelAnalyse(images[0]).polarityUncertain; });
+  expect(plain).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('a band partly outside the image on a tilted crop is flagged and left out of ratios (GEL-14)', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, { w: 500, h: 300, pol: 'dark', bg: 230, noise: 1, name: 'tilt.png', crop: { l: 0, t: 0, r: 0, b: 0, ang: 8 },
+    lanes: [0, 1, 2, 3, 4].map(k => ({ x0: 20 + 95 * k, x1: 70 + 95 * k, bands: [{ y: 20, s: 3, amp: 60 }, { y: 150, s: 3, amp: 60 }, { y: 280, s: 3, amp: 60 }] })) });
+  const r = await page.evaluate(() => {
+    runGelAnalysis(0); gelSetRefLane(0, 2);
+    const a = images[0].gelAnalysis, rows = _gelRows(a);
+    return { rows: rows.map(x => ({ lane: x.lane, y: Math.round(x.yc - a.frame.sy), partial: x.partial, rel: x.relRef, pct: x.pctLane })),
+      csv: gelCSV(0), methods: generateMethodsParagraph() };
+  });
+  const cut = r.rows.filter(x => x.partial);
+  expect(cut.length).toBeGreaterThanOrEqual(1);
+  cut.forEach(x => { expect(x.rel).toBeNull(); expect(x.pct).toBeNull(); });
+  expect(cut.some(x => x.lane === 2 && Math.abs(x.y - 20) < 4)).toBe(true);    // the tester's -12% band
+  // whole bands keep their ratios (≈1 against lane 3)
+  r.rows.filter(x => !x.partial && x.rel != null).forEach(x => expect(Math.abs(x.rel - 1)).toBeLessThan(0.05));
+  expect(r.csv).toMatch(/# Bands partly outside the image: [1-9]/);
+  expect(r.csv.split('\n').filter(l => /,PARTIAL,/.test(l)).length).toBe(cut.length);
+  expect(r.methods).toMatch(/partly outside the image and (was|were) not quantified/);
+  expect(errors).toEqual([]);
+});
+
+test('undoing the panel away under the open dialog closes it cleanly (GEL-10)', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, blotSpec('dark', 230, [30, 60, 120], 320));
+  await page.evaluate(() => openGelAnalysis(0));
+  for (let i = 0; i < 3; i++) { await page.keyboard.press('Control+z'); await page.waitForTimeout(30); }
+  const r = await page.evaluate(() => ({ panels: images.length, open: !!document.getElementById('gel-modal-bg'), ui: _gelUI }));
+  expect(r.panels).toBe(0);
+  expect(r.open).toBe(false);
+  expect(r.ui).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test('rulers: grouped by image, never by label; a length that rounds to 1000 takes the next unit (RUL-01, RUL-02)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(() => {
+    const A = { label: '', name: 'a.tif', umPerPx: 0.002 }, B = { label: '', name: 'b.tif', umPerPx: 0.001 }, C = { label: 'A', name: 'c.tif', umPerPx: 0.004 }, D = { label: 'A', name: 'd.tif', umPerPx: 0.004 };
+    const row = (im, um) => ({ name: 'capsid', panel: String(im.label || '?'), m: { status: 'ok', um, im } });
+    const st = _rulerStats([row(A, 0.06), row(B, 0.03), row(A, 0.064), row(C, 0.12), row(D, 0.2)]);
+    return { st: st.map(s => [s.panel, s.n, s.meanText, s.unit]), f1: _rulerFmt(0.9996, 0.002).text, f2: _rulerFmt(999.7, 1).text, f3: _rulerFmt(0.062, 0.002).text };
+  });
+  expect(r.st).toEqual([['? (a.tif)', 2, '62', 'nm'], ['? (b.tif)', 1, '30', 'nm'], ['A (c.tif)', 1, '120', 'nm'], ['A (d.tif)', 1, '200', 'nm']]);
+  expect(r.f1).toBe('1.000 µm');
+  expect(r.f2).toBe('1.000 mm');
+  expect(r.f3).toBe('62 nm');
   expect(errors).toEqual([]);
 });
