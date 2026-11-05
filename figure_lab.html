@@ -1023,6 +1023,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div id="roi-results"></div>
     <canvas id="line-profile-canvas" style="display:none"></canvas>
+    <div id="meas-list"></div>
     <button class="btn" id="export-measurements-btn" onclick="exportMeasurements()" style="width:100%;justify-content:center;display:none;margin-top:4px">⬇ Export Measurements CSV</button>
     <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">
       Measurements read your camera's native samples where an exact mapping exists, and the 8-bit display otherwise — every result says which.</div>
@@ -4019,7 +4020,7 @@ const CMD_REGISTRY=[
   {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
   {label:'Apply series tags (0 min, 5 min…)', keys:'tag series time points timestamp label sequence', run:()=>applySeriesTags()},
   {label:'Tag panels from acquisition time', keys:'tag acquisition time timestamp deltat ome tiff datetime elapsed time-lapse', run:()=>tagPanelsFromAcquisition()},
-  {label:'Channel names on panels (toggle)', keys:'tag channel names coloured DAPI GFP merge label', run:()=>{ const el=document.getElementById('tag-channels'); if(el){ el.checked=!el.checked; scheduleRender(); toast(el.checked?'Empty tags show channel names':'Channel names off','ok'); } }},
+  {label:'Channel names on panels (toggle)', keys:'tag channel names coloured DAPI GFP merge label', run:()=>{ const el=document.getElementById('tag-channels'); if(el){ pushUndo(); el.checked=!el.checked; scheduleRender(); toast(el.checked?'Empty tags show channel names':'Channel names off','ok'); } }},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
   {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
@@ -8094,7 +8095,11 @@ function gutterAtPoint(x,y){
   return null;
 }
 function setGutter(axis,index,value){
-  value=Math.max(0,Math.round(value));
+  // Within the gap field's own range: a gutter dragged far right wrote 753 into a field
+  // whose max is 100, which then showed as invalid and jumped to 100 on the first arrow key.
+  const fld=document.getElementById(axis==='col'?'gap-h':'gap-v');
+  const max=fld&&fld.max!==''?+fld.max:Infinity;
+  value=Math.min(max,Math.max(0,Math.round(value)));
   if(advancedSpacing){
     if(axis==='col'){ if(!colGaps) colGaps=new Array(Math.max(0,Math.max(1,gi('cols'))-1)).fill(null); colGaps[index-1]=value; }
     else { if(!rowGaps) rowGaps=new Array(Math.max(0,Math.max(1,gi('rows'))-1)).fill(null); rowGaps[index-1]=value; }
@@ -11368,25 +11373,25 @@ function cloneElemForUndo(el){
   // bgKey so undo snapshots don't share it by reference with the live element.
   return {...el, bgKey:(el&&el.bgKey)?{...el.bgKey}:el&&el.bgKey, _adjCache:undefined, _adjKey:undefined};
 }
-const _layoutTextIds=['cols','rows','panel-w','panel-h','gap-h','gap-v','m-top','m-left','m-btm','m-right',
-  'fig-title','bg-color','label-size','label-color','label-pos','sb-h','sb-color','axis-fs','label-font',
-  'axis-font','axis-color','axis-gap','panel-border-w','panel-border-c','panel-border-inset','label-format','fm-canvas-w','fm-canvas-h','tag-pos','hidden-gap'];
-const _layoutCheckIds=['auto-row-h','show-col-labels','show-row-labels','show-labels','label-bg','sb-text','label-bold','label-italic',
-  'axis-bold','axis-italic','axis-auto-color','inset-frames','inset-connectors','show-tags','tag-channels','label-auto-color','sb-auto-color',
-  'export-tiff-lzw'];
+// An undo step carries every control a saved figure keeps — the one list, _FIG_CONTROLS.
+// It used to keep its own hand-made copy, which had fallen behind: the export DPI and
+// printed width and the group bracket were left out, so undoing a journal preset put the
+// panel size and fonts back but the next export still came out at the preset's size.
 function captureLayout(){
   const o={text:{},check:{}};
-  _layoutTextIds.forEach(id=>o.text[id]=gv(id));
-  _layoutCheckIds.forEach(id=>o.check[id]=gc(id));
+  _FIG_CONTROLS.forEach(([,id,k])=>{ if(k==='c') o.check[id]=gc(id); else o.text[id]=gv(id); });
   o.colLabels=axisLabelValues('col');
   o.rowLabels=axisLabelValues('row');
   return o;
 }
 function applyLayoutSnapshot(o){
   if(!o) return;
-  _layoutTextIds.forEach(id=>{ if(o.text[id]!==undefined) sv(id,o.text[id]); });
-  _layoutCheckIds.forEach(id=>{ if(o.check[id]!==undefined) sc(id,o.check[id]); });
+  _FIG_CONTROLS.forEach(([,id,k])=>{
+    if(k==='c'){ if(o.check[id]!==undefined) sc(id,o.check[id]); }
+    else if(o.text[id]!==undefined) sv(id,o.text[id]);
+  });
   { const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw'); }
+  if(typeof _syncPhysReadout==='function') _syncPhysReadout();   // the printed-size readout under the export width
   onLayoutChange(); // rebuild label inputs for the restored cols/rows
   setAxisLabels('col', o.colLabels);
   setAxisLabels('row', o.rowLabels);
@@ -11408,6 +11413,9 @@ function snapshotState(opts){
     labelOffsets: JSON.parse(JSON.stringify(labelOffsets)),
     figGroups: figGroups.map(g=>({...g})),
     advancedSpacing, layoutMode,
+    // A measurement taken by mistake is undone like anything else (it used to be
+    // carried only across a figure boundary, so Ctrl+Z after one undid something else).
+    measurements: JSON.parse(JSON.stringify(measurements)),
   };
   // A figure boundary (New, Load, a tutorial) also replaces what no ordinary step
   // touches — measurements, notes, the caption and Methods text, every saved control —
@@ -11439,6 +11447,7 @@ function restoreState(s){
   annotations=(s.annotations||[]).map(a=>({...a}));
   freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
   _normalizeElemIds(freeformElements);   // snapshots already have string ids; safety for legacy stacks
+  if(Array.isArray(s.measurements)) measurements=JSON.parse(JSON.stringify(s.measurements));
   if('colGaps' in s) colGaps=s.colGaps?s.colGaps.slice():null;
   if('rowGaps' in s) rowGaps=s.rowGaps?s.rowGaps.slice():null;
   if(s.labelOffsets) labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
@@ -11459,13 +11468,27 @@ function restoreState(s){
   selectedPanelAnn=null; hideAnnFloat();
   hidePanelMenu();   // it names a panel of the figure that was just replaced
   renderImgList(); renderMiniGrid(); updateFreeformElemList(); renderAnnotationList(); scheduleRender(0);
+  if(typeof _renderMeasList==='function') _renderMeasList();
   if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
 }
-function _pushSnap(snap){ undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[]; _pendingUndoSnap=null; }
-function pushUndo(opts){ _pushSnap(snapshotState(opts)); if(typeof scheduleAutosave==='function') scheduleAutosave(); }
+function _pushSnap(snap){
+  // A control edited but not yet committed (the field still has focus) is its own step,
+  // recorded first so it is not folded into this one.
+  if(_pendingUndoSnap!==snap && _pendingUndoDirty) _flushPendingUndo();
+  undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[];
+  _pendingUndoSnap=null; _pendingUndoFor=null; _pendingUndoDirty=false;
+}
+function pushUndo(opts){
+  // The control whose change is being dispatched already recorded this gesture's step
+  // (taken before its first edit); a change handler that records one as well would add
+  // a second, empty step — or, after a live slider, one taken AFTER the edit.
+  if((_undoChangeStep||_undoHeld) && !(opts&&opts.boundary)) return;
+  _pushSnap(snapshotState(opts)); if(typeof scheduleAutosave==='function') scheduleAutosave();
+}
 // Stepping across a boundary keeps the whole figure on the other side too.
 const _isBoundary = st => !!(st.length && st[st.length-1].fig);
 function undo(){
+  _flushPendingUndo();
   if(!undoStack.length){ toast('Nothing to undo','warn'); return; }
   redoStack.push(snapshotState({boundary:_isBoundary(undoStack)}));
   restoreState(undoStack.pop());
@@ -11473,6 +11496,9 @@ function undo(){
   _tutAbort();
 }
 function redo(){
+  // An edit still in progress is a new change: it is recorded, and like any new change
+  // it ends the redo history.
+  _flushPendingUndo();
   if(!redoStack.length){ toast('Nothing to redo','warn'); return; }
   undoStack.push(snapshotState({boundary:_isBoundary(redoStack)}));
   restoreState(redoStack.pop());
@@ -11494,15 +11520,83 @@ function _tutAbort(why){
 
 // Capture-before-edit for form controls: arm a snapshot on pointer/keyboard
 // interaction, commit it on the resulting change. One undo step per gesture.
-let _pendingUndoSnap=null;
-const _UNDO_SEL='#grid-controls input,#grid-controls select,.img-settings input,.img-settings select,.img-label-input';
-function _armUndo(t){ if(t&&t.matches&&t.matches(_UNDO_SEL)&&!_pendingUndoSnap) _pendingUndoSnap=snapshotState(); }
-document.addEventListener('pointerdown',e=>_armUndo(e.target),true);
-// arm on any value-changing key (single char, or editing keys) so text + numeric edits are undoable
-document.addEventListener('keydown',e=>{ if(e.key&&(e.key.length===1||/^(Arrow|Backspace|Delete)/.test(e.key))) _armUndo(e.target); },true);
-document.addEventListener('change',e=>{
-  if(_pendingUndoSnap && e.target.matches && e.target.matches(_UNDO_SEL)){ _pushSnap(_pendingUndoSnap); _pendingUndoSnap=null; }
+//
+// Which controls: every input and select in the side panel, the annotation's floating
+// toolbar and the freeform object bar, unless _UNDO_OUTSIDE names it. This used to be a
+// list of containers (the Arrange section and the panel settings), and the Look, Check
+// and Export controls and the floating toolbar sat outside it: a change there recorded
+// nothing, and the next Ctrl+Z reverted it together with an unrelated earlier edit. Now
+// a new control is undoable by default, and undo-round2.spec.js drives every one.
+//
+// The rule for what is outside: undo covers what a saved figure keeps. Outside it are
+// view settings and the app's own preferences (zoom, theme, open sections, autosave,
+// crop-on-import, the panel ticks that pick what a button acts on); a tool's settings
+// for the NEXT thing it makes (pen colour and width, snap, brush, the count threshold,
+// a search box); the fields an action button reads when it runs — the action records
+// its own step; and the three writing boxes (caption, Methods, notes), whose typing has
+// the browser's own text undo.
+const _UNDO_SCOPE='aside.sidebar,#ann-float,#elem-props-bar';
+const _UNDO_OUTSIDE=[
+  // view settings and preferences
+  '#autosave-toggle','#precrop-on-import','.panel-pick',
+  // a tool's settings for the next mark
+  '#ann-color','#ann-width','#ann-font','#fm-snap','#fm-snap-size','#count-threshold','#pp-size','#pp-color','#icon-search',
+  // what an action reads when its button is pressed
+  '#fname-pattern','#label-template','#norm-ref-panel','#group-axis','#group-block',
+  '#scale-match-target','#pixel-match-target','#tag-series-start','#tag-series-step','#tag-series-unit','#tag-series-fmt',
+  '#tpl-name-input','#house-style-name','#pdf-rows-per-page','#pdf-multi-lossless','#ann-float-repeat',
+  '#ai-prompt','#ai-style','#ai-remove-bg','#gemini-api-key','#ai-key-session-only','#ai-model','#ai-aspect','#ai-size','#sd-endpoint',
+  // writing boxes
+  '#caption-out','#methods-out','#fig-notes',
+  // records its own step, and none for a name that did not change
+  '.ruler-name',
+  'input[type=file]','input[type=button]','input[type=submit]','input[type=reset]',
+].join(',');
+let _pendingUndoSnap=null, _pendingUndoFor=null, _pendingUndoDirty=false, _undoChangeStep=false;
+// >0 while a command that recorded its own single step runs (applyStarter).
+let _undoHeld=0;
+function _undoCtl(t){
+  if(!t||!t.closest) return null;
+  // Clicking a checkbox's label text changes the box, not the label.
+  if(!t.matches('input,select,textarea')){ const lab=t.closest('label'); if(!lab||!lab.control) return null; t=lab.control; }
+  if(!t.closest(_UNDO_SCOPE) || t.matches(_UNDO_OUTSIDE)) return null;
+  return t;
+}
+// An armed control that was edited (an input event reached it) but not committed yet —
+// typed into, then the pointer went elsewhere — becomes its own step; one that was only
+// touched is dropped, so it can never be committed later by a different gesture.
+function _flushPendingUndo(){
+  const s=_pendingUndoSnap, dirty=_pendingUndoDirty;
+  _pendingUndoSnap=null; _pendingUndoFor=null; _pendingUndoDirty=false;
+  if(s&&dirty){ undoStack.push(s); if(undoStack.length>80) undoStack.shift(); redoStack=[]; }
+}
+function _armUndo(t){
+  t=_undoCtl(t); if(!t) return;
+  if(_pendingUndoSnap && _pendingUndoFor===t) return;
+  _flushPendingUndo();
+  _pendingUndoSnap=snapshotState(); _pendingUndoFor=t; _pendingUndoDirty=false;
+}
+document.addEventListener('pointerdown',e=>{ if(_undoCtl(e.target)) _armUndo(e.target); else _flushPendingUndo(); },true);
+// Focus arms too: a control can be changed without a pointer or key reaching it first
+// (an assistive tool, a select's own popup), and focus always comes before the edit.
+document.addEventListener('focusin',e=>_armUndo(e.target),true);
+// Arm on any key that can change a value (a character, or an editing or stepping key) —
+// never on a Ctrl/⌘ combination: Ctrl+Z on a focused box is an undo, not an edit.
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey) return;
+  if(e.key&&(e.key.length===1||/^(Arrow|Backspace|Delete|PageUp|PageDown|Home|End)/.test(e.key))) _armUndo(e.target);
 },true);
+document.addEventListener('input',e=>{ if(_pendingUndoSnap && e.target===_pendingUndoFor) _pendingUndoDirty=true; },true);
+document.addEventListener('change',e=>{
+  const t=_undoCtl(e.target);
+  if(!t || !_pendingUndoSnap || t!==_pendingUndoFor) return;
+  const s=_pendingUndoSnap; _pendingUndoSnap=null; _pendingUndoFor=null; _pendingUndoDirty=false;
+  _pushSnap(s);
+  if(typeof scheduleAutosave==='function') scheduleAutosave();
+  _undoChangeStep=true; setTimeout(()=>{ _undoChangeStep=false; },0);
+},true);
+// The change has reached every handler by the time it bubbles to the window.
+window.addEventListener('change',()=>{ _undoChangeStep=false; });
 
 // ── Draw a single annotation onto any ctx ───────────────────
 // ── Orientation marker ────────────────────────────────────────
@@ -12001,6 +12095,17 @@ function _annUnderPoint(e){
 }
 
 // ── Ann-canvas mouse events ──────────────────────────────────
+// A gesture that starts on the figure keeps the pointer until the button comes up, so a
+// box, ruler or arrow dragged a few pixels past the edge is still made — leaving the
+// canvas mid-drag used to cancel it without a word. Its end point is clamped to the
+// canvas (_canvasPt).
+annCanvas.addEventListener('pointerdown', e=>{
+  if(e.button===0){ try{ annCanvas.setPointerCapture(e.pointerId); }catch(_){} }
+});
+function _canvasPt(e){
+  const p=canvasCoords(annCanvas,e), W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+  return {x:Math.max(0,Math.min(W,p.x)), y:Math.max(0,Math.min(H,p.y))};
+}
 // The measure tools (ROI, line profile, count) read the rendered figure, which is the
 // same in both layouts. They were routed to handleMeasureTool only inside the freeform
 // branch, so in Grid — the default — a drag fell through to the annotation code and
@@ -12543,8 +12648,9 @@ annCanvas.addEventListener('mouseup', e=>{
   if(panelAnnDraw){
     const {imgIdx,pb,x0,y0}=panelAnnDraw;
     panelAnnDraw=null;
-    const {x,y}=canvasCoords(annCanvas,e);
+    const {x,y}=_canvasPt(e);
     if(Math.hypot(x-x0,y-y0)<3){ annCanvas.getContext('2d').clearRect(0,0,annCanvas.width,annCanvas.height); return; }
+    pushUndo();   // a 📌 mark is one step, as the figure-level marks below always were
     if(!images[imgIdx].panelAnns) images[imgIdx].panelAnns=[];
     images[imgIdx].panelAnns.push({
       type:activeTool,
@@ -12577,7 +12683,7 @@ annCanvas.addEventListener('mouseup', e=>{
   }
   if(!annState.drawing) return;
   annState.drawing=false;
-  let {x,y}=canvasCoords(annCanvas,e);
+  let {x,y}=_canvasPt(e);
   // Apply shift snap at commit too
   if(e.shiftKey){
     const ddx=x-annState.x0, ddy=y-annState.y0;
@@ -12833,6 +12939,7 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
     if(inp._panelAnn){
       // Panel-bound text annotation
       const {imgIdx}=inp._panelAnn;
+      pushUndo();
       if(!images[imgIdx].panelAnns) images[imgIdx].panelAnns=[];
       images[imgIdx].panelAnns.push({type:'text',xf:inp._px,yf:inp._py,
         text:txt,color:gv('ann-color'),fontSize:gi('ann-font'),halo:true});
@@ -15355,6 +15462,9 @@ const _FIG_CONTROLS=[
   ['labelFormat','label-format'],
   ['fmCanvasW','fm-canvas-w'],['fmCanvasH','fm-canvas-h'],
 ];
+// The undo snapshot's two lists, by name: views of the one list above, so they cannot drift.
+const _layoutTextIds=_FIG_CONTROLS.filter(c=>c[2]!=='c').map(c=>c[1]);
+const _layoutCheckIds=_FIG_CONTROLS.filter(c=>c[2]==='c').map(c=>c[1]);
 // A control's value on a freshly opened page, read from the markup itself, so it is the
 // same whenever it is asked for.
 function _ctlDefault(id){
@@ -15507,8 +15617,24 @@ function _syncFigureLists(){
   if(typeof renderGroupList==='function') renderGroupList();
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   if(typeof updateFreeformElemList==='function') updateFreeformElemList();
-  const b=document.getElementById('export-measurements-btn'); if(b) b.style.display=measurements.length?'':'none';
+  _renderMeasList();
   if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
+}
+// The measurements taken so far, each with a ✕. One taken by mistake used to stay in the
+// CSV for good: nothing removed a measurement, and Ctrl+Z undid something else instead.
+function _renderMeasList(){
+  const box=document.getElementById('meas-list');
+  if(box){
+    box.innerHTML=measurements.map((m,i)=>`<div class="inline-row meas-row" style="font-size:10px;gap:4px;margin-top:2px">
+      <span style="flex:1">${esc(m.label||m.type||'Measurement')}${m.type==='roi'?` · mean ${esc(m.meanGray)}`:m.type==='cellCount'?` · ${esc(m.count)} objects`:''}</span>
+      <button class="icon-btn del" data-meas-del="${i}" title="Remove this measurement (Ctrl+Z brings it back)">×</button></div>`).join('');
+    box.querySelectorAll('[data-meas-del]').forEach(b=>b.onclick=()=>removeMeasurement(+b.dataset.measDel));
+  }
+  const b=document.getElementById('export-measurements-btn'); if(b) b.style.display=measurements.length?'':'none';
+}
+function removeMeasurement(i){
+  if(!measurements[i]) return;
+  pushUndo(); measurements.splice(i,1); _renderMeasList();
 }
 
 function serializeSession(bundleImages, mode){
@@ -16393,7 +16519,14 @@ document.addEventListener('keydown', e=>{
   // A dialog owns the keyboard while it is open: its fields, its own keys (the crop
   // editor's arrows and Enter, the palette's list) — never the figure behind it.
   if(_topDialog()) return;
-  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+  // Typing belongs to the field — every key, Ctrl+Z included (its own text undo).
+  const _t=e.target, _tag=_t&&_t.tagName;
+  if(_tag==='TEXTAREA' || (_t&&_t.isContentEditable)
+     || (_tag==='INPUT' && !/^(checkbox|radio|range|color|button|submit|reset|file|image)$/i.test(_t.type))) return;
+  // A focused checkbox, slider, colour well or select keeps its own keys (Space ticks the
+  // box, arrows move the slider, letters pick an option). Only the Ctrl/⌘ shortcuts reach
+  // the figure: right after a click leaves focus there, Ctrl+Z used to do nothing at all.
+  if((_tag==='INPUT'||_tag==='SELECT') && !(e.ctrlKey||e.metaKey)) return;
   // Tool shortcuts
   if(!e.ctrlKey&&!e.metaKey&&!e.altKey){
     // [ and ] turn the selected panel by 1 deg (5 with Shift), the same keys the crop
@@ -16414,7 +16547,8 @@ document.addEventListener('keydown', e=>{
     // Delete selected annotation or freeform element
     if(e.key==='Delete'||e.key==='Backspace'){
       if(layoutMode==='freeform'&&selectedElems.size){ deleteSelectedElems(); return; }
-      if(selectedAnnotation>=0){ annotations.splice(selectedAnnotation,1); selectedAnnotation=-1; hideAnnFloat(); renderAnnotationList(); scheduleRender(0); return; }
+      // An undo step, as the toolbar's ✕ always was — a deleted ruler comes back with its name.
+      if(selectedAnnotation>=0){ pushUndo(); annotations.splice(selectedAnnotation,1); selectedAnnotation=-1; hideAnnFloat(); renderAnnotationList(); scheduleRender(0); return; }
     }
     // Nudge selected freeform elements with arrow keys
     if(layoutMode==='freeform'&&selectedElems.size){
@@ -16424,10 +16558,8 @@ document.addEventListener('keydown', e=>{
       const nudge=(dx,dy)=>selectedElems.forEach(i=>{ const el=freeformElements[i]; if(!el) return;
         if(el.type==='connector'){ if(!(el.from&&el.from.el)&&el.fromPt){ el.fromPt.x+=dx; el.fromPt.y+=dy; } if(!(el.to&&el.to.el)&&el.toPt){ el.toPt.x+=dx; el.toPt.y+=dy; } }
         else { el.x+=dx; el.y+=dy; } });
-      if(e.key==='ArrowLeft')  { e.preventDefault(); nudge(-d,0); drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowRight') { e.preventDefault(); nudge(d,0);  drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowUp')    { e.preventDefault(); nudge(0,-d); drawFreeformOverlay(); scheduleRender(0); return; }
-      if(e.key==='ArrowDown')  { e.preventDefault(); nudge(0,d);  drawFreeformOverlay(); scheduleRender(0); return; }
+      const _dir={ArrowLeft:[-d,0],ArrowRight:[d,0],ArrowUp:[0,-d],ArrowDown:[0,d]}[e.key];
+      if(_dir){ e.preventDefault(); _nudgeUndo(); nudge(_dir[0],_dir[1]); drawFreeformOverlay(); scheduleRender(0); return; }
     }
   }
   if(e.key==='Escape'){
@@ -16445,11 +16577,24 @@ document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='a'&&layoutMode==='freeform'){ e.preventDefault(); freeformElements.forEach((_,i)=>selectedElems.add(i)); updateFreeformElemList(); drawFreeformOverlay(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); duplicateSelectedElems(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='g'||e.key==='G')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); if(e.shiftKey) ungroupSelectedElems(); else groupSelectedElems(); }
-  if(e.key===' '){
+  // Space pans only over the figure. On a focused button or section header it is the
+  // keyboard's click, as everywhere else — it used to be swallowed here.
+  if(e.key===' ' && (_t===document.body||_t===document.documentElement||(_t&&_t.closest&&_t.closest('#canvas-wrap')))){
     e.preventDefault(); spaceDown=true;
     if(activeTool==='none') annCanvas.style.cursor='grab';
   }
 });
+// A burst of arrow-key nudges is one undo step. The first nudge records the position
+// before it; the rest join that step while it is still the newest one, the same objects
+// are selected and the keys keep coming (under a second apart). Nudges used to record
+// nothing, so Ctrl+Z after them undid the edit before and snapped the object back with it.
+let _nudgeStep=null;
+function _nudgeUndo(){
+  const now=Date.now(), sel=[...selectedElems].sort((a,b)=>a-b).join(',');
+  if(_nudgeStep && undoStack[undoStack.length-1]===_nudgeStep.snap && _nudgeStep.sel===sel && now-_nudgeStep.t<1000){ _nudgeStep.t=now; return; }
+  pushUndo();
+  _nudgeStep={snap:undoStack[undoStack.length-1], sel, t:now};
+}
 document.addEventListener('keyup', e=>{
   if(e.key===' '){
     spaceDown=false;
@@ -17795,6 +17940,7 @@ function changeZOrder(dir){
 
 function deleteSelectedElems(){
   if(!selectedElems.size) return;
+  pushUndo();   // the Delete key and both ✕ buttons come here; none recorded a step
   const sorted=[...selectedElems].sort((a,b)=>b-a);
   sorted.forEach(i=>freeformElements.splice(i,1));
   selectedElems.clear(); updateFreeformElemList(); scheduleRender(0);
@@ -20061,10 +20207,16 @@ function relabelPanels(){
 }
 
 // ── Starter templates ──────────────────────────────────────────
+// One step for the whole starter, taken before the mode changes: taken after, it already
+// held the new mode and Ctrl+Z could not leave it. The pathway's five objects would each
+// have recorded a step of their own.
 function applyStarter(kind){
+  pushUndo();
+  _undoHeld++; try{ _applyStarter(kind); } finally{ _undoHeld--; }
+}
+function _applyStarter(kind){
   if(kind==='pathway'){
     const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
-    pushUndo();
     const W=canvasLogicalW||parseInt(gv('fm-canvas-w'))||1200, H=canvasLogicalH||parseInt(gv('fm-canvas-h'))||900;
     const bw=170, bh=90, cy=Math.round(H/2-bh/2), gap=80;
     const total=3*bw+2*gap, x0=Math.round((W-total)/2);
@@ -20080,7 +20232,10 @@ function applyStarter(kind){
   sv('cols',d[0]); sv('rows',d[1]);
   if(typeof onLayoutChange==='function') onLayoutChange();
   scheduleRender(0);
-  toast('Template applied — drop images into the grid','ok');
+  // A smaller grid than the panels you have leaves the rest undrawn; say so.
+  const nP=images.filter(im=>im&&!im.excluded).length, cells=d[0]*d[1];
+  if(nP>cells) toast(`${d[0]}×${d[1]} has room for ${cells} of your ${nP} panels — ${nP-cells} are not shown. Ctrl+Z puts the grid back`,'warn');
+  else toast('Template applied — drop images into the grid','ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -21569,7 +21724,7 @@ function runAdvancedConsistency(){
 let _roiDrawState=null;
 
 function handleMeasureTool(e, phase){
-  const {x,y}=canvasCoords(annCanvas,e);
+  const {x,y}=_canvasPt(e);
   const W=annCanvas.width, H=annCanvas.height;
   if(phase==='down'){
     _roiDrawState={x0:x,y0:y,tool:activeTool};
@@ -21849,6 +22004,7 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — this panel is rotated, flipped, shape-cropped or a channel merge, so figure pixels can't be mapped back to calibrated source pixels.</span><br>`:''}
     ${rawHtml}`;
 
+  pushUndo();
   measurements.push({type:'roi',label:`ROI ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
     meanGray:meanGray.toFixed(2),minV,maxV,
@@ -21857,8 +22013,7 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     rawMean:rawStat?_fmtRaw(rawStat.mean,raw):'', rawMin:rawStat?_fmtRaw(rawStat.min,raw):'',
     rawMax:rawStat?_fmtRaw(rawStat.max,raw):'', rawSD:rawStat?_fmtRaw(rawStat.sd,raw):'',
     rawIntDens:rawStat?String(rawStat.sum):''});
-  const expBtn=document.getElementById('export-measurements-btn');
-  if(expBtn) expBtn.style.display='';
+  _renderMeasList();
 }
 
 function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
@@ -21907,10 +22062,10 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
   document.getElementById('roi-results').innerHTML=`<b>Line Profile</b> · ${len}px · max: ${usedRaw?_fmtRaw(pMax,raw):pMax.toFixed(0)} · mean: ${usedRaw?_fmtRaw(pMean,raw):pMean.toFixed(1)}
     ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ ${_rawDepth(raw)} raw samples. ${_RAW_MEASURE_NOTE}</div>`
         :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${raw?'Part of this line falls outside the panel image, so raw samples could not be used. ':''}${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`}`;
+  pushUndo();
   measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(','),
     source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
-  const expBtn=document.getElementById('export-measurements-btn');
-  if(expBtn) expBtn.style.display='';
+  _renderMeasList();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -22023,7 +22178,7 @@ function _rulerRows(){
     if(!a||a.type!=='ruler') return;
     n++;
     const m=_rulerMeasure(a,W,H);
-    rows.push({a, idx:i, n, name:String(a.rulerName||'').trim(), m, panel:m.im?String(m.im.label||'?'):''});
+    rows.push({a, idx:i, n, name:String(a.rulerName||'').trim(), m, panel:m.im?(formatLabel(m.im.label)||'?'):''});   // as the figure prints it (b, ii)
   });
   return rows;
 }
@@ -22104,7 +22259,7 @@ function exportRulerCSV(){
   const seen=new Set();
   rows.forEach(r=>{ const im=r.m.im; if(!im||seen.has(im)) return; seen.add(im);
     const c=_calibSourceOf(im);
-    head.push(`# Calibration, panel ${im.label||'?'} (${_sourceName(im)||'unnamed'}): `
+    head.push(`# Calibration, panel ${formatLabel(im.label)||'?'} (${_sourceName(im)||'unnamed'}): `
       +(c.kind==='none'?'uncalibrated — no lengths reported':`${+(+im.umPerPx).toPrecision(6)} µm/px, ${c.text}`));
   });
   const f3=v=>v==null?'':(+v).toFixed(3);
@@ -22203,7 +22358,7 @@ function _s1PageCanvas(im, opts){
   const r1=v=>{ const x=Math.round(v*10)/10; return Number.isInteger(x)?String(x):x.toFixed(1); };
   const pt=([x,y])=>`(${r1(x)}, ${r1(y)})`;
   const L=[];   // [text, bold?]
-  L.push([`Panel ${im.label||'?'} — uncropped original`, true]);
+  L.push([`Panel ${formatLabel(im.label)||'?'} — uncropped original`, true]);
   L.push([`Source file: ${_sourceName(im)||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
   if(!G.cropped) L.push(['Not cropped: the whole image is used in the figure.']);
   else if(G.rotated) L.push([`Crop: a ${r1(G.sw)} × ${r1(G.sh)} px region tilted ${r1(G.angle)}° about the image centre. Corners (source px) TL ${pt(G.corners[0])}, TR ${pt(G.corners[1])}, BR ${pt(G.corners[2])}, BL ${pt(G.corners[3])}.`]);
@@ -22267,8 +22422,8 @@ function _s1PageCanvas(im, opts){
     // the panel letter at the outline's top-left corner, inside the region
     x.font=`bold ${Math.round(fs*1.4)}px ${fam}`; x.textBaseline='top'; x.textAlign='left';
     x.lineWidth=Math.max(2,Math.round(fs*0.2)); x.strokeStyle='rgba(255,255,255,.9)';
-    x.strokeText(String(im.label||''), P[0][0]+lw+3, P[0][1]+lw+3);
-    x.fillStyle=S1_OUTLINE; x.fillText(String(im.label||''), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.strokeText(formatLabel(im.label), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.fillStyle=S1_OUTLINE; x.fillText(formatLabel(im.label), P[0][0]+lw+3, P[0][1]+lw+3);
     x.restore();
   }
   G.splices.filter(s=>s.mapped).forEach(s=>{
@@ -22329,7 +22484,7 @@ function openS1Dialog(){
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">One page per ticked panel: the whole source image with the region used in the figure outlined, the file name, the crop in source pixels, any tilt and splice markers. Journals ask for this for every blot and gel. Ticked to begin with: panels that are cropped or carry a splice marker or lane labels.</div>
     <div id="s1-list" style="max-height:240px;overflow:auto;font-size:11px">${P.map(im=>{ const r=_s1Reasons(im);
       return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${im.id}" ${_s1Selected(im)?'checked':''}>
-        <b>${esc(im.label||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
+        <b>${esc(formatLabel(im.label)||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
     <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px" title="Off: the file's own pixels, which is what journals ask for. On: as the figure shows them. Either way the page says which."><input type="checkbox" id="s1-display"> Show with the figure's display adjustments</label>
     <div style="display:flex;gap:6px;margin-top:14px">
       <button class="btn btn-primary" id="s1-pdf" style="flex:1;justify-content:center">⬇ PDF (one page per panel)</button>
@@ -22715,12 +22870,12 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
     ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
          :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
+  pushUndo();
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),
     count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',
     source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
-  const expBtn=document.getElementById('export-measurements-btn');
-  if(expBtn) expBtn.style.display='';
+  _renderMeasList();
   logAction('cellCount',{count,threshold:thresh});
 }
 

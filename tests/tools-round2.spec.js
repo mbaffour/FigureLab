@@ -107,7 +107,10 @@ test('M26: in Grid layout the ROI, profile and count tools measure a real mouse 
   expect(r.count).toBe(1);
   expect(r.shown).toBe('show');
   expect(r.junk).toEqual([]);                            // nothing stored as an annotation
-  expect(r.undo).toBe(undo0);                            // and no undo step spent
+  // One undo step per measurement, none for a junk annotation. The undo snapshot holds
+  // the measurements, so a measurement that recorded no step was dropped by the next
+  // Ctrl+Z together with the unrelated edit before it (undo-round2.spec.js).
+  expect(r.undo).toBe(undo0 + r.types.length);
   expect(errors).toEqual([]);
 });
 
