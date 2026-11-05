@@ -1,4 +1,4 @@
-# FigureLab v3.17.0
+# FigureLab v3.18.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml/badge.svg)](https://github.com/mbaffour/FigureLab/actions/workflows/ci.yml)
@@ -281,7 +281,11 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ## Changelog
 
-### Unreleased — since v3.17.0
+### Unreleased — since v3.18.0
+
+### v3.18.0 — 4 November 2026
+
+Gel and blot densitometry measured on the original pixels, a ruler that reads true lengths, the uncropped originals journals ask for, and a layout that fits a tablet or phone. Then two rounds of agents tried to break the app, and everything they found was fixed, each with a test.
 
 - **A panel waiting for its file is kept, moves with the grid, and is named.** A figure opened without its pixels (a settings-only file, a share link, an autosave too big for browser storage) used to lose every waiting panel's label, crop and note at the next autosave, Save session or share link. A restore schedules an autosave of its own, so a partial recovery lost them 2.5 seconds later with nothing done. Every writer now keeps the record in its cell until the file arrives, and the recovery bar says which files still need dropping. Grid edits before a waiting panel (removing, inserting or duplicating a cell, swapping panels) move it with its neighbours; before, its old slot number sent the file to the wrong cell or off the grid. The list calls it "waiting for b.png — panel KO", and removing it forgets it. A re-dropped multi-page TIFF is matched by file name and page.
 - **Duplicated panel ids no longer move an inset; the reproducibility log covers one figure.** A file holding two panels with one id re-bound an inset to the wrong panel, which then showed the other image while citing its own file; ids are split on opening and each inset stays with the panel whose file it names. After New, a tutorial or opening a file, the log and the submission package still listed the earlier figures' imports; the log now starts again at each figure boundary.
@@ -743,7 +747,7 @@ If you use FigureLab in your research, please cite it. Metadata lives in
 button automatically.
 
 > Awuah, M. B. (2026). *FigureLab: a browser-based tool for assembling
-> publication-quality scientific figures* (Version 3.17.0) [Computer software].
+> publication-quality scientific figures* (Version 3.18.0) [Computer software].
 > Zenodo. https://doi.org/10.5281/zenodo.21269456
 
 **BibTeX:**
@@ -753,7 +757,7 @@ button automatically.
   author    = {Awuah, Michael Baffour},
   title     = {{FigureLab: a browser-based tool for assembling publication-quality scientific figures}},
   year      = {2026},
-  version   = {3.17.0},
+  version   = {3.18.0},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.21269456},
   url       = {https://github.com/mbaffour/FigureLab}
