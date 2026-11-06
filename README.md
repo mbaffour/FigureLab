@@ -246,6 +246,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 - **Drop labels in one click** — click **⊞ Labels** in the canvas toolbar (or the small **×** chip in the figure's top-left) to add or remove row & column headers instantly.
 - **Write directly on an image** — double-click a panel, type your text, press **Enter**. The label is pinned to that panel (it follows the panel if you reorder) and gets a dark **halo** so it stays readable over bright micrographs. Toggle the halo from the floating toolbar.
 - **Export print-ready** — set DPI to 300–600 and export PNG/JPEG/WebP: the figure is re-rendered at the true pixel count (supersampled), so text, scale bars, and lines stay crisp — not just DPI-tagged.
+- **Add a drawn schematic** — click **✏️ Draw a diagram in SiliCoDraw** in the Images panel to open [SiliCoDraw](https://silicodraw.com) (a free, open-source, offline vector editor for pathways, graphical abstracts, chemical structures and charts) in a new tab. Export your diagram as **SVG** and drop it back in — FigureLab keeps the vector source, so it stays sharp through SVG export.
 
 ## Tips
 
@@ -282,6 +283,8 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 ## Changelog
 
 ### Unreleased — since v3.18.0
+
+- **SiliCoDraw handoff** — an **✏️ Draw a diagram in SiliCoDraw** button in the Images panel opens the free, open-source, offline vector editor ([silicodraw.com](https://silicodraw.com), MIT, by Alex-D-C) in a new tab for pathways, graphical abstracts, chemical structures and charts; export SVG/PNG and drop it back in. Imported SVG keeps its vector source, so a dropped diagram stays sharp through SVG export.
 
 ### v3.18.0 — 4 November 2026
 
