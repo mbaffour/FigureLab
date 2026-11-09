@@ -825,7 +825,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="arrow2" onclick="setTool('arrow2')">↔ Arrow2</button>
       <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')">⊢ Ruler</button>
       <button class="ann-tool" data-tool="counter" onclick="setTool('counter')">• Counter</button>
-      <button class="ann-tool" data-tool="legend" onclick="setTool('legend')" title="Click to place a channel key: every channel the visible panels show, each with its colour swatch, kept in step with the panels as they change. Text and background are editable.">▤ Key</button>
+      <button class="ann-tool" data-tool="legend" onclick="setTool('legend')" title="Click to place the legend key: every channel, chart series or gene-map feature the figure shows, each with its swatch, marker or line, kept in step with the figure as it changes. Text and background are editable. Export › Legend key downloads the same key as a file.">▤ Key</button>
       <button class="ann-tool" data-tool="axes" onclick="setTool('axes')" title="Click to place an orientation marker — two crossed arrows lettered D V A P by default (dorsal, ventral, anterior, posterior). Select it and type four letters to change them: R C M L, S I A P…">✛ Axes</button>
     </div>
     <div id="counter-display" style="font-size:10px;color:var(--muted);display:none">Count: <strong id="counter-n">0</strong></div>
@@ -1107,6 +1107,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="checkbox" id="export-tiff-lzw" onchange="_setTiffLzw(this.checked,true)">
       <label for="export-tiff-lzw" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Write TIFFs LZW-compressed (lossless, horizontal differencing): the pixels come back bit for bit. PLOS asks for it, and the PLOS preset switches it on. Also used by the submission package.">Compress TIFF (LZW, lossless)</label>
     </div>
+    <div class="sec-lbl" style="margin-top:8px">Legend key <span class="help-chip" tabindex="0" role="button" aria-label="About the legend key" data-tip="A small image listing everything the figure shows in colour — each channel, chart series or gene-map feature — with its exact swatch, marker and line, next to its name, in the figure's font. It follows the figure as you change it. It is written in the format you last exported the figure in (PNG until then), and the submission package, Batch Export, the multi-page PDF and PowerPoint include it. The same key, in words, is under Figure caption helper.">?</span></div>
+    <button class="btn" id="key-dl-btn" onclick="downloadKey()" style="width:100%;justify-content:center" title="Download the figure's legend key as figure-key.png (or the format you last exported the figure in)">⬇ Download key (PNG)</button>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+      <input type="checkbox" id="key-on-figure" onchange="setKeyOnFigure(this.checked)">
+      <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, at its top-right corner — drag it with the Select tool, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
+    </div>
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
     <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Each blot or gel's whole original image with the cropped region outlined, file name, crop coordinates, tilt and splice markers — the uncropped-originals supplement Nature, Cell, JBC, PLOS and eLife require. Also added to the submission package.">🗎 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
@@ -1161,6 +1167,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="writeMethodsParagraph()" style="width:100%;justify-content:center;margin-top:4px" title="Write the image-processing paragraph for your Methods from what FigureLab knows: software and version, whether adjustments were uniform, gamma, pseudocolour, resampling, projections, calibration sources, splices and insets. The submission package includes it as -methods.txt.">✎ Write Methods paragraph</button>
     <button class="btn" id="ai-caption-btn" onclick="aiPolishCaption()" style="width:100%;justify-content:center;margin-top:4px" title="Polish the caption with Chrome's built-in on-device AI (Gemini Nano). 100% local — nothing is uploaded. Falls back to the built-in caption if unavailable.">🤖 Polish with on-device AI</button>
     <textarea id="caption-out" rows="4" placeholder="Caption will appear here…" style="margin-top:4px"></textarea>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+      <span style="font-size:10px;color:var(--muted);flex:1" title="The legend key in words — every channel, series or feature with its colour (and marker) — kept in step with the figure. Copy it into your figure legend and edit it there.">Legend text starter</span>
+      <button class="btn" onclick="copyKeyText()" style="padding:2px 8px" title="Copy the key in words, to paste into your figure legend">Copy</button>
+    </div>
+    <textarea id="key-text" rows="2" readonly placeholder="The legend key in words appears here…" style="margin-top:2px"></textarea>
     <textarea id="methods-out" rows="5" placeholder="Methods paragraph will appear here…" style="margin-top:4px"></textarea>
 
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
@@ -1868,6 +1879,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-whatsnew">
 <!-- HELP:WHATSNEW -->
+<h3 class="help-h">Since v3.18.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; not yet released</span></h3>
+<ul class="help-ul">
+  <li><b>&#9636; A legend key for every figure.</b> <span class="help-ui">Export &rsaquo; Legend key &rsaquo; Download key</span> writes <i>figure-key.png</i>: every channel, chart series (with its marker, outline and line as drawn) or gene-map feature, next to its name, in the figure's font, on the figure's background. It comes in the format you last exported the figure in &mdash; PNG, JPEG, WebP, TIFF, PDF with real text, or vector SVG &mdash; and the submission package, Batch Export, the multi-page PDF (one key page) and PowerPoint (slide 2) include it.</li>
+  <li><b>Legend text starter.</b> Under the caption helper, the same key in words &mdash; <i>DAPI (blue); WT (orange, filled bars); KO (sky blue, filled bars).</i> &mdash; with a Copy button, kept in step with every rename, colour change and hidden panel.</li>
+  <li><b>Place the key on the figure</b> with one tick; the placed key is drawn by the same renderer as the file, and a PDF now writes its names as text. Channel swatches are the LUT's own colour (GFP is #00ff00, as its pixels are), not the lighter tag colour.</li>
+</ul>
 <h3 class="help-h">What's new in v3.18.0 <span style="font-size:11px;color:var(--muted);font-weight:400">&middot; updated 4 November 2026</span></h3>
 <p class="help-p">Gel and blot densitometry, a ruler that measures, the uncropped originals journals ask for, a layout that fits a phone, and two rounds of adversarial testing: agents that tried to break the app, then fixers for everything they found.</p>
 <ul class="help-ul">
@@ -3961,6 +3978,7 @@ const CMD_REGISTRY=[
   {label:'Export SVG',               keys:'export svg vector',             run:()=>doExport('svg')},
   {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExport('jpeg')},
   {label:'Export WebP',              keys:'export webp',                   run:()=>doExport('webp')},
+  {label:'Download legend key',      keys:'legend key download swatch colours export', run:()=>downloadKey()},
   {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
   {label:'Save to session library',  keys:'library session save named multiple figures', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
@@ -4079,7 +4097,7 @@ const CMD_REGISTRY=[
   {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation tilt flip sideways angle landscape portrait', run:()=>rotateSelectedPanel(-90)},
   {label:'Straighten selected panel (0°)',  keys:'straighten reset rotation panel photo upright', run:()=>{ if(selectedPanel>=0&&images[selectedPanel]){ pushUndo(); setPanelAngle(selectedPanel,0); toast('Panel upright','ok'); } else toast('Click a panel first','warn'); }},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
-  {label:'Channel key (legend of channel colours)', keys:'legend key channel colours swatch DAPI GFP list', run:()=>setTool('legend')},
+  {label:'Legend key on the figure (channels, series, features)', keys:'legend key channel colours swatch DAPI GFP list series place', run:()=>setTool('legend')},
   {label:'Orientation axes marker (D/V, A/P…)', keys:'axes orientation anatomical dorsal ventral anterior posterior compass rostral caudal medial lateral', run:()=>setTool('axes')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
@@ -8205,6 +8223,10 @@ function render(targetCanvas, exportScale, opts){
   const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
   const skipLabels = !!_skipOpt;
   figTextItems = [];
+  // The placed key's text, for the PDF text layer, and the same skip as the labels.
+  _keyTextItems = [];
+  _keySkipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : null);
+  if(!isExport) _keyRefresh();            // the legend text, the switch and the button follow every redraw
   if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
   _frameSink = [];
   const _cellRects = new Map();   // idx → the cell drawn this render, for the connector pass
@@ -11622,8 +11644,8 @@ const _UNDO_OUTSIDE=[
   '#scale-match-target','#pixel-match-target','#tag-series-start','#tag-series-step','#tag-series-unit','#tag-series-fmt',
   '#tpl-name-input','#house-style-name','#pdf-rows-per-page','#pdf-multi-lossless','#ann-float-repeat',
   '#ai-prompt','#ai-style','#ai-remove-bg','#gemini-api-key','#ai-key-session-only','#ai-model','#ai-aspect','#ai-size','#sd-endpoint',
-  // writing boxes
-  '#caption-out','#methods-out','#fig-notes',
+  // writing boxes (and the read-only legend text starter, which the figure writes)
+  '#caption-out','#methods-out','#fig-notes','#key-text',
   // records its own step, and none for a name that did not change
   '.ruler-name',
   'input[type=file]','input[type=button]','input[type=submit]','input[type=reset]',
@@ -11707,46 +11729,404 @@ function _drawAxes(ctx, x, y, a){
   ctx.restore();
 }
 
-// ── Channel key ───────────────────────────────────────────────
-// Every channel the visible grid panels show, once each, with its swatch — derived at
-// draw time so the key cannot fall out of step with the panels. A brightfield or plain
-// panel recognised from its name is listed without a swatch.
-function _figureChannels(){
-  const seen=new Map();
-  images.forEach(im=>{
-    if(!im||im.excluded) return;
-    const hasLut=!!(im.lut&&im.lut!=='none');
-    if(hasLut||(im.channels&&im.channels.length)){
-      const n=_channelName(im.name, im.lut); if(hasLut&&!seen.has(n)) seen.set(n,_LUT_SWATCH[im.lut]||null);
-    } else { const d=_detectChannel(im.name||''); if(d&&d.label&&d.label!=='Merge'&&!seen.has(d.label)) seen.set(d.label,null); }
-    (im.channels||[]).forEach(ch=>{ const n=_channelName(ch.name, ch.lut); if(!seen.has(n)) seen.set(n,_LUT_SWATCH[ch.lut]||null); });
+// ── Legend key ────────────────────────────────────────────────
+// ONE model of what the figure plots, read from the figure as it is at the moment it is
+// asked: in the grid, every channel of the panels the figure draws (_figurePanels(), so
+// a hidden panel or one left without a cell is not keyed); in freeform, every image,
+// every chart series and every gene-map feature type. Everything that shows a key reads
+// it — the key placed on the figure, the standalone key file in every format, the SVG
+// and PDF writers, the bundles and the legend text starter — and they all draw through
+// _keyDraw, so none of them can fall out of step with the figure or with each other.
+//
+// Colours are the ones the figure DRAWS. A pseudocoloured channel's swatch is its LUT's
+// own hue at full intensity (LUTS[lut](255): GFP #00ff00, DAPI #4787ff) — the colour of
+// its brightest pixels — not the lifted _LUT_SWATCH the panel tags use to stay readable
+// on a dark micrograph: a key swatch is compared with the pixels, not with the tag.
+// Fire is a ramp (black → red → yellow → white) with no one hue, so its swatch is the
+// ramp itself. Chart series carry the marker, outline, fill and line their chart draws.
+//
+// `var`, not `let`: render() can run while the script is still being read, and it
+// refreshes the key.
+var _keyTextItems=[];   // key text drawn by the last render(), for the PDF text layer
+var _keySkipText=null;  // render()'s per-item skip (the PDF's: text it can typeset)
+var _keyFmt='png';      // the figure's export format: the one it was last exported in
+var _keyGradN=0;        // unique ids for the SVG gradients of ramp swatches
+
+function _hex2(v){ return Math.max(0,Math.min(255,Math.round(+v||0))).toString(16).padStart(2,'0'); }
+function _rgbHex(c){ return '#'+_hex2(c[0])+_hex2(c[1])+_hex2(c[2]); }
+function _lutStops(lut){ const f=LUTS[lut]; return f?[0,64,128,192,255].map(i=>_rgbHex(f(i))):null; }
+function _keyChannelRow(name, lut){
+  if(lut==='fire') return {name, kind:'channel', lut, color:_rgbHex(LUTS.fire(128)), marker:'gradient', stops:_lutStops('fire'), words:'fire LUT, black through red and yellow to white'};
+  return {name, kind:'channel', lut, color:_rgbHex(LUTS[lut](255)), marker:'square', fill:'filled'};
+}
+// One panel or freeform image: its own LUT, then each merged channel the compositor draws
+// (one with pixels; a channel with no LUT of its own is drawn green). A panel without
+// pseudocolour is keyed by name only when its file name says what it is (BF, DIC, phase).
+function _keyImageRows(im, add){
+  const nm=im.name||im.label||'', chans=(im.channels||[]).filter(ch=>ch&&ch.img);
+  const hasLut=!!(im.lut&&im.lut!=='none'&&LUTS[im.lut]);
+  if(hasLut) add(_keyChannelRow(_channelName(nm, im.lut), im.lut));
+  else if(!chans.length){ const d=_detectChannel(nm); if(d&&d.label&&d.label!=='Merge') add({name:d.label, kind:'channel', color:null, marker:'none'}); }
+  chans.forEach(ch=>{
+    const l=ch.lut||'green';
+    if(LUTS[l]) add(_keyChannelRow(_channelName(ch.name, l), l));
+    else add({name:_channelName(ch.name, l), kind:'channel', color:null, marker:'none'});
   });
-  return [...seen].map(([name,color])=>({name,color}));
 }
-function _legendLayout(ctx, a){
-  const fs=a.fontSize||12, pad=8, sw=fs*0.9, gap=6, lh=fs*1.45;
-  ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
-  const rows=_figureChannels();
-  const textW=rows.reduce((m,r)=>Math.max(m,ctx.measureText(r.name).width),0);
-  const w=pad*2+sw+gap+textW, h=pad*2+Math.max(1,rows.length)*lh-(fs*0.45);
-  return {rows,fs,pad,sw,gap,lh,w,h};
+// One chart's series, as _chartDraw draws them.
+function _keyChartRows(el, add){
+  const ch=el.chart;
+  if(!(ch.data&&Array.isArray(ch.data.rows)&&Array.isArray(ch.data.columns)&&ch.mapping)) return;   // half-built or legacy: nothing drawn, nothing keyed
+  const st=ch.style||{}, stat=_chartStatsCached(el), ink='#222222';
+  if(stat.kind==='heatmap'){
+    // No rows to key: a heatmap is read through its colour bar, so the key carries the bar.
+    if(!(stat.matrix&&stat.matrix.length)) return;
+    const div=!!st.diverging, sc=div?'diverging':(st.colorscale||'viridis');
+    let lo=stat.min, hi=stat.max;
+    if(div){ const mid=st.midpoint||0, half=Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid)); lo=mid-half; hi=mid+half; }
+    const stops=[0,0.25,0.5,0.75,1].map(t=>_colorScale(t,sc));
+    add({name:`${_fmtTick(lo)} to ${_fmtTick(hi)}`, kind:'scale', color:null, marker:'gradient', stops,
+      words:`${sc==='diverging'?'diverging':sc} colour scale, ${_colourName(stops[0])} at ${_fmtTick(lo)} to ${_colourName(stops[4])} at ${_fmtTick(hi)}`});
+    return;
+  }
+  if(stat.kind==='survival'){
+    if(stat.singleGroup) return;                 // one curve, no groups: the chart shows no legend either
+    stat.curves.forEach(cv=>add({name:String(cv.name), kind:'series', color:cv.color, line:'solid', lineW:st.lineWidth||2,
+      marker:cv.censors.length?'tick':'none', desc:cv.censors.length?'solid line, ticks at censored times':'solid line'}));
+    return;
+  }
+  if(stat.series){                               // line / scatter
+    const fit=!!(ch.fit&&ch.fit.on);
+    stat.series.forEach(s=>{
+      if(stat.kind==='line') add({name:String(s.name), kind:'series', color:s.color, line:'solid', lineW:st.lineWidth||2,
+        marker:st.showPoints?'circle':'none', fill:st.showPoints?'filled':null,
+        desc:st.showPoints?'solid line with filled circles':'solid line'});
+      else add({name:String(s.name), kind:'series', color:s.color, marker:'circle', fill:'filled', stroke:'#ffffff', strokeW:0.5,
+        line:fit?'dashed':null, lineW:1.5, desc:fit?'filled circles, dashed fitted line':'filled circles'});
+    });
+    return;
+  }
+  if(stat.boxes){                                // box / violin / beeswarm: one colour per category
+    stat.boxes.forEach(b=>{
+      if(stat.kind==='beeswarm') add({name:String(b.name), kind:'series', color:b.color, marker:'circle', fill:'filled', stroke:'#333333', strokeW:0.5, desc:'filled circles'});
+      else add({name:String(b.name), kind:'series', color:b.color, marker:'square', fill:'filled', stroke:ink, strokeW:1,
+        desc:stat.kind==='violin'?'filled violin':'filled box'});
+    });
+    return;
+  }
+  (stat.seriesNames||[]).forEach(s=>add({name:String(s.name), kind:'series', color:s.color, marker:'square', fill:'filled', stroke:ink, strokeW:0.5, desc:'filled bars'}));
 }
-function _drawLegend(ctx, x, y, a){
-  const L=_legendLayout(ctx,a); a._w=L.w; a._h=L.h;
-  ctx.save();
-  if(a.fill!==false){ ctx.globalAlpha=a.fillOpacity??0.6; ctx.fillStyle=a.fillColor||'#000000';
-    ctx.beginPath(); ctx.roundRect?ctx.roundRect(x,y,L.w,L.h,4):ctx.rect(x,y,L.w,L.h); ctx.fill(); ctx.globalAlpha=1; }
-  ctx.font=`bold ${L.fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
-  ctx.textAlign='left'; ctx.textBaseline='middle';
-  if(!L.rows.length){ ctx.fillStyle=a.color||'#fff'; ctx.fillText('no channels', x+L.pad, y+L.h/2); ctx.restore(); return; }
+// One gene map's feature types, as its glyphs are drawn. A type keyed once when all its
+// features share a colour (the SBOL palette); otherwise (the colour-blind palette, or a
+// colour set per feature) each feature is its own row, since a type has no one colour.
+var _KEY_GLYPH_WORDS={promoter:'bent arrow', rbs:'half-circle', cds:'arrow', terminator:'T-bar', operator:'box',
+  ori:'circle', primer:'half-arrow', restriction:'tick', ribozyme:'loop', insulator:'nested squares', scar:'cross',
+  ncrna:'bar', tag:'box', misc:'box', 'arc-arrow':'arc arrow', 'arc-band':'arc band'};
+function _keyGenemapRows(el, add){
+  const map=el.map, st=map.style||{}, circ=map.topology==='circular', byType=new Map();
+  _gmFeatures(map).forEach((f,i)=>{ const c=_gmFeatColor(f,st,i); if(!byType.has(f.type)) byType.set(f.type,[]); byType.get(f.type).push({f,c}); });
+  byType.forEach((list,type)=>{
+    const label=(SBOL_TYPES[type]||SBOL_TYPES.misc).label;
+    const glyph=circ ? (_GM_DIRECTIONAL.has(type)?'arc-arrow':'arc-band') : type;
+    const desc=_KEY_GLYPH_WORDS[glyph]||'box';
+    if(new Set(list.map(x=>String(x.c).toLowerCase())).size===1) add({name:label, kind:'feature', color:list[0].c, marker:'glyph', glyph, desc});
+    else list.forEach(x=>add({name:`${x.f.name||label} (${label})`, kind:'feature', color:x.c, marker:'glyph', glyph, desc}));
+  });
+}
+// The rows of the figure's key. A row drawn identically twice (two DAPI panels, the same
+// series in two charts) is listed once.
+function _figureKey(){
+  const rows=[], seen=new Set();
+  const add=r=>{ const k=[r.name,r.color,r.marker,r.fill,r.line,r.glyph,r.stroke].join('|'); if(seen.has(k)) return; seen.add(k); rows.push(r); };
+  if(layoutMode==='freeform'){
+    (freeformElements||[]).forEach(el=>{
+      if(!el) return;
+      if(el.type==='image') _keyImageRows(el, add);
+      else if(el.type==='chart'&&el.chart) _keyChartRows(el, add);
+      else if(el.type==='genemap'&&el.map) _keyGenemapRows(el, add);
+    });
+  } else _figurePanels().forEach(im=>_keyImageRows(im, add));
+  return rows;
+}
+// The channel rows alone, as {name,color} (the shape the channel key had before it
+// keyed charts and gene maps).
+function _figureChannels(){ return _figureKey().filter(r=>r.kind==='channel').map(r=>({name:r.name, color:r.color})); }
+
+// The figure's own type: the label font, weight and slant in the grid; in freeform the
+// font of the first chart or gene map, which is what its series names are set in.
+function _keyFont(fs){
+  let fam=gv('label-font')||'system-ui,sans-serif', wt=gc('label-bold')?'bold':'normal', it=gc('label-italic')?'italic':'normal';
+  if(layoutMode==='freeform'){
+    const ce=(freeformElements||[]).find(e=>e&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
+    if(ce){ const s=(ce.type==='chart'?ce.chart.style:ce.map.style)||{}; fam=s.fontFamily||'system-ui, sans-serif'; wt='normal'; it='normal'; }
+  }
+  return `${it} ${wt} ${fs}px ${fam}`;
+}
+// Type size of the standalone key: the placed key's, else the first chart's or map's, else 12.
+function _keyFs(){
+  const a=annotations.find(x=>x&&x.type==='legend')
+    || images.reduce((f,im)=>f||((im&&im.panelAnns)||[]).find(x=>x.type==='legend'),null);
+  if(a) return a.fontSize||12;
+  if(layoutMode==='freeform'){
+    const ce=(freeformElements||[]).find(e=>e&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
+    if(ce){ const s=(ce.type==='chart'?ce.chart.style:ce.map.style)||{}; return s.fontSize||12; }
+  }
+  return 12;
+}
+var _keyMc=null;
+function _keyLayout(rows, fs, font){
+  if(!_keyMc) _keyMc=document.createElement('canvas').getContext('2d');
+  _keyMc.font=font;
+  // A line, a ramp or a glyph needs a wider swatch than a colour square.
+  const wide=rows.some(r=>r.line||r.marker==='gradient'||r.marker==='glyph');
+  const pad=8, sh=fs*0.9, sw=wide?fs*2.2:sh, gap=6, lh=fs*1.45;
+  const textW=rows.length ? rows.reduce((m,r)=>Math.max(m,_keyMc.measureText(r.name).width),0) : _keyMc.measureText('nothing to key').width;
+  const w=pad*2+(rows.length?sw+gap:0)+textW, h=pad*2+Math.max(1,rows.length)*lh-fs*0.45;
+  return {rows,fs,font,pad,sw,sh,gap,lh,w,h};
+}
+// THE key renderer. `emit` is a canvas or SVG backend (the chart vocabulary plus chip,
+// gradient and text); `st` is {ink, bg, bgOpacity}: the placed key's chip and text
+// colour, or for the standalone file no chip and ink that reads on the figure's background.
+function _keyDraw(emit, x, y, L, st){
+  if(st.bg) emit.chip(x, y, L.w, L.h, st.bg, st.bgOpacity);
+  if(!L.rows.length){ emit.text('nothing to key', x+L.pad, y+L.h/2, L.font, st.ink); return; }
   L.rows.forEach((r,i)=>{
     const cy=y+L.pad+i*L.lh+L.fs*0.55;
-    if(r.color){ ctx.fillStyle=r.color; ctx.fillRect(x+L.pad, cy-L.sw/2, L.sw, L.sw); }
-    ctx.fillStyle=r.color||(a.color||'#ffffff');
-    ctx.fillText(r.name, x+L.pad+L.sw+L.gap, cy);
+    _keySwatch(emit, r, x+L.pad, cy, L);
+    emit.text(r.name, x+L.pad+L.sw+L.gap, cy, L.font, st.ink);
   });
+}
+function _keySwatch(emit, r, sx, cy, L){
+  const sw=L.sw, s=L.sh, mx=sx+sw/2;
+  if(r.marker==='gradient'&&r.stops){ emit.gradient(sx, cy-s/2, sw, s, r.stops); return; }
+  if(r.marker==='glyph'){
+    const gx0=sx+sw*0.12, gx1=sx+sw*0.88, gh=s*0.75;
+    if(r.glyph==='arc-band'){ emit.rect(gx0, cy-gh/2, gx1-gx0, gh, r.color, '#333333', 1); return; }
+    if(r.glyph==='arc-arrow'){ _sbolGlyph(emit, 'cds', gx0, gx1, cy, 1, r.color, gh); return; }
+    // Linear maps draw glyphs on the backbone; the ones that stand above it sit low.
+    const above={promoter:1, terminator:1, primer:1, ribozyme:1, rbs:1}[r.glyph];
+    const midY=above?cy+s*0.4:cy;
+    emit.line(sx, midY, sx+sw, midY, '#555555', 2);
+    _sbolGlyph(emit, r.glyph, gx0, gx1, midY, 1, r.color, above?s*0.85:gh);
+    return;
+  }
+  if(r.line) emit.line(sx, cy, sx+sw, cy, r.color, r.lineW||2, r.line==='dashed'?[6,4]:null);
+  if(r.marker==='square') emit.rect(mx-s/2, cy-s/2, s, s, r.fill==='open'?null:r.color, r.stroke||null, r.strokeW||0);
+  else if(r.marker==='circle') emit.circle(mx, cy, s*0.36, r.fill==='open'?null:r.color, r.stroke||null, r.strokeW||0);
+  else if(r.marker==='tick') emit.line(mx, cy-s*0.4, mx, cy+s*0.4, r.color, 1.5);
+}
+// Canvas backend. Text goes through `sink` (the PDF's text layer) and is left off the
+// pixels when `skip` says the PDF will typeset it.
+function _keyEmitCanvas(ctx, sink, skip){
+  const e=_chartEmitCanvas(ctx);
+  e.chip=(x,y,w,h,fill,op)=>{ ctx.save(); ctx.globalAlpha*=(op??1); ctx.fillStyle=fill; ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x,y,w,h,4); else ctx.rect(x,y,w,h); ctx.fill(); ctx.restore(); };
+  e.gradient=(x,y,w,h,stops)=>{ const g=ctx.createLinearGradient(x,0,x+w,0);
+    stops.forEach((c,i)=>g.addColorStop(i/(stops.length-1),c)); ctx.save(); ctx.fillStyle=g; ctx.fillRect(x,y,w,h); ctx.restore(); };
+  e.text=(str,x,y,font,fill)=>{
+    const m=/(\d+(?:\.\d+)?)px/.exec(font), it={kind:'key', str:String(str), x, y, fs:m?parseFloat(m[1]):12, font, fill, align:'left', baseline:'middle', rot:0};
+    if(sink) sink.push(it);
+    if(skip&&skip(it)) return;
+    ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(it.str,x,y); ctx.restore();
+  };
+  return e;
+}
+// SVG backend: real <text>, a <linearGradient> for a ramp.
+function _keyEmitSVG(out){
+  const e=_chartEmitSVG(out), f2=v=>(+v).toFixed(2);
+  const ex=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  e.chip=(x,y,w,h,fill,op)=>out.push(`<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(h)}" rx="4" fill="${fill}" fill-opacity="${op??1}"/>`);
+  e.gradient=(x,y,w,h,stops)=>{ const id='flkey'+(++_keyGradN);
+    out.push(`<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0">${stops.map((c,i)=>`<stop offset="${(i/(stops.length-1)).toFixed(3)}" stop-color="${c}"/>`).join('')}</linearGradient>`
+      +`<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(h)}" fill="url(#${id})"/>`); };
+  e.text=(str,x,y,font,fill)=>out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${fill}" dominant-baseline="central">${ex(str)}</text>`);
+  return e;
+}
+// The placed key keeps its own chip and text colour; the standalone file is drawn on the
+// figure's background with ink that reads on it. Those two are the only differences.
+function _keyAnnStyle(a){ return {ink:a.color||'#ffffff', bg:a.fill!==false?(a.fillColor||'#000000'):null, bgOpacity:a.fillOpacity??0.6}; }
+function _keyStandaloneStyle(){ const bg=gv('bg-color')||'#ffffff'; return {ink:luma(bg)<128?'#ffffff':'#000000', bg:null}; }
+
+// The key placed on the figure (a figure-level or panel-pinned `legend` annotation).
+function _drawLegend(ctx, x, y, a){
+  const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs));
+  a._w=L.w; a._h=L.h;
+  ctx.save();
+  _keyDraw(_keyEmitCanvas(ctx, _keyTextItems, _keySkipText), x, y, L, _keyAnnStyle(a));
   ctx.restore();
 }
+
+// ── The standalone key file ──
+// Drawn at the figure's export scale, so its type prints at the size it has in the figure.
+function _keyScale(dpi){
+  const S=_exportScaleFor(dpi);
+  return {S, eff:getTargetWidthMm()>0?dpi:Math.max(1,Math.round(S*96))};
+}
+function _keyCanvas(dpi, skip){
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), {S,eff}=_keyScale(dpi);
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.ceil(L.w*S)); c.height=Math.max(1,Math.ceil(L.h*S));
+  const ctx=c.getContext('2d'); ctx.setTransform(S,0,0,S,0,0);
+  ctx.fillStyle=gv('bg-color')||'#ffffff'; ctx.fillRect(0,0,L.w,L.h);
+  const items=[];
+  _keyDraw(_keyEmitCanvas(ctx, items, skip), 0, 0, L, _keyStandaloneStyle());
+  c._effDpi=eff; c._exportScale=S; c._keyItems=items; c._keyW=L.w; c._keyH=L.h;
+  return c;
+}
+function _keySVG(dpi){
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), {S,eff}=_keyScale(dpi);
+  const buf=[], f2=v=>(+v).toFixed(2);
+  _keyDraw(_keyEmitSVG(buf), 0, 0, L, _keyStandaloneStyle());
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${(L.w*S/eff).toFixed(4)}in" height="${(L.h*S/eff).toFixed(4)}in" viewBox="0 0 ${f2(L.w)} ${f2(L.h)}">\n`
+    +`  <rect x="0" y="0" width="${f2(L.w)}" height="${f2(L.h)}" fill="${gv('bg-color')||'#ffffff'}"/>\n  ${buf.join('\n  ')}\n</svg>`;
+}
+// Write <name>-key.<ext> through the same writers the figure's own export uses.
+async function _exportKeyFile(fmt, dpi, name){
+  const fn=name+'-key';
+  if(fmt==='svg'){ dl(blobUrl(_keySVG(dpi)), fn+'.svg'); return; }
+  if(fmt==='pdf'||fmt==='pdf-lossless'){
+    const c=_keyCanvas(dpi, _pdfCanTypeset);
+    await exportPDF(fn, c._effDpi, c, {lossless:fmt==='pdf-lossless', textItems:c._keyItems, ptPerUnit:(c.width*72/c._effDpi)/c._keyW});
+    return;
+  }
+  const c=_keyCanvas(dpi);
+  if(fmt==='png') await exportPNGWithMeta(fn, c._effDpi, c);
+  else if(fmt==='jpeg') dl(_jpegWithDensity(_safeDataURL(c,'image/jpeg',0.95), c._effDpi), fn+'.jpg');
+  else if(fmt==='webp') dl(_safeDataURL(c,'image/webp',0.92), fn+'.webp');
+  else if(fmt==='tiff') exportTIFF(fn, c._effDpi, c, true, {lzw:gc('export-tiff-lzw')});
+}
+function downloadKey(){ return doExport(_keyFmt||'png', {key:true}); }
+
+// ── The legend text starter ──
+// "DAPI (blue); WT (orange, filled bars); KO (sky blue, filled bars)." — every row of
+// the key, its colour in words, ready to paste into the figure legend and edit.
+function _keyWords(r){
+  if(r.words) return r.words;
+  if(!r.color) return '';
+  const c=_colourName(r.color);
+  return r.desc ? `${c}, ${r.desc}` : c;
+}
+function _keyText(rows){
+  rows=rows||_figureKey();
+  if(!rows.length) return '';
+  return rows.map(r=>{ const w=_keyWords(r); return w?`${r.name} (${w})`:r.name; }).join('; ')+'.';
+}
+function copyKeyText(){
+  const ta=document.getElementById('key-text'); if(!ta) return;
+  const t=ta.value=_keyText();
+  if(!t){ toast('This figure has nothing to key yet','warn'); return; }
+  const done=()=>toast('Legend text copied — paste it into your figure legend','ok');
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done,()=>{ ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ toast('Select the text and copy it','warn'); } });
+  else { ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ toast('Select the text and copy it','warn'); } }
+}
+
+// ── Place the key on the figure ──
+function _keyPlaced(){
+  return annotations.some(a=>a&&a.type==='legend') || images.some(im=>im&&(im.panelAnns||[]).some(a=>a.type==='legend'));
+}
+// One switch, one undo step: on adds the key at the figure's top-right corner (move it
+// with the Select tool, or place more with ▤ Key); off removes every placed key.
+function setKeyOnFigure(on){
+  if(!!on===_keyPlaced()){ _keySyncUI(); return; }
+  pushUndo();
+  if(on){
+    const W=canvasLogicalW||1, H=canvasLogicalH||1, L=_keyLayout(_figureKey(), 12, _keyFont(12));
+    annotations.push({type:'legend', xf:Math.max(0,(W-L.w-10)/W), yf:Math.min(0.5,10/H), color:gv('ann-color')||'#ffffff',
+      width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+  } else {
+    annotations=annotations.filter(a=>!(a&&a.type==='legend'));
+    images.forEach(im=>{ if(im&&im.panelAnns) im.panelAnns=im.panelAnns.filter(a=>a.type!=='legend'); });
+    selectedAnnotation=-1; selectedPanelAnn=null; hideAnnFloat();
+  }
+  logAction('keyOnFigure',{on:!!on});
+  renderAnnotationList(); scheduleRender(0);
+}
+function _keySyncUI(){
+  const sw=document.getElementById('key-on-figure'); if(sw) sw.checked=_keyPlaced();
+  const lbl={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF',svg:'SVG'}[_keyFmt||'png']||'PNG';
+  const b=document.getElementById('key-dl-btn'); if(b){ const t=`⬇ Download key (${lbl})`; if(b.textContent!==t) b.textContent=t; }
+}
+// Called at the start of every on-screen render(), so the text box, the switch and the
+// button follow every change that redraws the figure.
+function _keyRefresh(){
+  const ta=document.getElementById('key-text');
+  // An empty figure has nothing to key — and render() can run while the script is still
+  // being read, before the grid helpers _figureKey() walks exist.
+  const empty=!images.length && !freeformElements.length;
+  if(ta){ const t=empty?'':_keyText(); if(ta.value!==t) ta.value=t; }
+  _keySyncUI();
+}
+
+// ── Colour names ──
+// The nearest of a short list of named colours, in CIELAB. Every colour FigureLab itself
+// draws with — the LUT hues, the tag swatches, the chart palettes (with their designers'
+// own names: Okabe–Ito's "vermilion", "bluish green", "reddish purple"), the SBOL and
+// colour-blind gene-map palettes and the heatmap scales' ends — is in the list under its
+// name, so those are named exactly; only a colour picked by hand is a nearest guess.
+// BEGIN _colourName
+function _colourAnchors(){
+  if(_colourAnchors.c) return _colourAnchors.c;
+  const A={
+    'black':['#000000','#000004','#222222'],
+    'white':['#ffffff','#f7f7f7','#f7fbff'],
+    'dark grey':['#404040','#555555'],
+    'grey':['#808080','#888888','#7f8c8d','#95a5a6','#999999'],
+    'light grey':['#bbbbbb','#c0c0c0','#dddddd'],
+    'slate grey':['#607d8b','#4a5568'],
+    'red':['#ff0000','#c0392b','#ee6677','#b2182b','#e41a1c'],
+    'dark red':['#8b0000'],
+    'vermilion':['#d55e00','#d35400'],
+    'orange':['#ff8c00','#e69f00','#ff9a3c','#fe6100','#e8a33d','#ff8100','#fc8961'],
+    'amber':['#ffb000'],
+    'yellow':['#ffff00','#f0e442','#f0e050','#ccbb44','#fde725','#ffff42'],
+    'pale yellow':['#fcfdbf','#ffffe0'],
+    'green':['#00ff00','#4ee04e','#228833','#2c9c3f','#00c000','#5ec962'],
+    'dark green':['#006400'],
+    'bluish green':['#009e73','#00b894'],
+    'teal':['#16a085','#008080','#21918c'],
+    'cyan':['#00ffff','#4fe3e3','#66ccee'],
+    'sky blue':['#56b4e9','#87ceeb','#6baed6'],
+    'blue':['#0000ff','#4787ff','#6a9cff','#0072b2','#4477aa','#648fff','#3d7be8','#2166ac','#3b528b','#2171b5','#5b8dee'],
+    'pale blue':['#c6dbef'],
+    'navy':['#000080','#08306b'],
+    'violet':['#785ef0','#6c5ce7'],
+    'purple':['#800080','#8e44ad','#aa3377','#51127c'],
+    'dark purple':['#440154'],
+    'magenta':['#ff00ff','#ff6bff','#dc267f'],
+    'pink':['#ff69b4','#e84393','#b73779','#ffc0cb','#ffb6c1','#e377c2'],
+    'reddish purple':['#cc79a7'],
+    'brown':['#8b4513','#a52a2a','#8c564b'],
+    'olive':['#808000','#bcbd22'],
+  };
+  const out=[];
+  for(const [word,hexes] of Object.entries(A)) hexes.forEach(h=>out.push({word, lab:_lab(_parseColour(h))}));
+  return (_colourAnchors.c=out);
+}
+function _parseColour(c){
+  const s=String(c||'').trim().toLowerCase();
+  let m=/^#([0-9a-f]{3})$/.exec(s);
+  if(m) return m[1].split('').map(h=>parseInt(h+h,16));
+  m=/^#([0-9a-f]{6})([0-9a-f]{2})?$/.exec(s);
+  if(m) return [0,2,4].map(i=>parseInt(m[1].slice(i,i+2),16));
+  m=/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(s);
+  if(m) return [+m[1],+m[2],+m[3]];
+  return null;
+}
+function _lab(rgb){
+  const lin=v=>{ v/=255; return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4); };
+  const [r,g,b]=rgb.map(lin);
+  const X=(r*0.4124+g*0.3576+b*0.1805)/0.95047, Y=(r*0.2126+g*0.7152+b*0.0722), Z=(r*0.0193+g*0.1192+b*0.9505)/1.08883;
+  const f=t=>t>0.008856?Math.cbrt(t):(7.787*t+16/116);
+  const fx=f(X), fy=f(Y), fz=f(Z);
+  return [116*fy-16, 500*(fx-fy), 200*(fy-fz)];
+}
+function _colourName(c){
+  const rgb=_parseColour(c); if(!rgb) return '';
+  const L=_lab(rgb); let best=null, bd=Infinity;
+  for(const a of _colourAnchors()){ const d=(L[0]-a.lab[0])**2+(L[1]-a.lab[1])**2+(L[2]-a.lab[2])**2; if(d<bd){ bd=d; best=a.word; } }
+  return best||'';
+}
+// END _colourName
 
 function drawAnnotationSingle(ctx, a, W, H){
   if(a.type==='legend'){ _drawLegend(ctx, a.xf*W, a.yf*H, a); return; }
@@ -13166,6 +13546,7 @@ function _syncCounterChip(){
 }
 function renderAnnotationList(){
   _syncCounterChip();
+  _keySyncUI();
   // Count includes panel annotations
   const panelAnnCount = images.reduce((s,im)=>s+(im?.panelAnns?.length||0),0);
   document.getElementById('ann-count').textContent=annotations.length+panelAnnCount;
@@ -13712,16 +14093,28 @@ function _aiGateCancel(){
   toast('Export cancelled','warn');
 }
 
-async function doExport(fmt){
+// opts.key: write the figure's legend key (<name>-key.<ext>) instead of the figure, in
+// the same format, at the same DPI and printed scale, through the same file writers.
+async function doExport(fmt, opts){
+  const asKey=!!(opts&&opts.key);
   if(!images.length&&!freeformElements.length){ toast('Add images first','warn'); return; }
-  if(!_aiPolicyGate(()=>doExport(fmt))) return;
+  // The key shows no picture, so the gate on AI-generated imagery has nothing to ask about.
+  if(!asKey && !_aiPolicyGate(()=>doExport(fmt))) return;
   if(_exporting){ toast('Export already in progress…','warn'); return; }
+  if(asKey && !_figureKey().length){ toast('This figure has nothing to key yet — no pseudocoloured channel, named brightfield panel, chart series or gene-map feature','warn'); return; }
   _exporting=true; document.body.classList.add('exporting');
   const dpi=getExportDPI();
-  toast(`Generating ${dpi} DPI ${fmt.toUpperCase()}…`,'ok');
+  toast(`Generating ${dpi} DPI ${asKey?'key ':''}${fmt.toUpperCase()}…`,'ok');
   try{
     render();
     const name=gv('export-name').trim()||'figure';
+    if(asKey){
+      await _exportKeyFile(fmt, dpi, name);
+      logAction('exportKey',{format:fmt,dpi,name});
+      toast(`Saved ${name}-key.${fmt==='jpeg'?'jpg':(fmt==='pdf-lossless'?'pdf':fmt)}`,'ok');
+      return;
+    }
+    _keyFmt=fmt; _keySyncUI();           // Download key follows the format the figure went out in
     // Raster formats get a true supersampled re-render (grid and freeform alike).
     // Use the canvas's ACTUAL effective DPI (may be < requested if the 60MP cap
     // fired) so embedded physical-size metadata stays honest.
@@ -14112,6 +14505,12 @@ async function exportSubmissionPackage(){
       }
     }
     add(await _captureDownload(()=>exportSVG(name,dpi,figc),'SVG'));
+    // The legend key in each of the figure's formats above, and in words.
+    if(_figureKey().length){
+      for(const [f,lbl] of [['png','legend key PNG'],['tiff','legend key TIFF'],['pdf-lossless','legend key PDF'],['svg','legend key SVG']])
+        add(await _captureDownload(()=>_exportKeyFile(f,dpi,name),lbl));
+      files.push({name:name+'-key.txt', data:_keyText()+'\n'});
+    }
     add(await _captureDownload(()=>saveJSON(),'session JSON'));
     add(await _captureDownload(()=>exportCSV(),'panel metadata CSV'));
     add(await _captureDownload(()=>exportReproLog(),'reproducibility log'));
@@ -14338,7 +14737,8 @@ Notes
 // reuses the ZIP writer. Fully offline, no dependencies.
 // ═══════════════════════════════════════════════════════════════
 const _PPTX_RELNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-function _pptxStaticParts(cx,cy){
+function _pptxStaticParts(cx,cy,nSlides){
+  const slideNs=[...Array(Math.max(1,nSlides||1))].map((_,i)=>i+1);
   const A='http://schemas.openxmlformats.org/drawingml/2006/main';
   const P='http://schemas.openxmlformats.org/presentationml/2006/main';
   const R=_PPTX_RELNS;
@@ -14350,7 +14750,7 @@ function _pptxStaticParts(cx,cy){
 <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
 <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>
 <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>
-<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
+${slideNs.map(i=>`<Override PartName="/ppt/slides/slide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('\n')}
 <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
 </Types>`;
   const rootRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -14359,12 +14759,12 @@ function _pptxStaticParts(cx,cy){
   const presentation=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}">
 <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
-<p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst>
+<p:sldIdLst>${slideNs.map(i=>`<p:sldId id="${255+i}" r:id="rId${i+1}"/>`).join('')}</p:sldIdLst>
 <p:sldSz cx="${cx}" cy="${cy}"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`;
   const presRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="${R}/slideMaster" Target="slideMasters/slideMaster1.xml"/>
-<Relationship Id="rId2" Type="${R}/slide" Target="slides/slide1.xml"/></Relationships>`;
+${slideNs.map(i=>`<Relationship Id="rId${i+1}" Type="${R}/slide" Target="slides/slide${i}.xml"/>`).join('')}</Relationships>`;
   const master=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldMaster xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}">
 <p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>
@@ -14444,7 +14844,24 @@ async function exportPPTX(){
 ${pics}${titleSp}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
     const slideRelsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${slideRels.join('')}</Relationships>`;
-    const S=_pptxStaticParts(cx,cy);
+    // Slide 2: the legend key as one movable picture, centred, at the size it has in the figure.
+    const keyParts=[];
+    if(_figureKey().length){
+      const kc=_keyCanvas(dpi);
+      const kb=await new Promise(r=>kc.toBlob(r,'image/png'));
+      media.push({name:'ppt/media/key.png', data:new Uint8Array(await kb.arrayBuffer())});
+      const kw=Math.round(kc._keyW*EMU), kh=Math.round(kc._keyH*EMU);
+      const kSlide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}"><p:cSld><p:spTree>
+<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/><a:chOff x="0" y="0"/><a:chExt cx="${cx}" cy="${cy}"/></a:xfrm></p:grpSpPr>
+<p:pic><p:nvPicPr><p:cNvPr id="2" name="Legend key"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="${Math.max(0,Math.round((cx-kw)/2))}" y="${Math.max(0,Math.round((cy-kh)/2))}"/><a:ext cx="${kw}" cy="${kh}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>
+</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
+      const kRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${R}/image" Target="../media/key.png"/></Relationships>`;
+      keyParts.push({name:'ppt/slides/slide2.xml', data:kSlide},{name:'ppt/slides/_rels/slide2.xml.rels', data:kRels});
+    }
+    const S=_pptxStaticParts(cx,cy,1+(keyParts.length?1:0));
     const files=[
       {name:'[Content_Types].xml', data:S.CT},
       {name:'_rels/.rels', data:S.rootRels},
@@ -14457,13 +14874,14 @@ ${pics}${titleSp}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMa
       {name:'ppt/theme/theme1.xml', data:S.theme},
       {name:'ppt/slides/slide1.xml', data:slide},
       {name:'ppt/slides/_rels/slide1.xml.rels', data:slideRelsXml},
+      ...keyParts,
       ...media,
     ];
     const zip=_zipMake(files);
     dl(URL.createObjectURL(new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'})),
        (gv('export-name').trim()||'figure')+'.pptx');
-    logAction('exportPPTX',{panels:idn});
-    toast(`PowerPoint exported — ${idn} movable panels`,'ok');
+    logAction('exportPPTX',{panels:idn,keySlide:keyParts.length>0});
+    toast(`PowerPoint exported — ${idn} movable panels${keyParts.length?', and the legend key on slide 2':''}`,'ok');
   }catch(e){ toast('PowerPoint export failed: '+(e&&e.message||e),'err'); }
 }
 
@@ -14581,19 +14999,13 @@ function exportSVG(name, dpi, canvas){
   const wt=gc('label-bold')?'bold':'normal';
   const st=gc('label-italic')?'italic':'normal';
   let annSVG='';
-  // The channel key, as vector text. Shared by the figure-level key and a key pinned to a
-  // panel, so the two cannot drift apart in the SVG.
+  // The legend key, as vector shapes and text, drawn by the same _keyDraw as the canvas
+  // and the standalone key. Shared by the figure-level key and a key pinned to a panel,
+  // so the two cannot drift apart in the SVG.
   const legendSVG=(a, lx, ly)=>{
-    const col=a.color||'#ffffff';
-    const mc=document.createElement('canvas').getContext('2d');
-    const L=_legendLayout(mc,a); const f2=v=>v.toFixed(2);
-    const font=`bold ${L.fs}px ${fam}`;
-    if(a.fill!==false) annSVG+=`<rect x="${f2(lx)}" y="${f2(ly)}" width="${f2(L.w)}" height="${f2(L.h)}" rx="4" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}"/>`;
-    L.rows.forEach((r,i)=>{
-      const cy=ly+L.pad+i*L.lh+L.fs*0.55;
-      if(r.color) annSVG+=`<rect x="${f2(lx+L.pad)}" y="${f2(cy-L.sw/2)}" width="${f2(L.sw)}" height="${f2(L.sw)}" fill="${r.color}"/>`;
-      annSVG+=`<text x="${f2(lx+L.pad+L.sw+L.gap)}" y="${f2(cy)}" style="font:${font}" fill="${r.color||col}" dominant-baseline="central">${esc(r.name)}</text>`;
-    });
+    const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs)), buf=[];
+    _keyDraw(_keyEmitSVG(buf), lx, ly, L, _keyAnnStyle(a));
+    annSVG+=buf.join('');
   };
   // A key pinned to a panel (panel mode) was baked into the raster, so in panel mode the
   // channel names became pixels where the same key placed on the figure stayed text. The
@@ -14942,7 +15354,10 @@ function _pdfTextOps(items, k, hPt){
 // font can't represent is painted normally, so nothing is ever lost.
 async function _exportPDFWithText(name, dpi, opts){
   const pc=renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
-  const items=figTextItems.slice();
+  // The placed legend key's names are typeset like the labels (_drawLegend left them off
+  // the raster under the same rule).
+  const items=figTextItems.concat(_keyTextItems);
+  _keySkipText=null;
   const eff=pc._effDpi||dpi;
   // points per logical unit: page width in points / figure width in logical units
   const ptPerUnit=(pc.width*72/eff)/(canvasLogicalW||pc.width);
@@ -20578,7 +20993,7 @@ function convertGridToFreeform(){
       cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0, cropShape:im.cropShape||'rect',
       cropAngle:im.cropAngle||0,
       blackPt:im.blackPt||0, whitePt:im.whitePt||255, grayscale:!!im.grayscale, invert:!!im.invert,
-      lut:im.lut||'none', gamma:im.gamma||1, label:im.label||''});
+      lut:im.lut||'none', gamma:im.gamma||1, label:im.label||'', name:im.name||''});
   });
   freeformElements=els; _fmZCounter=els.length;
   const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
@@ -23046,8 +23461,12 @@ function batchExportPanels(){
       setTimeout(()=>URL.revokeObjectURL(url),5000);
     },'image/png');
   });
-  logAction('batchExport',{panels:valid.length,dpi});
-  toast(`Exporting ${valid.length} panel${valid.length!==1?'s':''}…`,'ok');
+  // The legend key goes with the panels: a PNG like them, and an SVG.
+  const withKey=_figureKey().length>0;
+  if(withKey) _exportKeyFile('png',dpi,baseName).then(()=>_exportKeyFile('svg',dpi,baseName))
+    .catch(e=>toast('The legend key could not be written: '+(e&&e.message||e),'err'));
+  logAction('batchExport',{panels:valid.length,dpi,key:withKey});
+  toast(`Exporting ${valid.length} panel${valid.length!==1?'s':''}${withKey?' and the legend key':''}…`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -23716,7 +24135,7 @@ async function exportMultiPagePDF(opts){
       // target entirely. Typesettable labels are held out of the raster and laid
       // down as real text, exactly as _exportPDFWithText does for one page.
       c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
-      items = figTextItems.slice();
+      items = figTextItems.concat(_keyTextItems);
       // Page size from the resolution the page canvas ACTUALLY carries (the printed
       // width when one is set, the 60 MP-capped DPI when the cap fired) — the same
       // number the single-page PDF puts in its /MediaBox. Read here: the restoring
@@ -23734,10 +24153,17 @@ async function exportMultiPagePDF(opts){
   }
   onLayoutChange();   // row count is back to the original, so the label inputs are kept
 
+  // One legend-key page after the figure's pages: the key of the whole figure (read now
+  // that images[] is the whole figure again), its names typeset like the labels.
+  const figPages = pages.length;
+  if(_figureKey().length){
+    const kc = _keyCanvas(dpi, _pdfCanTypeset);
+    pages.push(await _pdfPageFor(kc, kc._effDpi, { lossless, textItems: kc._keyItems, ptPerUnit: (kc.width*72/kc._effDpi)/kc._keyW }));
+  }
   const out = _pdfAssemble(pages);
   dl(URL.createObjectURL(new Blob([out], {type:'application/pdf'})), name + '-multipage.pdf');
-  toast(`Exported ${pages.length}-page PDF${lossless ? ' (lossless)' : ''}`, 'ok');
-  logAction('exportMultiPagePDF', { pages: pages.length, rowsPerPage: rpp, dpi, lossless });
+  toast(`Exported ${pages.length}-page PDF${lossless ? ' (lossless)' : ''}${pages.length>figPages ? ' — the last page is the legend key' : ''}`, 'ok');
+  logAction('exportMultiPagePDF', { pages: figPages, rowsPerPage: rpp, dpi, lossless, keyPage: pages.length>figPages });
 }
 
 // ═══════════════════════════════════════════════════════════════

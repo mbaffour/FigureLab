@@ -364,9 +364,11 @@ test('a channel key lists every channel the visible panels show, once, with its 
     const svg = new TextDecoder().decode((await _captureDownload(() => exportSVG('t', 300, document.getElementById('fig-canvas')))).data);
     D.excluded = true; render();                              // hide the brightfield panel → the key drops BF
     const rows2 = _figureChannels();
-    return { rows1, hit, size: [a._w > 40, a._h > 20], svgNames: [...svg.matchAll(/dominant-baseline="central">([A-Za-z]+)<\/text>/g)].map(m => m[1]), swatches: (svg.match(/<rect [^>]*fill="#4ee04e"/g) || []).length, rows2 };
+    return { rows1, hit, size: [a._w > 40, a._h > 20], svgNames: [...svg.matchAll(/dominant-baseline="central">([A-Za-z]+)<\/text>/g)].map(m => m[1]), swatches: (svg.match(/<rect [^>]*fill="#00ff00"/g) || []).length, rows2 };
   });
-  expect(r.rows1).toEqual([{ name: 'DAPI', color: '#6a9cff' }, { name: 'GFP', color: '#4ee04e' }, { name: 'BF', color: null }]);
+  // Swatches are the LUT's own hue at full intensity — the colour of the brightest pixels
+  // the panel shows — not the lifted tag colours (#6a9cff, #4ee04e) the panel tags use.
+  expect(r.rows1).toEqual([{ name: 'DAPI', color: '#4787ff' }, { name: 'GFP', color: '#00ff00' }, { name: 'BF', color: null }]);
   expect(r.hit).toBe(true);
   expect(r.size).toEqual([true, true]);
   expect(r.svgNames).toEqual(['DAPI', 'GFP', 'BF']);
