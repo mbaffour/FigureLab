@@ -7580,7 +7580,7 @@ function gelPlaceLaneNumbers(idx){
   const yf=(top>=fs+4?(top-fs-4):(M.map.dy+0.04*M.map.dh))/M.H;
   a.lanes.forEach((L,i)=>{ const t=String(i+1), tw=t.length*fs*0.58, cx=M.fx((L.x0+L.x1)/2);
     // Text annotations hang from their left edge, so centre the number on the lane.
-    annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false}); });
+    annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   // An inferred lane shifts the numbers after it: say so where the numbers are placed.
@@ -7604,7 +7604,9 @@ function gelPlaceMWLabels(idx){
   const fs=13, left=M.map.dx;
   for(let i=0;i<n;i++){ const t=String(sizes[i]), tw=t.length*fs*0.58;
     const x=left>=tw+8?left-6-tw:left+0.02*M.map.dw;     // in the margin beside the blot, if there is one
-    annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false}); }
+    // Tagged like the labels the MW-ladder button places, so the journal report's
+    // marker check counts them and the S1 sheet knows which panel they belong to.
+    annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, mw:true}); }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   toast(`Placed ${n} MW labels on the ladder bands of panel ${formatLabel(im.label)}`,'ok');
