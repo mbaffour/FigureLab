@@ -476,7 +476,9 @@ test('switching to freeform says the lane table is not drawn there, and that it 
   expect(r.ff.length).toBe(1);
   expect(r.ff[0]).toMatch(/lane table on panel A is not drawn in freeform layout — kept, and drawn again when you switch back to Grid/);
   expect(r.drawnFF).toBe(0); expect(r.kept).toBe(true);
-  expect(r.row).toMatch(/its lane table is not drawn in freeform layout/);
+  // The compliance report in freeform judges the freeform figure only — grid panels are
+  // not drawn there at all — so it carries no lane-table row; the toast is the notice.
+  expect(r.row).toBe('');
   expect(r.back.length).toBe(1); expect(r.back[0]).toMatch(/drawn again/);
   expect(r.drawn).toBe(5);
   expect(errors).toEqual([]);
