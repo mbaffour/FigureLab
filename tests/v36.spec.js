@@ -617,6 +617,10 @@ test('SVG chart is not double-drawn: one background image, chart absent from the
   const errors = await loadApp(page);
   await seedBarChart(page);
   const r = await page.evaluate(async () => {
+    // The flat SVG has the one background raster this is about; the layered SVG (the
+    // default) has no figure raster at all, and its chart is a vector layer.
+    const layered = new TextDecoder().decode((await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')))).data);
+    sv('export-svg-mode', 'flat');
     const cap = await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas')));
     const svg = new TextDecoder().decode(cap.data);
     const images = (svg.match(/<image /g) || []).length;
@@ -636,8 +640,10 @@ test('SVG chart is not double-drawn: one background image, chart absent from the
       im.onerror = () => res(null);
       im.src = m[1];
     });
-    return { images, bgAlpha };
+    return { images, bgAlpha, layeredImages: (layered.match(/<image /g) || []).length, layeredRects: (layered.match(/<rect /g) || []).length };
   });
+  expect(r.layeredImages).toBe(0);                 // layered: the chart alone, as vector
+  expect(r.layeredRects).toBeGreaterThan(2);
   expect(r.images).toBe(1);                        // exactly one <image> = the background
   // Chart centre on the background is white canvas, not an inked bar.
   expect(r.bgAlpha.r).toBeGreaterThan(240);
@@ -1520,7 +1526,15 @@ test('submission package includes a Source Data CSV for each chart', async ({ pa
   const r = await page.evaluate(async () => {
     const cap = await _captureDownload(() => exportSubmissionPackage());
     if (!cap || !cap.data) return null;
-    const zip = new TextDecoder('latin1').decode(cap.data);   // "store" zip → filenames + CSV are plaintext
+    // The ZIP writer deflates text entries: inflate each method-8 entry, then read it as text.
+    const b = cap.data, dv = new DataView(b.buffer, b.byteOffset); let p = 0, zip = '';
+    while (p + 30 <= b.length && dv.getUint32(p, true) === 0x04034b50) {
+      const cs = dv.getUint32(p + 18, true), nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true), d0 = p + 30 + nl + el;
+      let d = b.subarray(d0, d0 + cs);
+      if (dv.getUint16(p + 8, true) === 8) d = new Uint8Array(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      zip += new TextDecoder('latin1').decode(b.subarray(p + 30, p + 30 + nl)) + '\n' + new TextDecoder('latin1').decode(d) + '\n';
+      p = d0 + cs;
+    }
     return {
       hasSourceDir: zip.includes('source-data/panelA.csv'),
       hasData: zip.includes('9.99') && zip.includes('Ctrl'),

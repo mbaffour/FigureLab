@@ -432,18 +432,18 @@ test('S1: the submission package carries S1_uncropped_originals.pdf once a blot 
   const errors = await loadApp(page);
   await page.evaluate(HELPERS);
   await page.evaluate(`
-    window._zipRead = (bytes) => {
+    window._zipRead = async (bytes) => {
       const dv = new DataView(bytes.buffer, bytes.byteOffset); const out = {}; let p = 0;
       while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
         const cs = dv.getUint32(p + 18, true), nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true);
         const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nl)); const d = p + 30 + nl + el;
-        out[name] = bytes.subarray(d, d + cs); p = d + cs; }
+        const raw = bytes.subarray(d, d + cs); out[name] = (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw); p = d + cs; }
       return out; };
   `);
   const r = await page.evaluate(async () => {
     await _seed(240, 160, 'plain1.tif', '#777'); await _seed(240, 160, 'plain2.tif', '#888');
     _grid(2, 1, 200, 140); sv('export-dpi', '150');
-    const pkg = async () => { const z = await _captureDownload(() => exportSubmissionPackage()); const f = _zipRead(z.data);
+    const pkg = async () => { const z = await _captureDownload(() => exportSubmissionPackage()); const f = await _zipRead(z.data);
       const s1 = f['S1_uncropped_originals.pdf']; return { names: Object.keys(f), s1: s1 ? new TextDecoder('latin1').decode(s1) : null }; };
     const none = await pkg();
     images[0].cropL = 20; images[0].cropR = 5; render();                 // a cropped blot

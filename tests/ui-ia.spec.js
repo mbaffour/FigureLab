@@ -405,7 +405,9 @@ test('object creators stay reachable in BOTH modes', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('PowerPoint export says why it is unavailable, before the click', async ({ page }) => {
+// The PowerPoint export works in freeform too now (handoff.spec.js), so the button stays
+// enabled there and its tooltip says what freeform gives.
+test('PowerPoint export is available in both layouts and says what each gives, before the click', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
     setLayoutMode('grid');
@@ -415,8 +417,8 @@ test('PowerPoint export says why it is unavailable, before the click', async ({ 
     return { g, disabled: btn.disabled, title: btn.title };
   });
   expect(r.g.disabled).toBe(false);
-  expect(r.disabled).toBe(true);
-  expect(r.title).toMatch(/switch to Grid/i);
+  expect(r.disabled).toBe(false);
+  expect(r.title).toMatch(/image object a picture/i);
   expect(errors).toEqual([]);
 });
 

@@ -57,8 +57,8 @@ const HELPERS = `
     return rows.filter(r => r.length > 1 || r[0] !== '');
   };
   window.__text = async (fn) => { const c = await _captureDownload(fn); return c ? new TextDecoder().decode(c.data) : null; };
-  // Stored ZIP → [{name, flags, data}] in file order
-  window.__zip = (bytes) => {
+  // ZIP → [{name, flags, data}] in file order; deflated (method 8) entries are inflated
+  window.__zip = async (bytes) => {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), out = [];
     let p = 0;
     while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
@@ -66,14 +66,15 @@ const HELPERS = `
       const nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true);
       const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nl));
       const at = p + 30 + nl + el;
-      out.push({ name, flags, data: bytes.subarray(at, at + size) });
+      const raw = bytes.subarray(at, at + size);
+      out.push({ name, flags, data: (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw) });
       p = at + size;
     }
     return out;
   };
   window.__pkg = async () => {
     const z = await _captureDownload(() => exportSubmissionPackage());
-    const entries = __zip(z.data), files = {};
+    const entries = await __zip(z.data), files = {};
     entries.forEach(e => { files[e.name] = new TextDecoder().decode(e.data); });
     return { entries: entries.map(e => ({ name: e.name, flags: e.flags })), files };
   };
@@ -383,6 +384,16 @@ test('an imported SVG grid panel stays vector in the SVG export, or the file say
     if (cropEdState && cropEdState._preCrop) skipPreCrop();
     await new Promise(res => setTimeout(res, 300));
     sv('cols', 1); sv('rows', 1); onLayoutChange(); sv('export-name', 'vec'); render();
+    // The layered SVG (the default): the panel's layer holds the vector picture and no
+    // PNG of the panel.
+    const lay = await __text(() => doExport('svg'));
+    const layDoc = new DOMParser().parseFromString(lay, 'image/svg+xml');
+    const layPanel = layDoc.querySelector('g[id^="panel-"]');
+    const layered = { vector: !!layPanel && [...layPanel.getElementsByTagName('image')].some(i => /^data:image\/svg\+xml/.test(i.getAttribute('xlink:href'))),
+      png: !!layPanel && [...layPanel.getElementsByTagName('image')].some(i => /^data:image\/png/.test(i.getAttribute('xlink:href'))),
+      said: /written as vector/.test(lay) };
+    // The flat SVG: its one raster must leave a hole where the vector panel shows through.
+    sv('export-svg-mode', 'flat');
     const b = panelBounds.find(p => p.idx === 0);
     const vec = await __text(() => doExport('svg'));
     // Paint the exported SVG and read the panel back: the vector must be visible, and
@@ -399,8 +410,9 @@ test('an imported SVG grid panel stays vector in the SVG export, or the file say
     const cropped = await __text(() => doExport('svg'));
     doExportPreflight('svg');
     const dialog = document.getElementById('preflight-body').textContent; closePreflight();
-    return { isVector: images[0].isVector, vec, shown, cropped, dialog };
+    return { isVector: images[0].isVector, vec, shown, cropped, dialog, layered };
   }, SVG);
+  expect(r.layered).toEqual({ vector: true, png: false, said: true });
   expect(r.isVector).toBe(true);
   expect(r.vec).toContain('data:image/svg+xml');
   expect(r.vec).toContain('written as vector');

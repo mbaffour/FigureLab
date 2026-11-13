@@ -367,6 +367,8 @@ test('gene maps export as true vector, not a second raster', async ({ page }) =>
     const realDl = window.dl, realBlob = window.blobUrl;
     window.dl = () => {};
     window.blobUrl = (t) => { captured = t; return 'blob:x'; };
+    // The flat SVG: one background raster under the vector map. (Layered: no raster at all.)
+    sv('export-svg-mode', 'flat');
     exportSVG();
     window.dl = realDl; window.blobUrl = realBlob;
     return captured;

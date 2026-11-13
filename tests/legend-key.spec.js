@@ -5,17 +5,18 @@
 const { test, expect } = require('@playwright/test');
 const { loadApp, seedPanels, seedFreeform } = require('./helpers');
 
-// In-page helpers: a stored-ZIP reader, a PNG decoder that finds a colour, and the key's
+// In-page helpers: a ZIP reader (inflating deflated entries), a PNG decoder that finds a colour, and the key's
 // names and swatch fills read back out of an SVG.
 const HELPERS = `
-  window.__zip = (bytes) => {
+  window.__zip = async (bytes) => {
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), out = {};
     let p = 0;
     while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
       const size = dv.getUint32(p + 18, true), nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true);
       const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nl));
       const at = p + 30 + nl + el;
-      out[name] = bytes.subarray(at, at + size);
+      const raw = bytes.subarray(at, at + size);
+      out[name] = (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw);
       p = at + size;
     }
     return out;
@@ -245,7 +246,7 @@ test('the submission package, multi-page PDF, PowerPoint and batch export carry 
   await seedChannels(page);
   const r = await page.evaluate(async () => {
     sv('export-name', 'fig2');
-    const zip = __zip((await _captureDownload(() => exportSubmissionPackage())).data);
+    const zip = await __zip((await _captureDownload(() => exportSubmissionPackage())).data);
     const names = Object.keys(zip);
     const keyTxt = new TextDecoder().decode(zip['fig2-key.txt'] || new Uint8Array());
     const keySvg = new TextDecoder().decode(zip['fig2-key.svg'] || new Uint8Array());
@@ -259,16 +260,17 @@ test('the submission package, multi-page PDF, PowerPoint and batch export carry 
     window.dl = (u, n) => { if (String(n).endsWith('.pptx')) pptxUrl = u; };
     await exportPPTX();
     window.dl = realDl;
-    const pptxBytes = new Uint8Array(await (await fetch(pptxUrl)).arrayBuffer());
-    const pptxText = new TextDecoder('latin1').decode(pptxBytes);
-    // batch export: the key as PNG and SVG beside the panels
-    const got = []; window.dl = (u, n) => got.push(n);
-    batchExportPanels();
-    await new Promise(res => setTimeout(res, 800));
+    // The package's XML parts are deflated now, so read them through the ZIP reader.
+    const pptx = await __zip(new Uint8Array(await (await fetch(pptxUrl)).arrayBuffer()));
+    const pres = new TextDecoder().decode(pptx['ppt/presentation.xml']);
+    // batch export: the key as PNG and SVG beside the panels, in its one ZIP
+    let batchUrl = null; window.dl = (u, n) => { batchUrl = u; };
+    await batchExportPanels();
     window.dl = realDl;
+    const got = Object.keys(await __zip(new Uint8Array(await (await fetch(batchUrl)).arrayBuffer())));
     return { names, keyTxt, keySvgNames: __svgKey(keySvg).names, keyPdfText: keyPdf.includes('(GFP) Tj'), pages,
-      slide2: pptxText.includes('ppt/slides/slide2.xml'), keyMedia: pptxText.includes('ppt/media/key.png'),
-      sldIds: (pptxText.match(/<p:sldId /g) || []).length, batch: got };
+      slide2: !!pptx['ppt/slides/slide2.xml'], keyMedia: !!pptx['ppt/media/key.png'],
+      sldIds: (pres.match(/<p:sldId /g) || []).length, batch: got };
   });
   for (const f of ['fig2-key.png', 'fig2-key.tiff', 'fig2-key.pdf', 'fig2-key.svg', 'fig2-key.txt'])
     expect(r.names).toContain(f);

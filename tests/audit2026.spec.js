@@ -60,8 +60,9 @@ const PARSERS = `
     let m; while ((m = re.exec(txt))) out.push([parseFloat(m[1]), parseFloat(m[2])]);
     return out;
   };
-  // Stored (method 0) ZIP → { name: Uint8Array }. The app's writer never deflates.
-  window._zipRead = (bytes) => {
+  // ZIP → { name: Uint8Array }. The app's writer deflates text-like entries (method 8)
+  // and stores the rest, so entries are inflated where they were deflated.
+  window._zipRead = async (bytes) => {
     const dv = new DataView(bytes.buffer, bytes.byteOffset);
     const out = {};
     let p = 0;
@@ -70,7 +71,8 @@ const PARSERS = `
       const nlen = dv.getUint16(p+26, true), elen = dv.getUint16(p+28, true);
       const name = new TextDecoder().decode(bytes.subarray(p+30, p+30+nlen));
       const dataOff = p + 30 + nlen + elen;
-      out[name] = bytes.subarray(dataOff, dataOff + csize);
+      const raw = bytes.subarray(dataOff, dataOff + csize);
+      out[name] = (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw);
       p = dataOff + csize;
     }
     return out;
@@ -199,7 +201,7 @@ test('FL-3: submission-package panel PNGs are cropped at the render scale, not d
     const scale = renderExportCanvas(300)._exportScale;
     const bounds = panelBounds.map(b => ({ idx: b.idx, w: b.w, h: b.h }));
     const zipCap = await _captureDownload(() => exportSubmissionPackage());
-    const files = _zipRead(zipCap.data);
+    const files = await _zipRead(zipCap.data);
     const panels = Object.keys(files).filter(n => /^panels\/panel_/.test(n))
       .map(n => ({ name: n, ...(_pngSize(files[n])) }));
     return { scale, wrongScale: Math.max(1, 300/96), bounds, panels, exportW: renderExportCanvas(300).width };
@@ -462,7 +464,7 @@ test('FL-11: an artefact that fails is named, not silently dropped', async ({ pa
     window.exportTIFF = () => { throw new Error('canvas too large'); };
     const cap = await _captureDownload(() => exportSubmissionPackage());
     window.exportTIFF = orig;
-    const files = _zipRead(cap.data);
+    const files = await _zipRead(cap.data);
     const readme = new TextDecoder().decode(files['README.txt'] || new Uint8Array());
     const modal = document.getElementById('info-modal-bg');
     return {

@@ -30,8 +30,9 @@ const PARSERS = `
     t.xres = t[282] ? dv.getUint32(t[282], true) / dv.getUint32(t[282] + 4, true) : null;
     return t;
   };
-  // Stored (method 0) ZIP → { name: Uint8Array }. The app's writer never deflates.
-  window._zipRead = (bytes) => {
+  // ZIP → { name: Uint8Array }. The app's writer deflates text-like entries (method 8)
+  // and stores the rest, so entries are inflated where they were deflated.
+  window._zipRead = async (bytes) => {
     const dv = new DataView(bytes.buffer, bytes.byteOffset);
     const out = {};
     let p = 0;
@@ -40,7 +41,8 @@ const PARSERS = `
       const nlen = dv.getUint16(p + 26, true), elen = dv.getUint16(p + 28, true);
       const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nlen));
       const dataOff = p + 30 + nlen + elen;
-      out[name] = bytes.subarray(dataOff, dataOff + csize);
+      const raw = bytes.subarray(dataOff, dataOff + csize);
+      out[name] = (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw);
       p = dataOff + csize;
     }
     return out;
@@ -363,7 +365,7 @@ test('lzw: the PLOS preset switches it on, and the package carries the LZW TIFF 
     applyPreset('plos');
     render();
     const zipCap = await _captureDownload(() => exportSubmissionPackage());
-    const files = _zipRead(zipCap.data);
+    const files = await _zipRead(zipCap.data);
     const names = Object.keys(files);
     const tiffName = names.find(n => /\.tif$/.test(n) && !n.includes('/'));   // PLOS: Fig1.tif, its own naming
     const methodsName = names.find(n => /-methods\.txt$/.test(n));

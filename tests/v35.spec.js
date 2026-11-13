@@ -629,7 +629,9 @@ test('SVG import stays vector: source retained, round-trips, and SVG export re-e
   expect(r.isVector).toBe(true);
   expect(r.sourceKept).toBe(true);
   expect(r.serializedKept).toBe(true);
-  expect(r.imageCount).toBeGreaterThanOrEqual(2);   // raster background + vector overlay
+  // The layered SVG (the default) writes the object as its vector picture alone; the flat
+  // one put a raster background under it as well.
+  expect(r.imageCount).toBeGreaterThanOrEqual(1);
   expect(r.hasVectorHref).toBe(true);
   expect(r.encodesMarker).toBe(true);
 });
@@ -1095,7 +1097,10 @@ test('PowerPoint (.pptx) export is a valid OOXML package with well-formed XML', 
       const name = dec.decode(buf.slice(cd + 46, cd + 46 + nlen)); names.push(name);
       const lnlen = dv.getUint16(lho + 26, true), lelen = dv.getUint16(lho + 28, true), csize = dv.getUint32(lho + 18, true);
       const ds = lho + 30 + lnlen + lelen;
-      if (name.endsWith('.xml') || name.endsWith('.rels')) xml[name] = dec.decode(buf.slice(ds, ds + csize));
+      // XML parts are deflated (method 8) by the ZIP writer; inflate them before parsing.
+      if (name.endsWith('.xml') || name.endsWith('.rels')) { let d = buf.slice(ds, ds + csize);
+        if (dv.getUint16(lho + 8, true) === 8) d = new Uint8Array(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+        xml[name] = dec.decode(d); }
       cd += 46 + nlen + elen + clen;
     }
     const parser = new DOMParser(); const xmlErrors = [];
