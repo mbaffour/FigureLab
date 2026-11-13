@@ -14807,8 +14807,12 @@ function _journalRows(J, g){
   // type size
   if(J.ptMin!=null||J.ptMax!=null){
     const tr=_journalTextReport(J,pf.ptPerPx), rng=J.ptNote||`${J.ptMin}–${J.ptMax} pt`;
+    // The title is drawn 4 px larger than the headings; when the range is narrower than
+    // that at this width, Fit cannot place both, and the note says so rather than pretend.
+    const titleClash=tr.bad.length&&tr.by.has('title')&&['col','row','group'].some(k=>tr.by.has(k))
+      &&J.ptMin!=null&&J.ptMax!=null&&(J.ptMax-J.ptMin)/pf.ptPerPx<4;
     rows.push({label:'Text size', ok:!tr.bad.length, src,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}`
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}`
         : (tr.list?`${esc(tr.list)} ✓ — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
       fix:tr.fixable?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:null});
   } else rows.push({label:'Text size', ok:true, info:true, note:`panel labels print at ${g.labelPt.toFixed(1)} pt · ${nm} states no type size`});

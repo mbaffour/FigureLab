@@ -196,6 +196,17 @@ for (const c of CASES) {
   });
 }
 
+// Nature's 5–7 pt is under 4 px wide at this width, and the title is drawn 4 px larger
+// than the headings, so no size fits both. The row says so instead of offering a fix
+// that silently fails. Before: the report had one 5 pt floor for panel letters only.
+test('Nature: a title and headings that cannot both fit 5–7 pt are named as the reason', async ({ page }) => {
+  const errors = await setup(page, 4);
+  const row = await page.evaluate(() => { sc('show-col-labels', true); sv('fig-title', 'T'); onLayoutChange(); applyPreset('nature'); render(); return __row('Text size'); });
+  expect(row.icon).toBe('✗');
+  expect(row.text).toMatch(/The title is drawn 4 px larger than the headings, so at this width both cannot sit inside 5–7 pt/);
+  expect(errors).toEqual([]);
+});
+
 // Rows that report without a mechanical fix still fail on a figure that breaks them.
 // Before: the height row passed anything under 9.5 in (241 mm); Nature's limit is 170 mm.
 test('a Nature figure taller than 170 mm fails the height row; a PNG export fails Nature\'s format row', async ({ page }) => {

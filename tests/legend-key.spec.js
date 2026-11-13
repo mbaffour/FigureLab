@@ -292,8 +292,9 @@ test('colour words: every LUT, tag swatch and chart palette colour has its name'
     rgb: _colourName('rgb(68,1,84)'),
     none: _colourName(null),
   }));
-  expect(r.luts).toEqual(['green', 'cyan', 'magenta', 'yellow', 'blue']);
-  expect(r.swatch).toEqual(['blue', 'green', 'magenta', 'cyan', 'yellow', 'orange']);
+  // red joined the lookup tables with the journal checks (journals.spec.js), and has its word
+  expect(r.luts).toEqual(['green', 'cyan', 'magenta', 'red', 'yellow', 'blue']);
+  expect(r.swatch).toEqual(['blue', 'green', 'magenta', 'red', 'cyan', 'yellow', 'orange']);
   expect(r.okabe).toEqual(['black', 'orange', 'sky blue', 'bluish green', 'yellow', 'blue', 'vermilion', 'reddish purple']);
   expect(r.rgb).toBe('dark purple');
   expect(r.none).toBe('');
