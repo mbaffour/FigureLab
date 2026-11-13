@@ -849,6 +849,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;gap:4px;margin-top:4px">
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLaneLabels()" title="Add numbered lane labels across the top — drag to align with your lanes">▦ Lane labels</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLadderLabels()" title="Add molecular-weight ladder labels down the left edge">↕ MW ladder</button>
+      <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="openLaneTable()" title="The +/− condition table over or under a blot (rows such as IPTG, phage, MOI; one cell per lane), aligned to the detected lanes and moved with the panel">⊞ Lane table…</button>
     </div>
     <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Supplementary sheet journals ask for: each blot or gel's whole original image with the region used in the figure outlined, its file name, crop in source pixels, tilt and splice markers. PDF (one page per panel) or PNG.">🗎 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="openGelAnalysis()" style="width:100%;justify-content:center;margin-top:4px" title="Detect lanes and bands on the selected panel (else the first) and measure band volumes from the original pixels — densitometry like ImageJ's gel analyzer, with saturation flags, loading-control normalisation and a molecular-weight fit">⫼ Analyse lanes &amp; bands…</button>
@@ -4278,6 +4279,7 @@ const CMD_REGISTRY=[
   {label:'Export ruler lengths (CSV)', keys:'ruler length measure measurement nm tem capsid tail size csv mean sd', run:()=>exportRulerCSV()},
   {label:'Add splice marker (blot/gel)', keys:'splice blot gel lane divider integrity', run:()=>addSpliceMarker()},
   {label:'Analyse lanes & bands (gel / western blot densitometry)…', keys:'gel blot western densitometry quantify quantification quantitate band bands lane lanes imagej gel analyzer analyser intensity volume loading control normalise normalize actin gapdh saturation', run:()=>openGelAnalysis()},
+  {label:'Lane table — the +/− condition matrix over or under a blot…', keys:'lane table condition table conditions plus minus +/- treatment matrix sample key blot labels lanes gel western iptg phage moi dose', run:()=>openLaneTable()},
   {label:'Estimate molecular weight from the ladder (kDa)', keys:'molecular weight kda mw ladder marker size estimate band gel blot western', run:()=>openGelAnalysis()},
   {label:'Duplicate-panel check',    keys:'duplicate reuse identical panel integrity proofig imagetwin plagiarism', run:()=>runDuplicateScan()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
@@ -6345,7 +6347,9 @@ function addLaneLabels(){
   // textBaseline 'top', so yf is the TOP of the number and it hangs a full font size
   // below that. iy-fs*0.6 therefore put the numbers across the blot's top edge, their
   // lower third over the first band; iy-fs-4 leaves a 4 px gap under them.
-  const yf = (t.iy>=fs+4 ? (t.iy-fs-4)/t.H : t.fy(0.04));
+  // Above a lane table over the blot, not into it.
+  const _lt=_ltCellReserve(images[t.idx],0), top=t.iy-(_lt&&_lt.draw?_lt.top:0);
+  const yf = (top>=fs+4 ? (top-fs-4)/t.H : t.fy(0.04));
   for(let i=0;i<n;i++){
     const u=(i+0.5)/n;                          // one per lane, centred in its share
     annotations.push({type:'text', xf:t.fx(u), yf, text:String(i+1), fontSize:fs, color:'#000000', halo:false, blotPanel:images[t.idx]&&images[t.idx].id});
@@ -6827,7 +6831,7 @@ function _gelTallestBand(a){ let t=0; a.lanes.forEach(L=>L.bands.forEach(b=>{ if
 // The opening only finds the background under a band if the window is well taller
 // than the band; one barely taller rides up the band's flanks, and the volume comes
 // out low — or negative, on a 70 px loading-control strip.
-function _gelWindowShort(a){ return a.baseline.window<2*_gelTallestBand(a); }
+function _gelWindowShort(a){ return _gelBgMethod(a)==='rolling minimum'&&a.baseline.window<2*_gelTallestBand(a); }
 // Row profile over the central ~65% of the lane: the edges of a lane smile and bleed.
 function _gelLaneProfile(S,W,H,c0,c1){
   const inset=Math.floor((c1-c0+1)*0.175), a=c0+inset, b=Math.max(a,c1-inset);
@@ -6856,6 +6860,91 @@ function _gelLaneModel(a,ctx,L){
   // not end the band a row or two early.
   return {c0,c1,R,B,D,Ds:_gelSmooth(D,1),Dw:_gelSmooth(D,2),sig,off,offSE:D0.length?1.25*sig/Math.sqrt(D0.length):0,
     nc:Math.max(1,(c1-inset)-(c0+inset)+1)};
+}
+// ── Background methods ─────────────────────────────────────────
+// Detection always runs on the rolling-minimum model above: finding a peak needs a
+// local background. What a band's volume is integrated ABOVE is the user's choice,
+// recorded in a.baseline and drawn on the lane profile, so the background is never an
+// invisible setting — the complaint about ImageJ's hand-drawn baselines.
+// Rolling minimum: the opening above. Valley-to-valley (LI-COR's "Lane" background):
+// straight lines joining the profile's lowest points between neighbouring bands — it
+// follows a sloping background and does not ride up into a cluster of close bands the
+// way a short rolling window does, but where two bands' tails overlap the valley lies
+// above the floor and both are measured a little low. None / flat: one level for the
+// whole lane, a low percentile of its row profile.
+const GEL_BG_METHODS={'rolling minimum':'Rolling minimum','valley-to-valley':'Valley-to-valley','flat':'None / flat'};
+const GEL_V2V_SMOOTH=3, GEL_FLAT_PCT=10;
+function _gelBgMethod(a){ const m=a&&a.baseline&&a.baseline.method; return GEL_BG_METHODS[m]?m:'rolling minimum'; }
+function _gelBgParam(a){ const b=a.baseline||{}, m=_gelBgMethod(a);
+  return m==='valley-to-valley'?(b.smooth||GEL_V2V_SMOOTH):m==='flat'?(b.pct!=null?b.pct:GEL_FLAT_PCT):b.window; }
+function _gelOdd(v,lo,hi,dflt){ v=Math.round(+v); if(!(v>=lo)) v=dflt; v=Math.min(hi,v); if(!(v%2)) v++; return v; }
+// opts.method/smooth/pct → the baseline record (the window is detection's, always kept).
+function _gelBaselineFrom(opts,win){
+  const m=GEL_BG_METHODS[opts&&opts.method]?opts.method:'rolling minimum', b={method:m, window:win};
+  if(m==='valley-to-valley') b.smooth=_gelOdd(opts.smooth,1,51,GEL_V2V_SMOOTH);
+  if(m==='flat'){ const p=+opts.pct; b.pct=(p>=0&&p<=50)?Math.round(p*10)/10:GEL_FLAT_PCT; }
+  return b;
+}
+// Short, for the banner; the CSV header and Methods sentence spell it out.
+function _gelBgShort(a){
+  const m=_gelBgMethod(a), b=a.baseline;
+  if(m==='valley-to-valley') return `valley-to-valley, valleys on a ${_gelBgParam(a)}-row mean`;
+  if(m==='flat') return `none / flat, the ${_gelBgParam(a)}th percentile of each lane`;
+  return `rolling minimum, ${b.window} px${b.widenedFrom?' (widened to fit the bands)':''}`;
+}
+function _gelBgMethods(a){
+  const m=_gelBgMethod(a);
+  if(m==='valley-to-valley') return `a valley-to-valley background (straight lines joining the lowest points of each lane's row profile between neighbouring bands, found on a ${_gelBgParam(a)}-row running mean)`;
+  if(m==='flat') return `a flat background (one level per lane, the ${_gelBgParam(a)}th percentile of its row profile)`;
+  return `a rolling-minimum background (window ${a.baseline.window} px)`;
+}
+// Rewrites m.B and m.D for the analysis's method, given the lane's bands (valley-to-
+// valley anchors between them, so it is re-run whenever a band is added, moved or removed).
+function _gelApplyBaseline(a,m,bands){
+  const meth=_gelBgMethod(a); if(meth==='rolling minimum') return m;
+  const R=m.R, n=R.length, sig=m.sig||0, B=new Float64Array(n);
+  if(meth==='flat'){
+    const A=Array.from(R).filter(v=>v===v).sort((x,y)=>x-y), p=_gelBgParam(a)/100;
+    const lvl=A.length?A[Math.min(A.length-1,Math.max(0,Math.round(p*(A.length-1))))]:0;
+    B.fill(lvl); m.off=0; m.offSE=1.25*sig/Math.sqrt(Math.max(1,A.length));
+  } else {
+    const Rs=_gelSmooth(R,Math.max(0,Math.floor(_gelBgParam(a)/2))), sy=a.frame.sy;
+    const rows=(bands||[]).map(b=>({r0:Math.max(0,Math.min(n-1,Math.round(b.y0-sy))), r1:Math.max(0,Math.min(n-1,Math.round(b.y1-sy)-1))}))
+      .filter(b=>b.r1>=b.r0).sort((x,y)=>x.r0-y.r0);
+    const low=(i0,i1)=>{ i0=Math.max(0,Math.min(n-1,i0)); i1=Math.max(i0,Math.min(n-1,i1)); let v=i0; for(let i=i0;i<=i1;i++) if(Rs[i]<Rs[v]) v=i; return v; };
+    const mid=b=>Math.round((b.r0+b.r1)/2);
+    let anc=[];
+    if(!rows.length) anc=[low(0,Math.floor(n/2)),low(Math.ceil(n/2),n-1)];
+    // Each band's line runs between the valleys on either side of it: two touching bands
+    // meet at the lowest point between their middles; otherwise it is the lowest point
+    // within one band height beyond its edge. Looking further (the lowest point of the
+    // whole gap, or of the lane above the first band) tilted the line under a band by
+    // wherever the noise happened to dip, tens of rows away.
+    else rows.forEach((b,k)=>{
+      const reach=Math.max(3,b.r1-b.r0+1), p=rows[k-1], q=rows[k+1];
+      if(p&&p.r1+1>=b.r0) anc.push(low(mid(p),mid(b))); else anc.push(low(Math.max(p?p.r1:0,b.r0-reach),b.r0));
+      if(q&&b.r1+1>=q.r0) anc.push(low(mid(b),mid(q))); else anc.push(low(b.r1,Math.min(q?q.r0:n-1,b.r1+reach)));
+    });
+    anc=[...new Set(anc)].sort((x,y)=>x-y);
+    for(let i=0;i<n;i++){
+      if(i<=anc[0]){ B[i]=Rs[anc[0]]; continue; }
+      if(i>=anc[anc.length-1]){ B[i]=Rs[anc[anc.length-1]]; continue; }
+      let k=0; while(anc[k+1]<i) k++;
+      const x0=anc[k], x1=anc[k+1], t=(i-x0)/((x1-x0)||1); B[i]=Rs[x0]+(Rs[x1]-Rs[x0])*t;
+    }
+    // The lowest point of a noisy stretch sits below its mean, as the opening's does:
+    // the same lift, capped the same way so a real slope is not mistaken for noise, but
+    // measured only on rows at least a band's height from every band. The rows between
+    // two close bands carry their tails, and lifting by those took 5% off every band of
+    // a cluster.
+    const inBand=new Uint8Array(n); rows.forEach(b=>{ const h=b.r1-b.r0+1; for(let i=Math.max(0,b.r0-h);i<=Math.min(n-1,b.r1+h);i++) inBand[i]=1; });
+    const D0=[]; for(let i=0;i<n;i++){ if(inBand[i]) continue; const d=R[i]-B[i]; if(d<=3*sig) D0.push(d); }
+    const off=D0.length>=8?Math.max(0,Math.min(2.5*sig,_gelMedian(D0))):0;
+    for(let i=0;i<n;i++) B[i]+=off;
+    m.off=off; m.offSE=D0.length?1.25*sig/Math.sqrt(D0.length):0; m.anchors=anc;
+  }
+  m.B=B; const D=new Float64Array(n); for(let i=0;i<n;i++) D[i]=R[i]-B[i]; m.D=D;
+  return m;
 }
 // Volume = Σ (signal − background) over the band's rows × the lane's columns, in source units.
 function _gelQuantBand(a,ctx,m,band){
@@ -6946,12 +7035,14 @@ function _gelDetectBands(a,ctx){
       bands.push({y0:fr.sy+r0, y1:fr.sy+r1+1, merged:(merged||_gelShoulders(m,r0,r1)>1)||undefined,
         split:(l0>0&&r0===l0&&m.Ds[l0]>2*sig)||(l1<fr.H-1&&r1===l1&&m.Ds[l1]>2*sig)||undefined}); });
     for(let k=1;k<bands.length;k++) if(bands[k].y0<bands[k-1].y1) bands[k].y0=bands[k-1].y1;
-    L.bands=bands.filter(b=>b.y1>b.y0).map(b=>_gelQuantBand(a,ctx,m,b));
+    const kept=bands.filter(b=>b.y1>b.y0);
+    _gelApplyBaseline(a,m,kept);
+    L.bands=kept.map(b=>_gelQuantBand(a,ctx,m,b));
   });
 }
 function _gelRequantLane(a,ctx,li){
   const L=a.lanes[li]; if(!L) return;
-  const m=_gelLaneModel(a,ctx,L);
+  const m=_gelApplyBaseline(a,_gelLaneModel(a,ctx,L),L.bands);
   L.bands.forEach(b=>_gelQuantBand(a,ctx,m,b));
 }
 // The samples an edit re-quantifies on. An analysis made on native 16-bit samples
@@ -6987,7 +7078,7 @@ function _gelAnalyse(im,opts){
     // How the lanes were placed, so no lane is ever renumbered without the reader seeing why.
     laneInfo:{pitch:li.pitch, inferredGap:li.inferredGap, inferredEnd:li.inferredEnd, whole:li.mode==='whole',
       rejected:li.rejected.map(q=>({x0:fr.sx+q.c0, x1:fr.sx+q.c1+1, why:q.why}))},
-    baseline:{method:'rolling minimum', window:win},
+    baseline:_gelBaselineFrom(opts,win),
     lanes:lanes.map(L=>({x0:fr.sx+L.c0, x1:fr.sx+L.c1+1, inferred:!!L.inferred, end:L.end?true:undefined, bands:[]})),
     refLane:null, loading:null, ladder:null, edits:0 };
   _gelDetectBands(a,{fr,S});
@@ -7074,20 +7165,68 @@ function _gelApplyLadder(a){
 // two panels have the same number of lanes; forcing the control's lanes to this
 // panel's count once picked actin lanes 2–5 for target lanes 1–4. The control is held
 // by panel id, so reordering panels cannot swap it for whatever lands in its slot.
-function _gelLoadingFrom(lcIdx,nLanes){
+// Total protein (a stain-free, Ponceau or Revert image of the same membrane): each
+// lane's whole signal over its full length. Its own rolling minimum cannot be the
+// background — a smear that fills the lane is its own minimum, and would be subtracted
+// away — so the background is the membrane BESIDE the lanes: per row, the median of
+// every column outside all lanes (and a margin off each lane's edge, which bleeds).
+// Without such columns there is no background to measure, and it refuses.
+function _gelLaneTotals(lc,la){
+  const ctx=_gelCtx(lc,la); if(ctx.error) return {error:ctx.error};
+  const fr=ctx.fr, S=ctx.S, W=fr.W, H=fr.H, lab=formatLabel(lc.label)||'?';
+  const inLane=new Uint8Array(W);
+  la.lanes.forEach(L=>{ const [c0,c1]=_gelLaneCols(la,L), g=Math.max(2,Math.round((c1-c0+1)*0.1));
+    for(let c=Math.max(0,c0-g);c<=Math.min(W-1,c1+g);c++) inLane[c]=1; });
+  const gap=[]; for(let c=0;c<W;c++) if(!inLane[c]) gap.push(c);
+  if(gap.length<3) return {error:`panel ${lab}'s lanes leave no membrane between or beside them (${gap.length} column${gap.length===1?'':'s'}) to measure the total-protein background from — widen its crop to include the gaps between the lanes`};
+  const bg=new Float64Array(H), tmp=[];
+  for(let r=0;r<H;r++){ tmp.length=0; for(const c of gap){ const v=S[r*W+c]; if(v===v) tmp.push(v); } bg[r]=tmp.length?_gelMedian(tmp):NaN; }
+  const B=_gelSmooth(_gelFillNaN(bg),3);
+  const lanes=la.lanes.map(L=>{
+    const [c0,c1]=_gelLaneCols(la,L); let tot=0, clipped=0, outside=0;
+    for(let r=0;r<H;r++) for(let c=c0;c<=c1;c++){
+      const s=S[r*W+c]; if(!(s===s)){ outside++; continue; }
+      tot+=s-B[r];
+      const v=fr.V[r*W+c];
+      if(la.polarity==='light'?v>=fr.clipHi:v<=fr.clipLo) clipped++;
+    }
+    return {total:tot, clipped, outside};
+  });
+  return {lanes, gapCols:gap.length, bgLevel:_gelMedian(Array.from(B))};
+}
+// What a loading control's staleness stamp records: the band volumes for loading bands,
+// the lanes' extents (all a whole-lane total depends on) for total protein.
+function _gelLoadStamp(la,mode){
+  return mode==='total'?'T|'+JSON.stringify([la.polarity,la.lanes.map(L=>[L.x0,L.x1])]):_gelStamp(la);
+}
+function _gelLoadingFrom(lcIdx,nLanes,mode){
+  mode=mode==='total'?'total':'bands';
   const lc=images[lcIdx]; if(!lc) return {error:'No such panel'};
   const lab=formatLabel(lc.label)||String(lcIdx+1);
   let la=null, from='detected for this pairing';
   if(_gelFresh(lc)&&lc.gelAnalysis.lanes.length){ la=lc.gelAnalysis; from='its own analysis'; }
   else { la=_gelAnalyse(lc); if(la.error) return la; }
   if(la.lanes.length!==nLanes) return {error:`panel ${lab} has ${la.lanes.length} lane${la.lanes.length===1?'':'s'} (${from}) and this panel has ${nLanes} — lanes are paired by order, so the counts must match. Open panel ${lab}'s analysis, set its lane count, and pick it again`};
-  return { id:lc.id, idx:lcIdx, label:lab, name:lc.name||'', from,
+  const out={ id:lc.id, idx:lcIdx, label:lab, name:lc.name||'', from, mode,
     sourceLabel:la.sourceLabel, polarity:la.polarity, cropKey:_gelCropKey(lc), fp:_gelFingerprint(lc),
-    stamp:from==='its own analysis'?_gelStamp(la):null,
-    lanes:la.lanes.map(L=>({x0:L.x0,x1:L.x1,nBands:L.bands.length,
-      saturated:L.bands.some(b=>b.saturated||b.partial), volume:L.bands.reduce((s,b)=>s+b.volume,0)})) };
+    stamp:from==='its own analysis'?_gelLoadStamp(la,mode):null };
+  if(mode==='total'){
+    const T=_gelLaneTotals(lc,la); if(T.error) return T;
+    out.gapCols=T.gapCols;
+    // Any clipped sample anywhere in the lane (or one outside the image) and that lane's
+    // total is an underestimate: its normalised values are withheld and flagged.
+    out.lanes=la.lanes.map((L,i)=>({x0:L.x0,x1:L.x1,nBands:L.bands.length, clipped:T.lanes[i].clipped,
+      saturated:T.lanes[i].clipped>0||T.lanes[i].outside>0, partial:T.lanes[i].outside>0||undefined, volume:T.lanes[i].total}));
+  } else out.lanes=la.lanes.map(L=>({x0:L.x0,x1:L.x1,nBands:L.bands.length,
+      saturated:L.bands.some(b=>b.saturated||b.partial), volume:L.bands.reduce((s,b)=>s+b.volume,0)}));
+  return out;
 }
-function _gelStamp(a){ return JSON.stringify(a.lanes.map(L=>L.bands.map(b=>Math.round(b.volume)))); }
+function _gelLoadMode(a){ return a&&a.loading&&a.loading.mode==='total'?'total':'bands'; }
+// "the loading control in panel B" / "total protein in panel B, whole-lane signal"
+function _gelLoadingWhat(a){ return _gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`the loading control in panel ${_gelLoadingLabel(a)}`; }
+function _gelLoadSatLanes(a){ return a&&a.loading?a.loading.lanes.map((l,i)=>l.saturated?i+1:0).filter(Boolean):[]; }
+function _gelStamp(a){ const m=_gelBgMethod(a);
+  return (m==='rolling minimum'?'':`${m}:${_gelBgParam(a)}|`)+JSON.stringify(a.lanes.map(L=>L.bands.map(b=>Math.round(b.volume)))); }
 // Where the loading control is now (by id), or -1.
 function _gelLoadingIdx(a){
   if(!a||!a.loading) return -1;
@@ -7103,7 +7242,7 @@ function _gelLoadingStale(a,im){
   if(_gelCropKey(lc)!==a.loading.cropKey) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-cropped after it was measured`;
   const fp=_gelFingerprint(lc);
   if(fp!=null&&a.loading.fp!=null&&fp!==a.loading.fp) return `the loading-control panel ${formatLabel(lc.label)||li+1} has a different image now`;
-  if(a.loading.stamp&&!(lc.gelAnalysis&&_gelStamp(lc.gelAnalysis)===a.loading.stamp)) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
+  if(a.loading.stamp&&!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp)) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
   return null;
 }
 function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; return lc?(formatLabel(lc.label)||String(_gelLoadingIdx(a)+1)):a.loading.label; }
@@ -7130,7 +7269,9 @@ function _gelRows(a,im){
       const r={lane:li+1, laneIdx:li, band:bi+1, bandIdx:bi, x0:L.x0, x1:L.x1, inferred:!!L.inferred,
         y0:b.y0, y1:b.y1, yc:b.yc, rf:_gelRf(a,b), volume:b.volume, saturated:!!b.saturated, clipped:b.clipped||0,
         partial:!!b.partial, merged:!!b.merged, split:!!b.split, nearNoise:!!b.nearNoise, se:b.se,
-        manual:!!b.manual, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null};
+        manual:!!b.manual, resized:!!b.resized, peak:b.peak, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null,
+        // The paired loading lane could not be used (clipped or cut): no normalised value, and said so.
+        lcFlag:(lcOK&&a.loading.lanes[li]&&a.loading.lanes[li].saturated)?(a.loading.lanes[li].partial?'PARTIAL':'SATURATED'):''};
       // A saturated or cut band is an underestimate, and so is every share computed with it.
       if(!laneBad&&tot>0) r.pctLane=100*b.volume/tot;
       if(a.refLane!=null&&!_gelUnq(b)){ const o=match(a.refLane,b); if(o&&!_gelUnq(o)&&o.volume>0) r.relRef=b.volume/o.volume; }
@@ -7171,6 +7312,9 @@ function runGelAnalysis(idx,opts){
   const im=images[idx]; if(!im){ toast('Add a blot or gel image first','warn'); return false; }
   const prev=im.gelAnalysis||null;
   opts=Object.assign({}, opts||{});
+  // The background method is the user's choice and survives a re-detection, as the
+  // reference lane and the ladder do.
+  if(prev&&prev.baseline&&opts.method==null){ opts.method=prev.baseline.method; opts.smooth=prev.baseline.smooth; opts.pct=prev.baseline.pct; }
   const a=_gelAnalyse(im,opts);
   if(a.error){ toast(a.error,'warn'); return false; }
   // Settings the user chose survive a re-detection; the lanes and bands do not.
@@ -7181,7 +7325,7 @@ function runGelAnalysis(idx,opts){
     // The loading control follows its panel by id. It is dropped — and said to be — when
     // that panel is gone, is now this panel, or no longer pairs lane for lane.
     if(prev.loading){ const li=_gelLoadingIdx(prev);
-      const lc=(li>=0&&images[li]!==im)?_gelLoadingFrom(li,a.lanes.length):{error:li<0?'its panel is no longer in the figure':'it is now this panel itself'};
+      const lc=(li>=0&&images[li]!==im)?_gelLoadingFrom(li,a.lanes.length,prev.loading.mode):{error:li<0?'its panel is no longer in the figure':'it is now this panel itself'};
       if(lc.error) dropped=`Loading control dropped: ${lc.error}`; else a.loading=lc; }
   }
   _gelApplyLadder(a);
@@ -7190,6 +7334,9 @@ function runGelAnalysis(idx,opts){
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
   if(!a.lanes.length) toast(`No lanes found in panel ${formatLabel(im.label)||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
   else if(dropped) toast(dropped,'warn');
+  // A lane table is never re-mapped onto a different number of lanes behind your back:
+  // which lane gained or lost a column is not something to guess.
+  else if(im.laneTable&&_ltLanes(im)!==a.lanes.length) toast(`${a.lanes.length} lanes now, and the lane table has ${_ltLanes(im)} columns — it is spaced evenly until you match it (⊞ Lane table…)`,'warn');
   _gelRefresh();
   return true;
 }
@@ -7243,17 +7390,94 @@ function gelAddBand(idx,li,y){
     if(y1-y0<1) return false;
     const band=_gelQuantBand(a,ctx,m,{y0,y1,manual:true});
     L.bands.push(band); L.bands.sort((x,z)=>x.yc-z.yc);
+    // A valley-to-valley background is anchored between bands, so a new band moves it
+    // under its neighbours too.
+    if(_gelBgMethod(a)!=='rolling minimum') _gelRequantLane(a,ctx,li);
     a.edits=(a.edits||0)+1;
   });
+}
+// A band's rows, set by dragging a boundary on the lane profile. Snapped to whole rows
+// of the crop frame and never past a neighbour (the same rows would be counted twice) or
+// the frame. The whole lane is re-quantified: a valley-to-valley background is anchored
+// between bands, so it moves with them.
+function gelSetBandBounds(idx,li,bi,y0,y1){
+  return _gelEdit(idx,(a,ctx)=>{
+    const L=a.lanes[li], b=L&&L.bands[bi]; if(!b) return false;
+    const fr=a.frame, sorted=L.bands.slice().sort((x,z)=>x.y0-z.y0), k=sorted.indexOf(b);
+    const lo=k>0?sorted[k-1].y1:fr.sy, hi=k<sorted.length-1?sorted[k+1].y0:fr.sy+fr.H;
+    const snap=v=>fr.sy+Math.round(v-fr.sy);
+    const n0=snap(Math.max(lo,Math.min(+y0,+y1))), n1=snap(Math.min(hi,Math.max(+y0,+y1)));
+    if(!(n1-n0>=1)) return false;
+    if(n0===b.y0&&n1===b.y1) return false;
+    b.y0=n0; b.y1=n1; b.resized=true;
+    // "split" said the band was divided from a touching neighbour at the valley; a
+    // boundary set by hand is no longer that.
+    delete b.split;
+    a.edits=(a.edits||0)+1;
+    _gelRequantLane(a,ctx,li);
+    L.bands.sort((x,z)=>x.yc-z.yc);
+  });
+}
+// One lane's row profile as the volumes see it: raw (mean across the lane's central
+// columns), the background under it by the analysis's method, and net = raw − background.
+function _gelLaneTrace(im,a,li){
+  const L=a&&a.lanes[li]; if(!L) return {error:'No such lane'};
+  const ctx=_gelCtx(im,a); if(ctx.error) return ctx;
+  const m=_gelApplyBaseline(a,_gelLaneModel(a,ctx,L),L.bands), fr=ctx.fr;
+  // Rows a tilted crop leaves outside the image have no samples; _gelLaneProfile filled
+  // them from their neighbours, and the CSV says which they are.
+  const out=new Uint8Array(fr.H);
+  for(let r=0;r<fr.H;r++){ let any=false; for(let c=m.c0;c<=m.c1&&!any;c++){ const v=ctx.S[r*fr.W+c]; if(v===v) any=true; } if(!any) out[r]=1; }
+  return {R:m.R, B:m.B, D:m.D, H:fr.H, sy:fr.sy, outside:out};
+}
+function _gelBaselineHeader(a){
+  return _gelBgMethod(a)==='valley-to-valley'
+      ?`# Baseline: valley-to-valley — straight lines joining the lowest points of each lane's row profile (on a ${_gelBgParam(a)}-row running mean) between neighbouring bands and within one band height beyond the outermost ones, lifted by the median residual of the rows at least one band height from every band (the minimum's noise bias), subtracted per row across the full lane width; where two bands' tails overlap the valley lies above the floor and both volumes are slightly low. Bands found on a rolling-minimum background (window ${a.baseline.window} px) and bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak`
+    :_gelBgMethod(a)==='flat'
+      ?`# Baseline: none / flat — one level per lane, the ${_gelBgParam(a)}th percentile of its row profile, subtracted from every row across the full lane width (a background that changes down the lane is not followed). Bands found on a rolling-minimum background (window ${a.baseline.window} px) and bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak`
+    :`# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px${a.baseline.widenedFrom?` (widened from ${a.baseline.widenedFrom} px to 2.5× the tallest band)`:''}, lifted by the median residual of the band-free rows (the opening's noise bias), subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak${_gelWindowShort(a)?' — WARNING: the window is barely taller than the tallest band, so the background rides up the bands and volumes are underestimated; widen it':''}`;
+}
+// Every lane's profile, one row per frame row: what the profile view draws, as numbers.
+function gelProfileCSV(idx){
+  const im=images[idx], a=im&&im.gelAnalysis; if(!a) return '';
+  const nm=formatLabel(im.label)||String(idx+1), f=a.frame;
+  const H=[
+    `# FigureLab v${APP_VERSION} — gel/blot lane profiles, panel ${nm}${im.name?` (${_sourceName(im)})`:''}`,
+    ...(_gelFresh(im)?[]:[`# STALE: ${_gelStaleText(im)} — these profiles describe the panel as it was measured, not as it is now; re-detect before reporting them`]),
+    `# Source pixels: ${a.sourceLabel}, read inside the panel crop before any brightness/contrast/gamma/levels/LUT/invert; polarity: ${_gelPolText(a.polarity)} — signal is oriented so bands are positive`,
+    `# raw = the mean signal across the central 65% of the lane's width in each row (a lane's edges smile and bleed); baseline = the background under it by the method below; net = raw − baseline. A band's volume sums signal − background over EVERY column of the lane, so Σ net × lane width approximates a volume but is not one`,
+    `# position: row = crop-frame row; y = ${f.angle?'crop-frame':'source'} px; Rf = (y − crop top) / crop height`,
+    _gelBaselineHeader(a),
+    `# in_band = the row is inside that band's integration region; outside_image = a tilted crop reaches past the image on this row, so its raw value was filled from the nearest rows`,
+  ];
+  const cols=['lane','row','y','Rf','raw','baseline','net','in_band','outside_image'];
+  const n=v=>(typeof v==='number'&&isFinite(v))?(Number.isInteger(v)?String(v):v.toPrecision(6)):'';
+  const body=[];
+  a.lanes.forEach((L,li)=>{
+    const t=_gelLaneTrace(im,a,li); if(t.error) return;
+    for(let r=0;r<t.H;r++){ const y=f.sy+r+0.5;
+      const bi=L.bands.findIndex(b=>y>=b.y0&&y<b.y1);
+      body.push(_csvRow([li+1,r,n(y),n((y-f.sy)/f.sh),n(t.R[r]),n(t.B[r]),n(t.R[r]-t.B[r]),bi>=0?bi+1:'',t.outside[r]?'yes':''])); }
+  });
+  return H.join('\n')+'\n'+cols.join(',')+'\n'+body.join('\n')+'\n';
+}
+function exportGelProfileCSV(idx){
+  idx=_gelPanelIdx(idx); const im=images[idx];
+  if(!im||!im.gelAnalysis){ toast('Analyse the panel first','warn'); return; }
+  const ctx=_gelCtx(im,im.gelAnalysis); if(ctx.error){ toast(ctx.error,'warn'); return; }
+  dl(blobUrl(gelProfileCSV(idx)),(gv('export-name')||'figure')+`-panel${formatLabel(im.label)||idx+1}-lane-profiles.csv`);
+  toast('Lane profiles CSV exported','ok');
 }
 function gelSetRefLane(idx,li){
   return _gelEdit(idx,a=>{ const v=(li==null||li<0||li>=a.lanes.length)?null:li; if(v===a.refLane) return false; a.refLane=v; });
 }
-function gelSetLoading(idx,lcIdx){
+// mode: 'bands' (the summed band volume of each lane — a housekeeping band) or 'total'
+// (total protein, whole-lane signal). Left out, the current mode is kept.
+function gelSetLoading(idx,lcIdx,mode){
   return _gelEdit(idx,a=>{
     if(lcIdx==null||lcIdx<0){ if(!a.loading) return false; a.loading=null; return; }
     if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel as the loading control','warn'); return false; }
-    const lc=_gelLoadingFrom(lcIdx,a.lanes.length);
+    const lc=_gelLoadingFrom(lcIdx,a.lanes.length,mode||_gelLoadMode(a));
     if(lc.error){ toast(`Loading control: ${lc.error}`,'warn'); return false; }
     a.loading=lc;
   });
@@ -7264,6 +7488,21 @@ function gelSetLadder(idx,li,sizes){
     a.ladder={lane:li, sizes:String(sizes==null?GEL_DEFAULT_LADDER:sizes)};
     _gelApplyLadder(a);
     if(a.ladder.error) toast(a.ladder.error,'warn');
+  });
+}
+// Change what the volumes are measured above. The lanes and bands (hand edits too)
+// stay; every band is re-quantified. One undo step.
+function gelSetBaseline(idx,method,param){
+  return _gelEdit(idx,(a,ctx)=>{
+    if(!GEL_BG_METHODS[method]) return false;
+    const b={method, window:a.baseline.window};
+    if(a.baseline.widenedFrom) b.widenedFrom=a.baseline.widenedFrom;
+    if(method==='valley-to-valley') b.smooth=_gelOdd(param,1,51,GEL_V2V_SMOOTH);
+    else if(method==='flat'){ const p=+param; b.pct=(param!==''&&param!=null&&p>=0&&p<=50)?Math.round(p*10)/10:GEL_FLAT_PCT; }
+    else if(+param>0){ const w=_gelOdd(param,3,4001,a.baseline.window); if(w!==a.baseline.window){ b.window=w; delete b.widenedFrom; } }
+    if(JSON.stringify(b)===JSON.stringify(a.baseline)) return false;
+    a.baseline=b;
+    a.lanes.forEach((L,li)=>_gelRequantLane(a,ctx,li));
   });
 }
 function gelSetPolarity(idx,pol){
@@ -7291,21 +7530,23 @@ function gelCSV(idx){
     `# Source pixels: ${a.sourceLabel}${a.source==='raw'?' (native samples retained at import)':a.colour?' (colour image; Rec. 601 luma of the stored RGB)':''}, read inside the panel crop before any brightness/contrast/gamma/levels/LUT/invert`,
     `# Crop frame: x ${f.sx.toFixed(1)}–${(f.sx+f.sw).toFixed(1)}, y ${f.sy.toFixed(1)}–${(f.sy+f.sh).toFixed(1)} source px${f.angle?`; tilted ${(+f.angle).toFixed(1)}°, read by nearest neighbour (no interpolation); coordinates are crop-frame pixels`:'; coordinates are source pixels'}`,
     `# Polarity: ${_gelPolText(a.polarity)} (${a.polaritySetBy==='user'?'set by the user; the image suggested '+_gelPolText(a.polarityGuess):'guessed from the image: the crop border\'s level against the 0.2%/99.8% tails'+(a.polarityUncertain?' — UNCERTAIN: the image median points the other way; check it':'')})`,
-    `# Baseline: rolling minimum (morphological opening, rolling-ball-like), window ${a.baseline.window} px${a.baseline.widenedFrom?` (widened from ${a.baseline.widenedFrom} px to 2.5× the tallest band)`:''}, lifted by the median residual of the band-free rows (the opening's noise bias), subtracted per row across the full lane width; bands bounded at ${Math.round(GEL_BAND_EDGE*100)}% of their peak${_gelWindowShort(a)?' — WARNING: the window is barely taller than the tallest band, so the background rides up the bands and volumes are underestimated; widen it':''}`,
+    _gelBaselineHeader(a),
     `# Lanes: ${!a.lanes.length?'NONE FOUND — nothing was measured; set the lane count (1 for a crop that is one lane) and re-detect':a.laneInfo&&a.laneInfo.whole?'1 forced: the whole crop width':a.laneMode==='forced'?`${a.laneCount} forced (evenly pitched best fit to the background-flattened column profile)`:'detected from the background-flattened column profile'}${a.lanes.length?`; ${a.lanes.length} lane(s) at x ${a.lanes.map((L,i)=>`${i+1}: ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' (inferred)':''}`).join(', ')}`:''}${note?`; ${note}`:''}`,
     `# Saturated bands: ${sat}${sat?` — clipped ${_gelClipText(a)}; their volumes are underestimates and are excluded from every ratio`:''}`,
     `# Bands partly outside the image: ${part}${part?' — the tilted crop reaches past the image there; their volumes are partial and are excluded from every ratio':''}`,
     `# Band flags: merged? = a shoulder or a second crown inside one band (its volume is the total of what may be two bands); split = two touching bands divided at the valley between them; near noise = the volume is under 10 noise SEs (volume_noise_se)`,
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
-    `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume`}`,
+    `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:_gelLoadMode(a)==='total'
+      ?`total protein in panel ${lcLab}, whole-lane signal, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = Σ (signal − background) over every row and column of the lane, the background being the per-row median of the ${a.loading.gapCols} membrane columns between and beside the lanes${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the total-protein image have clipped samples (or samples outside the image) — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`
+      :`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the loading control have a saturated or cut band — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`}`,
     `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?`REFUSED — ${a.ladder.error}; no molecular weights are given`:'none'}`,
     `# Edited by hand: ${a.edits||0} edit(s)`,
   ];
   const q=v=>v==null?'':(typeof v==='number'?(Number.isInteger(v)?String(v):v.toPrecision(6)):_csvCell(v));
-  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se'];
+  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se','net_peak','boundaries_by_hand','loading_lane_flag'];
   const body=rows.map(r=>[r.lane,r.band,r.x0,r.x1,r.inferred?'yes':'',r.y0,r.y1,r.yc,r.rf,r.volume,r.pctLane,r.relRef,r.normLC,r.normLCRef,
     r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':'',
-    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se].map(q).join(','));
+    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se,r.peak,r.resized?'yes':'',r.lcFlag].map(q).join(','));
   // Lanes with no bands still get a row, or an empty lane would vanish from the table.
   a.lanes.forEach((L,li)=>{ if(!L.bands.length){ const v=new Array(cols.length).fill('');
     v[0]=li+1; v[2]=L.x0; v[3]=L.x1; v[4]=L.inferred?'yes':''; v[9]='0'; body.push(v.map(q).join(',')); } });
@@ -7333,9 +7574,10 @@ function gelPlaceLaneNumbers(idx){
   const M=_gelFigMap(idx); if(!M){ toast('This panel is not on the canvas, or cannot be mapped exactly','warn'); return false; }
   if(!a.lanes.length){ toast('No lanes were found, so there is nothing to number — set the lane count and re-detect','warn'); return false; }
   pushUndo();
-  const fs=16, top=M.map.dy;
+  // Above a lane table over the blot, not into it.
+  const _lt=_ltCellReserve(im,0), fs=16, top=M.map.dy-(_lt&&_lt.draw?_lt.top:0);
   // Same rule as addLaneLabels: above the blot when the margin has room, else just inside.
-  const yf=(top>=fs+4?(top-fs-4):(top+0.04*M.map.dh))/M.H;
+  const yf=(top>=fs+4?(top-fs-4):(M.map.dy+0.04*M.map.dh))/M.H;
   a.lanes.forEach((L,i)=>{ const t=String(i+1), tw=t.length*fs*0.58, cx=M.fx((L.x0+L.x1)/2);
     // Text annotations hang from their left edge, so centre the number on the lane.
     annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false}); });
@@ -7386,10 +7628,12 @@ function _gelMethodsSentences(P){
       +(a.frame.angle?` (the tilted crop was read by nearest neighbour, without interpolation)`:'')
       +`: ${lanes}`
       +(inf.length?`, ${inf.length===1?'lane':'lanes'} ${_listAnd(inf)} being inferred from the lane pitch as ${inf.length===1?'it carries':'they carry'} no detectable signal`:'')
-      +`, bands were detected from row intensity profiles${a.edits?', the result was then edited by hand':''}, and each band's volume was integrated over the lane width above a rolling-minimum background (window ${a.baseline.window} px)`;
+      +`, bands were detected from row intensity profiles${a.edits?', the result was then edited by hand':''}, and each band's volume was integrated over the lane width above ${_gelBgMethods(a)}`;
     const norm=[];
     // A loading control that changed or vanished after it was measured is not claimed.
-    if(a.loading&&!_gelLoadingStale(a,im)) norm.push(`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
+    if(a.loading&&!_gelLoadingStale(a,im)) norm.push(_gelLoadMode(a)==='total'
+      ?`normalised to total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal (each lane's signal summed over its full length above the membrane background measured between the lanes), lanes paired by order${_gelLoadSatLanes(a).length?` (lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} not normalised: clipped in the total-protein image)`:''}`
+      :`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
     s+=(norm.length?'; volumes were '+_listAnd(norm):'')+'.';
     const fit=a.ladder&&a.ladder.fit;
@@ -7424,6 +7668,13 @@ function _gelComplianceRow(shown){
     if(a.lanes.some(L=>L.inferred&&L.end)){ warn=true; notes.push(`${nm}: end lane${a.lanes.filter(L=>L.inferred&&L.end).length>1?'s':''} inferred from the lane pitch — check the lane numbering`); }
     const lcWhy=_gelLoadingStale(a,im);
     if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the loading control again`); }
+    else if(a.loading){
+      const bad=_gelLoadSatLanes(a);
+      notes.push(`${nm}: normalised to ${esc(_gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`loading band(s) in panel ${_gelLoadingLabel(a)}`)}`);
+      if(bad.length){ warn=true; notes.push(`${nm}: lane${bad.length>1?'s':''} ${bad.join(', ')} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${bad.length>1?'are':'is'} saturated or cut — not normalised`); }
+    }
+    if(im.laneTable&&a.lanes.length&&_ltLanes(im)!==a.lanes.length){ warn=true;
+      notes.push(`${nm}: the lane table has ${_ltLanes(im)} columns but ${a.lanes.length} lanes were detected — it is evenly spaced across the panel, not aligned to the lanes`); }
     if(a.source!=='raw'){
       const k=_gelImportKind(im);
       if(k==='lossy'){ warn=true; notes.push(`${nm}: quantified on 8-bit pixels of a lossy-compressed import (${esc(im.name||'')}) — compression alters band intensities; quantify the original acquisition file`); }
@@ -7436,7 +7687,7 @@ function _gelComplianceRow(shown){
 
 // ── The analysis dialog ────────────────────────────────────────
 let _gelUI=null;    // {id, idx (found from id), k, sel:{li,bi}|null, drag}
-function _gelRefresh(){ if(_gelUI&&document.getElementById('gel-modal-bg')) _gelRenderModal(); }
+function _gelRefresh(){ if(_gelUI&&document.getElementById('gel-modal-bg')) _gelRenderModal(); if(typeof _ltRefresh==='function') _ltRefresh(); }
 // The dialog holds its panel by id: an undo can remove the panel or move it to another
 // slot under the open dialog. Gone, the dialog closes rather than act on another panel.
 function _gelGone(){
@@ -7452,7 +7703,7 @@ function openGelAnalysis(idx){
   const why=_gelRefusal(im); if(why){ toast(why,'warn'); return false; }
   if(!_gelFresh(im)&&!runGelAnalysis(idx)) return false;   // detect: one undo step
   closeGelAnalysis();
-  _gelUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, k:1, sel:null, drag:null};
+  _gelUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, k:1, sel:null, drag:null, lane:0, pdrag:null, prof:null};
   const m=document.createElement('div'); m.id='gel-modal-bg'; m.className='modal-bg open';
   const lab=formatLabel(im.label)||String(idx+1);
   const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">panel ${esc(formatLabel(p.label)||String(i+1))}</option>`:'').join('');
@@ -7460,12 +7711,21 @@ function openGelAnalysis(idx){
     <button class="modal-close" onclick="closeGelAnalysis()" aria-label="Close" title="Close (Esc)">×</button>
     <h3>⫼ Lanes &amp; bands — panel ${esc(lab)}</h3>
     <p style="font-size:11px;color:var(--muted);margin-bottom:6px">Measured on the original pixels inside the crop — display adjustments do not change a number.
-      Drag a lane edge to move it · click an empty part of a lane to add a band · click a band, then Delete, to remove it. Each edit is one undo step.</p>
+      Drag a lane edge to move it · click an empty part of a lane to add a band · click a band, then Delete, to remove it · on the lane profile, drag a band's edge or click an unshaded stretch to add one. Each edit is one undo step.</p>
     <div id="gel-banner" style="font-size:11px;margin-bottom:6px"></div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
       <div style="flex:0 0 auto">
         <canvas id="gel-canvas" style="border:1px solid var(--border);border-radius:5px;display:block;cursor:crosshair;max-width:100%" title="Lanes (cyan), bands (yellow), saturated bands (red). Drag a lane edge; click a lane to add a band; click a band to select it."></canvas>
         <div style="font-size:10px;color:var(--muted);margin-top:3px">Preview: the measured samples, auto-scaled for display. Cyan = lanes (dashed = inferred, no signal), yellow = bands, red = saturated.</div>
+        <div style="margin-top:8px;font-size:10px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:3px">
+            <label for="gel-prof-lane"><b>Lane profile</b></label>
+            <select id="gel-prof-lane" title="Which lane's intensity profile to show" onchange="if(_gelUI){_gelUI.lane=+this.value;_gelUI.sel=null;_gelRenderModal();}"></select>
+            <span id="gel-prof-info" style="color:var(--muted)"></span>
+          </div>
+          <canvas id="gel-profile" width="600" height="200" style="border:1px solid var(--border);border-radius:5px;display:block;width:100%;max-width:600px;cursor:crosshair;background:#fff" title="The lane's signal down its length (black), the background every volume is measured above (red, dashed), and each band's integration region (shaded). Drag a band's edge to move it; click a shaded region to select it; click an unshaded stretch to add a band there."></canvas>
+          <div style="color:var(--muted);margin-top:2px">Signal down the lane (bottom axis: source px; top: Rf) · red dashed = background · shaded = what each band's volume integrates (orange = selected).</div>
+        </div>
       </div>
       <div style="flex:1 1 320px;min-width:300px;font-size:11px">
         <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">
@@ -7478,10 +7738,18 @@ function openGelAnalysis(idx){
             <label for="gel-win" title="Height of the rolling-minimum background window, in source pixels. It must be taller than a band.">background window</label>
             <input id="gel-win" type="number" min="3" max="4001" style="width:60px" title="Rolling-minimum background window (source px) — taller than any band">
             <button class="btn" style="padding:1px 8px;font-size:10px" title="Detect lanes and bands again with these settings (replaces hand edits; one undo step)" onclick="runGelAnalysis(_gelUI.idx,{laneCount:document.getElementById('gel-nlanes').value,window:document.getElementById('gel-win').value,polarity:document.getElementById('gel-pol').value})">↻ Re-detect</button></span>
+          <label for="gel-bg" title="What every band's volume is measured above. Drawn on the lane profile; named in the CSV and the Methods sentence.">Background</label>
+          <span><select id="gel-bg" title="Rolling minimum: a morphological opening (rolling-ball-like) with the window above. Valley-to-valley: straight lines joining the profile's lowest points between bands (LI-COR's Lane background) — follows a slope, and does not ride up into a cluster of close bands the way a short window does. None / flat: one low percentile of each lane. Changing it re-measures the bands; it does not re-detect them (one undo step)."
+              onchange="gelSetBaseline(_gelUI.idx,this.value,'')">
+            <option value="rolling minimum">Rolling minimum</option><option value="valley-to-valley">Valley-to-valley</option><option value="flat">None / flat</option></select>
+            <input id="gel-bg-p" type="number" min="0" max="51" style="width:52px" title="Valley-to-valley: the running mean (rows) the valleys are found on. Flat: the percentile of the lane's row profile." onchange="gelSetBaseline(_gelUI.idx,document.getElementById('gel-bg').value,this.value)">
+            <span id="gel-bg-unit" style="color:var(--muted)"></span></span>
           <label for="gel-ref" title="Express every band relative to the matching band (same position) in this lane">Reference lane</label>
           <select id="gel-ref" title="Express band volumes relative to the matching band in this lane" onchange="gelSetRefLane(_gelUI.idx,this.value===''?null:+this.value)"></select>
           <label for="gel-lc" title="Another panel with the loading control (e.g. actin/GAPDH) — its lanes are detected and paired with these by order">Loading control</label>
-          <select id="gel-lc" title="Divide each band by the paired lane of this loading-control panel (lanes paired by order)" onchange="gelSetLoading(_gelUI.idx,this.value===''?null:+this.value)"><option value="">none</option>${others}</select>
+          <span><select id="gel-lc" title="Divide each band by the paired lane of this loading-control panel (lanes paired by order)" onchange="gelSetLoading(_gelUI.idx,this.value===''?null:+this.value,document.getElementById('gel-lc-mode').value)"><option value="">none</option>${others}</select>
+            <select id="gel-lc-mode" title="Loading band(s): each lane's summed band volume on that panel (a housekeeping band such as actin or GAPDH). Total protein (whole lane): each lane's whole signal over its length on a stain-free, Ponceau or Revert image of the same membrane, above the membrane between the lanes — what JBC/ASBMB ask for whenever possible."
+              onchange="{const v=document.getElementById('gel-lc').value; if(v!=='') gelSetLoading(_gelUI.idx,+v,this.value);}"><option value="bands">Loading band(s)</option><option value="total">Total protein (whole lane)</option></select></span>
           <label for="gel-ladder-lane" title="The lane holding the molecular-weight marker">Ladder lane</label>
           <span><select id="gel-ladder-lane" title="Pick the ladder lane; its bands are assigned the sizes below, top to bottom"></select>
             <input id="gel-ladder-sizes" type="text" value="${GEL_DEFAULT_LADDER}" style="width:150px" title="Marker sizes in kDa, top → bottom, comma-separated">
@@ -7492,6 +7760,8 @@ function openGelAnalysis(idx){
           <button class="btn" style="font-size:10px" title="Add lane-number labels centred on the detected lanes (one undo step)" onclick="gelPlaceLaneNumbers(_gelUI.idx)">▦ Place lane numbers on detected lanes</button>
           <button class="btn" style="font-size:10px" title="Add the ladder sizes beside the detected ladder bands (one undo step)" onclick="gelPlaceMWLabels(_gelUI.idx)">↕ Place MW labels on the ladder bands</button>
           <button class="btn" style="font-size:10px" title="Download the table as CSV, with a header saying what was measured and how" onclick="exportGelCSV(_gelUI.idx)">⬇ CSV</button>
+          <button class="btn" style="font-size:10px" title="Download every lane's profile as CSV: position (source px and Rf), raw signal, background and net signal per row" onclick="exportGelProfileCSV(_gelUI.idx)">⬇ Lane profiles CSV</button>
+          <button class="btn" style="font-size:10px" title="The +/− condition table over or under the blot, aligned to these detected lanes" onclick="openLaneTable(_gelUI.idx)">⊞ Lane table…</button>
           <button class="btn" style="font-size:10px" title="Undo the last change (Ctrl/⌘+Z)" onclick="undo();_gelRefresh()">↶ Undo</button>
           <button class="btn" style="font-size:10px" title="Delete the selected band (Delete)" onclick="if(_gelUI&&_gelUI.sel){const s=_gelUI.sel;_gelUI.sel=null;gelDeleteBand(_gelUI.idx,s.li,s.bi);}">✕ Delete band</button>
         </div>
@@ -7503,6 +7773,7 @@ function openGelAnalysis(idx){
   // closed the dialog on a text-selection drag released outside it, losing a typed ladder.
   document.body.appendChild(m);
   _gelWireCanvas();
+  _gelWireProfile();
   _gelRenderModal();
   return true;
 }
@@ -7526,6 +7797,7 @@ function _gelWireCanvas(){
     if(ed){ const L=a.lanes[ed.li]; _gelUI.drag={li:ed.li, edge:ed.edge, x0:L.x0, x1:L.x1}; cv.setPointerCapture(e.pointerId); e.preventDefault(); return; }
     const li=a.lanes.findIndex(L=>p.x>=L.x0&&p.x<L.x1);
     if(li<0){ _gelUI.sel=null; _gelRenderModal(); return; }
+    _gelUI.lane=li;
     const bi=a.lanes[li].bands.findIndex(b=>p.y>=b.y0&&p.y<b.y1);
     if(bi>=0){ _gelUI.sel={li,bi}; _gelRenderModal(); return; }
     _gelUI.sel=null;
@@ -7574,9 +7846,11 @@ function _gelDraw(){
     ctx.save(); ctx.strokeStyle='#22d3ee'; ctx.lineWidth=1.5; if(L.inferred) ctx.setLineDash([5,4]);
     ctx.fillStyle='rgba(34,211,238,0.07)'; ctx.fillRect(X(x0),0,(x1-x0)*k,CH); ctx.strokeRect(X(x0)+0.5,0.5,(x1-x0)*k-1,CH-1); ctx.restore();
     ctx.textAlign='center'; ctx.textBaseline='top'; lab(String(li+1),X((x0+x1)/2),3,'#22d3ee'); ctx.textAlign='left';
-    L.bands.forEach((b,bi)=>{
+    L.bands.forEach((b0,bi)=>{
       const sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===bi;
+      const pd=_gelUI.pdrag&&_gelUI.pdrag.li===li&&_gelUI.pdrag.bi===bi?_gelUI.pdrag:null, b=pd?{...b0,y0:pd.y0,y1:pd.y1}:b0;
       ctx.save(); ctx.strokeStyle=b.saturated?'#ef4444':b.partial?'#fb923c':'#facc15'; ctx.lineWidth=sel?3:1.5; if(b.manual) ctx.setLineDash([3,3]);
+      if(sel){ ctx.fillStyle='rgba(249,115,22,.28)'; ctx.fillRect(X(x0)+1.5,Y(b.y0),(x1-x0)*k-3,Math.max(2,(b.y1-b.y0)*k)); }
       ctx.strokeRect(X(x0)+1.5,Y(b.y0),(x1-x0)*k-3,Math.max(2,(b.y1-b.y0)*k)); ctx.restore();
       if(b.saturated){ ctx.textBaseline='bottom'; lab('SAT',X(x0)+3,Y(b.y0)-1,'#ef4444'); }
       else if(b.partial){ ctx.textBaseline='bottom'; lab('CUT',X(x0)+3,Y(b.y0)-1,'#fb923c'); }
@@ -7585,6 +7859,123 @@ function _gelDraw(){
   });
   if(a.ladder&&!a.ladder.assignError&&a.lanes[a.ladder.lane]){ const s=_gelParseSizes(a.ladder.sizes), L=a.lanes[a.ladder.lane];
     L.bands.slice().sort((x,y)=>x.yc-y.yc).forEach((b,i)=>{ if(i<s.length){ ctx.textBaseline='middle'; ctx.textAlign='right'; lab(String(s[i]),X(L.x0)-3,Y(b.yc),'#facc15'); ctx.textAlign='left'; } }); }
+}
+// ── The lane profile ──────────────────────────────────────────
+// Position down the lane on x (crop-frame rows; source px below, Rf above), signal on y.
+// The background is drawn, not implied, and each band's integration region is the
+// shaded area between the two curves — the volume is exactly that area summed across
+// the lane's width.
+const GEL_PROF={ml:50,mr:10,mt:20,mb:26};
+function _gelProfGeom(cv,H){ const P=GEL_PROF, pw=cv.width-P.ml-P.mr, ph=cv.height-P.mt-P.mb;
+  return {P,pw,ph,X:r=>P.ml+r/H*pw}; }
+function _gelDrawProfile(){
+  const cv=document.getElementById('gel-profile'); if(!cv||!_gelUI) return;
+  const im=images[_gelUI.idx], a=im&&im.gelAnalysis, ctx=cv.getContext('2d'), info=document.getElementById('gel-prof-info');
+  ctx.setTransform(1,0,0,1,0,0); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,cv.width,cv.height);
+  const say=t=>{ _gelUI.prof=null; ctx.fillStyle='#666'; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(t,cv.width/2,cv.height/2); if(info) info.textContent=''; };
+  if(!a||!a.lanes.length) return say('No lanes — nothing to profile');
+  const li=Math.max(0,Math.min(a.lanes.length-1,_gelUI.lane|0)); _gelUI.lane=li;
+  const t=_gelLaneTrace(im,a,li); if(t.error) return say(t.error);
+  _gelUI.prof={li,t};
+  const L=a.lanes[li], H=t.H, sy=t.sy, f=a.frame, G=_gelProfGeom(cv,H), P=G.P, X=G.X;
+  let lo=Infinity, hi=-Infinity;
+  for(let i=0;i<H;i++){ const r=t.R[i], b=t.B[i]; if(r===r){ lo=Math.min(lo,r); hi=Math.max(hi,r); } if(b===b){ lo=Math.min(lo,b); hi=Math.max(hi,b); } }
+  if(!(hi>lo)){ hi=lo+1; }
+  const pad=(hi-lo)*0.06; lo-=pad; hi+=pad;
+  const Y=v=>P.mt+G.ph-(v-lo)/(hi-lo)*G.ph, xc=r=>X(r+0.5);
+  // axes
+  ctx.strokeStyle='#888'; ctx.lineWidth=1; ctx.strokeRect(P.ml+0.5,P.mt+0.5,G.pw,G.ph);
+  ctx.fillStyle='#444'; ctx.font='10px sans-serif';
+  const step=[1,2,5,10,20,25,50,100,200,250,500,1000,2000,5000].find(s=>H/s<=8)||Math.ceil(H/8);
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let r=0;r<=H;r+=step){ const x=X(r); ctx.fillRect(x,P.mt+G.ph,1,3); ctx.fillText(String(Math.round(sy+r)),x,P.mt+G.ph+4); }
+  ctx.textBaseline='bottom';
+  [0,0.25,0.5,0.75,1].forEach(rf=>{ const x=X(rf*f.sh); ctx.fillRect(x,P.mt-3,1,3); ctx.fillText(rf.toFixed(2),x,P.mt-4); });
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  [lo+pad,hi-pad].forEach(v=>ctx.fillText(_gelFmt(v,v>=100?0:1),P.ml-4,Y(v)));
+  ctx.save(); ctx.translate(11,P.mt+G.ph/2); ctx.rotate(-Math.PI/2); ctx.textAlign='center'; ctx.fillText('signal',0,0); ctx.restore();
+  ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText('Rf',2,P.mt-4); ctx.textBaseline='top'; ctx.fillText(f.angle?'frame px':'y px',2,P.mt+G.ph+4);
+  // band regions, between the signal and the background
+  ctx.save(); ctx.beginPath(); ctx.rect(P.ml,P.mt,G.pw,G.ph); ctx.clip();
+  const span=b=>{ const d=_gelUI.pdrag&&_gelUI.pdrag.li===li&&_gelUI.pdrag.bi===L.bands.indexOf(b)?_gelUI.pdrag:null;
+    return [Math.max(0,Math.round((d?d.y0:b.y0)-sy)),Math.min(H,Math.round((d?d.y1:b.y1)-sy))]; };
+  L.bands.forEach((b,bi)=>{
+    const [r0,r1]=span(b); if(r1<=r0) return;
+    const sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===bi;
+    ctx.beginPath(); ctx.moveTo(X(r0),Y(t.B[r0]));
+    for(let r=r0;r<r1;r++) ctx.lineTo(xc(r),Y(t.R[r]));
+    ctx.lineTo(X(r1),Y(t.R[r1-1])); ctx.lineTo(X(r1),Y(t.B[r1-1]));
+    for(let r=r1-1;r>=r0;r--) ctx.lineTo(xc(r),Y(t.B[r]));
+    ctx.closePath();
+    ctx.fillStyle=sel?'rgba(249,115,22,.5)':b.saturated?'rgba(239,68,68,.35)':'rgba(250,204,21,.38)'; ctx.fill();
+  });
+  // the signal, then the background over it
+  ctx.beginPath(); for(let r=0;r<H;r++){ const y=Y(t.R[r]); if(r) ctx.lineTo(xc(r),y); else ctx.moveTo(xc(r),y); }
+  ctx.strokeStyle='#111'; ctx.lineWidth=1.2; ctx.stroke();
+  ctx.beginPath(); for(let r=0;r<H;r++){ const y=Y(t.B[r]); if(r) ctx.lineTo(xc(r),y); else ctx.moveTo(xc(r),y); }
+  ctx.strokeStyle='#dc2626'; ctx.lineWidth=1.5; ctx.setLineDash([5,3]); ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore();
+  // boundary handles
+  L.bands.forEach((b,bi)=>{
+    const [r0,r1]=span(b), sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===bi;
+    [r0,r1].forEach(r=>{ const x=Math.round(X(r))+0.5;
+      ctx.strokeStyle=sel?'#ea580c':'#a16207'; ctx.lineWidth=sel?2:1; ctx.beginPath(); ctx.moveTo(x,P.mt); ctx.lineTo(x,P.mt+G.ph); ctx.stroke();
+      ctx.fillStyle=sel?'#ea580c':'#a16207'; ctx.fillRect(x-3,P.mt+G.ph-9,6,9); });
+    ctx.fillStyle='#713f12'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText(String(bi+1),X((r0+r1)/2),P.mt+2);
+  });
+  if(info) info.textContent=`lane ${li+1}, ${L.bands.length} band${L.bands.length===1?'':'s'} · background: ${_gelBgShort(a)}`;
+}
+function _gelProfPt(e){
+  const cv=document.getElementById('gel-profile'), rc=cv.getBoundingClientRect(), s=cv.width/(rc.width||cv.width);
+  const pr=_gelUI.prof, G=_gelProfGeom(cv,pr.t.H), x=(e.clientX-rc.left)*s;
+  const row=(x-G.P.ml)/G.pw*pr.t.H;
+  return {row, y:pr.t.sy+row, tol:5*s/G.pw*pr.t.H, inPlot:x>=G.P.ml&&x<=G.P.ml+G.pw};
+}
+// The boundary under the pointer. Two touching bands share one: the band on the side
+// the pointer is on is the one that moves.
+function _gelProfEdgeAt(L,sy,p){
+  let best=null;
+  L.bands.forEach((b,bi)=>{ [[b.y0,0],[b.y1,1]].forEach(([y,edge])=>{ const d=Math.abs(p.y-y);
+    if(d>p.tol) return;
+    const side=(edge===1)===(p.y<y);   // inside the band, on this side of its edge
+    if(!best||d<best.d-1e-9||(Math.abs(d-best.d)<1e-9&&side&&!best.side)) best={bi,edge,d,side}; }); });
+  return best;
+}
+function _gelWireProfile(){
+  const cv=document.getElementById('gel-profile'); if(!cv) return;
+  cv.addEventListener('pointerdown',e=>{
+    const im=images[_gelUI.idx], a=im&&im.gelAnalysis; if(!a||!_gelFresh(im)||!_gelUI.prof) return;
+    const p=_gelProfPt(e); if(!p.inPlot) return;
+    const li=_gelUI.prof.li, L=a.lanes[li]; if(!L) return;
+    const ed=_gelProfEdgeAt(L,_gelUI.prof.t.sy,p);
+    if(ed){ const b=L.bands[ed.bi]; _gelUI.sel={li,bi:ed.bi}; _gelUI.pdrag={li,bi:ed.bi,edge:ed.edge,y0:b.y0,y1:b.y1};
+      cv.setPointerCapture(e.pointerId); e.preventDefault(); _gelDraw(); _gelDrawProfile(); return; }
+    const bi=L.bands.findIndex(b=>p.y>=b.y0&&p.y<b.y1);
+    if(bi>=0){ _gelUI.sel={li,bi}; _gelRenderModal(); return; }
+    _gelUI.sel=null;
+    gelAddBand(_gelUI.idx,li,p.y);
+  });
+  cv.addEventListener('pointermove',e=>{
+    if(!_gelUI||!_gelUI.prof) return;
+    const im=images[_gelUI.idx], a=im&&im.gelAnalysis; if(!a) return;
+    const p=_gelProfPt(e), d=_gelUI.pdrag;
+    if(d){ const y=_gelUI.prof.t.sy+Math.round(p.row);
+      if(d.edge===0) d.y0=Math.min(y,d.y1-1); else d.y1=Math.max(y,d.y0+1);
+      _gelDraw(); _gelDrawProfile(); return; }
+    const L=a.lanes[_gelUI.prof.li];
+    cv.style.cursor=L&&_gelProfEdgeAt(L,_gelUI.prof.t.sy,p)?'col-resize':(L&&L.bands.some(b=>p.y>=b.y0&&p.y<b.y1)?'pointer':'crosshair');
+  });
+  const end=()=>{ const d=_gelUI&&_gelUI.pdrag; if(!d) return; _gelUI.pdrag=null;
+    // One drag, one undo step: the band moves and the lane is re-quantified once, on release.
+    const want=d.edge===0?d.y0:d.y1;
+    if(gelSetBandBounds(_gelUI.idx,d.li,d.bi,d.y0,d.y1)){
+      const L=images[_gelUI.idx].gelAnalysis.lanes[d.li];
+      let k=0; L.bands.forEach((b,i)=>{ if(Math.abs((d.edge===0?b.y0:b.y1)-want)<Math.abs((d.edge===0?L.bands[k].y0:L.bands[k].y1)-want)) k=i; });
+      _gelUI.sel={li:d.li,bi:k}; _gelRenderModal();
+    } else { _gelDraw(); _gelDrawProfile(); } };
+  cv.addEventListener('pointerup',end);
+  cv.addEventListener('pointercancel',end);
 }
 function _gelFmt(v,d){ return v==null?'—':(Math.abs(v)>=1e5?v.toExponential(3):v.toFixed(d==null?2:d)); }
 function _gelRenderModal(){
@@ -7596,7 +7987,7 @@ function _gelRenderModal(){
   if(!a){ ban.innerHTML='<span style="color:var(--warn)">No analysis on this panel — press ↻ Re-detect.</span>'; tb.innerHTML=''; fitEl.textContent=''; return; }
   const sat=_gelSatCount(a), fresh=_gelFresh(im), lcWhy=_gelLoadingStale(a,im), note=_gelLaneNote(a);
   ban.innerHTML=`<b>Source:</b> ${esc(a.sourceLabel)}${a.source==='raw'?' (native samples kept at import)':''}${a.frame.angle?` · tilted crop ${(+a.frame.angle).toFixed(1)}°, read by nearest neighbour`:''}
-    · <b>background:</b> rolling minimum, ${a.baseline.window} px${a.baseline.widenedFrom?' (widened to fit the bands)':''} · <b>${a.lanes.length}</b> lane(s)
+    · <b>background:</b> ${esc(_gelBgShort(a))} · <b>${a.lanes.length}</b> lane(s)
     ${a.lanes.length?`<div style="color:var(--muted);margin-top:2px" title="Lane spans in source pixels — dashed on the preview where inferred">Lanes at x: ${a.lanes.map((L,i)=>`<b>${i+1}</b> ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' <i>inferred</i>':''}`).join(' · ')}</div>`
       :'<div style="color:var(--warn);margin-top:3px">⚠ No lanes found — nothing is measured. If the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting.</div>'}
     ${note?`<div style="color:${a.lanes.some(L=>L.inferred&&L.end)||(a.laneInfo&&a.laneInfo.rejected.length)?'var(--warn)':'var(--muted)'};margin-top:2px">${a.lanes.some(L=>L.inferred&&L.end)?'⚠ ':''}${esc(note.charAt(0).toUpperCase()+note.slice(1))}.</div>`:''}
@@ -7605,12 +7996,24 @@ function _gelRenderModal(){
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
     ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
     ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
-      :`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(_gelLoadingLabel(a))}</b>, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`):''}
-    ${a.refLane!=null?`<div>Reference lane: <b>${a.refLane+1}</b>.</div>`:''}`;
+      :_gelLoadMode(a)==='total'
+        ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`
+        :`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(_gelLoadingLabel(a))}</b>, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`):''}
+    ${a.loading&&!lcWhy&&_gelLoadSatLanes(a).length?`<div style="color:var(--warn);margin-top:3px">⚠ Lane${_gelLoadSatLanes(a).length>1?'s':''} ${esc(_listAnd(_gelLoadSatLanes(a).map(String)))} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${_gelLoadSatLanes(a).length>1?'have':'has'} clipped samples (or reach past the image) — ${_gelLoadSatLanes(a).length>1?'their':'its'} bands are not normalised.</div>`:''}
+    ${a.refLane!=null?`<div>Reference lane: <b>${a.refLane+1}</b>.</div>`:''}
+    ${im.laneTable&&a.lanes.length&&_ltLanes(im)!==a.lanes.length?`<div style="color:var(--warn);margin-top:3px">⚠ The lane table has ${_ltLanes(im)} columns and ${a.lanes.length} lanes were found — it is spaced evenly, not on the lanes. Open ⊞ Lane table… to match it.</div>`:''}`;
   const pol=document.getElementById('gel-pol'); pol.value=a.polarity;
   document.getElementById('gel-pol-guess').textContent=`guessed from the image: ${a.polarityGuess==='dark'?'dark on light':'light on dark'}${a.polaritySetBy==='user'?' · set by you':''}`;
   const nl=document.getElementById('gel-nlanes'); if(document.activeElement!==nl) nl.value=a.laneMode==='forced'?a.laneCount:'';
   const wn=document.getElementById('gel-win'); if(document.activeElement!==wn) wn.value=a.baseline.window;
+  { const bm=_gelBgMethod(a), bs=document.getElementById('gel-bg'), bp=document.getElementById('gel-bg-p'), bu=document.getElementById('gel-bg-unit');
+    bs.value=bm; bp.style.display=bm==='rolling minimum'?'none':'';
+    if(document.activeElement!==bp) bp.value=bm==='rolling minimum'?'':_gelBgParam(a);
+    bu.textContent=bm==='valley-to-valley'?'-row mean':bm==='flat'?'th percentile':'(the window above)'; }
+  document.getElementById('gel-lc-mode').value=_gelLoadMode(a);
+  { const pl=document.getElementById('gel-prof-lane'), li=Math.max(0,Math.min(a.lanes.length-1,_gelUI.sel?_gelUI.sel.li:_gelUI.lane|0));
+    _gelUI.lane=li; pl.innerHTML=a.lanes.map((L,i)=>`<option value="${i}"${i===li?' selected':''}>lane ${i+1}</option>`).join(''); }
+  _gelDrawProfile();
   const opts=(v)=>'<option value="">none</option>'+a.lanes.map((L,i)=>`<option value="${i}"${v===i?' selected':''}>lane ${i+1}</option>`).join('');
   document.getElementById('gel-ref').innerHTML=opts(a.refLane);
   document.getElementById('gel-ladder-lane').innerHTML=opts(a.ladder?a.ladder.lane:null);
@@ -7622,10 +8025,10 @@ function _gelRenderModal(){
   const rows=_gelRows(a);
   const th=s=>`<th style="text-align:right;padding:2px 5px;border-bottom:1px solid var(--border);white-space:nowrap">${s}</th>`;
   const td=(s,st)=>`<td style="text-align:right;padding:2px 5px;${st||''}">${s}</td>`;
-  let html=`<table style="border-collapse:collapse;font-size:10.5px;font-family:var(--mono);width:100%"><tr>${th('Lane')}${th('Band')}${th('Rf')}${th('Volume')}${th('% lane')}${th('÷ ref')}${th('÷ LC')}${a.loading&&a.refLane!=null?th('÷LC rel ref'):''}${th('kDa')}${th('')}${th('')}</tr>`;
+  let html=`<table style="border-collapse:collapse;font-size:10.5px;font-family:var(--mono);width:100%"><tr>${th('Lane')}${th('Band')}${th('Rf')}${th('y0–y1')}${th('Net peak')}${th('Volume')}${th('% lane')}${th('÷ ref')}${th('÷ LC')}${a.loading&&a.refLane!=null?th('÷LC rel ref'):''}${th('kDa')}${th('')}${th('')}</tr>`;
   a.lanes.forEach((L,li)=>{
     const R=rows.filter(r=>r.laneIdx===li);
-    if(!R.length) html+=`<tr>${td(li+1)}${td('—')}<td colspan="${a.loading&&a.refLane!=null?8:7}" style="padding:2px 5px;color:var(--muted)">no bands${L.inferred?' — lane inferred from the lane pitch':''}</td></tr>`;
+    if(!R.length) html+=`<tr>${td(li+1)}${td('—')}<td colspan="${a.loading&&a.refLane!=null?10:9}" style="padding:2px 5px;color:var(--muted)">no bands${L.inferred?' — lane inferred from the lane pitch':''}</td></tr>`;
     R.forEach(r=>{
       const sel=_gelUI.sel&&_gelUI.sel.li===li&&_gelUI.sel.bi===r.bandIdx;
       const clipAt=a.polarity==='dark'?a.clipLo:a.clipHi;
@@ -7636,9 +8039,11 @@ function _gelRenderModal(){
       if(r.split) fl.push('<span title="Touches its neighbour: the two were divided at the valley between them">split</span>');
       if(r.nearNoise) fl.push(`<span style="color:var(--warn)" title="The volume is under 10 noise SEs (SE ${_gelFmt(r.se,0)})">near noise</span>`);
       if(r.manual) fl.push('<span title="Added by hand">hand</span>');
+      if(r.resized) fl.push('<span title="Its boundaries were set by hand on the lane profile">edges set</span>');
+      if(r.lcFlag) fl.push(`<span style="color:var(--warn)" title="The paired lane of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} has clipped samples or reaches past the image: no normalised value is given">LC lane ${r.lcFlag==='PARTIAL'?'cut':'saturated'}</span>`);
       const flag=fl.join(' ');
       const kd=r.marker!=null?`<b>${r.marker}</b>`:(r.kda!=null?`${r.kda.toFixed(1)}${r.extrapolated?'<span title="Outside the ladder range — extrapolated">*</span>':''}`:'—');
-      html+=`<tr style="${sel?'background:rgba(250,204,21,.15)':''}">${td(r.lane)}${td(r.band)}${td(r.rf.toFixed(3))}${td(_gelFmt(r.volume,0),r.saturated?'color:var(--danger)':'')}${td(_gelFmt(r.pctLane,1))}${td(_gelFmt(r.relRef,3))}${td(_gelFmt(r.normLC,4))}${a.loading&&a.refLane!=null?td(_gelFmt(r.normLCRef,3)):''}${td(kd)}${td(flag)}<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this band (one undo step)" onclick="gelDeleteBand(_gelUI.idx,${li},${r.bandIdx})">✕</button></td></tr>`;
+      html+=`<tr style="${sel?'background:rgba(250,204,21,.15)':''}">${td(r.lane)}${td(r.band)}${td(r.rf.toFixed(3))}${td(`${Math.round(r.y0)}–${Math.round(r.y1)}`)}${td(_gelFmt(r.peak,1))}${td(_gelFmt(r.volume,0),r.saturated?'color:var(--danger)':'')}${td(_gelFmt(r.pctLane,1))}${td(_gelFmt(r.relRef,3))}${td(_gelFmt(r.normLC,4))}${a.loading&&a.refLane!=null?td(_gelFmt(r.normLCRef,3)):''}${td(kd)}${td(flag)}<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this band (one undo step)" onclick="gelDeleteBand(_gelUI.idx,${li},${r.bandIdx})">✕</button></td></tr>`;
     });
   });
   html+='</table>';
@@ -7661,6 +8066,202 @@ document.addEventListener('keydown',e=>{
     if(_gelUI.sel){ const s=_gelUI.sel; _gelUI.sel=null; gelDeleteBand(_gelUI.idx,s.li,s.bi); } return; }
   if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='y'||e.key==='Y')){ e.preventDefault(); e.stopPropagation();
     if(e.key==='y'||e.key==='Y'||e.shiftKey) redo(); else undo(); _gelUI.sel=null; _gelRefresh(); }
+},true);
+
+// ═══════════════════════════════════════════════════════════════
+// LANE CONDITION TABLE — the +/− matrix over or under a blot
+// im.laneTable = {rows:[{name, cells:[…one per lane…]}], lanes, pos:'above'|'below', fs}
+// A panel field, so it is saved with the panel, undone with it, duplicated with it. It
+// is drawn by the renderer as the panel's furniture — through emitText, so it is real
+// text in the SVG and PDF and moves with the panel — in a strip of the panel's own cell.
+// Its columns sit on the detected lane centres of a current analysis with as many lanes
+// as it has columns; otherwise they are spaced evenly across the picture, and it says so.
+// Every edit replaces the object (never mutates it), so a duplicate or an undo snapshot
+// that still holds the old one is never changed under it.
+// ═══════════════════════════════════════════════════════════════
+const LT_MINUS='–';   // an en dash: in WinAnsi, so the PDF typesets it; U+2212 would stay in the raster
+function _ltNorm(v){ v=String(v==null?'':v).trim(); return /^[-−–—]$/.test(v)?LT_MINUS:v; }
+function _ltCycle(v){ v=_ltNorm(v); return v==='+'?LT_MINUS:v===LT_MINUS?'':'+'; }
+function _ltLanes(im){ const t=im&&im.laneTable; return t?Math.max(1,Math.round(+t.lanes)||1):0; }
+function _ltHasContent(t){ return !!(t&&Array.isArray(t.rows)&&t.rows.some(r=>String(r.name||'').trim()||(r.cells||[]).some(v=>_ltNorm(v)))); }
+function _ltFont(fs){
+  const fam=gv('axis-font')||gv('label-font')||'system-ui,sans-serif';
+  return `${gc('axis-italic')?'italic':'normal'} ${gc('axis-bold')?'bold':'400'} ${fs}px ${fam}`;
+}
+// Where the columns go, as fractions of the drawn picture's width.
+function _ltAlign(im){
+  const n=_ltLanes(im), a=im.gelAnalysis;
+  const even=why=>({mode:'even', why, u:Array.from({length:n},(_,k)=>(k+0.5)/n)});
+  if(!a) return even('none');
+  if(!_gelFresh(im)) return even('stale');
+  if(!a.lanes.length||a.lanes.length!==n) return even('count');
+  if(im.rotate||im.flipH||im.flipV) return even('turned');
+  return {mode:'lanes', why:'', u:a.lanes.map(L=>((L.x0+L.x1)/2-a.frame.sx)/a.frame.sw)};
+}
+// Room to the left of a cell the row names may use without reaching the next panel: half
+// the gutter, or the figure margin beside the first column (none with row labels there).
+function _ltAvail(c,gH){
+  if(c>0) return gapBefore(c,gH)/2;
+  return (gc('show-row-labels')||_grpBand('row'))?0:Math.max(0,gi('m-left')||0);
+}
+let _ltMeasure=null;
+function _ltNameNeed(im){
+  const t=im&&im.laneTable; if(!t||!_ltHasContent(t)) return 0;
+  const fs=Math.max(6,Math.min(72,+t.fs||12));
+  _ltMeasure=_ltMeasure||document.createElement('canvas').getContext('2d');
+  _ltMeasure.font=_ltFont(fs);
+  const nw=Math.max(0,...t.rows.map(r=>String(r.name||'').trim()?_ltMeasure.measureText(String(r.name).trim()).width:0));
+  return nw>0?Math.ceil(nw+fs*0.5+2):0;
+}
+// Per grid column, the strip the row names need on the left beyond what the gutter (or
+// the margin) gives. EVERY panel in that column gives up the same strip, table or not:
+// shrinking only the blot with the table moved its lanes out of register with the
+// loading control stacked under it.
+function _ltColumnLefts(cols,rows){
+  const L=new Array(Math.max(1,cols)).fill(0);
+  if(layoutMode==='freeform'||!images.some(p=>p&&p.laneTable)) return L;
+  const gH=Math.max(0,gi('gap-h'));
+  for(const p of _gridPlacements(cols,rows)){
+    const need=p.im?_ltNameNeed(p.im):0;
+    if(need>0) L[p.c]=Math.max(L[p.c],Math.ceil(Math.max(0,need-_ltAvail(p.c,gH))));
+  }
+  return L;
+}
+// The strip of the cell the table takes: {top, bot, left, lh, gap, fs, draw}, or null.
+// left is the column's (above); a panel with no table of its own only gives that up.
+function _ltCellReserve(im,colLeft){
+  const t=im&&im.laneTable, has=!!t&&layoutMode!=='freeform'&&_ltHasContent(t);
+  if(!has) return colLeft>0?{top:0,bot:0,left:colLeft,draw:false}:null;
+  const fs=Math.max(6,Math.min(72,+t.fs||12)), lh=Math.round(fs*1.35), gap=Math.round(fs*0.4), v=t.rows.length*lh+gap;
+  return {top:t.pos==='below'?0:v, bot:t.pos==='below'?v:0, left:colLeft||0, lh, gap, fs, draw:true};
+}
+// box: the drawn picture {ox,oy,ow,oh} and, before any turn, {dx,dw}.
+function _ltDraw(im,imgIdx,box,R,ink,emitText){
+  const t=im.laneTable, n=_ltLanes(im), al=_ltAlign(im), font=_ltFont(R.fs);
+  const xs=al.mode==='lanes'?al.u.map(u=>box.dx+u*box.dw):al.u.map(u=>box.ox+u*box.ow);
+  const top=t.pos==='below'?box.oy+box.oh+R.gap:box.oy-R.gap-t.rows.length*R.lh;
+  // Measured here and left-aligned, so the bbox, the SVG anchor and the PDF all agree.
+  if(!_ltMeasure) _ltMeasure=document.createElement('canvas').getContext('2d');
+  _ltMeasure.font=font;
+  t.rows.forEach((row,ri)=>{
+    const yc=top+ri*R.lh+R.lh/2, nm=String(row.name||'').trim();
+    if(nm) emitText('lanetable',imgIdx,nm,box.ox-Math.round(R.fs*0.5)-_ltMeasure.measureText(nm).width,yc,font,ink,'left','middle',0);
+    for(let k=0;k<n;k++){ const v=_ltNorm((row.cells||[])[k]); if(v) emitText('lanetable',imgIdx,v,xs[k],yc,font,ink,'center','middle',0); }
+  });
+}
+function _ltDefault(im){
+  const a=im&&im.gelAnalysis, n=(a&&_gelFresh(im)&&a.lanes.length)||4;
+  return {rows:[{name:'',cells:new Array(n).fill('')}], lanes:n, pos:'above', fs:Math.max(8,Math.min(24,gi('axis-fs')||12))};
+}
+function _ltFit(t){ const n=Math.max(1,Math.round(+t.lanes)||1); t.lanes=n;
+  t.rows.forEach(r=>{ r.cells=(r.cells||[]).slice(0,n).map(_ltNorm); while(r.cells.length<n) r.cells.push(''); }); return t; }
+// Every edit: one undo step, on a copy.
+function _ltEdit(idx,fn){
+  idx=_gelPanelIdx(idx); const im=images[idx];
+  if(!im){ toast('Add a blot or gel image first','warn'); return false; }
+  if(layoutMode==='freeform'){ toast('A lane table is drawn on a grid panel — switch Layout to Grid','warn'); return false; }
+  const t=_ltFit(JSON.parse(JSON.stringify(im.laneTable||_ltDefault(im))));
+  const before=im.laneTable?JSON.stringify(im.laneTable):null;
+  if(fn(t,im)===false) return false;
+  const next=t.rows?_ltFit(t):null;
+  if(next?JSON.stringify(next)===before:!im.laneTable) return false;
+  pushUndo();
+  im.laneTable=next;
+  if(typeof logAction==='function') logAction('laneTable',{label:im.label, rows:next?next.rows.length:0, lanes:next?next.lanes:0});
+  scheduleRender(0); _ltRefresh();
+  return true;
+}
+function laneTableCycle(idx,r,c){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row||c<0||c>=t.lanes) return false; row.cells[c]=_ltCycle(row.cells[c]); }); }
+function laneTableSetCell(idx,r,c,text){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row||c<0||c>=t.lanes) return false; row.cells[c]=_ltNorm(text); }); }
+function laneTableSetName(idx,r,name){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row) return false; row.name=String(name==null?'':name).trim(); }); }
+function laneTableAddRow(idx,name){ return _ltEdit(idx,t=>{ t.rows.push({name:String(name||'').trim(),cells:new Array(t.lanes).fill('')}); }); }
+function laneTableDeleteRow(idx,r){ return _ltEdit(idx,t=>{ if(!t.rows[r]) return false; t.rows.splice(r,1); if(!t.rows.length) t.rows.push({name:'',cells:new Array(t.lanes).fill('')}); }); }
+function laneTableSet(idx,o){ return _ltEdit(idx,t=>{ o=o||{};
+  if(o.lanes!=null){ const n=Math.round(+o.lanes); if(!(n>=1&&n<=60)) return false; t.lanes=n; }
+  if(o.pos==='above'||o.pos==='below') t.pos=o.pos;
+  if(o.fs!=null){ const f=+o.fs; if(!(f>=6&&f<=72)) return false; t.fs=Math.round(f*2)/2; } }); }
+// One column per detected lane.
+function laneTableMatchLanes(idx){
+  idx=_gelPanelIdx(idx); const im=images[idx], a=im&&im.gelAnalysis;
+  if(!a||!_gelFresh(im)||!a.lanes.length){ toast('No current lane analysis on this panel to match','warn'); return false; }
+  return laneTableSet(idx,{lanes:a.lanes.length});
+}
+function laneTableRemove(idx){ return _ltEdit(idx,t=>{ t.rows=null; }); }
+
+let _ltUI=null;
+function closeLaneTable(){ const m=document.getElementById('lt-modal-bg'); if(m) m.remove(); _ltUI=null; }
+function openLaneTable(idx){
+  idx=_gelPanelIdx(idx); const im=images[idx];
+  if(idx<0||!im){ toast('Add a blot or gel image first','warn'); return false; }
+  if(layoutMode==='freeform'){ toast('A lane table is drawn on a grid panel — switch Layout to Grid','warn'); return false; }
+  closeLaneTable();
+  _ltUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, focus:null};
+  const m=document.createElement('div'); m.id='lt-modal-bg'; m.className='modal-bg open';
+  m.innerHTML=`<div class="modal" style="max-width:860px;width:94vw">
+    <button class="modal-close" onclick="closeLaneTable()" aria-label="Close" title="Close (Esc)">×</button>
+    <h3>⊞ Lane table — panel ${esc(formatLabel(im.label)||String(idx+1))}</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:6px">The conditions of each lane, drawn as text over or under the blot and moved with it. Click a cell to cycle + / – / blank; type in it for anything else (a dose, an MOI). Each change is one undo step.</p>
+    <div id="lt-status" style="font-size:11px;margin-bottom:6px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:11px;margin-bottom:6px">
+      <label for="lt-lanes">Lanes</label><input id="lt-lanes" type="number" min="1" max="60" style="width:52px" title="How many columns. With a current lane analysis of the same count, the columns sit on the detected lanes." onchange="laneTableSet(_ltUI.idx,{lanes:this.value})">
+      <label for="lt-pos">Position</label><select id="lt-pos" onchange="laneTableSet(_ltUI.idx,{pos:this.value})"><option value="above">above the blot</option><option value="below">below the blot</option></select>
+      <label for="lt-fs">Font size</label><input id="lt-fs" type="number" min="6" max="72" step="0.5" style="width:52px" onchange="laneTableSet(_ltUI.idx,{fs:this.value})">
+      <button class="btn" style="font-size:10px" onclick="laneTableAddRow(_ltUI.idx,'')" title="Add a condition row (one undo step)">+ Row</button>
+      <button class="btn" id="lt-match" style="font-size:10px;display:none" onclick="laneTableMatchLanes(_ltUI.idx)"></button>
+      <button class="btn" style="font-size:10px" onclick="laneTableRemove(_ltUI.idx)" title="Take the table off the panel (one undo step)">✕ Remove table</button>
+    </div>
+    <div id="lt-grid" style="overflow:auto;max-height:50vh"></div>
+  </div>`;
+  document.body.appendChild(m);
+  const g=m.querySelector('#lt-grid');
+  // Click cycles + / – / blank, and leaves the cell's text selected, so typing replaces it.
+  g.addEventListener('mousedown',e=>{ const c=e.target.closest('.lt-cell'); if(!c) return;
+    e.preventDefault(); _ltUI.focus={r:+c.dataset.r,c:+c.dataset.c};
+    laneTableCycle(_ltUI.idx,+c.dataset.r,+c.dataset.c); _ltRefocus(); });
+  g.addEventListener('change',e=>{ const t=e.target;
+    if(t.classList.contains('lt-cell')) laneTableSetCell(_ltUI.idx,+t.dataset.r,+t.dataset.c,t.value);
+    else if(t.classList.contains('lt-name')) laneTableSetName(_ltUI.idx,+t.dataset.r,t.value); });
+  g.addEventListener('focusin',e=>{ const t=e.target; if(t.classList.contains('lt-cell')){ _ltUI.focus={r:+t.dataset.r,c:+t.dataset.c}; t.select(); } });
+  _ltRender();
+  return true;
+}
+function _ltRefocus(){ if(!_ltUI||!_ltUI.focus) return;
+  const el=document.querySelector(`#lt-grid .lt-cell[data-r="${_ltUI.focus.r}"][data-c="${_ltUI.focus.c}"]`); if(el){ el.focus(); el.select(); } }
+function _ltRefresh(){ if(_ltUI&&document.getElementById('lt-modal-bg')) _ltRender(); }
+function _ltRender(){
+  if(!_ltUI) return;
+  const idx=_ltUI.idx, im=images[idx];
+  if(idx<0||!im){ closeLaneTable(); toast('The panel is no longer in the figure — the lane table editor was closed','warn'); return; }
+  const t=_ltFit(JSON.parse(JSON.stringify(im.laneTable||_ltDefault(im)))), n=t.lanes, a=im.gelAnalysis;
+  const al=_ltAlign(Object.assign({},im,{laneTable:t}));
+  const st=document.getElementById('lt-status'), mb=document.getElementById('lt-match');
+  const lab=formatLabel(im.label)||String(idx+1);
+  st.innerHTML=!im.laneTable?`<span style="color:var(--muted)">Not on the figure yet — it is added with your first change.</span> `:'';
+  st.innerHTML+=al.mode==='lanes'?`Columns on the <b>${n} detected lane centres</b> of panel ${esc(lab)}'s analysis — they follow any lane you move or re-detect.`
+    :al.why==='count'?`<span style="color:var(--warn)">⚠ The analysis found <b>${a.lanes.length}</b> lanes and the table has <b>${n}</b> columns — spaced evenly across the panel, not on the lanes.</span>`
+    :al.why==='stale'?`<span style="color:var(--warn)">⚠ ${esc(_gelStaleText(im))}, so its lanes are not used — the ${n} columns are spaced evenly until it is re-detected.</span>`
+    :al.why==='turned'?`The panel is rotated or mirrored — the ${n} columns are spaced evenly across it.`
+    :`No lane analysis on this panel — the ${n} columns are spaced evenly across it. ⫼ Analyse lanes &amp; bands to put them on the detected lanes.`;
+  const canMatch=a&&_gelFresh(im)&&a.lanes.length&&a.lanes.length!==n;
+  mb.style.display=canMatch?'':'none';
+  if(canMatch){ mb.textContent=`Match the ${a.lanes.length} detected lanes`; mb.title=`Set the table to ${a.lanes.length} columns, one per detected lane (columns past the last are dropped; one undo step)`; }
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el&&document.activeElement!==el) el.value=v; };
+  set('lt-lanes',n); set('lt-pos',t.pos); set('lt-fs',t.fs);
+  const cell='width:34px;text-align:center;padding:2px;font-size:12px;cursor:pointer';
+  let h=`<table style="border-collapse:collapse;font-size:11px"><tr><th style="text-align:left;padding:2px 4px">Row</th>${Array.from({length:n},(_,k)=>`<th style="padding:2px;color:var(--muted)">${k+1}</th>`).join('')}<th></th></tr>`;
+  t.rows.forEach((row,r)=>{
+    h+=`<tr><td style="padding:2px 4px"><input class="lt-name" data-r="${r}" value="${esc(row.name||'')}" placeholder="e.g. IPTG" style="width:120px" title="The row's name, drawn left of the blot"></td>`;
+    row.cells.forEach((v,c)=>{ h+=`<td style="padding:1px"><input class="lt-cell" data-r="${r}" data-c="${c}" value="${esc(v)}" style="${cell}" title="Lane ${c+1}: click to cycle + / – / blank; type to write anything else"></td>`; });
+    h+=`<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this row (one undo step)" onclick="laneTableDeleteRow(_ltUI.idx,${r})">✕</button></td></tr>`;
+  });
+  document.getElementById('lt-grid').innerHTML=h+'</table>';
+}
+// While the editor is on top, Ctrl/⌘+Z undoes and the grid shows it.
+document.addEventListener('keydown',e=>{
+  if(!_ltUI||!document.getElementById('lt-modal-bg')||_topDialog()!==document.getElementById('lt-modal-bg')) return;
+  const t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')) return;
+  if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='y'||e.key==='Y')){ e.preventDefault(); e.stopPropagation();
+    if(e.key==='y'||e.key==='Y'||e.shiftKey) redo(); else undo(); _ltRefresh(); }
 },true);
 
 // Before/after: a wipe slider comparing a panel's original vs adjusted pixels.
@@ -8413,6 +9014,7 @@ function _gridPlacements(cols, rows){
 // the size it already had, which is why one pass is enough.
 function autoRowHeights(rows, cols, pw, ph, gH, gV){
   const H=new Array(rows).fill(0);
+  const _ltLefts=_ltColumnLefts(cols, rows);
   const spans=[];
   for(const {r, c, cs, rs, im, held} of _gridPlacements(cols, rows)){
     // A cell with no image has no ink to hold the row open. Pinning it to ph meant any
@@ -8429,7 +9031,9 @@ function autoRowHeights(rows, cols, pw, ph, gH, gV){
     if(!p) continue;
     const apw=cs*pw+spanGapsW(c,cs,gH);
     const aph=rs*ph+spanGapsH(r,rs,gV);
-    const need=_panelOuterH(p, apw, aph);
+    // A lane table's strip is part of what the row has to hold.
+    const _lt=_ltCellReserve(p, _ltLefts[c]||0);
+    const need=_lt?_panelOuterH(p, apw-_lt.left, aph-_lt.top-_lt.bot)+_lt.top+_lt.bot:_panelOuterH(p, apw, aph);
     if(rs>1){ spans.push({r,rs,need}); continue; }  // measured after the single rows settle
     H[r]=Math.max(H[r], need);
   }
@@ -8728,15 +9332,23 @@ function render(targetCanvas, exportScale, opts){
     // Where each cell goes comes from _gridPlacements(), the same walk the row heights
     // and the caption read, so a span the grid cannot hold is cut the same way in all.
     const _cells=_gridPlacements(cols, rows);
+    const _ltLefts=_ltColumnLefts(cols, rows);
     let seq=0, imgIdx=-1;
     for(let r=0;r<rows;r++){
       for(const _cell of _cells){
         if(_cell.r!==r) continue;
         const c=_cell.c, cs=_cell.cs, rs=_cell.rs, im=_cell.im;
         imgIdx=_cell.imgIdx; seq=_cell.seq;
-        const px=rowLblW+mLeft + colOffset(c,pw,gH);
-        const py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
-        const apw=cs*pw+spanGapsW(c,cs,gH), aph=_rhSpan(ph,r,rs)+spanGapsH(r,rs,gV);
+        let px=rowLblW+mLeft + colOffset(c,pw,gH);
+        let py=titleH+mTop+colLblH + rowOffset(r,ph,gV);
+        let apw=cs*pw+spanGapsW(c,cs,gH), aph=_rhSpan(ph,r,rs)+spanGapsH(r,rs,gV);
+        // A lane table takes a strip of its panel's cell (and, when its row names do not fit
+        // in the gutter, a strip on the left that its whole column gives up), so it never
+        // lies over the neighbouring panel. Everything below — the fit, panelBounds, the
+        // furniture — sees the smaller box, which is what _panelSourceMap and the lane
+        // mapping read back.
+        const _lt=im?_ltCellReserve(im,_ltLefts[c]||0):null;
+        if(_lt){ px+=_lt.left; apw-=_lt.left; py+=_lt.top; aph-=_lt.top+_lt.bot; }
         if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
         if(imgIdx>=0) _cellRects.set(imgIdx,{x:px,y:py,w:apw,h:aph});
         if(!im){
@@ -8950,6 +9562,7 @@ function render(targetCanvas, exportScale, opts){
         // skipPanelLegends is set only by the SVG export, which re-emits the key as text.
         // It is not tied to skipLabels: the PDF passes a function there and re-emits no key.
         drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight', skipLegend:!!(opts&&opts.skipPanelLegends)});
+        if(_lt&&_lt.draw) _ltDraw(im, imgIdx, {ox,oy,ow,oh,dx,dw}, _lt, axisClr, emitText);
       }
     }
   }
@@ -11661,6 +12274,8 @@ function getLabelOff(kind,idx){
   // intensity bar: emitted like every other label, found by the hit test, nowhere to
   // put the offset.
   if(kind==='group'){ const o=labelOffsets.group[idx]; return o?[o.dx||0,o.dy||0]:[0,0]; }
+  // A lane table is dragged as one, and only up or down: its columns belong on the lanes.
+  if(kind==='lanetable'){ const im=images[idx]; return im?[0,im.ltDY||0]:[0,0]; }
   return [0,0];
 }
 function setLabelOff(kind,idx,dx,dy){
@@ -11672,6 +12287,7 @@ function setLabelOff(kind,idx,dx,dy){
   if(kind==='col'){ labelOffsets.col[idx]={dx,dy}; return; }
   if(kind==='row'){ labelOffsets.row[idx]={dx,dy}; return; }
   if(kind==='group'){ labelOffsets.group[idx]={dx,dy}; return; }
+  if(kind==='lanetable'){ const im=images[idx]; if(im) im.ltDY=dy; return; }
 }
 // Top-most label whose bounding box contains (x,y), in logical coords.
 function labelAtPoint(x,y){
@@ -11790,6 +12406,7 @@ function cloneImageForUndo(im){
     panelAnns:(im.panelAnns||[]).map(a=>({...a})),
     // Deep-copied: a lane edit must not rewrite the snapshot it is undone to.
     gelAnalysis:im.gelAnalysis?JSON.parse(JSON.stringify(im.gelAnalysis)):im.gelAnalysis,
+    laneTable:im.laneTable?JSON.parse(JSON.stringify(im.laneTable)):im.laneTable,
     _adjCache:undefined, _adjKey:undefined};
 }
 function cloneElemForUndo(el){
@@ -18075,6 +18692,7 @@ const _DIALOGS = {
   'info-modal-bg': {}, 'confirm-modal-bg': {},          // built by showInfoModal / showConfirmModal
   'ba-modal-bg': {}, 'compare-modal': {},
   'gel-modal-bg': { close:()=>closeGelAnalysis() },   // built by openGelAnalysis; resets _gelUI as it closes
+  'lt-modal-bg': { close:()=>closeLaneTable() },      // the lane condition table editor; every edit is already committed
   's1-modal-bg': {},                                   // the uncropped-originals sheet
 };
 // The compliance report and the confirm box are styled inline rather than with

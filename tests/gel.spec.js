@@ -992,3 +992,231 @@ test('rulers: grouped by image, never by label; a length that rounds to 1000 tak
   expect(r.f3).toBe('62 nm');
   expect(errors).toEqual([]);
 });
+
+// ── Background methods, the lane profile, total-protein normalisation ─────────────────
+
+// Two close bands (σ 3 px, 16 px apart, 2:1) on a flat background; truth = amp × 50 × σ√2π.
+const DOUBLET = { w: 300, h: 200, pol: 'dark', bg: 220, noise: 3, name: 'doublet.png',
+  lanes: [0, 1, 2].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }, { y: 116, s: 3, amp: 30 }] })) };
+const TRUTH2 = [60, 30].map(a => a * 50 * 3 * Math.sqrt(2 * Math.PI));
+
+// Without the background methods _gelAnalyse ignored opts.method: valley-to-valley and
+// flat came back identical to the rolling minimum, so "V2V error is smaller" and the flat
+// error bound both fail.
+test('background methods against truth: valley-to-valley beats a short rolling window on two close bands; flat matches a flat background', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, DOUBLET);
+  const r = await page.evaluate(() => {
+    const v = a => a.lanes[1].bands.map(b => b.volume);
+    // 31 px: shorter than the pair (~33 rows) but not flagged short (≥ 2 × the tallest band).
+    const roll = _gelAnalyse(images[0], { window: 31 }), v2v = _gelAnalyse(images[0], { window: 31, method: 'valley-to-valley' });
+    const flat = _gelAnalyse(images[0], { method: 'flat' }), auto = _gelAnalyse(images[0]);
+    return { roll: v(roll), v2v: v(v2v), flat: v(flat), auto: v(auto), short: _gelWindowShort(roll), v2vBase: v2v.baseline, flatBase: flat.baseline };
+  });
+  const err = (vs) => vs.map((x, i) => Math.abs(x - TRUTH2[i]) / TRUTH2[i]);
+  const eR = err(r.roll), eV = err(r.v2v), eF = err(r.flat), eA = err(r.auto);
+  console.log(`truth ${TRUTH2.map(Math.round)} | rolling(31) ${r.roll.map(Math.round)} err ${eR.map(e => (100 * e).toFixed(1))}% | valley-to-valley ${r.v2v.map(Math.round)} err ${eV.map(e => (100 * e).toFixed(1))}% | flat ${r.flat.map(Math.round)} err ${eF.map(e => (100 * e).toFixed(1))}% | rolling(auto) ${r.auto.map(Math.round)} err ${eA.map(e => (100 * e).toFixed(1))}%`);
+  expect(r.short).toBe(false);
+  expect(r.v2vBase).toEqual({ method: 'valley-to-valley', window: 31, smooth: 3 });
+  expect(r.flatBase.method).toBe('flat'); expect(r.flatBase.pct).toBe(10);
+  // valley-to-valley is closer to the truth than the rolling minimum, on both bands
+  expect(eV[0]).toBeLessThan(eR[0]); expect(eV[1]).toBeLessThan(eR[1]);
+  expect(eV[0]).toBeLessThan(0.10); expect(eV[1]).toBeLessThan(0.18);   // its valley still sits on the overlapping tails
+  expect(eR[0]).toBeGreaterThan(0.10);
+  // flat background, flat method: within 3%
+  expect(eF[0]).toBeLessThan(0.03); expect(eF[1]).toBeLessThan(0.03);
+  // and the reason the default stays the rolling minimum: auto-widened, it beats both
+  expect(eA[0]).toBeLessThan(Math.min(eV[0], 0.04)); expect(eA[1]).toBeLessThan(Math.min(eV[1], 0.04));
+  expect(errors).toEqual([]);
+});
+
+// Without gelSetBaseline (and the method in the CSV / Methods / stamp) every line here fails.
+test('changing the background method: one undo step, re-measures without re-detecting, named in the CSV header, banner and Methods', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, blotSpec('dark', 230, [30, 60, 120], 320));
+  await make(page, { ...blotSpec('dark', 230, [30, 60, 120], 320), name: 'control.png' });
+  const r = await page.evaluate(() => {
+    runGelAnalysis(1); runGelAnalysis(0); gelSetLoading(0, 1);
+    const a0 = images[0].gelAnalysis, rows0 = JSON.stringify(a0.lanes.map(L => L.bands.map(b => [b.y0, b.y1]))), n0 = undoStack.length;
+    const csv0 = gelCSV(0), m0 = generateMethodsParagraph();
+    const ok = gelSetBaseline(0, 'valley-to-valley', '');
+    const a1 = images[0].gelAnalysis;
+    const out = { ok, steps: undoStack.length - n0, sameRows: JSON.stringify(a1.lanes.map(L => L.bands.map(b => [b.y0, b.y1]))) === rows0,
+      volChanged: a1.lanes[0].bands[0].volume !== a0.lanes[0].bands[0].volume, edits: a1.edits, fresh: _gelFresh(images[0]),
+      csv0: csv0.split('\n').find(l => l.startsWith('# Baseline')), csv1: gelCSV(0).split('\n').find(l => l.startsWith('# Baseline')),
+      m0, m1: generateMethodsParagraph(), lcStale: _gelLoadingStale(a1, images[0]) };
+    openGelAnalysis(0); out.banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' ');
+    out.ui = document.getElementById('gel-bg').value; closeGelAnalysis();
+    // a re-detection keeps the method
+    runGelAnalysis(0); out.kept = images[0].gelAnalysis.baseline.method;
+    gelSetBaseline(0, 'flat', 5); out.flatCsv = gelCSV(0).split('\n').find(l => l.startsWith('# Baseline')); out.flatM = generateMethodsParagraph();
+    undo(); out.undone = images[0].gelAnalysis.baseline.method;
+    // the method changed on the CONTROL panel: its band volumes are not the ones divided by
+    gelSetBaseline(1, 'valley-to-valley', ''); out.ctrlStale = _gelLoadingStale(images[0].gelAnalysis, images[0]);
+    return out;
+  });
+  expect(r.ok).toBe(true);
+  expect(r.steps).toBe(1);
+  expect(r.sameRows).toBe(true);          // the bands were not re-detected
+  expect(r.volChanged).toBe(true);        // but every one was re-measured
+  expect(r.edits).toBe(0);                // and it is not a hand edit
+  expect(r.fresh).toBe(true);             // nor does it make the analysis stale
+  expect(r.lcStale).toBeNull();           // the target's own method does not touch its loading control
+  expect(r.csv0).toMatch(/# Baseline: rolling minimum/);
+  expect(r.csv1).toMatch(/# Baseline: valley-to-valley — .*3-row running mean/);
+  expect(r.m0).toMatch(/rolling-minimum background \(window \d+ px\)/);
+  const sentA = m => m.split('Band densitometry of panel ').find(x => x.startsWith('A '));
+  expect(sentA(r.m1)).toMatch(/above a valley-to-valley background \(straight lines joining the lowest points/);
+  expect(sentA(r.m1)).not.toMatch(/rolling-minimum background/);
+  expect(r.banner).toMatch(/background: valley-to-valley, valleys on a 3-row mean/);
+  expect(r.ui).toBe('valley-to-valley');
+  expect(r.kept).toBe('valley-to-valley');
+  expect(r.flatCsv).toMatch(/# Baseline: none \/ flat — one level per lane, the 5th percentile/);
+  expect(r.flatM).toMatch(/a flat background \(one level per lane, the 5th percentile/);
+  expect(r.undone).toBe('valley-to-valley');
+  expect(r.ctrlStale).toMatch(/re-analysed or edited after it was used/);
+  expect(errors).toEqual([]);
+});
+
+// Client point of a band boundary on the profile canvas.
+const PROFILE_PT = `window.__profPt = (y) => {
+  const cv = document.getElementById('gel-profile'), rc = cv.getBoundingClientRect(), t = _gelUI.prof.t, G = _gelProfGeom(cv, t.H);
+  const s = rc.width / cv.width;
+  return { x: rc.left + G.X(y - t.sy) * s, y: rc.top + (G.P.mt + G.ph * 0.5) * s, s };
+};`;
+
+// Without the profile view there is no #gel-profile canvas and no gelSetBandBounds: the
+// drag finds nothing to press, and the volume does not change.
+test('the lane profile: dragging a band boundary with the mouse re-measures it, one undo step; clicking an unshaded stretch adds a band', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, blotSpec('dark', 230, [30, 60, 120], 320));
+  await page.evaluate(PROFILE_PT);
+  await page.evaluate(() => { runGelAnalysis(0); openGelAnalysis(0); _gelUI.lane = 0; _gelRenderModal(); });
+  await expect(page.locator('#gel-profile')).toBeVisible();
+  await page.locator('#gel-profile').scrollIntoViewIfNeeded();
+  const base = await page.evaluate(() => { const b = images[0].gelAnalysis.lanes[0].bands[0];
+    return { n: undoStack.length, v: b.volume, y0: b.y0, y1: b.y1, yc: b.yc }; });
+  // drag the band's lower edge up to its centre: half the band is left out
+  const from = await page.evaluate(y => __profPt(y), base.y1), to = await page.evaluate(y => __profPt(y), Math.round(base.yc) + 1);
+  await page.mouse.move(from.x - 1, from.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(from.x - 1 + (to.x - from.x) * i / 6, from.y);
+  const mid = await page.evaluate(() => ({ n: undoStack.length, drag: !!_gelUI.pdrag }));
+  await page.mouse.up();
+  const d = await page.evaluate(() => { const b = images[0].gelAnalysis.lanes[0].bands[0];
+    return { n: undoStack.length, v: b.volume, y0: b.y0, y1: b.y1, resized: !!b.resized, edits: images[0].gelAnalysis.edits, sel: _gelUI.sel,
+      table: document.getElementById('gel-table').textContent }; });
+  expect(mid).toEqual({ n: base.n, drag: true });            // nothing is committed while dragging
+  expect(d.n).toBe(base.n + 1);                               // one drag, one undo step
+  expect(d.y0).toBe(base.y0);
+  expect(d.y1).toBeLessThan(base.y1 - 3);
+  expect(Math.abs(d.y1 - (Math.round(base.yc) + 1))).toBeLessThanOrEqual(1);
+  expect(d.v / base.v).toBeGreaterThan(0.4); expect(d.v / base.v).toBeLessThan(0.75);
+  expect(d.resized).toBe(true); expect(d.edits).toBe(1);
+  expect(d.sel).toEqual({ li: 0, bi: 0 });
+  expect(d.table).toContain(`${Math.round(d.y0)}–${Math.round(d.y1)}`);   // the table shows the boundaries
+  expect(d.table).toMatch(/edges set/);
+  await page.evaluate(() => { undo(); _gelRefresh(); });
+  expect(await page.evaluate(() => images[0].gelAnalysis.lanes[0].bands[0].volume)).toBe(base.v);
+
+  // delete lane 2's top band, then click its spot on the profile: it comes back
+  const gone = await page.evaluate(() => { const b = images[0].gelAnalysis.lanes[1].bands[0]; const o = { yc: b.yc, v: b.volume };
+    gelDeleteBand(_gelUI.idx, 1, 0); _gelUI.lane = 1; _gelUI.sel = null; _gelRenderModal(); return { ...o, n: undoStack.length }; });
+  const at = await page.evaluate(y => __profPt(y), gone.yc);
+  await page.mouse.click(at.x, at.y);
+  const add = await page.evaluate(() => ({ n: undoStack.length, bands: images[0].gelAnalysis.lanes[1].bands.map(b => ({ yc: b.yc, v: b.volume, manual: !!b.manual })) }));
+  expect(add.n).toBe(gone.n + 1);
+  const back = add.bands.find(b => b.manual);
+  expect(Math.abs(back.yc - gone.yc)).toBeLessThan(1.5);
+  expect(Math.abs(back.v - gone.v) / gone.v).toBeLessThan(0.05);
+  // clicking inside a shaded band selects it — no edit
+  const last = add.bands.length - 1;
+  const inBand = await page.evaluate(y => __profPt(y), add.bands[last].yc);
+  await page.mouse.click(inBand.x, inBand.y);
+  expect(await page.evaluate(() => ({ n: undoStack.length, sel: _gelUI.sel }))).toEqual({ n: gone.n + 1, sel: { li: 1, bi: last } });
+  expect(errors).toEqual([]);
+});
+
+// Without gelProfileCSV there is no lane-profile export at all.
+test('lane profiles CSV: one row per frame row per lane, net = raw − baseline, header says what raw is', async ({ page }) => {
+  const errors = await setup(page);
+  await make(page, blotSpec('dark', 230, [30, 60, 120], 320));
+  const r = await page.evaluate(() => { runGelAnalysis(0); gelSetBaseline(0, 'valley-to-valley', '');
+    const a = images[0].gelAnalysis; return { csv: gelProfileCSV(0), H: a.frame.H, n: a.lanes.length, bands: a.lanes[0].bands.map(b => [b.y0, b.y1]) }; });
+  const lines = r.csv.split('\n').filter(Boolean), head = lines.filter(l => l.startsWith('#')), rows = lines.filter(l => !l.startsWith('#'));
+  expect(head.join('\n')).toMatch(/central 65% of the lane's width/);
+  expect(head.join('\n')).toMatch(/# Baseline: valley-to-valley/);
+  const cols = rows[0].split(',');
+  expect(cols).toEqual(['lane', 'row', 'y', 'Rf', 'raw', 'baseline', 'net', 'in_band', 'outside_image']);
+  const data = rows.slice(1).map(l => l.split(','));
+  expect(data.length).toBe(r.n * r.H);
+  for (let li = 1; li <= r.n; li++) expect(data.filter(d => +d[0] === li).length).toBe(r.H);
+  data.forEach(d => expect(Math.abs(+d[6] - (+d[4] - +d[5]))).toBeLessThan(1e-3 * Math.max(1, Math.abs(+d[4]))));
+  // the in_band column marks exactly the first band's rows
+  const inB = data.filter(d => +d[0] === 1 && d[7] === '1').length;
+  expect(inB).toBe(Math.round(r.bands[0][1] - r.bands[0][0]));
+  expect(errors).toEqual([]);
+});
+
+// A total-protein stain: each lane a smear (a run of wide bands) whose whole-lane signal is in the
+// ratio 1 : 2 : 1 : 2. Without the total-protein mode gelSetLoading ignored its third argument: the
+// loading record had no mode and no whole-lane totals, and the Methods, CSV, banner and compliance
+// row had no total-protein wording. (On this clean synthetic smear the band mode happens to give a
+// similar ratio — it is logged — because every band of the smear is detected; a real smear is not.)
+const stain = (amps, name, extra) => ({ w: 400, h: 160, pol: 'dark', bg: 215, noise: 2, name,
+  lanes: amps.map((a, k) => ({ x0: 30 + 90 * k, x1: 80 + 90 * k,
+    bands: [20, 34, 48, 62, 76, 90, 104, 118, 132].map((y, i) => ({ y, s: 5, amp: a * [1, 0.6, 1.3, 0.8, 1.1, 0.5, 0.9, 1.2, 0.7][i] })).concat((extra && extra[k]) || []) })) });
+test('total-protein normalisation: whole-lane signal, 1:2:1:2 stain → 2:1:2:1, refusals, a saturated stain lane flagged, named everywhere', async ({ page }) => {
+  const errors = await setup(page);
+  const target = { w: 400, h: 120, pol: 'dark', bg: 228, noise: 2, name: 'target.png',
+    lanes: [0, 1, 2, 3].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 60, s: 3, amp: 60 }] })) };
+  const r = await page.evaluate(async ({ target, st, st6, stSat }) => {
+    const out = {}, toasts = []; const t0 = window.toast; window.toast = (m) => toasts.push(m);
+    await __gelMake(target); await __gelMake(st);
+    runGelAnalysis(0); gelSetRefLane(0, 0);
+    out.ok = gelSetLoading(0, 1, 'total');
+    const a = images[0].gelAnalysis, rows = _gelRows(a);
+    out.mode = a.loading && a.loading.mode; out.totals = a.loading.lanes.map(l => l.volume);
+    out.norm = rows.map(x => x.normLC); out.rel = rows.map(x => x.normLCRef);
+    out.methods = generateMethodsParagraph(); out.csv = gelCSV(0);
+    checkCompliance(); out.row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+    document.getElementById('info-modal-bg')?.remove();
+    openGelAnalysis(0); out.banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); out.uiMode = document.getElementById('gel-lc-mode').value; closeGelAnalysis();
+    // the band mode, on the same stain, is something else
+    gelSetLoading(0, 1, 'bands'); out.bandsRel = _gelRows(images[0].gelAnalysis).map(x => x.normLCRef);
+    // a stain with six lanes for four target lanes: refused, nothing set
+    images.splice(1, 1); await __gelMake(st6); runGelAnalysis(0);
+    out.mismatch = { ok: gelSetLoading(0, 1, 'total'), loading: images[0].gelAnalysis.loading, toast: toasts.pop() };
+    // a stain whose third lane is clipped
+    images.splice(1, 1); await __gelMake(stSat); runGelAnalysis(0); gelSetRefLane(0, 0);
+    gelSetLoading(0, 1, 'total');
+    const rs = _gelRows(images[0].gelAnalysis);
+    out.sat = { norm: rs.map(x => x.normLC), flag: rs.map(x => x.lcFlag), csv: gelCSV(0), methods: generateMethodsParagraph() };
+    openGelAnalysis(0); out.sat.table = document.getElementById('gel-table').textContent; out.sat.banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+    window.toast = t0;
+    return out;
+  }, { target, st: stain([20, 40, 20, 40], 'stain.png'), st6: { ...stain([20, 40, 20, 40, 20, 40], 'stain6.png'), w: 580 },
+       stSat: stain([20, 40, 20, 40], 'stainsat.png', [[], [], [{ y: 76, s: 4, amp: 300 }], []]) });
+  console.log('total-protein lane totals', r.totals.map(Math.round), 'normalised rel. lane 1', r.rel.map(v => v.toFixed(3)), '| loading-band mode on the same stain', r.bandsRel.map(v => v == null ? null : v.toFixed(3)));
+  expect(r.ok).toBe(true);
+  expect(r.mode).toBe('total');
+  [1, 2, 1, 2].forEach((t, i) => expect(Math.abs(r.totals[i] / r.totals[0] - t) / t).toBeLessThan(0.05));
+  [1, 0.5, 1, 0.5].forEach((t, i) => expect(Math.abs(r.rel[i] - t) / t).toBeLessThan(0.05));   // 2 : 1 : 2 : 1
+  expect(r.methods).toMatch(/normalised to total protein in panel B, whole-lane signal/);
+  expect(r.csv).toMatch(/# Loading control: total protein in panel B, whole-lane signal, lanes paired by order/);
+  expect(r.row).toMatch(/normalised to total protein in panel B, whole-lane signal/);
+  expect(r.banner).toMatch(/Normalised to total protein in panel B, whole-lane signal/);
+  expect(r.uiMode).toBe('total');
+  expect(r.mismatch.ok).toBe(false);
+  expect(r.mismatch.loading).toBeNull();
+  expect(r.mismatch.toast).toMatch(/panel B has 6 lanes .* this panel has 4/);
+  expect(r.sat.norm[2]).toBeNull();
+  expect(r.sat.norm.filter(v => v != null).length).toBe(3);
+  expect(r.sat.flag).toEqual(['', '', 'SATURATED', '']);
+  expect(r.sat.csv).toMatch(/lane 3 of the total-protein image have clipped samples/);
+  expect(r.sat.csv.split('\n').filter(l => /,SATURATED$/.test(l)).length).toBe(1);
+  expect(r.sat.methods).toMatch(/lane 3 not normalised: clipped in the total-protein image/);
+  expect(r.sat.table).toMatch(/LC lane saturated/);
+  expect(r.sat.banner).toMatch(/Lane 3 of the total-protein image has clipped samples/);
+  expect(errors).toEqual([]);
+});
