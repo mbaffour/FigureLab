@@ -293,6 +293,7 @@ button.adv::before,.btn.adv::before{content:none}
   border-radius:50%;background:var(--surf2);border:1px solid var(--border);color:var(--muted);
   font-size:9px;font-weight:700;cursor:help;margin-left:4px;vertical-align:middle;font-family:var(--mono)}
 .help-chip:hover,.help-chip:focus{color:var(--text);border-color:var(--accent);outline:none}
+.help-chip.rt-chip{width:auto;border-radius:7px;padding:0 5px;font-weight:600;letter-spacing:.02em}
 #help-btn{position:relative}
 #help-btn.has-new::after{content:'';position:absolute;top:1px;right:1px;width:7px;height:7px;
   border-radius:50%;background:var(--accent);border:1.5px solid var(--surface)}
@@ -653,11 +654,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Figure title</div>
+    <div class="sec-lbl">Figure title <span class="help-chip rt-chip" tabindex="0" role="button" aria-label="Format marks in labels" data-tip="Format marks: *E. coli* → italic · **WT** → bold · 10^{8} or Ca^{2+} → superscript · H_{2}O → subscript. Marks nest: **E. coli *fliC*** is bold with an italic gene. Ctrl/⌘+I or Ctrl/⌘+B wraps the selected text. The field keeps the marks; the figure shows the result. Stars beside a space or punctuation (*, **, * p &lt; 0.05, WT*) stay stars; type \* for a star that would pair. Turn marks off under Look → Typography.">Format marks</span></div>
     <input type="text" id="fig-title" placeholder="Optional title…" style="width:100%" oninput="scheduleRender()">
 
     <div class="divider"></div>
-    <div class="field"><label>Column labels</label>
+    <div class="field"><label>Column labels <span class="help-chip rt-chip" tabindex="0" role="button" aria-label="Format marks in labels" data-tip="Format marks: *E. coli* → italic · **WT** → bold · 10^{8} or Ca^{2+} → superscript · H_{2}O → subscript. Marks nest: **E. coli *fliC*** is bold with an italic gene. Ctrl/⌘+I or Ctrl/⌘+B wraps the selected text. The field keeps the marks; the figure shows the result. Stars beside a space or punctuation (*, **, * p &lt; 0.05, WT*) stay stars; type \* for a star that would pair. Turn marks off under Look → Typography.">Format marks</span></label>
       <input type="checkbox" id="show-col-labels" onchange="onLayoutChange()"></div>
     <div id="col-label-inputs"></div>
     <div class="field"><label>Row labels</label>
@@ -991,6 +992,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label for="label-bold" style="cursor:pointer">Bold labels</label>
       <input type="checkbox" id="label-italic" onchange="scheduleRender()" style="margin-left:8px">
       <label for="label-italic" style="cursor:pointer">Italic</label>
+    </div>
+    <div class="inline-row" style="margin-top:3px">
+      <input type="checkbox" id="format-marks" checked onchange="scheduleRender()">
+      <label for="format-marks" style="cursor:pointer" title="Off: every label is drawn exactly as typed, stars and all">Format marks in labels</label>
+      <span class="help-chip rt-chip" tabindex="0" role="button" aria-label="Format marks in labels" data-tip="Format marks: *E. coli* → italic · **WT** → bold · 10^{8} or Ca^{2+} → superscript · H_{2}O → subscript. Marks nest: **E. coli *fliC*** is bold with an italic gene. Ctrl/⌘+I or Ctrl/⌘+B wraps the selected text. The field keeps the marks; the figure shows the result. Stars beside a space or punctuation (*, **, * p &lt; 0.05, WT*) stay stars; type \* for a star that would pair. Turn marks off under Look → Typography.">Format marks</span>
     </div>
 
     <div class="adv">
@@ -2586,6 +2592,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <input type="color" id="ann-float-fill-color" value="#ffffff" style="width:24px;height:22px;padding:1px;border:1px solid var(--border);border-radius:3px">
   <input type="range" id="ann-float-fill-opacity" min="0.05" max="1" step="0.05" value="0.3" style="width:52px">
   <input type="text" id="ann-float-tb-text" style="display:none;width:90px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;font-family:var(--mono)" placeholder="box text">
+  <span class="help-chip rt-chip" id="ann-float-rt" style="display:none" tabindex="0" role="button" aria-label="Format marks in labels" data-tip="Format marks: *E. coli* → italic · **WT** → bold · 10^{8} or Ca^{2+} → superscript · H_{2}O → subscript. Marks nest: **E. coli *fliC*** is bold with an italic gene. Ctrl/⌘+I or Ctrl/⌘+B wraps the selected text. The field keeps the marks; the figure shows the result. Stars beside a space or punctuation (*, **, * p &lt; 0.05, WT*) stay stars; type \* for a star that would pair. Turn marks off under Look → Typography.">Format marks</span>
   <select id="ann-float-tb-shape" style="display:none;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;font-family:var(--mono)">
     <option value="rect">□ Rect</option>
     <option value="ellipse">○ Ellipse</option>
@@ -2636,6 +2643,259 @@ let undoStack = [];
 let redoStack = [];
 let panelBounds = [];       // [{idx, x, y, w, h}] populated on render
 let figTextItems = [];      // text drawn each render: for label drag hit-test + vector SVG export
+// ═══════════════════════════════════════════════════════════════
+// INLINE FORMATTING IN LABELS
+// *italic*, **bold**, ^{superscript}, _{subscript}, and \* \^ \_ \\ for the literal
+// character. One parser (_rtParse); everything that draws, measures, exports or copies
+// figure text asks it. A label with no valid markup is drawn by exactly the code it was
+// drawn by before: significance stars ("*", "**", "* p < 0.05", "*p<0.05, **p<0.01",
+// "a*b") never pair, because a span opens only on asterisks with a non-space character
+// after them and closes only on as many asterisks with a non-space character before
+// them and no word character after them. ^ and _ without { are plain characters.
+// ═══════════════════════════════════════════════════════════════
+const _RT_SUP={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','−':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ'};
+const _RT_SUB={'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉','+':'₊','-':'₋','−':'₋','=':'₌','(':'₍',')':'₎',
+  'a':'ₐ','e':'ₑ','o':'ₒ','x':'ₓ','h':'ₕ','k':'ₖ','l':'ₗ','m':'ₘ','n':'ₙ','p':'ₚ','s':'ₛ','t':'ₜ'};
+const _rtCache=new Map();
+// → {runs, marked}. Runs are {t,i,b,sup,sub}; `marked` is true when parsing changed
+// anything at all (a styled span, a group or an escape), so an escaped "\*" alone still
+// leaves the plain path, which would print the backslash.
+function _rtParse(str){
+  str=String(str??'');
+  const hit=_rtCache.get(str); if(hit) return hit;
+  let marked=false;
+  const out=[];
+  const push=(t,f)=>{ if(!t) return; const L=out[out.length-1];
+    if(L&&L.i===!!f.i&&L.b===!!f.b&&L.sup===!!f.sup&&L.sub===!!f.sub) L.t+=t;
+    else out.push({t, i:!!f.i, b:!!f.b, sup:!!f.sup, sub:!!f.sub}); };
+  // A string → atoms: literal characters, ^{…} / _{…} groups, runs of asterisks.
+  const lex=s=>{
+    const A=[];
+    for(let k=0;k<s.length;){
+      const c=s[k];
+      if(c==='\\'&&k+1<s.length&&'*^_\\'.includes(s[k+1])){ A.push({k:'c',ch:s[k+1]}); marked=true; k+=2; continue; }
+      if((c==='^'||c==='_')&&s[k+1]==='{'){
+        let d=0, j=k+1;
+        for(;j<s.length;j++){
+          if(s[j]==='\\'&&j+1<s.length){ j++; continue; }
+          if(s[j]==='{') d++;
+          else if(s[j]==='}'&&--d===0) break;
+        }
+        if(j<s.length){ A.push({k:'g', sup:c==='^', inner:s.slice(k+2,j)}); marked=true; k=j+1; continue; }
+      }
+      if(c==='*'){ let j=k; while(s[j]==='*') j++; A.push({k:'s', n:j-k}); k=j; continue; }
+      A.push({k:'c',ch:c}); k++;
+    }
+    return A;
+  };
+  const isSp=a=>!a||(a.k==='c'&&/\s/.test(a.ch));
+  const isWord=a=>!!a&&a.k==='c'&&/[\p{L}\p{N}_]/u.test(a.ch);
+  const seq=(s,f)=>{
+    const A=lex(s);
+    // Which asterisks are delimiters: a stack of openers; a closer pairs with the nearest
+    // opener of its own length (a run of three is bold and italic at once, and can be
+    // closed in two steps, or close a bold and an italic opened separately).
+    const open=[];
+    A.forEach((a,ix)=>{
+      if(a.k!=='s') return;
+      a.lit=a.n; a.oi=0; a.ob=0; a.ci=0; a.cb=0;
+      if(a.n>3) return;                                   // "****" is a row of stars
+      const prev=A[ix-1], next=A[ix+1];
+      // Not before closing punctuation either: "WT*, KO*" is two footnote stars, not ", KO" in italics.
+      const canOpen=!!next&&!isSp(next)&&!(next.k==='c'&&/[,.;:!?)\]}\/|]/.test(next.ch));
+      const canClose=!!prev&&!isSp(prev)&&!isWord(next);
+      if(canClose){
+        if(a.n<3){
+          let q=open.length-1;
+          for(;q>=0;q--) if(open[q].n===a.n||open[q].n===3) break;
+          if(q>=0){
+            const o=open[q], typ=a.n===1?'i':'b';
+            o.n-=a.n; o.a['o'+typ]=1; o.a.lit-=a.n; a['c'+typ]=1; a.lit-=a.n;
+            open.length=o.n>0?q+1:q;                       // openers inside it stay literal
+            return;
+          }
+        } else {
+          const t=open[open.length-1], u=open[open.length-2];
+          if(t&&t.n===3){ open.pop(); t.a.oi=t.a.ob=1; t.a.lit-=3; a.ci=a.cb=1; a.lit=0; return; }
+          if(t&&u&&t.n+u.n===3){ open.length-=2;
+            [t,u].forEach(o=>{ const typ=o.n===1?'i':'b'; o.a['o'+typ]=1; o.a.lit-=o.n; o.n=0; });
+            a.ci=a.cb=1; a.lit=0; return; }
+        }
+      }
+      if(canOpen) open.push({a, n:a.n});
+    });
+    // Walk the atoms, opening and closing the styles where delimiters were consumed.
+    let it=0, bd=0;
+    const fl=()=>({...f, i:f.i||it>0, b:f.b||bd>0});
+    A.forEach(a=>{
+      if(a.k==='c') push(a.ch, fl());
+      else if(a.k==='g') seq(a.inner, {...fl(), sup:a.sup, sub:!a.sup});
+      else {
+        if(a.oi||a.ob||a.ci||a.cb) marked=true;
+        if(a.ci||a.cb){ if(a.ci) it--; if(a.cb) bd--; push('*'.repeat(a.lit), fl()); }
+        else { push('*'.repeat(a.lit), fl()); if(a.oi) it++; if(a.ob) bd++; }
+      }
+    });
+  };
+  seq(str, {i:false,b:false,sup:false,sub:false});
+  const r={runs:out, marked};
+  if(_rtCache.size>2000) _rtCache.clear();
+  _rtCache.set(str, r);
+  return r;
+}
+// The public three. They parse; they do not read the figure's "Format marks" switch —
+// the drawing (_rtItemRuns) and the text consumers (_rtText) do.
+function _rtRuns(str){ return _rtParse(str).runs.map(r=>({...r})); }
+function _rtHas(str){ return _rtParse(str).marked; }
+// What a reader sees: the text without its marks, super/subscripts as Unicode
+// superscript and subscript characters where those exist, else the plain character.
+function _rtPlain(str){
+  const P=_rtParse(str); if(!P.marked) return String(str??'');
+  return P.runs.map(r=>r.sup?[...r.t].map(c=>_RT_SUP[c]||c).join('')
+    :r.sub?[...r.t].map(c=>_RT_SUB[c]||c).join(''):r.t).join('');
+}
+
+// The figure's "Format marks in labels" switch (on by default; off draws every label
+// literally, for a figure whose labels are full of asterisks meant as asterisks).
+function _rtOn(){ const el=document.getElementById('format-marks'); return !el||el.checked; }
+// For anything that copies figure text as plain text (caption, CSV, legend text, alt
+// text, scripts): what the figure shows, in characters.
+function _rtText(s){ return _rtOn()?_rtPlain(s):String(s??''); }
+// The runs to draw, or null when the label takes the plain path it always took.
+function _rtDrawRuns(str){ return (_rtOn()&&_rtHas(str))?_rtParse(str).runs:null; }
+
+// Super/subscripts at 70% of the size, raised 35% / lowered 15% of the base size.
+const _RT_SCRIPT=0.7, _RT_RISE=0.35, _RT_DROP=0.15;
+// A CSS font shorthand as the app writes it ("italic bold 13px Georgia,serif",
+// "bold 12px system-ui", "13px Arial") → its parts, so a run can change one of them.
+function _rtFontParts(font){
+  const f=String(font||'');
+  const m=/(\d+(?:\.\d+)?)px(?:\s*\/\s*\S+)?\s+(.*)$/.exec(f);
+  const pre=m?f.slice(0,m.index):f;
+  const wm=/\b(bold|bolder|lighter|[1-9]00)\b/i.exec(pre);
+  return {ital:/\b(italic|oblique)\b/i.test(pre), wt:wm?wm[1]:'normal', size:m?parseFloat(m[1]):12, fam:m?m[2]:'sans-serif'};
+}
+function _rtRunFont(P, r){
+  const sz=(r.sup||r.sub)?P.size*_RT_SCRIPT:P.size;
+  return `${(r.i||P.ital)?'italic':'normal'} ${r.b?'bold':P.wt} ${+sz.toFixed(3)}px ${P.fam}`;
+}
+// Each run's font, x offset, width and baseline shift against a base font; w = the sum.
+function _rtLayout(ctx, runs, font){
+  const P=_rtFontParts(font), saved=ctx.font;
+  let w=0;
+  const L=runs.map(r=>{ const f=_rtRunFont(P,r); ctx.font=f; const rw=ctx.measureText(r.t).width;
+    const q={t:r.t, i:r.i, b:r.b, sup:r.sup, sub:r.sub, font:f, x:w, w:rw, dy:r.sup?-P.size*_RT_RISE:r.sub?P.size*_RT_DROP:0}; w+=rw; return q; });
+  ctx.font=saved;
+  return {runs:L, w, size:P.size, P};
+}
+// How far below a point set at `baseline` the alphabetic baseline of `font` lies. Every
+// run is drawn on the alphabetic baseline so a smaller superscript shares it (a run set
+// 'middle' at 70% would centre itself instead).
+function _rtBaseOff(ctx, font, baseline){
+  if(!baseline||baseline==='alphabetic') return 0;
+  const sf=ctx.font, sb=ctx.textBaseline;
+  ctx.font=font; ctx.textBaseline=baseline; const a=ctx.measureText('H').actualBoundingBoxAscent;
+  ctx.textBaseline='alphabetic'; const b=ctx.measureText('H').actualBoundingBoxAscent;
+  ctx.font=sf; ctx.textBaseline=sb;
+  return b-a;      // ascents are measured up from the chosen baseline
+}
+// Width of a label as drawn, with the context's font. The plain path is measureText.
+function _rtMeasure(ctx, str){
+  const R=_rtDrawRuns(str);
+  return R ? _rtLayout(ctx, R, ctx.font).w : ctx.measureText(str).width;
+}
+// Draw runs as one string at (x,y): the context's font, alignment and baseline (or
+// opts.font/align/baseline) apply to the whole, so centring centres all of it.
+// opts.stroke strokes instead of filling (a halo). Leaves font/align/baseline as found.
+function _rtDrawRunList(ctx, runs, x, y, opts){
+  opts=opts||{};
+  const font=opts.font||ctx.font, align=opts.align||ctx.textAlign, base=opts.baseline||ctx.textBaseline;
+  const L=_rtLayout(ctx, runs, font);
+  let x0=x;
+  if(align==='center') x0-=L.w/2; else if(align==='right'||align==='end') x0-=L.w;
+  const yb=y+_rtBaseOff(ctx, font, base);
+  const sa=ctx.textAlign, sb=ctx.textBaseline;
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  for(const q of L.runs){ ctx.font=q.font; if(opts.stroke) ctx.strokeText(q.t, x0+q.x, yb+q.dy); else ctx.fillText(q.t, x0+q.x, yb+q.dy); }
+  ctx.font=font; ctx.textAlign=sa; ctx.textBaseline=sb;
+  return L.w;
+}
+// THE label drawer: plain text goes to fillText/strokeText exactly as before.
+function _rtDraw(ctx, str, x, y, opts){
+  const R=_rtDrawRuns(str);
+  if(!R){ if(opts&&opts.stroke) ctx.strokeText(str,x,y); else ctx.fillText(str,x,y); return; }
+  _rtDrawRunList(ctx, R, x, y, opts);
+}
+// Word-wrap a marked-up string to maxW: parse once, cut the runs into words at spaces
+// (and paragraphs at \n), pack words by drawn width. Wrapping the raw string would cut
+// "*Escherichia coli*" into "*Escherichia" and "coli*", neither of which pairs.
+// → [{runs, w}]; a blank line is {runs:[], w:0}.
+function _rtWrap(ctx, str, font, maxW){
+  const P=_rtFontParts(font);
+  const paras=[[]];                          // paragraphs → words → pieces
+  let word=null, sp=null;                    // sp: the space before the next word
+  const para=()=>paras[paras.length-1];
+  for(const r of _rtParse(str).runs){
+    r.t.split(/(\n| )/).forEach(seg=>{
+      if(seg==='\n'){ if(word) para().push(word); paras.push([]); word=null; sp=null; return; }
+      if(seg===' '){ if(word) para().push(word); word=null; sp={...r, t:' '}; return; }
+      if(!seg) return;
+      if(!word){ word={sp, pieces:[]}; sp=null; }
+      word.pieces.push({...r, t:seg});
+    });
+  }
+  if(word) para().push(word);
+  const saved=ctx.font;
+  const wOf=pcs=>pcs.reduce((s,p)=>{ ctx.font=_rtRunFont(P,p); return s+ctx.measureText(p.t).width; },0);
+  const lines=[];
+  paras.forEach(words=>{
+    if(!words.length){ lines.push([]); return; }
+    let line=null;
+    for(const wd of words){
+      if(!line){ line=wd.pieces.slice(); continue; }
+      const test=line.concat(wd.sp?[wd.sp]:[], wd.pieces);
+      if(wOf(test)>maxW&&line.length){ lines.push(line); line=wd.pieces.slice(); }
+      else line=test;
+    }
+    if(line) lines.push(line);
+  });
+  // neighbouring pieces in the same style become one run again
+  const merge=pcs=>pcs.reduce((o,p)=>{ const L=o[o.length-1];
+    if(L&&L.i===p.i&&L.b===p.b&&L.sup===p.sup&&L.sub===p.sub) L.t+=p.t; else o.push({t:p.t,i:p.i,b:p.b,sup:p.sup,sub:p.sub}); return o; },[]);
+  const out=lines.map(pcs=>({runs:merge(pcs), w:wOf(pcs)}));
+  ctx.font=saved;
+  return out;
+}
+// The same runs as SVG: tspans inside the caller's <text>, which sits on the
+// alphabetic baseline. Super/subscripts move by dy in px (em would be relative to the
+// smaller size) and the run after them moves back.
+function _rtSVGSpans(runs, font, esc){
+  const P=_rtFontParts(font);
+  let shift=0, s='';
+  for(const r of runs){
+    const dy=r.sup?-P.size*_RT_RISE:r.sub?P.size*_RT_DROP:0, d=dy-shift; shift=dy;
+    let a='';
+    if(r.i&&!P.ital) a+=' font-style="italic"';
+    if(r.b) a+=' font-weight="bold"';
+    if(r.sup||r.sub) a+=` font-size="${+(P.size*_RT_SCRIPT).toFixed(2)}"`;
+    if(Math.abs(d)>1e-9) a+=` dy="${d.toFixed(2)}"`;
+    s+=a?`<tspan${a}>${esc(r.t)}</tspan>`:esc(r.t);
+  }
+  return s;
+}
+// One recorded label (figTextItems / the key's items) as SVG <text>, when it has runs:
+// placed on the alphabetic baseline the canvas used, anchored and turned like the plain one.
+function _rtSVGItem(it, esc, extra){
+  const mc=_rtMc();
+  const yb=it.y+_rtBaseOff(mc, it.font, it.baseline);
+  const anchor=it.align==='center'?'middle':(it.align==='right'||it.align==='end')?'end':'start';
+  const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
+  // rotate() turns about the anchor point, so the baseline shift runs along the turned text
+  return `<text x="${it.x.toFixed(2)}" y="${yb.toFixed(2)}" style="font:${it.font}" fill="${it.fill}" text-anchor="${anchor}"${rot}${extra||''}>${_rtSVGSpans(it.runs, it.font, esc)}</text>`;
+}
+var _rtMcCtx=null;
+function _rtMc(){ return _rtMcCtx||(_rtMcCtx=document.createElement('canvas').getContext('2d')); }
+
 let labelOffsets = { title:{dx:0,dy:0}, col:{}, row:{}, group:{} }; // drag offsets for shared labels
 let labelDragState = null;  // {kind, idx, startX, startY, ox, oy, moved, preSnap}
 let _sbBars = [];           // per-render scale-bar rects (logical coords) for drag-to-resize
@@ -4108,6 +4368,7 @@ const CMD_REGISTRY=[
   {label:'Pop grid out to free layout', keys:'freeform free move panels pop out convert drag', run:()=>convertGridToFreeform()},
   {label:'Relabel panels A, B, C…', keys:'relabel letter panels order abc auto lettering renumber', run:()=>relabelPanels()},
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
+  {label:'Italic, bold, superscript and subscript in labels (how to)', keys:'italic italics species gene name superscript subscript exponent power 10^8 10^{8} format text bold formatting markup mixed', run:()=>_rtHowTo()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
 ];
 let _cmdpSel=0, _cmdpFiltered=[];
@@ -4115,6 +4376,30 @@ let _cmdpSel=0, _cmdpFiltered=[];
 // nested in, scroll it into view, focus it and flash it. A palette that can only run
 // actions cannot answer "where do I set the gap between panels?", which is exactly what
 // it was asked and exactly what it could not do.
+// What the palette's "(how to)" entry shows: the four marks with examples.
+function _rtHowTo(){
+  const ex=(m,d)=>`<tr><td style="padding:2px 10px 2px 0;font-family:var(--mono)">${m}</td><td>${d}</td></tr>`;
+  showInfoModal('Italic, bold, superscript and subscript in labels', `<div style="font-size:11px;line-height:1.6">
+    <p style="margin:0 0 6px">Type these marks in any figure text — title, row and column headings, group bands, panel names, text and text boxes, the key's names, chart titles and axes. The field keeps the marks; the figure shows the result.</p>
+    <table style="border-collapse:collapse">${ex('*E. coli*','<i>E. coli</i>')}${ex('**WT**','<b>WT</b>')}${ex('10^{8} PFU/mL','10<sup>8</sup> PFU/mL')}${ex('Ca^{2+}','Ca<sup>2+</sup>')}${ex('H_{2}O','H<sub>2</sub>O')}${ex('**E. coli *fliC***','<b>E. coli <i>fliC</i></b>')}</table>
+    <p style="margin:6px 0 0">Select text and press Ctrl+I (⌘I) or Ctrl+B (⌘B) to wrap it. Significance stars stay stars: <code>*</code>, <code>**</code>, <code>* p &lt; 0.05</code>, <code>*p&lt;0.05, **p&lt;0.01</code>, <code>WT*</code>. Type <code>\\*</code> for a star that would otherwise pair. If your labels are full of stars, untick <b>Format marks in labels</b> under Look → Typography and everything is drawn as typed.</p></div>`);
+}
+// The figure's own text fields. Ctrl/⌘+I and +B wrap the selection in the marks; a
+// capture listener, because the inline text inputs stop their keydown from bubbling.
+const _RT_FIELDS='#fig-title,#col-label-inputs input,#row-label-inputs input,#group-list input[data-glabel],.img-label-input,.f-tag,#ann-text-input,#ann-float-tb-text,#ff-text-input,.rt-field';
+document.addEventListener('keydown', e=>{
+  if(!(e.ctrlKey||e.metaKey)||e.altKey||e.shiftKey||e.isComposing) return;
+  const k=(e.key||'').toLowerCase(); if(k!=='i'&&k!=='b') return;
+  const t=e.target; if(!t||!t.matches||!t.matches(_RT_FIELDS)) return;
+  e.preventDefault(); e.stopPropagation();
+  const m=k==='i'?'*':'**', a=t.selectionStart??t.value.length, b=t.selectionEnd??a;
+  const sel=t.value.slice(a,b);
+  t.setRangeText(m+sel+m, a, b, 'end');
+  if(a===b) t.setSelectionRange(a+m.length, a+m.length);          // nothing selected: type between the marks
+  else t.setSelectionRange(a+m.length, b+m.length);                 // keep the wrapped text selected
+  t.dispatchEvent(new Event('input', {bubbles:true}));
+}, true);
+
 function _cmdpGoto(id, note){
   const el=document.getElementById(id);
   if(!el || el.offsetParent===null && !el.closest('details')){ toast('That control is not available in this layout mode','warn'); return; }
@@ -5797,7 +6082,7 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   const font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
   ctx.font=font;
   const gap=ctx.measureText(' ').width*1.5;
-  const widths=parts.map(p=>ctx.measureText(p.str).width);
+  const widths=parts.map(p=>_rtMeasure(ctx,p.str));
   const total=widths.reduce((a,b)=>a+b,0)+gap*(parts.length-1);
   const pad=6;
   let x=pos.endsWith('r') ? dx+dw-pad-total : dx+pad;
@@ -7962,14 +8247,14 @@ function exportCSV(){
   const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta';
   const lines=[header];
   _figurePanels().forEach((im,i)=>{
-    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(im.label),im.umPerPx||0,im.sbUm||0,
+    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(_rtText(im.label)),im.umPerPx||0,im.sbUm||0,
       im.brightness,im.contrast,im.gamma||1,im.grayscale?1:0,im.invert?1:0,
       _csvCell(im.lut||'none'),im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,
       (im.cropAngle?'resampled (bilinear)':'none'),
       // An inset's magnification is a number a reader needs and an author usually
       // states from memory; it is derived here rather than typed.
-      _csvCell(im.insetOf?(_findPanelById(im.insetOf)?.label||'?'):''),
+      _csvCell(im.insetOf?_rtText(_findPanelById(im.insetOf)?.label||'?'):''),
       (im.insetOf?(_insetMag(im)+'×'):''),
       // The physical size of the region shown, from the crop and the calibration.
       _csvCell(_fovText(im)||'',true),
@@ -8291,17 +8576,21 @@ function render(targetCanvas, exportScale, opts){
     const [dox,doy]=getLabelOff(kind,idx);
     const x=bx+dox, y=by+doy;
     ctx.font=fontStr;
-    const w=ctx.measureText(str).width;
+    // Marked-up text carries its runs on the item, so the SVG and PDF writers and the
+    // hit-test all see the drawn widths; plain text has no runs and goes the old way.
+    const _runs=_rtDrawRuns(str);
+    const w=_runs?_rtLayout(ctx,_runs,fontStr).w:ctx.measureText(str).width;
     const m=/(\d+(?:\.\d+)?)px/.exec(fontStr); const fs=m?parseFloat(m[1]):12;
     let bbx,bby,bbw,bbh;
     if(rot){ bbw=fs; bbh=w; bbx=x-fs/2; bby=y-w/2; }
     else { bbw=w; bbh=fs; bbx=align==='center'?x-w/2:x; bby=baseline==='top'?y:baseline==='middle'?y-fs/2:y-fs; }
     const _item={kind,idx,str,x,y,fs,font:fontStr,fill:fillStyle,align,baseline,rot:rot||0,bbox:{x:bbx,y:bby,w:bbw,h:bbh}};
+    if(_runs) _item.runs=_runs;
     figTextItems.push(_item);
     if(_skipText(_item)) return;
     ctx.fillStyle=fillStyle; ctx.textAlign=align; ctx.textBaseline=baseline;
-    if(rot){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/2); ctx.fillText(str,0,0); ctx.restore(); }
-    else ctx.fillText(str,x,y);
+    if(rot){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/2); _rtDraw(ctx,str,0,0); ctx.restore(); }
+    else _rtDraw(ctx,str,x,y);
   }
 
   // Title
@@ -8523,7 +8812,8 @@ function render(targetCanvas, exportScale, opts){
             const lSt=gc('label-italic')?'italic':'normal';
             const lfont=`${lSt} ${lWt} ${fs}px ${lFam}`;
             ctx.font=lfont;
-            const tw=ctx.measureText(displayLbl).width;
+            const _lRuns=_rtDrawRuns(displayLbl);       // a typed name can carry marks; letters never do
+            const tw=_lRuns?_rtLayout(ctx,_lRuns,lfont).w:ctx.measureText(displayLbl).width;
             const pad=6;
             let lx=ox+pad, ly=oy+pad+fs;
             if(lblPos==='tr') lx=ox+ow-pad-tw;
@@ -8539,6 +8829,7 @@ function render(targetCanvas, exportScale, opts){
               fill:inkClr,align:'left',baseline:'alphabetic',rot:0,
               bbox:{x:bx,y:by,w:bw,h:bh},
               bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null};
+            if(_lRuns) _lblItem.runs=_lRuns;
             figTextItems.push(_lblItem);
             if(!_skipText(_lblItem)){
               if(hasBg){
@@ -8550,7 +8841,7 @@ function render(targetCanvas, exportScale, opts){
                 ctx.lineTo(bx,by+lbr); ctx.quadraticCurveTo(bx,by,bx+lbr,by);
                 ctx.closePath(); ctx.fill();
               }
-              ctx.fillStyle=inkClr; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillText(displayLbl,lx,ly);
+              ctx.fillStyle=inkClr; ctx.textAlign='left'; ctx.textBaseline='alphabetic'; _rtDraw(ctx,displayLbl,lx,ly);
             }
           }
         }
@@ -8947,10 +9238,10 @@ function drawPanelAnnotations(ctx, pbx, pby, pbw, pbh, im, opts){
         ctx.save(); ctx.lineJoin='round'; ctx.miterLimit=2;
         ctx.lineWidth=Math.max(2,(a.fontSize||16)*0.18);
         ctx.strokeStyle=a.haloColor||'rgba(0,0,0,.85)';
-        ctx.strokeText(a.text, x1, y1); ctx.restore();
+        _rtDraw(ctx, a.text, x1, y1, {stroke:true}); ctx.restore();
       }
       ctx.fillStyle=a.color||'#fff';
-      ctx.fillText(a.text, x1, y1);
+      _rtDraw(ctx, a.text, x1, y1);
     } else if(a.type==='spotlight'){
       ctx.save(); ctx.beginPath(); ctx.rect(pbx,pby,pbw,pbh); ctx.clip();
       drawShape(ctx, a.type, x1, y1, x2, y2, a.color||'#fff', a.width||2, a);
@@ -11389,7 +11680,7 @@ function hitAnnotation(a, x, y, W, H){
   const T=10;
   if(a.type==='text'){
     const fs=a.fontSize||16, ax=a.xf*W, ay=a.yf*H;
-    const tw=a.text.length*fs*0.58;
+    const tw=_rtText(a.text).length*fs*0.58;
     return x>=ax-T && x<=ax+tw+T && y>=ay-T && y<=ay+fs+T;
   }
   if(a.type==='line'||a.type==='arrow'||a.type==='arrow2'||a.type==='ruler'){
@@ -11880,7 +12171,7 @@ function _keyLayout(rows, fs, font){
   // A line, a ramp or a glyph needs a wider swatch than a colour square.
   const wide=rows.some(r=>r.line||r.marker==='gradient'||r.marker==='glyph');
   const pad=8, sh=fs*0.9, sw=wide?fs*2.2:sh, gap=6, lh=fs*1.45;
-  const textW=rows.length ? rows.reduce((m,r)=>Math.max(m,_keyMc.measureText(r.name).width),0) : _keyMc.measureText('nothing to key').width;
+  const textW=rows.length ? rows.reduce((m,r)=>Math.max(m,_rtMeasure(_keyMc,r.name)),0) : _keyMc.measureText('nothing to key').width;
   const w=pad*2+(rows.length?sw+gap:0)+textW, h=pad*2+Math.max(1,rows.length)*lh-fs*0.45;
   return {rows,fs,font,pad,sw,sh,gap,lh,w,h};
 }
@@ -11925,9 +12216,10 @@ function _keyEmitCanvas(ctx, sink, skip){
     stops.forEach((c,i)=>g.addColorStop(i/(stops.length-1),c)); ctx.save(); ctx.fillStyle=g; ctx.fillRect(x,y,w,h); ctx.restore(); };
   e.text=(str,x,y,font,fill)=>{
     const m=/(\d+(?:\.\d+)?)px/.exec(font), it={kind:'key', str:String(str), x, y, fs:m?parseFloat(m[1]):12, font, fill, align:'left', baseline:'middle', rot:0};
+    const R=_rtDrawRuns(it.str); if(R) it.runs=R;
     if(sink) sink.push(it);
     if(skip&&skip(it)) return;
-    ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(it.str,x,y); ctx.restore();
+    ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign='left'; ctx.textBaseline='middle'; _rtDraw(ctx,it.str,x,y); ctx.restore();
   };
   return e;
 }
@@ -11939,7 +12231,9 @@ function _keyEmitSVG(out){
   e.gradient=(x,y,w,h,stops)=>{ const id='flkey'+(++_keyGradN);
     out.push(`<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0">${stops.map((c,i)=>`<stop offset="${(i/(stops.length-1)).toFixed(3)}" stop-color="${c}"/>`).join('')}</linearGradient>`
       +`<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(h)}" fill="url(#${id})"/>`); };
-  e.text=(str,x,y,font,fill)=>out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${fill}" dominant-baseline="central">${ex(str)}</text>`);
+  e.text=(str,x,y,font,fill)=>{ const R=_rtDrawRuns(str);
+    if(R) out.push(_rtSVGItem({str:String(str), x, y, font, fill, align:'left', baseline:'middle', rot:0, runs:R}, ex));
+    else out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${fill}" dominant-baseline="central">${ex(str)}</text>`); };
   return e;
 }
 // The placed key keeps its own chip and text colour; the standalone file is drawn on the
@@ -12009,7 +12303,7 @@ function _keyWords(r){
 function _keyText(rows){
   rows=rows||_figureKey();
   if(!rows.length) return '';
-  return rows.map(r=>{ const w=_keyWords(r); return w?`${r.name} (${w})`:r.name; }).join('; ')+'.';
+  return rows.map(r=>{ const w=_keyWords(r), nm=_rtText(r.name); return w?`${nm} (${w})`:nm; }).join('; ')+'.';
 }
 function copyKeyText(){
   const ta=document.getElementById('key-text'); if(!ta) return;
@@ -12160,6 +12454,15 @@ function drawAnnotationSingle(ctx, a, W, H){
     ctx.fillStyle=a.color||'#ffffff';
     ctx.textBaseline='top';
     const maxW=bw-pad*2;
+    if(_rtDrawRuns(a.text||'Text')){
+      // Wrapped by drawn width with the spans intact, each line centred as a whole.
+      const lines=_rtWrap(ctx, a.text||'Text', ctx.font, maxW);
+      const lh=fs*1.3;
+      let ty=by+(bh-lines.length*lh)/2;
+      for(const ln of lines){ _rtDrawRunList(ctx, ln.runs, bx+(bw-ln.w)/2, ty, {align:'left'}); ty+=lh; }
+      ctx.restore();
+      return;
+    }
     const words=(a.text||'Text').split(' ');
     const lines=[]; let line='';
     for(const word of words){
@@ -12188,10 +12491,10 @@ function drawAnnotationSingle(ctx, a, W, H){
       ctx.save(); ctx.lineJoin='round'; ctx.miterLimit=2;
       ctx.lineWidth=Math.max(2,fs*0.18);
       ctx.strokeStyle=a.haloColor||'rgba(0,0,0,.85)';
-      ctx.strokeText(a.text, a.xf*W, a.yf*H); ctx.restore();
+      _rtDraw(ctx, a.text, a.xf*W, a.yf*H, {stroke:true}); ctx.restore();
     }
     ctx.fillStyle=a.color||'#fff';
-    ctx.fillText(a.text, a.xf*W, a.yf*H);
+    _rtDraw(ctx, a.text, a.xf*W, a.yf*H);
     return;
   }
   if(a.type==='inset'){
@@ -12307,7 +12610,7 @@ function drawAnnOverlay(){
     ctx.globalAlpha=0.6;
     const hw=(a.width||2)+5;
     if(a.type==='text'){
-      const fs=a.fontSize||16, tw=a.text.length*fs*0.58;
+      const fs=a.fontSize||16, tw=_rtText(a.text).length*fs*0.58;
       ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,3]);
       ctx.strokeRect(a.xf*W-4,a.yf*H-4,tw+8,fs+8);
     } else {
@@ -12323,7 +12626,7 @@ function drawAnnOverlay(){
     ctx.save(); ctx.globalAlpha=0.55;
     const hw=(a.width||2)+4;
     if(a.type==='text'){
-      const fs=a.fontSize||16, tw=a.text.length*fs*0.58;
+      const fs=a.fontSize||16, tw=_rtText(a.text).length*fs*0.58;
       ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,3]);
       ctx.strokeRect(a.xf*W-4, a.yf*H-4, tw+8, fs+8);
     } else if(a.type!=='inset'){
@@ -12482,6 +12785,7 @@ function showAnnFloat(idx){
   if(tbText){ tbText.style.display=hasText?'':'none'; if(hasText) tbText.value=a.text||(a.type==='axes'?'D V A P':''); tbText.title=a.type==='axes'?'Four letters: up down left right':''; }
   const tbShape=document.getElementById('ann-float-tb-shape');
   if(tbShape){ tbShape.style.display=isTb?'':'none'; if(isTb) tbShape.value=a.shape||'rect'; }
+  const rtChip=document.getElementById('ann-float-rt'); if(rtChip) rtChip.style.display=isTxt?'':'none';
   // Repeat on… belongs to panel annotations; a figure-level one has no panel to repeat from.
   const repSel=document.getElementById('ann-float-repeat'); if(repSel) repSel.style.display='none';
   if(hasFill){
@@ -13558,7 +13862,7 @@ function renderAnnotationList(){
     const row=document.createElement('div');
     row.className='ann-row'+(i===selectedAnnotation?' selected':'');
     const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
-    const nm = a.name || (a.type==='ruler'&&a.rulerName?`ruler "${a.rulerName}"`:a.type==='text'?`T "${(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${(a.text||'').substring(0,10)}"`:a.type);
+    const nm = a.name || (a.type==='ruler'&&a.rulerName?`ruler "${a.rulerName}"`:a.type==='text'?`T "${_rtText(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${_rtText(a.text||'').substring(0,10)}"`:a.type);
     row.innerHTML=`${swatch}<span class="ann-name" style="flex:1;${a.hidden?'opacity:.45':''}">${esc(nm)}</span>
       <button class="icon-btn ba-rename" title="Rename layer" style="font-size:10px">✎</button>
       <button class="icon-btn ba-hide" title="${a.hidden?'Show':'Hide'}" style="font-size:10px">${a.hidden?'🙈':'👁'}</button>
@@ -14704,7 +15008,7 @@ function _packageManifest(name,dpi,files,provHash,skipped,textChecks){
   return `FigureLab submission package
 =============================
 Figure name : ${name}
-Title       : ${gv('fig-title')||'(untitled)'}
+Title       : ${_rtText(gv('fig-title'))||'(untitled)'}
 Created     : ${new Date().toISOString()}
 FigureLab   : v${APP_VERSION}
 Provenance  : SHA-256 ${provHash||'(unavailable)'}
@@ -14835,7 +15139,7 @@ async function exportPPTX(){
       const th=Math.max(Math.round(topY*EMU), 360000);
       titleSp=`<p:sp><p:nvSpPr><p:cNvPr id="${idn+2}" name="Title"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr/></p:nvSpPr>`
         +`<p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${th}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>`
-        +`<p:txBody><a:bodyPr anchor="ctr"/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${esc(title)}</a:t></a:r></a:p></p:txBody></p:sp>`;
+        +`<p:txBody><a:bodyPr anchor="ctr"/><a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${esc(_rtText(title))}</a:t></a:r></a:p></p:txBody></p:sp>`;
     }
     const slide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}"><p:cSld><p:spTree>
@@ -14965,6 +15269,7 @@ function exportSVG(name, dpi, canvas){
     if(it.bg){ const g=it.bg;
       txtSVG+=`<rect x="${g.x.toFixed(2)}" y="${g.y.toFixed(2)}" width="${g.w.toFixed(2)}" height="${g.h.toFixed(2)}" rx="${g.r}" ry="${g.r}" fill="${g.fill}"/>`;
     }
+    if(it.runs){ txtSVG+=_rtSVGItem(it, esc); return; }   // one <text>, a <tspan> per run
     const anchor=it.align==='center'?'middle':'start';
     const base=it.baseline==='top'?'text-before-edge':it.baseline==='middle'?'central':'alphabetic';
     const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
@@ -15084,7 +15389,8 @@ function exportSVG(name, dpi, canvas){
     } else if(a.type==='text'){
       const fs=a.fontSize||16;
       const halo=a.halo?` stroke="${a.haloColor||'rgba(0,0,0,0.85)'}" stroke-width="${Math.max(2,fs*0.18).toFixed(2)}" stroke-linejoin="round" paint-order="stroke"`:'';
-      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
+      const _r=_rtDrawRuns(a.text);
+      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${_r?_rtSVGSpans(_r,`${st} ${wt} ${fs}px ${fam}`,esc):a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
     }
   });
   // Vector round-trip: re-embed freeform SVG objects as TRUE vector (crisp & editable),
@@ -15244,7 +15550,10 @@ function _winAnsiBytes(str){
   }
   return out;
 }
-function _pdfCanTypeset(it){ return !!(it && it.str && _winAnsiBytes(it.str)); }
+function _pdfCanTypeset(it){
+  if(it && it.runs) return it.runs.every(r=>!!_winAnsiBytes(r.t));   // the characters drawn, not the marks
+  return !!(it && it.str && _winAnsiBytes(it.str));
+}
 
 // PDF literal string: escape \ ( ) and emit bytes as octal above ASCII.
 function _pdfStr(bytes){
@@ -15310,13 +15619,32 @@ function _pdfTextOps(items, k, hPt){
   const X=x=>(x*k).toFixed(3), Y=y=>(hPt-y*k).toFixed(3);
   let ops='';
   for(const it of items){
-    const bytes=_winAnsiBytes(it.str);
-    if(!bytes) continue;                  // left in the raster by _pdfCanTypeset
+    const bytes=it.runs?null:_winAnsiBytes(it.str);
+    const runBytes=it.runs?it.runs.map(r=>_winAnsiBytes(r.t)):null;
+    if(it.runs?runBytes.some(b=>!b):!bytes) continue;   // left in the raster by _pdfCanTypeset
     // label chip behind the text
     if(it.bg){
       const c=_pdfColor(it.bg.fill);
       if(c.a>0.02) ops+=`q ${gs(c.a)}${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `
         +`${X(it.bg.x)} ${(hPt-(it.bg.y+it.bg.h)*k).toFixed(3)} ${(it.bg.w*k).toFixed(3)} ${(it.bg.h*k).toFixed(3)} re f Q\n`;
+    }
+    if(it.runs){
+      // Marked-up label: one BT…ET, each run in its own face (Helvetica-Oblique for
+      // italics, a 70% size for super/subscripts) raised or lowered by a text rise (Ts).
+      // Each Tj advances the pen, so the text is selectable and reads in order.
+      const L=_rtLayout(mc, it.runs, it.font), off=_rtBaseOff(mc, it.font, it.baseline);
+      const dx=it.align==='center'?-L.w/2:(it.align==='right'||it.align==='end')?-L.w:0;
+      const c=_pdfColor(it.fill), tgs=gs(c.a);
+      if(tgs) ops+=`q ${tgs}`;
+      ops+=`BT ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
+      if(it.rot) ops+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm ${(dx*k).toFixed(3)} ${(-off*k).toFixed(3)} Td `;
+      else ops+=`1 0 0 1 ${X(it.x+dx)} ${Y(it.y+off)} Tm `;
+      L.runs.forEach((q,i)=>{
+        const sz=(L.size*k*((q.sup||q.sub)?_RT_SCRIPT:1)).toFixed(3);
+        ops+=`/${fkey(_pdfFontFor(q.font))} ${sz} Tf ${(-q.dy*k).toFixed(3)} Ts (${_pdfStr(runBytes[i])}) Tj `;
+      });
+      ops+=`0 Ts ET${tgs?' Q':''}\n`;
+      continue;
     }
     mc.font=it.font;
     const m=mc.measureText(it.str);
@@ -15642,7 +15970,7 @@ function _captionText(){
     const meta=im.metaNote?.trim();
     // Build description: the caption note, else the tag the panel wears on the figure
     // (a condition, a time point), so "(B) 10 min." rather than "(B) Panel B."
-    let desc=note||(im.tag||'').trim()||'';
+    let desc=note||_rtText((im.tag||'').trim())||'';
     // LUT → channel hint
     const lutLabel=LUT_NAMES[im.lut||'none'];
     let lutInDesc=false, grayInDesc=false;
@@ -15655,12 +15983,12 @@ function _captionText(){
     // Grayscale hint
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
     else if(im.grayscale){ grayInDesc=true; }
-    const shown=formatLabel(im.label);        // the letter style the figure shows
+    const shown=_rtText(formatLabel(im.label));        // the letter style the figure shows
     // A linked inset says what it is: the boxed region of its parent, and how much it
     // is enlarged RELATIVE to that parent — a ratio FigureLab genuinely knows, unlike an
     // objective magnification, which it never states.
     const parent=im.insetOf?_findPanelById(im.insetOf):null;
-    const pl=parent?(formatLabel(parent.label)||'the source panel'):'';
+    const pl=parent?(_rtText(formatLabel(parent.label))||'the source panel'):'';
     let insetSentence='';
     if(parent){
       const mag=_insetMag(im);
@@ -15711,7 +16039,7 @@ function _captionText(){
       : ' Adjustment settings differ between panels, as stated per panel above.';
   }
   const title=gv('fig-title').trim();
-  return (title?`Figure. ${title}. `:'')+preamble+parts.join(' ')+uniformity;
+  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+parts.join(' ')+uniformity;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -15733,7 +16061,7 @@ function _panelsPhrase(names){ return (names.length===1?'panel ':'panels ')+_lis
 function _ucFirst(t){ return t ? t[0].toUpperCase()+t.slice(1) : t; }
 function generateMethodsParagraph(){
   const P=_methodsPanels();
-  const nm=im=>formatLabel(im.label)||'(unlabelled)';
+  const nm=im=>_rtText(formatLabel(im.label))||'(unlabelled)';
   const was=a=>a.length===1?'was':'were';
   const S=[];
   S.push(`Figures were assembled in FigureLab v${APP_VERSION} (Awuah 2026; https://doi.org/10.5281/zenodo.21269456).`);
@@ -15897,7 +16225,7 @@ let _figAltText='';
 function _buildStructuralAltText(){
   const parts=[];
   const title=(gv('fig-title')||'').trim();
-  if(title) parts.push(`Figure titled "${title}".`);
+  if(title) parts.push(`Figure titled "${_rtText(title)}".`);
   if(layoutMode==='grid'){
     const n=images.filter(Boolean).length;
     if(n){ parts.push(`A ${gi('cols')}×${gi('rows')} panel grid of ${n} image panel${n!==1?'s':''}`+
@@ -15969,6 +16297,7 @@ const _FIG_CONTROLS=[
   ['style.sbH','sb-h'],['style.sbColor','sb-color'],['style.sbText','sb-text','c'],
   ['style.axisFs','axis-fs'],['style.axisGap','axis-gap'],['style.groupBracket','group-bracket'],
   ['style.labelFont','label-font'],['style.labelBold','label-bold','c'],['style.labelItalic','label-italic','c'],
+  ['style.formatMarks','format-marks','c'],   // *italic*, ^{sup}… in labels; off = literal
   ['style.axisFont','axis-font'],['style.axisBold','axis-bold','c'],['style.axisItalic','axis-italic','c'],
   ['style.axisColor','axis-color'],['style.axisAutoColor','axis-auto-color','c'],
   ['style.labelBg','label-bg','c'],['style.labelAutoColor','label-auto-color','c'],
@@ -16623,7 +16952,7 @@ function _scriptFigure(){
   _figureCells().forEach(cell=>{
     const im=cell.im;
     if(!im){ out.blanks.push(`row ${cell.r+1}, column ${cell.c+1}`); return; }
-    const lbl=formatLabel(im.label)||im.label||'?';
+    const lbl=_rtText(formatLabel(im.label)||im.label||'?');
     const b=panelBounds.find(p=>p.idx===cell.idx);
     if(!b||!(b.dw>0&&b.dh>0)){ out.notReproduced.push(`panel ${lbl}: nothing is drawn (its crop is empty)`); return; }
     const src=im.img||im._imgEl;
@@ -16658,7 +16987,9 @@ function _scriptFigure(){
   if(figGroups.some(g=>String(g.label||'').trim())) out.notReproduced.push('the group bands\' brackets (their names are drawn)');
   if((gi('panel-border-w')||0)>0) out.notReproduced.push('panel borders');
   if(images.some(im=>im&&im.insetOf)) out.notReproduced.push('inset outlines and connector lines');
-  out.text=figTextItems.filter(t=>t&&t.str).map(t=>({text:String(t.str), x:r3(t.x), y:r3(t.y), size:r3(t.fs),
+  // The scripts draw labels in one face: marked-up text goes as the characters shown.
+  if(figTextItems.some(t=>t&&t.runs)) out.notReproduced.push('inline formatting in labels (italic, bold, superscript, subscript): drawn as plain text');
+  out.text=figTextItems.filter(t=>t&&t.str).map(t=>({text:t.runs?_rtPlain(t.str):String(t.str), x:r3(t.x), y:r3(t.y), size:r3(t.fs),
     bold:/\bbold\b|\b[6-9]00\b/.test(t.font||''), fill:_scriptColor(t.fill), align:t.align||'left',
     baseline:t.baseline||'alphabetic', rot:t.rot?1:0, bbox:[t.bbox.x,t.bbox.y,t.bbox.w,t.bbox.h].map(r3),
     chip:t.bg?{x:r3(t.bg.x), y:r3(t.bg.y), w:r3(t.bg.w), h:r3(t.bg.h), r:r3(t.bg.r||0), fill:_scriptColor(t.bg.fill)}:null}));
@@ -18119,7 +18450,7 @@ function renderFreeform(canvas, ctx, S, opts){
         ctx.font=`${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`;
         ctx.fillStyle=gv('label-color')||'#fff';
         ctx.textBaseline='top';
-        ctx.fillText(formatLabel(el.label), el.x+6, el.y+5);
+        _rtDraw(ctx, formatLabel(el.label), el.x+6, el.y+5);
       }
       // Add to panelBounds for annotation compatibility (preview only — render()
       // clears panelBounds when !isExport, so pushing during an export duplicates).
@@ -18135,6 +18466,12 @@ function renderFreeform(canvas, ctx, S, opts){
       const align=el.align||'left';
       ctx.textAlign=align;
       const maxW=el.w-12;
+      if(_rtDrawRuns(String(el.text??'Text'))){
+        const lh=fs*1.3;
+        const tx=align==='center'?el.x+el.w/2:align==='right'?el.x+el.w-6:el.x+6;
+        _rtWrap(ctx, String(el.text??'Text'), ctx.font, maxW).forEach((ln,li)=>_rtDrawRunList(ctx, ln.runs, tx, el.y+6+li*lh));
+        ctx.textAlign='left';
+      } else {
       // Wrap each explicit line (\n) independently, preserving blank lines
       const lines=[];
       for(const para of String(el.text??'Text').split('\n')){
@@ -18151,6 +18488,7 @@ function renderFreeform(canvas, ctx, S, opts){
       const tx=align==='center'?el.x+el.w/2:align==='right'?el.x+el.w-6:el.x+6;
       lines.forEach((ln,li)=>ctx.fillText(ln,tx,el.y+6+li*lh));
       ctx.textAlign='left';
+      }
     } else if(el.type==='rect'){
       if(el.fillOpacity>0){
         ctx.save(); ctx.globalAlpha*=(el.fillOpacity??0.3);
@@ -19535,7 +19873,7 @@ function _chartEmitCanvas(ctx){
     line(x1,y1,x2,y2,stroke,sw,dash){ ctx.save(); ctx.strokeStyle=stroke||'#000'; ctx.lineWidth=sw||1; if(dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore(); },
     poly(pts,stroke,fill,sw){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     circle(cx,cy,r,fill,stroke,sw){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
-    text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); ctx.fillText(str,0,0); } else ctx.fillText(str,x,y); ctx.restore(); },
+    text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); _rtDraw(ctx,str,0,0); } else _rtDraw(ctx,str,x,y); ctx.restore(); },
   };
 }
 // SVG backend — appends element strings to `out`. Same vocabulary as the canvas
@@ -19550,7 +19888,7 @@ function _chartEmitSVG(out){
     line(x1,y1,x2,y2,stroke,sw,dash){ out.push(`<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${stroke||'#000'}" stroke-width="${sw||1}"${dash?` stroke-dasharray="${dash.join(' ')}"`:''}/>`); },
     poly(pts,stroke,fill,sw){ const p=pts.map(q=>`${n(q[0])},${n(q[1])}`).join(' '); out.push(`<polyline points="${p}" fill="${fill||'none'}"${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''} stroke-linejoin="round"/>`); },
     circle(cx,cy,r,fill,stroke,sw){ out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}"${fill?` fill="${fill}"`:' fill="none"'}${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''}/>`); },
-    text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
+    text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; const R=_rtDrawRuns(str); if(R){ out.push(`<text x="${n(x)}" y="${n(y+_rtBaseOff(_rtMc(),font,baseline||'alphabetic'))}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}"${tr}>${_rtSVGSpans(R,font,esc)}</text>`); return; } out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
   };
 }
 
@@ -23044,7 +23382,7 @@ function _s1PageCanvas(im, opts){
   const r1=v=>{ const x=Math.round(v*10)/10; return Number.isInteger(x)?String(x):x.toFixed(1); };
   const pt=([x,y])=>`(${r1(x)}, ${r1(y)})`;
   const L=[];   // [text, bold?]
-  L.push([`Panel ${formatLabel(im.label)||'?'} — uncropped original`, true]);
+  L.push([`Panel ${_rtText(formatLabel(im.label))||'?'} — uncropped original`, true]);
   L.push([`Source file: ${_sourceName(im)||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
   if(!G.cropped) L.push(['Not cropped: the whole image is used in the figure.']);
   else if(G.rotated) L.push([`Crop: a ${r1(G.sw)} × ${r1(G.sh)} px region tilted ${r1(G.angle)}° about the image centre. Corners (source px) TL ${pt(G.corners[0])}, TR ${pt(G.corners[1])}, BR ${pt(G.corners[2])}, BL ${pt(G.corners[3])}.`]);
@@ -23457,7 +23795,7 @@ function batchExportPanels(){
     ctx2.drawImage(canvas,pb.x,pb.y,pb.w,pb.h,0,0,pb.w,pb.h);
     c.toBlob(blob=>{
       const url=URL.createObjectURL(blob);
-      dl(url,`${baseName}_panel${im.label}.png`);
+      dl(url,`${baseName}_panel${_rtText(im.label)}.png`);
       setTimeout(()=>URL.revokeObjectURL(url),5000);
     },'image/png');
   });
@@ -24030,7 +24368,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
   const provHash=await _provenanceHash();
   const meta={
     'Software':'FigureLab v'+APP_VERSION,
-    'Description':(gv('fig-title')||'Untitled figure'),
+    'Description':(_rtText(gv('fig-title'))||'Untitled figure'),
     'Creation Time':new Date().toISOString(),
     'DPI':String(dpi),
     'Provenance-SHA256':provHash,
