@@ -2722,9 +2722,16 @@ let figTextItems = [];      // text drawn each render: for label drag hit-test +
 // character. One parser (_rtParse); everything that draws, measures, exports or copies
 // figure text asks it. A label with no valid markup is drawn by exactly the code it was
 // drawn by before: significance stars ("*", "**", "* p < 0.05", "*p<0.05, **p<0.01",
-// "a*b") never pair, because a span opens only on asterisks with a non-space character
-// after them and closes only on as many asterisks with a non-space character before
-// them and no word character after them. ^ and _ without { are plain characters.
+// "a*b") never pair. The rule, in full:
+//   - a run of asterisks OPENS a span only when a letter or digit follows it, and it does
+//     not stand against the end of a word: the character before it is not an ASCII letter,
+//     digit or underscore, nor a ^{…}/_{…} group. So "WT*KO*", "rec*A*", "x*y* = 5" and
+//     "a*b*" stay literal (footnote stars after a word), and "*(p<0.05)*", "*+*" and
+//     "*-*" stay literal (no letter after the star). "Δ*fliC*" still italicises fliC: Δ is
+//     a symbol written against a gene name, not the end of an ASCII word.
+//   - it CLOSES one only with a non-space character before it and no word character after.
+// ^ and _ without { are plain characters, and so is an empty group: "^{}" and "_{}" mark
+// nothing up, so they are drawn as typed.
 // ═══════════════════════════════════════════════════════════════
 const _RT_SUP={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','−':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ'};
 const _RT_SUB={'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉','+':'₊','-':'₋','−':'₋','=':'₌','(':'₍',')':'₎',
@@ -2754,7 +2761,7 @@ function _rtParse(str){
           if(s[j]==='{') d++;
           else if(s[j]==='}'&&--d===0) break;
         }
-        if(j<s.length){ A.push({k:'g', sup:c==='^', inner:s.slice(k+2,j)}); marked=true; k=j+1; continue; }
+        if(j<s.length&&j>k+2){ A.push({k:'g', sup:c==='^', inner:s.slice(k+2,j)}); marked=true; k=j+1; continue; }
       }
       if(c==='*'){ let j=k; while(s[j]==='*') j++; A.push({k:'s', n:j-k}); k=j; continue; }
       A.push({k:'c',ch:c}); k++;
@@ -2763,8 +2770,9 @@ function _rtParse(str){
   };
   const isSp=a=>!a||(a.k==='c'&&/\s/.test(a.ch));
   const isWord=a=>!!a&&a.k==='c'&&/[\p{L}\p{N}_]/u.test(a.ch);
+  // Returns the group's plain text (see _rtScriptPlain), built alongside the runs.
   const seq=(s,f)=>{
-    const A=lex(s);
+    const A=lex(s); let pl='';
     // Which asterisks are delimiters: a stack of openers; a closer pairs with the nearest
     // opener of its own length (a run of three is bold and italic at once, and can be
     // closed in two steps, or close a bold and an italic opened separately).
@@ -2774,8 +2782,9 @@ function _rtParse(str){
       a.lit=a.n; a.oi=0; a.ob=0; a.ci=0; a.cb=0;
       if(a.n>3) return;                                   // "****" is a row of stars
       const prev=A[ix-1], next=A[ix+1];
-      // Not before closing punctuation either: "WT*, KO*" is two footnote stars, not ", KO" in italics.
-      const canOpen=!!next&&!isSp(next)&&!(next.k==='c'&&/[,.;:!?)\]}\/|]/.test(next.ch));
+      // See the rule above: a letter or digit after it, and no ASCII word (or group) before it.
+      const canOpen=!!next&&next.k==='c'&&/[\p{L}\p{N}]/u.test(next.ch)
+        &&!(prev&&(prev.k==='g'||(prev.k==='c'&&/[A-Za-z0-9_]/.test(prev.ch))));
       const canClose=!!prev&&!isSp(prev)&&!isWord(next);
       if(canClose){
         if(a.n<3){
@@ -2801,17 +2810,19 @@ function _rtParse(str){
     let it=0, bd=0;
     const fl=()=>({...f, i:f.i||it>0, b:f.b||bd>0});
     A.forEach(a=>{
-      if(a.k==='c') push(a.ch, fl());
-      else if(a.k==='g') seq(a.inner, {...fl(), sup:a.sup, sub:!a.sup});
+      if(a.k==='c'){ push(a.ch, fl()); pl+=a.ch; }
+      else if(a.k==='g') pl+=_rtScriptPlain(seq(a.inner, {...fl(), sup:a.sup, sub:!a.sup}), a.sup);
       else {
         if(a.oi||a.ob||a.ci||a.cb) marked=true;
         if(a.ci||a.cb){ if(a.ci) it--; if(a.cb) bd--; push('*'.repeat(a.lit), fl()); }
         else { push('*'.repeat(a.lit), fl()); if(a.oi) it++; if(a.ob) bd++; }
+        pl+='*'.repeat(a.lit);
       }
     });
+    return pl;
   };
-  seq(str, {i:false,b:false,sup:false,sub:false});
-  const r={runs:out, marked};
+  const plain=seq(str, {i:false,b:false,sup:false,sub:false});
+  const r={runs:out, marked, plain};
   if(_rtCache.size>2000) _rtCache.clear();
   _rtCache.set(str, r);
   return r;
@@ -2820,12 +2831,24 @@ function _rtParse(str){
 // the drawing (_rtItemRuns) and the text consumers (_rtText) do.
 function _rtRuns(str){ return _rtParse(str).runs.map(r=>({...r})); }
 function _rtHas(str){ return _rtParse(str).marked; }
-// What a reader sees: the text without its marks, super/subscripts as Unicode
-// superscript and subscript characters where those exist, else the plain character.
+// What a reader sees: the text without its marks. A ^{…} or _{…} group is written in
+// Unicode superscript/subscript characters only when EVERY character in it has one
+// (digits, + − = ( ), and n and i for superscripts): 10^{8} → 10⁸, Ca^{2+} → Ca²⁺,
+// H_{2}O → H₂O, x^{n+1} → xⁿ⁺¹. A group that cannot be converted whole is never
+// half-converted ("Pₗₐc" reads as nothing): a subscript is written on the line
+// (P_{lac} → Plac, k_{cat} → kcat), a superscript after a caret (x^{n} would convert;
+// kan^{R} → kan^R, 10^{min} → 10^(min)), bracketed when longer than one character.
 function _rtPlain(str){
-  const P=_rtParse(str); if(!P.marked) return String(str??'');
-  return P.runs.map(r=>r.sup?[...r.t].map(c=>_RT_SUP[c]||c).join('')
-    :r.sub?[...r.t].map(c=>_RT_SUB[c]||c).join(''):r.t).join('');
+  const P=_rtParse(str); return P.marked?P.plain:String(str??'');
+}
+// Unicode has subscript letters too (ₐ ₑ ₘ …), but most fonts draw them badly and a
+// reader cannot tell "ₘₐₓ" from a smudge, so only the forms above are used.
+const _RT_PLAIN_OK=/^[0-9+\-−=()]+$/;
+function _rtScriptPlain(t, sup){
+  if(!t) return '';
+  if(_RT_PLAIN_OK.test(t)||(sup&&/^[0-9+\-−=()ni]+$/.test(t))) return [...t].map(c=>(sup?_RT_SUP:_RT_SUB)[c]).join('');
+  if(!sup) return t;
+  return [...t].length===1?'^'+t:'^('+t+')';
 }
 
 // The figure's "Format marks in labels" switch (on by default; off draws every label
@@ -4152,7 +4175,7 @@ async function replaceAllImages(fileList){
     <div style="font-weight:600;font-size:14px;margin-bottom:6px">Replace all images</div>
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Each panel keeps its label, crop, tilt, adjustments, LUT, scale bar, tags, annotations, span and insets; only its file changes. Files go to the panel whose file has the same name, the rest to the remaining panels in order.</div>
     <div id="ra-list" style="max-height:300px;overflow:auto;font-size:11px;line-height:1.55">
-      ${ok.map(p=>`<div class="ra-row" data-id="${p.im.id}"><b>${L(p.im)}</b> ${esc(_sourceName(p.im)||'(unnamed)')} → <b>${esc(p.d.name)}${esc(pg(p))}</b> <span style="color:var(--muted)">(${p.how==='name'?'same name':'in order'})</span>${p.plan.notes.length?`<div style="color:${p.plan.warn?'var(--warn)':'var(--muted)'};padding-left:14px">${p.plan.notes.map(esc).join('<br>')}</div>`:''}</div>`).join('')}
+      ${ok.map(p=>`<div class="ra-row" data-id="${esc(p.im.id)}"><b>${L(p.im)}</b> ${esc(_sourceName(p.im)||'(unnamed)')} → <b>${esc(p.d.name)}${esc(pg(p))}</b> <span style="color:var(--muted)">(${p.how==='name'?'same name':'in order'})</span>${p.plan.notes.length?`<div style="color:${p.plan.warn?'var(--warn)':'var(--muted)'};padding-left:14px">${p.plan.notes.map(esc).join('<br>')}</div>`:''}</div>`).join('')}
       ${m.unchanged.length?`<div style="margin-top:6px" id="ra-unchanged"><b>Left unchanged:</b> ${m.unchanged.map(im=>`${L(im)} (${esc(_sourceName(im)||'')})`).join(', ')}</div>`:''}
       ${m.unused.length?`<div style="margin-top:6px;color:var(--warn)" id="ra-unused"><b>Not used</b> (more files than panels): ${m.unused.map(fi=>esc(files[fi].name)).join(', ')}</div>`:''}
       ${bad.length?`<div style="margin-top:6px;color:var(--danger)"><b>Could not be read</b>, so those panels stay as they are: ${bad.map(p=>esc(files[p.fi].name)).join(', ')}</div>`:''}
@@ -4686,18 +4709,50 @@ function _rtHowTo(){
 }
 // The figure's own text fields. Ctrl/⌘+I and +B wrap the selection in the marks; a
 // capture listener, because the inline text inputs stop their keydown from bubbling.
-const _RT_FIELDS='#fig-title,#col-label-inputs input,#row-label-inputs input,#group-list input[data-glabel],.img-label-input,.f-tag,#ann-text-input,#ann-float-tb-text,#ff-text-input,.rt-field';
+// Every field whose text the figure draws through the parser: the how-to promises chart
+// titles and axes, and the lane table and a multi-crop region's name (it becomes the
+// panel's label) are figure text too.
+const _RT_FIELDS='#fig-title,#col-label-inputs input,#row-label-inputs input,#group-list input[data-glabel],.img-label-input,.f-tag,'
+  +'#ann-text-input,#ann-float-tb-text,#ff-text-input,#chart-xtitle,#chart-ytitle,#lt-grid .lt-name,#lt-grid .lt-cell,#mc-region-label,.rt-field';
+// → {v, a, b}: the field's new value and selection after toggling mark m on [a,b).
+// The marks hug the text: spaces at the selection's edges stay outside them ("*E. coli *"
+// pairs nothing). A selection already wrapped in m — the marks just outside it, or the
+// selection itself starting and ending with them — is unwrapped instead (Ctrl+I twice
+// is italic off, not bold; Ctrl+B twice never writes "****"). Wrapped means the marks
+// really are markup: taking them away leaves the text the figure shows unchanged.
+function _rtToggleMark(v, a, b, m){
+  if(a===b) return {v:v.slice(0,a)+m+m+v.slice(b), a:a+m.length, b:a+m.length};
+  while(a<b&&/\s/.test(v[a])) a++;
+  while(b>a&&/\s/.test(v[b-1])) b--;
+  if(a===b) return null;                                         // only spaces: nothing to style
+  // the text inside any stars the selection itself takes in
+  let ia=a, ib=b; while(ia<ib&&v[ia]==='*') ia++; while(ib>ia&&v[ib-1]==='*') ib--;
+  if(ia<ib){
+    let L=0, R=0; while(ia-L-1>=0&&v[ia-L-1]==='*') L++; while(ib+R<v.length&&v[ib+R]==='*') R++;
+    const n=m.length, has=n===1?(L%2===1&&R%2===1):(L>=2&&R>=2);
+    if(has){
+      const w=v.slice(0,ia-n)+v.slice(ia,ib)+v.slice(ib+n);
+      if(_rtPlain(w)===_rtPlain(v)) return {v:w, a:ia-n, b:ib-n};
+    }
+  }
+  return {v:v.slice(0,a)+m+v.slice(a,b)+m+v.slice(b), a:a+m.length, b:b+m.length};
+}
 document.addEventListener('keydown', e=>{
   if(!(e.ctrlKey||e.metaKey)||e.altKey||e.shiftKey||e.isComposing) return;
   const k=(e.key||'').toLowerCase(); if(k!=='i'&&k!=='b') return;
   const t=e.target; if(!t||!t.matches||!t.matches(_RT_FIELDS)) return;
   e.preventDefault(); e.stopPropagation();
   const m=k==='i'?'*':'**', a=t.selectionStart??t.value.length, b=t.selectionEnd??a;
-  const sel=t.value.slice(a,b);
-  t.setRangeText(m+sel+m, a, b, 'end');
-  if(a===b) t.setSelectionRange(a+m.length, a+m.length);          // nothing selected: type between the marks
-  else t.setSelectionRange(a+m.length, b+m.length);                 // keep the wrapped text selected
+  const r=_rtToggleMark(t.value, a, b, m); if(!r) return;
+  const before=t.value;
+  t.value=r.v; t.setSelectionRange(r.a, r.b);
   t.dispatchEvent(new Event('input', {bubbles:true}));
+  // The lane table commits on change (one undo step per edit), as when typed.
+  if(t.matches('.lt-name,.lt-cell')) t.dispatchEvent(new Event('change', {bubbles:true}));
+  // Marks put round a selection that do not pair are drawn as typed; say so rather than
+  // leave stray stars. (With nothing selected the marks wait for the text typed between.)
+  if(a!==b&&_rtOn()&&r.v.length>before.length&&_rtPlain(r.v)!==_rtPlain(before))
+    toast('These marks do not pair here, so they are drawn as typed — select whole words','warn');
 }, true);
 
 function _cmdpGoto(id, note){
@@ -5146,7 +5201,7 @@ function _refreshPreflight(){
     m:`${_lowPpi.length} panel(s) print below ${PANEL_MIN_PPI} ppi (${_lowPpi.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')}): they are enlarged beyond their source pixels, and a higher DPI does not add detail to them.`});
   const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
   if(notDrawn.length) warns.push({t:'warn',
-    m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}.`});
+    m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}.`});
   const row=(k,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
     <span style="color:var(--muted)">${k}</span><span style="color:var(--text);text-align:right">${v}</span></div>`;
   const warnHtml = warns.length
@@ -5156,7 +5211,7 @@ function _refreshPreflight(){
       }).join('')+`</div>`
     : `<div style="margin-top:12px;font-size:11.5px;color:var(--a2)">✓ No integrity warnings for this export.</div>`;
   document.getElementById('preflight-body').innerHTML=
-    row('Saving as', nm+'.'+_pfExt(fmt))+
+    row('Saving as', esc(nm+'.'+_pfExt(fmt)))+
     row('Resolution', dpi+' DPI')+
     row('Pixel dimensions', `${fw} × ${fh} px`+(capped?' (capped)':''))+
     row('Physical size', `${mmW.toFixed(1)} × ${mmH.toFixed(1)} mm  ·  ${(mmW/25.4).toFixed(2)} × ${(mmH/25.4).toFixed(2)} in`)+
@@ -5245,10 +5300,11 @@ function _scaleBarDrawn(im){
 }
 function _scaleBarsNotDrawn(){
   const out=[];
-  _figurePanels().forEach(im=>{
+  // Only the layout on screen draws bars: the other one's skip flags are stale.
+  if(layoutMode!=='freeform') _figurePanels().forEach(im=>{
     if(im._sbSkip) out.push({label:`panel ${im.label||'(unlabelled)'}`, why:im._sbSkip});
   });
-  if(typeof freeformElements!=='undefined'){
+  else if(typeof freeformElements!=='undefined'){
     freeformElements.forEach(el=>{
       if(el&&el._sbSkip) out.push({label:`object ${el.label||'(unlabelled)'}`, why:el._sbSkip});
     });
@@ -5372,7 +5428,7 @@ function renderImgList(){
       <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
         <input type="checkbox" class="panel-pick" data-pick="${idx}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
-        <img class="img-thumb" src="${im.src}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
+        <img class="img-thumb" src="${_safeSrc(im.src)}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
@@ -5433,7 +5489,7 @@ function renderImgList(){
         <div class="sec-lbl">Panel border (this image)</div>
         <div class="field"><label>Width</label>
           <input type="number" class="f-bdrw" value="${im.borderW||0}" min="0" max="20" step="1" style="width:48px"> px
-          <input type="color" class="f-bdrc" value="${im.borderC||'#ffffff'}" style="width:28px;height:22px">
+          <input type="color" class="f-bdrc" value="${esc(im.borderC||'#ffffff')}" style="width:28px;height:22px">
         </div>
         <div class="field"><label>Inset</label>
           <input type="number" class="f-bdri" value="${im.borderInset||0}" min="0" max="50" step="1" style="width:48px"> px
@@ -6463,7 +6519,7 @@ function _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText){
   const raw=im.raw, native=!!(raw&&raw.min!=null&&raw.max!=null&&raw.max>raw.min);
   const toNative=v=>raw.min+(v/255)*(raw.max-raw.min);
   const hi=_fmtBarVal(native?toNative(wp):wp), lo=_fmtBarVal(native?toNative(bp):bp);
-  const sfs=Math.max(7,Math.round(9*dw/300)), font=`${sfs}px system-ui,sans-serif`;
+  const sfs=Math.max(7,Math.round(9*dw/300)), font=`${sfs}px ${_barFontFamily()}`;
   emitText('cbar',imgIdx,hi, bx-3, by, font, sbClr, 'right','top',0);
   emitText('cbar',imgIdx,lo, bx-3, by+bh, font, sbClr, 'right','alphabetic',0);
 }
@@ -8328,7 +8384,7 @@ function _gelRenderModal(){
       if(r.resized) fl.push('<span title="Its boundaries were set by hand on the lane profile">edges set</span>');
       if(r.lcFlag) fl.push(`<span style="color:var(--warn)" title="The paired lane of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} has clipped samples or reaches past the image: no normalised value is given">LC lane ${r.lcFlag==='PARTIAL'?'cut':'saturated'}</span>`);
       const flag=fl.join(' ');
-      const kd=r.marker!=null?`<b>${r.marker}</b>`:(r.kda!=null?`${r.kda.toFixed(1)}${r.extrapolated?'<span title="Outside the ladder range — extrapolated">*</span>':''}`:'—');
+      const kd=r.marker!=null?`<b>${esc(r.marker)}</b>`:(r.kda!=null?`${r.kda.toFixed(1)}${r.extrapolated?'<span title="Outside the ladder range — extrapolated">*</span>':''}`:'—');
       html+=`<tr style="${sel?'background:rgba(250,204,21,.15)':''}">${td(r.lane)}${td(r.band)}${td(r.rf.toFixed(3))}${td(`${Math.round(r.y0)}–${Math.round(r.y1)}`)}${td(_gelFmt(r.peak,1))}${td(_gelFmt(r.volume,0),r.saturated?'color:var(--danger)':'')}${td(_gelFmt(r.pctLane,1))}${td(_gelFmt(r.relRef,3))}${td(_gelFmt(r.normLC,4))}${a.loading&&a.refLane!=null?td(_gelFmt(r.normLCRef,3)):''}${td(kd)}${td(flag)}<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this band (one undo step)" onclick="gelDeleteBand(_gelUI.idx,${li},${r.bandIdx})">✕</button></td></tr>`;
     });
   });
@@ -8396,7 +8452,8 @@ function _ltNameNeed(im){
   const fs=Math.max(6,Math.min(72,+t.fs||12));
   _ltMeasure=_ltMeasure||document.createElement('canvas').getContext('2d');
   _ltMeasure.font=_ltFont(fs);
-  const nw=Math.max(0,...t.rows.map(r=>String(r.name||'').trim()?_ltMeasure.measureText(String(r.name).trim()).width:0));
+  // Measured as drawn: "**Ca^{2+}** (mM)" is as wide as its runs, not as its marks.
+  const nw=Math.max(0,...t.rows.map(r=>String(r.name||'').trim()?_rtMeasure(_ltMeasure,String(r.name).trim()):0));
   return nw>0?Math.ceil(nw+fs*0.5+2):0;
 }
 // Per grid column, the strip the row names need on the left beyond what the gutter (or
@@ -8431,7 +8488,7 @@ function _ltDraw(im,imgIdx,box,R,ink,emitText){
   _ltMeasure.font=font;
   t.rows.forEach((row,ri)=>{
     const yc=top+ri*R.lh+R.lh/2, nm=String(row.name||'').trim();
-    if(nm) emitText('lanetable',imgIdx,nm,box.ox-Math.round(R.fs*0.5)-_ltMeasure.measureText(nm).width,yc,font,ink,'left','middle',0);
+    if(nm) emitText('lanetable',imgIdx,nm,box.ox-Math.round(R.fs*0.5)-_rtMeasure(_ltMeasure,nm),yc,font,ink,'left','middle',0);
     for(let k=0;k<n;k++){ const v=_ltNorm((row.cells||[])[k]); if(v) emitText('lanetable',imgIdx,v,xs[k],yc,font,ink,'center','middle',0); }
   });
 }
@@ -9992,7 +10049,7 @@ function render(targetCanvas, exportScale, opts){
             if(sbTxt){
               const sfs=Math.max(7,Math.round(10*ow/300));
               const lbl=_sbLabel(im);
-              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px system-ui,sans-serif`, barInk, 'center','alphabetic',0);
+              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px ${_barFontFamily()}`, barInk, 'center','alphabetic',0);
               ctx.textAlign='left';
             }
           }
@@ -12424,7 +12481,9 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
 // JOURNAL COMPLIANCE CHECKER
 // ═══════════════════════════════════════════════════════════════
 function checkCompliance(){
-  if(!images.length){ toast('Render a figure first','warn'); return; }
+  // A freeform figure is its objects: one made only of freeform pictures is checked too.
+  const _ff=layoutMode==='freeform';
+  if(!images.length&&!(_ff&&freeformElements.length)){ toast('Render a figure first','warn'); return; }
   render();
   const canvas=document.getElementById('fig-canvas');
   const dpi=getExportDPI();
@@ -12436,7 +12495,8 @@ function checkCompliance(){
   const labelPt=Math.max(1,gi('label-size')||8)*_pf.ptPerPx;
   const bg=gv('bg-color');
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
-  const _shownPanels=_figurePanels();
+  // In freeform the grid's panels are not drawn, so no row judges them.
+  const _shownPanels=_ff?[]:_figurePanels();
   const panelsWithImages=_shownPanels.length;
   const panelsWithLabels=_shownPanels.filter(im=>im.label).length;
   // Two panels under one label make every "(B)" in the caption point at two pictures.
@@ -12465,7 +12525,7 @@ function checkCompliance(){
   // Display range per channel: every visible panel and extra channel, grouped by the
   // channel it shows; more than one distinct black–white range in a group is drift.
   const _ranges=new Map();
-  _figurePanels().forEach(im=>{
+  _shownPanels.forEach(im=>{
     if(!im.img) return;
     const lbl=_rtText(formatLabel(im.label))||'?';
     const add=(key,bp,wp,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=`${bp||0}–${wp==null?255:wp}`; if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
@@ -12489,9 +12549,9 @@ function checkCompliance(){
     {label:'Printed width', ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5,
       note:`${_pf.wMm.toFixed(0)} mm (${wIn.toFixed(2)}")${targetMm?' — matches the chosen column width':' · max double-column is ~183 mm'}`},
     {label:'Printed height',ok:hIn<=9.5, warn:false, note:`${_pf.hMm.toFixed(0)} mm (${hIn.toFixed(2)}")`},
-    {label:'Text size',     ok:labelPt>=5, warn:labelPt>=4&&labelPt<5,
+    _ff ? _ffTextRow(_pf.ptPerPx) : {label:'Text size',     ok:labelPt>=5, warn:labelPt>=4&&labelPt<5,
       note:`panel labels print at ${labelPt.toFixed(1)} pt${labelPt<5?' — below the ~5 pt most journals accept':''}`},
-    {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${bg} — most journals require white`,
+    {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${esc(bg)} — most journals require white`,
       fix:bgIsWhite?null:{a:'white',t:'Make white'}},
     {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
       note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
@@ -12504,7 +12564,7 @@ function checkCompliance(){
     // a mistyped µm/px used to ship a figure with no scale bar and a green report.
     {label:'Scale bar drawn', ok:_sbNotDrawn.length===0, warn:false,
       note:_sbNotDrawn.length
-        ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${s.label}: ${s.why}`).join('; ')}`
+        ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}`
         : 'Every enabled scale bar is drawn ✓'},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
     // Compared panels showing the same channel at different display ranges is the
@@ -12512,8 +12572,9 @@ function checkCompliance(){
     // same way. A warning, not a failure — sometimes it is deliberate, and the caption
     // says so — with the fix one click away.
     {label:'Display ranges by channel', ok:_rangeDrift.length===0, warn:_rangeDrift.length>0,
-      note:_rangeDrift.length ? _rangeDrift.join('; ')+' — compared panels should share a range, or the legend should say why not'
-                              : (_rangeKeys ? `Same range per channel across panels ✓ (${_rangeKeys})` : 'No pseudocoloured panels'),
+      // Labels and channel keys (file names) are the author's text: escaped for the note.
+      note:_rangeDrift.length ? esc(_rangeDrift.join('; '))+' — compared panels should share a range, or the legend should say why not'
+                              : (_rangeKeys ? `Same range per channel across panels ✓ (${esc(_rangeKeys)})` : 'No pseudocoloured panels'),
       fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
@@ -12540,9 +12601,11 @@ function checkCompliance(){
         ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
           + (JOURNAL_AI_POLICIES[_lastPresetName]
              ? `${JOURNAL_AI_POLICIES[_lastPresetName].name} does not accept generative-AI figures (summarised ${JOURNAL_POLICY_FETCHED}; verify)`
-             : 'disclose to the journal; Nature, Science and Cell currently do not accept generative-AI figures')
+             : 'disclose to the journal; Nature and the ASM journals state on their own pages that they do not accept generative-AI images — check your journal’s policy')
         : 'No AI-generated content ✓'},
   ];
+  // Rows about grid panels say so in freeform, rather than pass on panels nobody sees.
+  if(_ff) checks.forEach((c,i)=>{ if(_FF_NA.has(c.label)) checks[i]=_ffNaRow(c.label); });
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
   checks.push(_reuseComplianceRow());
@@ -12569,6 +12632,18 @@ function checkCompliance(){
       ? ` — each journal row comes from its own figure guide (${esc(J.src)}), read ${JOURNAL_RULES_READ}. Guides change, so check its own spec too before you submit.`
       : ` — its own page could not be read and the secondary sources disagree, so its rows are <b>unverified</b> (?) and never fail. Check its own spec on <a href="${J.url}" target="_blank" rel="noopener" style="color:var(--accent)">the journal's page</a>.`
     } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Go to the figure's alt text box (embedded in PNG, SVG and PDF exports)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
+}
+// The general rows that read grid panels, and what they say in a freeform figure.
+const _FF_NA=new Set(['Panel labels','Panel labels unique','Scale-bar calibration','Adjustment sanity',
+  'Display ranges by channel','Min panel size','Linked insets','Scale bars','Scale-bar length','Bar length in legend']);
+const _ffNaRow=label=>({label, ok:true, info:true, uncounted:true,
+  note:'Does not apply in freeform layout — it reads grid panels, and this figure is drawn from freeform objects'});
+// Text size for a freeform figure: its smallest text object, picture label or bar text.
+function _ffTextRow(k){
+  const T=_figTextSizes(); if(!T.length) return {label:'Text size', ok:true, info:true, note:'No text on the freeform figure'};
+  const t=T.reduce((a,b)=>b.fs<a.fs?b:a), pt=t.fs*k;
+  return {label:'Text size', ok:pt>=5, warn:pt>=4&&pt<5,
+    note:`smallest text (${_TEXT_KIND[t.kind]||t.kind}) prints at ${pt.toFixed(1)} pt${pt<5?' — below the ~5 pt most journals accept':''}`};
 }
 function _auditFix(action){
   // The journal rows' fixes, and the colour-accessibility ones: each its own undo step.
@@ -15054,7 +15129,7 @@ function renderAnnotationList(){
   annotations.forEach((a,i)=>{
     const row=document.createElement('div');
     row.className='ann-row'+(i===selectedAnnotation?' selected':'');
-    const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
+    const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(a.color)};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
     const nm = a.name || (a.type==='ruler'&&a.rulerName?`ruler "${a.rulerName}"`:a.type==='text'?`T "${_rtText(a.text||'').substring(0,14)}"`:a.type==='textbox'?`⬜ "${_rtText(a.text||'').substring(0,10)}"`:a.type);
     row.innerHTML=`${swatch}<span class="ann-name" style="flex:1;${a.hidden?'opacity:.45':''}">${esc(nm)}</span>
       <button class="icon-btn ba-rename" title="Rename layer" style="font-size:10px">✎</button>
@@ -15104,7 +15179,7 @@ function renderAnnotationList(){
       const isSel=!!_spa&&_spa.imgIdx===imgIdx&&_spa.annIdx===annIdx;
       const row=document.createElement('div');
       row.className='ann-row'+(isSel?' selected':'');
-      const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${a.color};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
+      const swatch=a.color?`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${esc(a.color)};border:1px solid rgba(255,255,255,.2);flex-shrink:0"></span>`:'';
       const label=(a.type==='text'?`T "${a.text.substring(0,14)}"`:a.type);
       row.innerHTML=`<span style="font-size:9px;color:var(--accent);flex-shrink:0">📌</span>${swatch}<span>${esc(label)}</span>
         <button class="icon-btn del" title="Delete" style="font-size:11px">×</button>`;
@@ -15549,7 +15624,8 @@ const JOURNALS={
     blots:{uncropped:'uncropped originals as one “S1_raw_images” PDF of at most 20 MB (or a repository); unused lanes marked “X”',
       s1Name:'S1_raw_images', s1MaxMB:20, splice:'a thin line at splices'}},
   elife:{label:'eLife', name:'eLife', verified:true, src:'eLife figure guidelines', url:'https://elifesciences.org/',
-    widthRange:{min:100,max:200}, widthNote:'at least 10 cm at 300 dpi, 20 cm for a full page',
+    // the guide states a minimum only; 20 cm is a full page, a warning above it, not a rule
+    widthRange:{min:100}, fullPage:200, widthNote:'at least 10 cm at 300 dpi, 20 cm for a full page',
     widthOpts:['100','183','200'], heightNote:'the figure and its legend must fit on one page',
     dpiPhoto:300, dpiLine:300, dpiMax:null, dpiNote:'at least 300 dpi',
     colour:'RGB', colourNote:'RGB',
@@ -15593,29 +15669,31 @@ const JOURNALS={
       splice:'splices marked, and no splicing between blots', extra:'total-protein normalisation whenever possible; quantify within the linear range; gamma disclosed in the legend; fluorescence channels also shown in greyscale'}},
   science:{label:'Science', name:'Science', verified:false, src:'secondary sources only — they conflict',
     url:'https://www.science.org/content/page/instructions-preparing-initial-manuscript',
-    columns:[{mm:55,t:'1 column'},{mm:85,t:'single column'},{mm:175,t:'double column'}], widthOpts:['55','85','175','183.5'],
+    columns:[{mm:55,t:'1 column'},{mm:85,t:'single column'},{mm:175,t:'double column'}], widthOpts:['55','85','175'],
     fonts:['Helvetica','Arial','Myriad'], fontNote:'Helvetica, Arial or Myriad',
     dpiPhoto:150, dpiLine:null, dpiMax:300, dpiNote:'150–300 dpi for colour',
-    ai:{gate:true, name:'Science / AAAS',
-      text:'AI-generated images are not permitted without explicit permission from the editors. Where permission is given, the methods must state the full prompt, the tool and its version.',
+    // Unverified: never a gate, only the rule sheet's wording with the unverified tag.
+    ai:{gate:false, name:'Science / AAAS',
+      text:'generative-AI images are not permitted without editor permission',
       url:'https://www.science.org/content/page/science-journals-editorial-policies'}},
   cell:{label:'Cell', name:'Cell Press', verified:false, src:'secondary sources only',
     url:'https://www.cell.com/information-for-authors/figure-guidelines',
     columns:[{mm:85,t:'single column'},{mm:114,t:'1.5 column'},{mm:174,t:'double column'}], widthOpts:['85','114','174'],
     dpiPhoto:300, dpiLine:600, dpiMax:1000, dpiNote:'300 dpi colour/grey, 500 black-and-white, 600–1000 line art',
-    ai:{gate:true, name:'Cell Press / Elsevier',
-      text:'Generative AI may not be used to create or alter research images — explicitly including adjustments to brightness, contrast or colour balance. Cover art needs prior editorial approval.',
+    ai:{gate:false, name:'Cell Press / Elsevier',
+      text:'no AI in primary-data figures',
       url:'https://www.cell.com/information-for-authors/figure-guidelines'}},
   pnas:{label:'PNAS', name:'PNAS', verified:false, src:'secondary sources only — they conflict', url:'https://www.pnas.org/',
-    columns:[{mm:87,t:'single column'},{mm:114,t:'1.5 column'},{mm:178,t:'double column'}], widthOpts:['87','114','178','180'],
+    columns:[{mm:87,t:'single column'},{mm:114,t:'1.5 column'},{mm:178,t:'double column'}], widthOpts:['87','114','178'],
     maxH:225, ptMin:6, ptMax:8, ptNote:'6–8 pt (another source: 6–12 pt)',
     dpiPhoto:300, dpiLine:600, dpiMax:1200, dpiNote:'300 photo, 600–900 with type, 1000–1200 line art'},
 };
 const JOURNAL_ORDER=['nature','plos','elife','embo','asm','jbc','science','cell','pnas'];
 // The journals whose policy stops an export carrying AI-generated objects until the
-// author has read it. A view of the table above, so the two cannot disagree.
+// author has read it. A view of the table above, so the two cannot disagree; only a
+// journal whose own page was read can stop an export.
 const JOURNAL_AI_POLICIES=Object.fromEntries(Object.entries(JOURNALS)
-  .filter(([,J])=>J.ai&&J.ai.gate).map(([id,J])=>[id,{name:J.ai.name, blocks:true, text:J.ai.text, url:J.ai.url}]));
+  .filter(([,J])=>J.verified&&J.ai&&J.ai.gate).map(([id,J])=>[id,{name:J.ai.name, blocks:true, text:J.ai.text, url:J.ai.url}]));
 const JOURNAL_POLICY_FETCHED='August 2026';
 let _lastPresetName='';                 // which journal preset is in force
 let _aiPolicyAcked=false;               // acknowledged once per session, not per export
@@ -15637,9 +15715,20 @@ function _syncWidthOptions(){
 }
 function _onTargetJournal(v){
   // A chosen journal is applied, as its preset button would; None only stops checking
-  // against one. Either way the control's own change is the one undo step.
-  if(v&&JOURNALS[v]) applyPreset(v);
-  else { _lastPresetName=''; _syncWidthOptions(); scheduleRender(); }
+  // against one. Either way the change is exactly one undo step. The control's armed
+  // snapshot is that step when it was armed (focus, pointer, key); a change that reached
+  // it otherwise — the menu still focused from the last choice, a script — records it
+  // here, with the control put back to the journal it showed before.
+  if(!_undoChangeStep){
+    const now=gv('target-journal');
+    sv('target-journal', (_lastPresetName&&JOURNALS[_lastPresetName])?_lastPresetName:'none');
+    pushUndo(); sv('target-journal', now);
+  }
+  _undoHeld++;
+  try{
+    if(v&&JOURNALS[v]) applyPreset(v);
+    else { _lastPresetName=''; _syncWidthOptions(); scheduleRender(); }
+  } finally { _undoHeld--; }
 }
 // ⌘K "Check against …": target the journal without changing the figure, then report.
 function checkAgainstJournal(id){
@@ -15657,9 +15746,21 @@ function _fontName(v){
 }
 // The fonts the figure's text is set in, from its two font controls, with where each is used.
 function _figFontUse(){
-  const out=[{where:'panel letters, tags and annotations', name:_fontName(gv('label-font')||'system-ui,sans-serif'), id:'label-font'}];
+  const out=[{where:'panel letters, tags, annotations and bar text', name:_fontName(gv('label-font')||'system-ui,sans-serif'), id:'label-font'}];
   if(gv('axis-font')) out.push({where:'headings', name:_fontName(gv('axis-font')), id:'axis-font'});
+  if(layoutMode==='freeform') [...new Set(freeformElements.filter(e=>e&&e.type==='text'&&e.fontFamily).map(e=>_fontName(e.fontFamily)))]
+    .forEach(n=>out.push({where:'freeform text', name:n, id:null}));
   return out;
+}
+// Scale-bar and intensity-bar text is set in the figure's label font, so a journal's font
+// rule covers it. The default label font is the system sans-serif the bars always used,
+// so a figure that never chose a font draws exactly as before.
+function _barFontFamily(){ return gv('label-font')||'system-ui,sans-serif'; }
+// A freeform text object set in a font the journal does not list takes the label font.
+function _journalFixFreeformFonts(J){
+  if(layoutMode!=='freeform'||!J.fonts) return false;
+  let n=0; freeformElements.forEach(e=>{ if(e&&e.type==='text'&&e.fontFamily&&!J.fonts.includes(_fontName(e.fontFamily))){ delete e.fontFamily; n++; } });
+  return n>0;
 }
 function _journalFontValue(J){ return (J.fonts||[]).map(n=>_JFONT_VALUE[n]).find(Boolean)||null; }
 
@@ -15668,9 +15769,19 @@ function _journalFontValue(J){ return (J.fonts||[]).map(n=>_JFONT_VALUE[n]).find
 // annotations and the placed key, each in logical px; pt = px × _physFacts().ptPerPx,
 // the factor the printed-size readout uses.
 const _TEXT_KIND={panel:'panel letters', tag:'panel tags', title:'figure title', col:'column headings', row:'row headings',
-  group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key'};
+  group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key', fftext:'freeform text'};
+// A freeform figure draws its own objects, not the grid's panels and annotations: its
+// text objects, and each picture object's label and scale-bar text.
 function _figTextSizes(){
   const out=[];
+  if(layoutMode==='freeform'){
+    freeformElements.forEach(el=>{ if(!el) return;
+      if(el.type==='text'&&String(el.text??'').trim()) out.push({kind:'fftext', fs:el.fontSize||16, el});
+      if(el.type==='image'||el.type==='aiicon'){ const fu=_ffFurniture(el);
+        if(fu.label&&String(fu.label.str||'').trim()) out.push({kind:'panel', fs:fu.label.fs});
+        if(fu.sbText&&String(fu.sbText.str||'').trim()) out.push({kind:'sb', fs:fu.sbText.fs}); } });
+    return out;
+  }
   (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill}); });
   const ann=a=>{ if(!a||a.hidden) return;
     if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16});
@@ -15680,8 +15791,9 @@ function _figTextSizes(){
   return out;
 }
 // Text a journal's size range can be fixed for: what the letter, heading and annotation
-// size controls set. Scale-bar text follows the panel width and is reported, not changed.
-const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','key']);
+// size controls set, and a freeform text object's own size. Scale-bar text follows the
+// panel width and is reported, not changed.
+const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','key','fftext']);
 function _journalTextReport(J, ptPerPx){
   const by=new Map();
   _figTextSizes().forEach(t=>{ const pt=t.fs*ptPerPx, g=by.get(t.kind)||{min:Infinity,max:-Infinity};
@@ -15692,6 +15804,41 @@ function _journalTextReport(J, ptPerPx){
     list:[...by].map(([k,g])=>`${_TEXT_KIND[k]||k} ${g.min===g.max||Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', '),
     badList:bad.map(([k,g])=>`${_TEXT_KIND[k]||k} ${Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', ') };
 }
+// What one Fit pass would change, read off the last render, without changing anything:
+// {label, axis, anns:[[object, size]], clash, letterFloor}. Two limits it never crosses:
+// letters are drawn at no less than 7 px, so a letter size below 7 changes nothing on the
+// page (letterFloor: 7 px already prints above the maximum at this width); and the title
+// is drawn 4 px larger than the headings, so when the range is narrower than that, both
+// cannot sit inside it (clash) — the headings, the bulk of the text, are kept in range and
+// the title is left over rather than pulling them out of it.
+function _journalTextStep(J){
+  const k=_physFacts().ptPerPx; if(!(k>0)) return null;
+  const lo=J.ptMin!=null?J.ptMin/k:0, hi=J.ptMax!=null?J.ptMax/k:Infinity;
+  const fit=v=>{ if(v<lo-1e-9) v=Math.ceil(lo-1e-9); if(v>hi+1e-9) v=Math.floor(hi+1e-9); return Math.max(1,v); };
+  const T=_figTextSizes(), kinds=new Set(T.map(t=>t.kind));
+  const st={label:null, axis:null, anns:[], clash:false, letterFloor:false, k};
+  if(kinds.has('panel')||kinds.has('tag')){
+    // letters draw at no less than 7 px and tags at 0.8 of the letter size
+    const p=gi('label-size'), drawn=Math.max(7,p); let L=Math.max(7,fit(drawn));
+    if(7>hi+1e-9) st.letterFloor=true;
+    if(kinds.has('tag')) while(Math.max(7,Math.round(L*0.8))<lo-1e-9 && L+1<=hi+1e-9) L++;
+    if(L!==drawn) st.label=L;
+  }
+  const heads=['col','row','group'].some(x=>kinds.has(x)), title=kinds.has('title');
+  if(heads||title){
+    const a=gi('axis-fs'), lo2=Math.max(1,Math.ceil(lo-1e-9)), hi2=Math.floor(hi+1e-9);
+    let A=fit(a);
+    if(heads&&title){ if(hi2-4>=lo2) A=Math.min(A,hi2-4); else st.clash=true; }
+    else if(title) A=Math.max(1,fit(a+4)-4);                      // a title alone, at A+4
+    if(A!==a) st.axis=A;
+  }
+  const fixAnn=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='legend')) return;
+    const d=a.fontSize||(a.type==='legend'?12:16), v=fit(d); if(v!==d) st.anns.push([a,v]); };
+  if(layoutMode==='freeform') T.filter(t=>t.kind==='fftext').forEach(t=>{ const d=t.el.fontSize||16, v=fit(d); if(v!==d) st.anns.push([t.el,v]); });
+  else { annotations.forEach(fixAnn); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(fixAnn)); }
+  return st;
+}
+const _textStepEmpty=st=>!st||(st.label==null&&st.axis==null&&!st.anns.length);
 // Bring every adjustable text size into the journal's range at final print size. The
 // heading size moves the canvas width (the row-heading band), which moves pt per px when a
 // printed width is set, so it settles over a few passes. The caller records the undo step.
@@ -15700,30 +15847,24 @@ function _journalClampText(J){
   let changed=false;
   for(let pass=0;pass<5;pass++){
     render();
-    const k=_physFacts().ptPerPx; if(!(k>0)) break;
-    const lo=J.ptMin!=null?J.ptMin/k:0, hi=J.ptMax!=null?J.ptMax/k:Infinity;
-    const fit=v=>{ if(v<lo-1e-9) v=Math.ceil(lo-1e-9); if(v>hi+1e-9) v=Math.floor(hi+1e-9); return Math.max(1,v); };
-    const kinds=new Set(_figTextSizes().map(t=>t.kind));
-    let ch=false;
-    if(kinds.has('panel')||kinds.has('tag')){
-      // letters draw at no less than 7 px and tags at 0.8 of the letter size
-      const p=gi('label-size'), drawn=Math.max(7,p); let L=fit(drawn);
-      if(kinds.has('tag')) while(Math.max(7,Math.round(L*0.8))<lo-1e-9 && L+1<=hi+1e-9) L++;
-      if(L!==drawn){ sv('label-size',L); ch=true; }
-    }
-    if(['col','row','group','title'].some(x=>kinds.has(x))){
-      const a=gi('axis-fs'); let A=fit(a);
-      if(kinds.has('title')&&A+4>hi+1e-9) A=Math.max(1,Math.floor(hi+1e-9)-4);   // the title is 4 px larger
-      if(A!==a){ sv('axis-fs',A); ch=true; }
-    }
-    const fixAnn=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='legend')) return;
-      const d=a.fontSize||(a.type==='legend'?12:16), v=fit(d); if(v!==d){ a.fontSize=v; ch=true; } };
-    annotations.forEach(fixAnn); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(fixAnn));
-    if(!ch) break;
+    const st=_journalTextStep(J); if(_textStepEmpty(st)) break;
+    if(st.label!=null) sv('label-size',st.label);
+    if(st.axis!=null) sv('axis-fs',st.axis);
+    st.anns.forEach(([a,v])=>{ a.fontSize=v; });
     changed=true;
   }
   render();
   return changed;
+}
+// The printed width at which letters drawn at their 7 px floor print at the journal's
+// maximum or less: pt per px scales with the printed width. The journal's widest column
+// (or its range's minimum or more) under it, else null.
+function _journalNarrowFor(J, k){
+  if(J.ptMax==null||!(k>0)) return null;
+  const wMax=_physFacts().wMm*J.ptMax/(7*k);
+  if(J.columns){ const c=J.columns.filter(c=>c.mm<=wMax+0.05).sort((a,b)=>b.mm-a.mm)[0]; return c?c.mm:null; }
+  if(J.widthRange&&wMax>=(J.widthRange.min||0)) return Math.floor(wMax);
+  return null;
 }
 
 // ── Width and resolution against the journal ──
@@ -15734,12 +15875,16 @@ function _journalWidthOk(J, wMm){
     if(J.oneHalf&&wMm>=J.oneHalf.min-0.5&&wMm<=J.oneHalf.max+0.5) return {ok:false, half:true};
     return {ok:false};
   }
-  if(J.widthRange){ const r=J.widthRange; return {ok:wMm>=(r.min||0)-0.5&&wMm<=r.max+0.5}; }
+  if(J.widthRange){ const r=J.widthRange;
+    if(wMm<(r.min||0)-0.5||(r.max!=null&&wMm>r.max+0.5)) return {ok:false};
+    if(J.fullPage&&wMm>J.fullPage+0.5) return {ok:false, over:true};
+    return {ok:true}; }
   return null;
 }
 function _journalWidthTarget(J, wMm){
   if(J.columns) return J.columns.reduce((b,c)=>Math.abs(c.mm-wMm)<Math.abs(b.mm-wMm)?c:b).mm;
-  const r=J.widthRange; return (wMm>r.max||!r.min) ? r.max : r.min;
+  const r=J.widthRange, top=r.max!=null?r.max:J.fullPage;
+  return (top!=null&&wMm>top)||!r.min ? top : r.min;
 }
 // The DPI a figure with text on it needs: EMBO asks 600 for text and combination
 // figures; the others state one floor for everything.
@@ -15771,6 +15916,7 @@ function _applyJournalRules(J){
     const v=_journalFontValue(J);
     if(v&&!J.fonts.includes(_fontName(gv('label-font')||'system-ui,sans-serif'))){ sv('label-font',v); did.push(_fontName(v)); }
     if(gv('axis-font')&&!J.fonts.includes(_fontName(gv('axis-font')))){ sv('axis-font',''); did.push('headings in the same font'); }
+    if(_journalFixFreeformFonts(J)) did.push('freeform text in the same font');
   }
   if(J.letters){
     if(_fontName(gv('label-font'))!==J.letters.font){ sv('label-font',_JFONT_VALUE[J.letters.font]); did.push(`${J.letters.font} letters`); }
@@ -15778,7 +15924,8 @@ function _applyJournalRules(J){
     if(J.letters.upper&&!['ABC','custom'].includes(gv('label-format'))){ sv('label-format','ABC'); did.push('upper-case letters'); }
   }
   if(J.lzw&&!gc('export-tiff-lzw')){ sc('export-tiff-lzw',true); did.push('LZW TIFF'); }
-  if(J.naming&&!J.naming.re.test(gv('export-name').trim())){ sv('export-name',J.naming.stem); did.push(`named ${J.naming.stem}`); }
+  if(J.naming){ const T=_journalNameTarget(J);
+    if(!T.ok&&T.name){ sv('export-name',T.name); did.push(`named ${T.name}`); } }
   render();
   const hasText=_figTextSizes().length>0, dt=_journalDpiTarget(J,getExportDPI(),hasText);
   if(dt){ sv('export-dpi',String(dt)); did.push(`${dt} DPI`); }
@@ -15810,7 +15957,8 @@ const _JSRC=J=>J?(J.verified?`${J.short||J.label}'s figure guide, read ${JOURNAL
 // no journal each row appears only when it has something to say, so the report for a
 // figure with nothing to flag is the one it has always been.
 function _accessRows(J){
-  const rows=[], shown=_figurePanels().filter(im=>im&&im.img);
+  // In freeform, the picture objects the figure draws (their LUTs), not the grid's panels.
+  const rows=[], shown=(layoutMode==='freeform'?freeformElements.filter(e=>e&&(e.type==='image'||e.type==='aiicon')):_figurePanels()).filter(im=>im&&im.img);
   const lutsOf=im=>[im.lut,...((im.channels)||[]).map(c=>c.lut)].filter(l=>l&&l!=='none');
   // (a) red with green, in one merge or across panels a reader compares
   const merges=shown.filter(im=>{ const s=new Set(lutsOf(im)); return s.has('red')&&s.has('green'); });
@@ -15850,13 +15998,22 @@ function _accessRows(J){
 function _blotPanels(shown){
   return shown.filter(im=>im&&(im.gelAnalysis||annotations.some(a=>a&&((a.splice&&a.splicePanel===im.id)||a.blotPanel===im.id))));
 }
-// MW labels from ↕ MW ladder: numbers tagged to the blot. Older ones carry no mw flag:
-// the ladder is a column of numbers (one x), lane numbers are a row (one y).
+// MW labels: numbers tagged to the blot by ↕ MW ladder, or — the heuristic the row states
+// — a column of two or more numbers (a unit such as kDa, bp or kb allowed) typed with the
+// Text tool beside the blot: within the blot's height, and left or right of it by up to
+// 60% of its width, at one x (within 10% of the blot's width). Lane numbers are a row.
+const _MW_TEXT=/^\s*\d+(\.\d+)?\s*(kDa|kD|kd|bp|kbp|kb)?\s*$/i;
+const _MW_HEURISTIC='a column of two or more numbers (kDa, bp or kb allowed) typed beside the blot counts as MW labels';
 function _mwLabelsFor(im){
-  const t=annotations.filter(a=>a&&a.type==='text'&&!a.hidden&&a.blotPanel===im.id&&/^\s*\d+(\.\d+)?\s*$/.test(a.text||''));
-  const tagged=t.filter(a=>a.mw); if(tagged.length) return tagged;
-  const byX=new Map(); t.forEach(a=>{ const k=(+a.xf).toFixed(4); byX.set(k,(byX.get(k)||[]).concat(a)); });
-  return [...byX.values()].filter(g=>g.length>=2&&new Set(g.map(a=>(+a.yf).toFixed(4))).size===g.length).flat();
+  const txt=annotations.filter(a=>a&&a.type==='text'&&!a.hidden&&_MW_TEXT.test(a.text||''));
+  const tagged=txt.filter(a=>a.mw&&a.blotPanel===im.id); if(tagged.length) return tagged;
+  const pb=(panelBounds||[]).find(p=>images[p.idx]===im), W=canvasLogicalW||0, H=canvasLogicalH||0;
+  const near=a=>{ if(a.blotPanel===im.id) return true; if(a.blotPanel!=null||!pb||!W||!H) return false;
+    const x=a.xf*W, y=a.yf*H, m=pb.w*0.6;
+    return y>=pb.y-4&&y<=pb.y+pb.h+4&&((x>=pb.x-m&&x<=pb.x+6)||(x>=pb.x+pb.w-6&&x<=pb.x+pb.w+m)); };
+  const t=txt.filter(near), tol=Math.max(6,(pb?pb.w:100)*0.1)/(W||1);
+  const cols=[]; t.slice().sort((a,b)=>a.xf-b.xf).forEach(a=>{ const c=cols.find(c=>Math.abs(c[0].xf-a.xf)<=tol); if(c) c.push(a); else cols.push([a]); });
+  return cols.filter(g=>g.length>=2&&new Set(g.map(a=>(+a.yf).toFixed(4))).size===g.length).flat();
 }
 // The ladder's labelled markers and every other lane's bands, in the analysis's frame.
 function _gelMarkerSpan(im){
@@ -15875,7 +16032,7 @@ function _blotRows(J, shown){
     B.forEach(im=>{
       const span=_gelMarkerSpan(im), labels=_mwLabelsFor(im);
       const n=Math.max(span?span.marks.length:0, labels.length);
-      if(!n){ warn=true; notes.push(`${nm(im)}: no molecular-weight labels`); return; }
+      if(!n){ warn=true; notes.push(`${nm(im)}: no molecular-weight labels recognised (place them with ↕ MW ladder, or type a column of numbers beside the blot)`); return; }
       if(n<2){ warn=true; notes.push(`${nm(im)}: only one labelled marker`); return; }
       if(bl.mw==='bracket'){
         if(span&&span.marks.length>=2&&span.bands.length){
@@ -15886,7 +16043,7 @@ function _blotRows(J, shown){
         } else notes.push(`${nm(im)}: ${n} labelled markers; above/below not checked — no ladder lane assigned in ⫼ Analyse lanes & bands`);
       } else notes.push(`${nm(im)}: ${n} labelled markers ✓`);
     });
-    rows.push({label:'MW markers', ok:!warn, warn, src, note:notes.join('; ')+` — ${jn}: ${bl.mwNote}`});
+    rows.push({label:'MW markers', ok:!warn, warn, src, note:notes.join('; ')+` — ${jn}: ${bl.mwNote}. Counted: numbers placed by ↕ MW ladder; ${_MW_HEURISTIC}`});
   }
   const splices=annotations.filter(a=>a&&a.splice&&B.some(im=>im.id===a.splicePanel)).length;
   if(splices) rows.push({label:'Splices', ok:true, info:true, src:bl.splice?src:'',
@@ -15900,18 +16057,36 @@ function _blotRows(J, shown){
     const s1=_s1Panels().filter(_s1Selected).length;
     let note=`${jn}: ${bl.uncropped}. 🗎 Export uncropped originals (S1) writes them${s1?` (${s1} panel${s1===1?'':'s'} ticked)`:''}, and the submission package includes it`;
     if(bl.s1Name==='S1_raw_images') note+=` as <b>S1_raw_images.pdf</b>; FigureLab warns when the file is over ${bl.s1MaxMB} MB`;
-    if(bl.s1Name==='elife') note+=` as <b>${esc(_journalS1Name())}.pdf</b>`;
+    if(bl.s1Name==='elife') note+=` as <b>${esc(_journalS1Name())}.pdf</b>${_figNumber()==null?' — the export name carries no figure number, so add it (e.g. “Figure 3”) and the sheet takes it':''}`;
     rows.push({label:'Uncropped originals', ok:true, info:true, src, note, fix:{a:'s1',t:'S1…'}});
   }
   return rows;
 }
-// The figure number an export name carries ("Fig2", "figure_3"), else 1.
-function _figNumber(){ const m=/(\d+)/.exec(gv('export-name')||''); return m?+m[1]:1; }
-// What the uncropped-originals sheet is called for the target journal.
+// The figure number an export name carries: the number after "fig"/"figure" (or a lone
+// "F3"), so "2026-11-13 figure 4" is 4 and "v2 Figure 5" is 5; null when the name has
+// none — a guess would name figure 3's files after figure 1.
+function _figNumber(name){
+  const n=String(name==null?gv('export-name')||'':name);
+  const m=/fig(?:ure)?[\s._-]*(\d+)/i.exec(n)||/(?:^|[^A-Za-z0-9])F(\d+)(?![A-Za-z0-9])/.exec(n);
+  return m?+m[1]:null;
+}
+// PLOS's own naming for a supporting figure ("S2 Fig"), left as it is.
+const _PLOS_SI=/^S\d+[\s_]?Fig/i;
+// What a journal that names its files wants this figure called: {name} when the figure's
+// number is known (or the name already fits), {name:null} when it is not.
+function _journalNameTarget(J){
+  const n=gv('export-name').trim();
+  if(!J.naming||J.naming.re.test(n)||_PLOS_SI.test(n)) return {name:n, ok:true};
+  const N=_figNumber(n);
+  return {name:N!=null?`Fig${N}`:null, ok:false};
+}
+// What the uncropped-originals sheet is called for the target journal. eLife's
+// "Figure N—source data": without a number in the export name the sheet goes out as
+// "Figure—source data 1" and the report says to add it.
 function _journalS1Name(){
   const id=_targetJournalId();
   if(id==='plos') return 'S1_raw_images';
-  if(id==='elife') return `Figure ${_figNumber()}—source data 1`;
+  if(id==='elife'){ const N=_figNumber(); return N!=null?`Figure ${N}—source data 1`:'Figure—source data 1'; }
   return S1_FILENAME;
 }
 
@@ -15929,8 +16104,9 @@ function _journalRows(J, g){
   const wk=(J.columns||J.widthRange)?_journalWidthOk(J,wMm):null;
   if(wk){
     const allowed=J.columns?J.columns.map(c=>`${c.mm} mm ${c.t}`).join(', '):J.widthNote;
-    rows.push({label:'Printed width', ok:wk.ok, warn:!!wk.half, src,
-      note:`${f1(wMm)} mm${wk.ok?` — ${wk.t||'within the range'} ✓`:wk.half?` — inside the 1.5-column range (${J.oneHalf.min}–${J.oneHalf.max} mm) that only a secondary source gives; check the journal's page`:''} · ${nm}: ${allowed}`,
+    rows.push({label:'Printed width', ok:wk.ok, warn:!!wk.half||!!wk.over, src,
+      note:`${f1(wMm)} mm${wk.ok?` — ${wk.t||'within the range'} ✓`:wk.half?` — inside the 1.5-column range (${J.oneHalf.min}–${J.oneHalf.max} mm) that only a secondary source gives; check the journal's page`
+        :wk.over?` — wider than a full page (${J.fullPage} mm); ${nm} states a minimum width only, so this is a warning, not a failed rule`:''} · ${nm}: ${allowed}`,
       fix:wk.ok?null:{a:'jwidth',t:`Set ${_journalWidthTarget(J,wMm)} mm`}});
   } else rows.push({label:'Printed width', ok:true, info:true, note:`${f1(wMm)} mm · ${nm}: ${J.dataOnly?'the data-presentation page states no width':'no width stated'}`});
   // height
@@ -15940,22 +16116,26 @@ function _journalRows(J, g){
   // type size
   if(J.ptMin!=null||J.ptMax!=null){
     const tr=_journalTextReport(J,pf.ptPerPx), rng=J.ptNote||`${J.ptMin}–${J.ptMax} pt`;
-    // The title is drawn 4 px larger than the headings; when the range is narrower than
-    // that at this width, Fit cannot place both, and the note says so rather than pretend.
-    const titleClash=tr.bad.length&&tr.by.has('title')&&['col','row','group'].some(k=>tr.by.has(k))
-      &&J.ptMin!=null&&J.ptMax!=null&&(J.ptMax-J.ptMin)/pf.ptPerPx<4;
+    // Fit is offered only when it would change something and can finish: the title is
+    // drawn 4 px larger than the headings, and letters no smaller than 7 px, and when
+    // either makes the range unreachable at this width the note says so instead.
+    const st=tr.bad.length?_journalTextStep(J):null;
+    const titleClash=!!(st&&st.clash&&tr.by.has('title'));
+    const floorBad=!!(st&&st.letterFloor&&tr.bad.some(([k])=>k==='panel'||k==='tag'));
+    const narrow=floorBad?_journalNarrowFor(J,pf.ptPerPx):null;
+    const canFit=tr.fixable&&!titleClash&&!_textStepEmpty(st);
     rows.push({label:'Text size', ok:!tr.bad.length, src,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}`
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}`
         : (tr.list?`${esc(tr.list)} ✓ — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
-      fix:tr.fixable?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:null});
+      fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
   } else rows.push({label:'Text size', ok:true, info:true, note:`panel labels print at ${g.labelPt.toFixed(1)} pt · ${nm} states no type size`});
   // fonts
   if(J.fonts){
     const use=_figFontUse(), off=use.filter(u=>!J.fonts.includes(u.name));
-    const sbSys=(figTextItems||[]).some(t=>t&&(t.kind==='sb'||t.kind==='cbar')&&String(t.str||'').trim());
-    rows.push({label:'Font', ok:!off.length, warn:!off.length&&sbSys, src,
+    // Scale-bar and intensity-bar text follow the label font (_barFontFamily).
+    rows.push({label:'Font', ok:!off.length, src,
       note:(off.length?`${off.map(u=>`${esc(u.where)} in ${esc(u.name)}`).join('; ')} — `:`${esc(use.map(u=>u.name).filter((v,i,a)=>a.indexOf(v)===i).join(', '))} ✓ — `)
-        +`${nm}: ${J.fontNote}`+(sbSys?'. FigureLab draws scale-bar and intensity-bar text in the system sans-serif, which is not on that list':''),
+        +`${nm}: ${J.fontNote}`,
       fix:off.length?{a:'jfont',t:`Use ${_fontName(_journalFontValue(J))}`}:null});
   }
   if(J.letters){
@@ -16001,24 +16181,25 @@ function _journalRows(J, g){
       note:`${J.maxMBFmt==='tiff'?'uncompressed TIFF':'lossless PDF'} ≈ ${mb.toFixed(1)} MB${over?(J.lzw?' — over the limit uncompressed; LZW makes it smaller by an amount that depends on the picture, so check the written file':' — over the limit; lower the DPI within the journal’s range, or a narrower width'):' ✓'} · ${nm}: at most ${J.maxMBNote||J.maxMB+' MB'}`});
   }
   if(J.naming){
-    const n=gv('export-name').trim(), ok=J.naming.re.test(n);
+    const n=gv('export-name').trim(), T=_journalNameTarget(J), ok=T.ok;
     rows.push({label:'File name', ok, src,
-      note:`“${esc(n)}”${ok?' ✓':''} · ${nm}: ${J.naming.note}${J.tifExt?' — FigureLab writes the TIFF as .tif for this journal':' — FigureLab writes the TIFF as .tiff; rename it to .tif if the submission system insists'}`,
-      fix:ok?null:{a:'jname',t:`Name ${J.naming.stem}`}});
+      note:`“${esc(n)}”${ok?(_PLOS_SI.test(n)&&!J.naming.re.test(n)?' — a supporting figure, named as PLOS names them ✓':' ✓'):T.name?'':' — the name carries no figure number; name it Fig and the figure’s number'} · ${nm}: ${J.naming.note}${J.tifExt?' — FigureLab writes the TIFF as .tif for this journal':' — FigureLab writes the TIFF as .tiff; rename it to .tif if the submission system insists'}`,
+      fix:(!ok&&T.name)?{a:'jname',t:`Name ${T.name}`}:null});
   }
   if(J.extraNote) rows.push({label:'Border', ok:true, info:true, src, note:`${nm}: ${J.extraNote}`});
   // colour accessibility
   rows.push(..._accessRows(J));
   // scale bars
   const shown=g.shown;
-  if(J.scaleBar==='required'){
+  if(J.scaleBar&&layoutMode==='freeform') rows.push(_ffNaRow('Scale bars'));
+  else if(J.scaleBar==='required'){
     const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip));
     rows.push({label:'Scale bars', ok:!miss.length, src,
       note:(miss.length?`${miss.map(im=>esc(_rtText(formatLabel(im.label))||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
         +` — ${nm}: scale bars on micrographs. Panels without a calibration are not checked: FigureLab cannot tell a micrograph from a photograph`,
       fix:miss.length?{a:'jsbon',t:'Show bars'}:null});
   }
-  if(J.scaleBar==='legend'){
+  if(J.scaleBar==='legend'&&layoutMode!=='freeform'){
     const bars=shown.filter(im=>im.sbOn&&im.umPerPx>0&&!im._sbSkip);
     if(bars.length){
       const onBar=gc('sb-text');
@@ -16054,11 +16235,11 @@ function _complianceRowHtml(c){
   const st=c.unverified?'unv':c.ok?(c.info?'info':'ok'):c.warn?'warn':'fail';
   const icon={ok:'✓',info:'ℹ',unv:'?',warn:'⚠',fail:'✗'}[st];
   const color={ok:'var(--a2)',info:'var(--muted)',unv:'var(--muted)',warn:'var(--warn)',fail:'var(--danger)'}[st];
-  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${c.fix.a}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'?'Opens the tool for this':'One undo step; the report runs again'}">${c.fix.t}</button>`:'';
+  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${esc(c.fix.a)}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(c.fix.t)}</button>`:'';
   const src=c.src?`<span class="c-src" style="display:block;font-size:9.5px;color:var(--muted);opacity:.85">${c.unverified?'':'Source: '}${esc(c.src)}</span>`:'';
   return `<div class="compliance-row">
       <span class="c-icon" style="color:${color}">${icon}</span>
-      <span class="c-label">${c.label}</span>
+      <span class="c-label">${esc(c.label)}</span>
       <span class="c-note" style="flex:1">${c.note}${src}</span>${fixBtn}
     </div>`;
 }
@@ -16078,12 +16259,32 @@ function _journalFix(action){
   if(action==='jwidth'){ pushUndo(); sv('export-width-mm',String(_journalWidthTarget(J,_physFacts().wMm))); _syncWidthOptions(); render(); _syncPhysReadout(); return true; }
   if(action==='jdpi'){ const t=_journalDpiTarget(J,getExportDPI(),_figTextSizes().length>0); if(t){ pushUndo(); sv('export-dpi',String(t)); _syncPhysReadout(); } return true; }
   if(action==='jfont'){ pushUndo(); const v=_journalFontValue(J); if(v&&!J.fonts.includes(_fontName(gv('label-font')))) sv('label-font',v);
-    if(gv('axis-font')&&!J.fonts.includes(_fontName(gv('axis-font')))) sv('axis-font',''); render(); return true; }
+    if(gv('axis-font')&&!J.fonts.includes(_fontName(gv('axis-font')))) sv('axis-font','');
+    _journalFixFreeformFonts(J); render(); return true; }
   if(action==='jletters'){ pushUndo(); sv('label-font',_JFONT_VALUE[J.letters.font]); if(J.letters.bold) sc('label-bold',true);
     if(J.letters.upper&&!['ABC','custom'].includes(gv('label-format'))) sv('label-format','ABC'); render(); return true; }
-  if(action==='jtext'){ pushUndo(); _journalClampText(J); if(typeof renderAnnotationList==='function') renderAnnotationList(); return true; }
+  if(action==='jtext'){
+    // Converge or refuse: a Fit that cannot finish, or would change nothing, records no
+    // undo step and leaves Redo alone.
+    render(); const st=_journalTextStep(J);
+    if(st&&st.clash){ toast('The title is drawn 4 px larger than the headings, so both cannot fit this range at this width — drop the title or change the printed width','warn'); return true; }
+    if(_textStepEmpty(st)){ toast('Nothing Fit can change — see the Text size row','warn'); return true; }
+    const snap=snapshotState();
+    if(_journalClampText(J)) _pushSnap(snap);
+    if(typeof renderAnnotationList==='function') renderAnnotationList();
+    if(layoutMode==='freeform'&&typeof updateFreeformElemList==='function') updateFreeformElemList();
+    return true;
+  }
+  if(action==='jnarrow'){
+    const k=_physFacts().ptPerPx, w=_journalNarrowFor(J,k); if(!w) return true;
+    pushUndo();
+    const sel=document.getElementById('export-width-mm');
+    if(sel&&![...sel.options].some(o=>o.value===String(w))){ const o=document.createElement('option'); o.value=String(w); o.textContent=`${w} mm`; sel.appendChild(o); }
+    // the narrower width can take the letters past the minimum: fit them in the same step
+    sv('export-width-mm',String(w)); _syncWidthOptions(); _journalClampText(J); _syncPhysReadout(); return true;
+  }
   if(action==='jlzw'){ _setTiffLzw(true); return true; }
-  if(action==='jname'){ pushUndo(); sv('export-name',J.naming.stem); return true; }
+  if(action==='jname'){ const T=_journalNameTarget(J); if(!T.ok&&T.name){ pushUndo(); sv('export-name',T.name); } return true; }
   if(action==='jsbtext'){ pushUndo(); sc('sb-text',false); render(); return true; }
   if(action==='jsbon'){ pushUndo(); _figurePanels().forEach(im=>{ if(im&&im.img&&im.umPerPx>0) im.sbOn=true; }); renderImgList(); render(); return true; }
   if(action==='jfmt'){ if(m) m.remove(); doExportPreflight(J.formats[0]); return 'done'; }
@@ -16113,12 +16314,12 @@ function _journalPreflight(fmt, dpi, estBytes, name){
     warns.push({t:J.verified&&!J.formatStage?'warn':'info', m:`${esc(J.short||J.label)} accepts ${J.formats.map(f=>FN[f]).join(' or ')}${J.formatStage?` at ${J.formatStage}`:''}, not ${FN[fmt]||fmt}${tag}.${sw}`});
   }
   if(J.lzw&&fmt==='tiff'&&!gc('export-tiff-lzw')) warns.push({t:'warn',m:`${esc(J.short||J.label)} asks for LZW-compressed TIFF — tick Compress (LZW) above.`});
-  const lo=J.dpiLine||J.dpiPhoto;
+  const lo=_journalDpiNeed(J, _figTextSizes().length>0);   // the report's own rule
   if(lo&&dpi<lo) warns.push({t:J.verified?'warn':'info',m:`${esc(J.short||J.label)}: ${J.dpiNote}; ${dpi} DPI is below it${tag}.`});
   if(J.dpiMax&&dpi>J.dpiMax) warns.push({t:J.verified?'warn':'info',m:`${esc(J.short||J.label)}: ${J.dpiNote}; ${dpi} DPI is above it${tag}.`});
   if(J.maxMB&&estBytes>J.maxMB*1048576&&(!J.maxMBFmt||J.maxMBFmt===fmt||fmt==='tiff'))
     warns.push({t:'warn',m:`The estimate is over ${esc(J.short||J.label)}’s ${J.maxMB} MB limit${fmt==='tiff'&&gc('export-tiff-lzw')?' uncompressed; LZW may bring it under — check the written file':''}.`});
-  if(J.naming&&!J.naming.re.test(name)) warns.push({t:'warn',m:`${esc(J.short||J.label)} names figure files ${J.naming.note}`});
+  if(J.naming&&!J.naming.re.test(name)&&!_PLOS_SI.test(name)) warns.push({t:'warn',m:`${esc(J.short||J.label)} names figure files ${J.naming.note}`});
   return {req:`${esc(J.short||J.label)}: ${esc(req)}${tag}`, warns};
 }
 
@@ -16153,6 +16354,9 @@ let _aiGatePending=null;   // the export to resume after the user decides
 function _aiPolicyGate(resume){
   const n=(typeof _aiGeneratedCount==='function')?_aiGeneratedCount():0;
   const pol=JOURNAL_AI_POLICIES[_lastPresetName];
+  // An unverified journal informs and never stops the export.
+  const UJ=JOURNALS[_lastPresetName];
+  if(n&&!pol&&UJ&&!UJ.verified&&UJ.ai) toast(`${UJ.ai.name}: ${UJ.ai.text} (secondary sources; unverified — check the journal’s page)`,'warn');
   if(!n || !pol || _aiPolicyAcked) return true;
   _aiGatePending=resume;
   showInfoModal('AI content — check the journal’s policy', `
@@ -16593,7 +16797,7 @@ function _panelHistoryText(){
   L.push('');
   const _hidden=new Set(images.filter(im=>im&&im.excluded).map(im=>im.label));
   for(const h of hist){
-    L.push(`── ${h.panel} ── (source: ${h.source})`
+    L.push(`── ${_rtText(h.panel)} ── (source: ${h.source})`
       + (_hidden.has(h.panel)?'  [hidden from the figure]':''));
     h.operations.forEach((o,i)=>{
       const {op,note,...rest}=o;
@@ -16712,7 +16916,8 @@ async function exportSubmissionPackage(){
           // Its place in the figure first, so two panels with one label are two files and
           // the files sort in reading order; then the label, made safe for a file name.
           pos++;
-          const lbl=String((images[b.idx]&&images[b.idx].label)||'').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
+          // as the caption names it (NFKC turns H₂O₂ into H2O2 for the file system)
+          const lbl=_rtText((images[b.idx]&&images[b.idx].label)||'').normalize('NFKC').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
           files.push({name:`panels/panel_${String(pos).padStart(String(nShown).length,'0')}${lbl?'_'+lbl:''}.png`, data:buf}); }
       }
     }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
@@ -18359,9 +18564,11 @@ function applyPreset(name){
     sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
     sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
     sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
-    sv('export-dpi',{nature:300,science:600,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
-    // a width inside the journal's stated range, so the export lands at a real physical size
-    const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
+    // Science: inside the 150–300 dpi its (unverified) sources give, not above it.
+    sv('export-dpi',{nature:300,science:300,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
+    // a width inside the journal's stated range, so the export lands at a real physical size;
+    // for the unverified journals, the double column their secondary sources give
+    const wmm={nature:'183',science:'175',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'178'}[name];
     sv('export-width-mm', wmm||'0');
   }
   // Then what the journal's own page says, where it is mechanical: its width, font, type
@@ -18991,10 +19198,21 @@ function _splitSharedIds(list){
 }
 // A saved record as a live panel (no pixels yet). Files from before panels were saved
 // with their id get one, so an inset can bind to them from now on.
+// Numbers a panel's settings drawer writes into its fields. A record arrives from a file
+// or a share link, so one that is not a number is read as one (or dropped), never written
+// into the drawer's markup as text.
+const _REC_NUM=['umPerPx','sbUm','cropT','cropL','cropB','cropR','borderW','borderInset','colSpan','rowSpan',
+  'rotate','blackPt','whitePt','brightness','contrast','gamma','cropAngle'];
+function _recNumbers(o, keys){
+  keys.forEach(k=>{ const v=o[k]; if(v==null||typeof v==='number') return;
+    const n=Number(v); if(typeof v!=='boolean'&&isFinite(n)&&String(v).trim()!=='') o[k]=n; else delete o[k]; });
+  return o;
+}
 function _panelFromRecord(d){
-  const im={...d};
+  const im=_recNumbers({...d}, _REC_NUM);
   if(im.id==null) im.id=Date.now()+Math.random();
-  im.channels=Array.isArray(d.channels)?d.channels.map(c=>({...c})):[];
+  if(im.borderC!=null&&!/^#[0-9a-f]{3,8}$/i.test(String(im.borderC))) delete im.borderC;
+  im.channels=Array.isArray(d.channels)?d.channels.map(c=>_recNumbers({...c},['blackPt','whitePt'])):[];
   im.panelAnns=Array.isArray(d.panelAnns)?d.panelAnns:[];
   return im;
 }
@@ -19173,6 +19391,11 @@ function applySession(s,_opts){
       // file applied to them); one with a list replaces them.
       _resetFigureState({keepImages:!Array.isArray(s.images)});
       _applyFigControls(s);
+      // A file saved before labels took format marks has no style.formatMarks: its labels
+      // were written to be drawn as typed ("*p<0.05 vs WT*", "C:\\data\\_raw"), so it opens
+      // with the marks off and draws exactly as it did. New figures default to on.
+      // Only a figure file: a style or layout file (no images list) leaves the switch as the figure has it.
+      if(Array.isArray(s.images)&&!(s.style&&typeof s.style==='object'&&'formatMarks' in s.style)) sc('format-marks', false);
       const L=s.layout||{}, T=s.style||{};
       colGaps=Array.isArray(L.colGaps)?L.colGaps.slice():null;
       rowGaps=Array.isArray(L.rowGaps)?L.rowGaps.slice():null;
@@ -20233,8 +20456,8 @@ function renderGroupList(){
         <option value="row"${g.axis==='row'?' selected':''}>row</option>
         <option value="col"${g.axis==='col'?' selected':''}>col</option>
       </select>
-      <input type="number" data-gfrom="${i}" value="${g.from}" min="1" max="99" style="width:38px;font-size:10px" title="First ${g.axis}">
-      <input type="number" data-gto="${i}"   value="${g.to}"   min="1" max="99" style="width:38px;font-size:10px" title="Last ${g.axis}">
+      <input type="number" data-gfrom="${i}" value="${esc(g.from)}" min="1" max="99" style="width:38px;font-size:10px" title="First ${esc(g.axis)}">
+      <input type="number" data-gto="${i}"   value="${esc(g.to)}"   min="1" max="99" style="width:38px;font-size:10px" title="Last ${esc(g.axis)}">
       <input type="text"   data-glabel="${i}" value="${esc(g.label)}" placeholder="label" style="flex:1;font-size:10px">
       <button class="icon-btn del" data-gdel="${i}" title="Remove band">×</button>
     </div>`).join('') || `<div style="font-size:10px;color:var(--muted)">No group bands yet.</div>`;
@@ -20502,7 +20725,13 @@ document.addEventListener('change', e=>{
     if(String(v)!==el.value){ el.value=v; el.dispatchEvent(new Event('input',{bubbles:true})); }
   }
 }, true);
-function esc(s){ return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Escapes for element text AND quoted attribute values (both quote kinds). Only null,
+// undefined and false are empty: a count of 0 is text.
+// A picture's src for markup: the app writes data:image/ and blob: URLs; anything else
+// (or anything that could leave the attribute) from a file is not written. A check, not a
+// rewrite: the list is rebuilt on every edit, and the URLs run to megabytes.
+function _safeSrc(s){ s=String(s||''); return /^(data:image\/|blob:)/i.test(s)&&!/["'<>&]/.test(s)?s:''; }
+function esc(s){ return String(s==null||s===false?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function luma(hex){ const c=parseInt((hex||'#fff').replace('#',''),16); return ((c>>16)&255)*.299+((c>>8)&255)*.587+(c&255)*.114; }
 function dl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); }
 function blobUrl(text){ return URL.createObjectURL(new Blob([text],{type:'text/plain'})); }
@@ -21110,7 +21339,7 @@ function _ffFurniture(el){
       out.sb={x:sbX, y:sbY, w:sbPxW, h:sbH2, color, scale};
       if(gc('sb-text')){
         const sfs=Math.max(8,Math.round(el.w*0.05));
-        out.sbText={kind:'sb', str:_sbLabel(el), x:sbX+sbPxW/2, y:sbY-3, fs:sfs, font:`${sfs}px system-ui,sans-serif`,
+        out.sbText={kind:'sb', str:_sbLabel(el), x:sbX+sbPxW/2, y:sbY-3, fs:sfs, font:`${sfs}px ${_barFontFamily()}`,
           fill:color, align:'center', baseline:'alphabetic', rot:0};
       }
     }
@@ -22498,12 +22727,12 @@ function _chartDraw(el, emit){
   // Reserve exactly enough width for the legend labels (was a fixed 96px that both
   // wasted space with no legend and clipped long series names).
   const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
-  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,String(it.name).length); _legW=Math.min(W*0.42, 26+mx*(fs-1)*0.56); }
+  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26+mx*(fs-1)*0.56); }
   const padL=48, padR=(_legW>0?_legW+8:16), padT=14;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
-    for(const c of stat.categories) _maxLabelChars=Math.max(_maxLabelChars, String(c).length);
+    for(const c of stat.categories) _maxLabelChars=Math.max(_maxLabelChars, _rtText(c).length);   // as drawn: H_{2}O is 3 characters
     rotateXLabels = _maxLabelChars*(fs-1)*0.55 > bandApprox*0.98;   // est. label width vs band
   }
   // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
@@ -22978,9 +23207,9 @@ function _chartRenderSigList(){
     const row=document.createElement('div');
     row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
     row.innerHTML=`<span>groups</span>
-      <input type="number" min="1" value="${(an.a??0)+1}" style="width:40px" onchange="_chartSigEdit(${i},'a',this.value-1)">
+      <input type="number" min="1" value="${esc((+an.a||0)+1)}" style="width:40px" onchange="_chartSigEdit(${i},'a',this.value-1)">
       <span>–</span>
-      <input type="number" min="1" value="${(an.b??1)+1}" style="width:40px" onchange="_chartSigEdit(${i},'b',this.value-1)">
+      <input type="number" min="1" value="${esc((an.b==null?1:+an.b||0)+1)}" style="width:40px" onchange="_chartSigEdit(${i},'b',this.value-1)">
       <input type="text" value="${esc(an.text||'*')}" maxlength="6" style="width:48px" onchange="_chartSigEdit(${i},'text',this.value)" title="The symbol from your own test">
       <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>`;
     wrap.appendChild(row);
@@ -23014,9 +23243,9 @@ function _chartRenderRefList(){
     row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
     row.innerHTML=`<select onchange="_chartRefEdit(${i},'axis',this.value)" style="font-size:11px">
         <option value="y"${(rf.axis||'y')==='y'?' selected':''}>y =</option><option value="x"${rf.axis==='x'?' selected':''}>x =</option></select>
-      <input type="number" step="any" value="${rf.value??0}" style="width:64px" onchange="_chartRefEdit(${i},'value',this.value)">
+      <input type="number" step="any" value="${esc(rf.value??0)}" style="width:64px" onchange="_chartRefEdit(${i},'value',this.value)">
       <input type="text" value="${esc(rf.label||'')}" placeholder="label" style="width:90px" onchange="_chartRefEdit(${i},'label',this.value)">
-      <input type="color" value="${rf.color||'#c0392b'}" style="width:26px;height:20px;padding:0" onchange="_chartRefEdit(${i},'color',this.value)">
+      <input type="color" value="${esc(rf.color||'#c0392b')}" style="width:26px;height:20px;padding:0" onchange="_chartRefEdit(${i},'color',this.value)">
       <button class="icon-btn" title="Remove" onclick="_chartDelRef(${i})">×</button>`;
     wrap.appendChild(row);
   });
@@ -24191,7 +24420,7 @@ async function generateAIImage(){
     }
   }catch(err){
     if(err && err.name==='AbortError'){ preview.innerHTML='Cancelled.'; }
-    else { preview.innerHTML='Error: '+err.message; toast('Error: '+err.message,'err'); }
+    else { preview.textContent='Error: '+err.message; toast('Error: '+err.message,'err'); }
   }
   _aiAbort=null;
   btn.innerHTML='✦ Generate via API';
@@ -26162,9 +26391,9 @@ function runAdvancedConsistency(){
 
   // Show results in modal
   const rows=results.map(r=>`
-    <div class="cc-row cc-${r.status}">
+    <div class="cc-row cc-${esc(r.status)}">
       <span class="cc-icon">${r.status==='pass'?'✓':r.status==='warn'?'⚠':'✗'}</span>
-      <span>${r.msg}</span>
+      <span>${esc(r.msg)}</span>
     </div>`).join('');
   const pass=results.filter(r=>r.status==='pass').length;
   const modal=document.createElement('div');
@@ -26756,7 +26985,7 @@ function _rulerTableRefresh(){
         <td>${esc(r.panel||'—')}</td><td class="ruler-len">${cell(r)}</td></tr>`).join('')}
       </table>
       ${st.length?`<div class="ruler-stats" style="font-size:10px;margin-top:4px;line-height:1.5">${st.map(s=>
-        `<div><b>${esc(s.name)}</b> · panel ${esc(s.panel)}: n = ${s.n}, ${s.meanText}${s.n>1?` ± ${s.sdText}`:''} ${s.unit}${s.n>1?' (mean ± SD)':''}</div>`).join('')}</div>`:''}
+        `<div><b>${esc(s.name)}</b> · panel ${esc(s.panel)}: n = ${s.n}, ${s.meanText}${s.n>1?` ± ${s.sdText}`:''} ${esc(s.unit)}${s.n>1?' (mean ± SD)':''}</div>`).join('')}</div>`:''}
       <button class="btn" onclick="exportRulerCSV()" style="width:100%;justify-content:center;margin-top:4px" title="Every ruler with its panel, length and unit, the repeated-measurement summary, and a header stating where each panel's calibration came from">⬇ Ruler lengths CSV</button>
       <div style="font-size:9px;color:var(--muted);line-height:1.35;margin-top:3px">Lengths are measured in the panel's source pixels and its µm/px. An uncalibrated panel, or one turned, flipped, shape-cropped or merged, gets no length.</div>`;
   }
@@ -27012,7 +27241,7 @@ function openS1Dialog(){
     <div style="font-weight:600;font-size:14px;margin-bottom:6px">Uncropped originals (S1)</div>
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">One page per ticked panel: the whole source image with the region used in the figure outlined, the file name, the crop in source pixels, any tilt and splice markers. Journals ask for this for every blot and gel. Ticked to begin with: panels that are cropped or carry a splice marker or lane labels.</div>
     <div id="s1-list" style="max-height:240px;overflow:auto;font-size:11px">${P.map(im=>{ const r=_s1Reasons(im);
-      return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${im.id}" ${_s1Selected(im)?'checked':''}>
+      return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${esc(im.id)}" ${_s1Selected(im)?'checked':''}>
         <b>${esc(_rtText(formatLabel(im.label))||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
     <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px" title="Off: the file's own pixels, which is what journals ask for. On: as the figure shows them. Either way the page says which."><input type="checkbox" id="s1-display"> Show with the figure's display adjustments</label>
     <div style="display:flex;gap:6px;margin-top:14px">
@@ -27207,7 +27436,7 @@ async function renderSessionLibrary(){
   el.innerHTML='';
   recs.forEach(r=>{
     const row=document.createElement('div'); row.className='sess-row';
-    row.innerHTML=`${r.thumb?`<img src="${r.thumb}" alt="" style="width:34px;height:26px;object-fit:cover;border-radius:3px;flex-shrink:0;background:#000">`:'<span style="width:34px;flex-shrink:0"></span>'}
+    row.innerHTML=`${r.thumb?`<img src="${esc(r.thumb)}" alt="" style="width:34px;height:26px;object-fit:cover;border-radius:3px;flex-shrink:0;background:#000">`:'<span style="width:34px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
         <div style="font-size:10px;color:var(--muted)">${new Date(r.savedAt).toLocaleDateString()} ${new Date(r.savedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
@@ -28103,7 +28332,7 @@ function shareSession(){
         <button class="modal-close" onclick="this.closest('.modal-bg').remove()">×</button>
         <h3>🔗 Share Link</h3>
         <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Copy this URL and send it. The recipient opens it in their browser, then drops their own images — all settings, labels, and annotations will be pre-loaded.</p>
-        <textarea rows="5" style="width:100%;font-size:10px;word-break:break-all" readonly onclick="this.select()">${url}</textarea>
+        <textarea rows="5" style="width:100%;font-size:10px;word-break:break-all" readonly onclick="this.select()">${esc(url)}</textarea>
         <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:10px">Close</button>
       </div>`;
       document.body.appendChild(m);
@@ -28370,7 +28599,7 @@ function runExposureAnalysis(){
         <span class="cc-icon">${w.s==='pass'?'✓':w.s==='warn'?'⚠':'✗'}</span>
         <span>${w.m}</span>
       </div>`).join('');
-    return `<div style="margin-bottom:8px"><b style="font-size:12px">Panel ${r.label}</b>${r.raw?' <span style="font-size:9px;color:var(--ok,#3dd68c)">raw samples available</span>':''}${wHtml}</div>`;
+    return `<div style="margin-bottom:8px"><b style="font-size:12px">Panel ${esc(r.label)}</b>${r.raw?' <span style="font-size:9px;color:var(--ok,#3dd68c)">raw samples available</span>':''}${wHtml}</div>`;
   }).join('');
   const modal=document.createElement('div');
   modal.className='modal-bg open';

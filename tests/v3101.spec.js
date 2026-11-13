@@ -53,13 +53,24 @@ test('each strict journal is named with its own policy', async ({ page }) => {
   const errors = await loadApp(page);
   await seedPanels(page, 1);
   for (const [preset, expected] of [
-    ['science', /full prompt, the tool and its version/i],
-    ['cell', /brightness, contrast or colour balance/i],
+    ['asm', /AI tools should not be used for images/i],
   ]) {
     await seedAI(page);
     await page.evaluate((p) => { applyPreset(p); doExport('png'); }, preset);
     expect(await gateText(page)).toMatch(expected);
     await page.evaluate(() => document.getElementById('info-modal-bg')?.remove());
+  }
+  // Science and Cell could not be read at the source (round 3, F18): their policy is a
+  // notice tagged unverified, in the rule sheet's words, and never stops the export.
+  for (const [preset, expected] of [['science', /without editor permission/], ['cell', /no AI in primary-data figures/]]) {
+    await seedAI(page);
+    const toastText = await page.evaluate((p) => { window.dl = () => {}; const said = [], t0 = window.toast;
+      window.toast = (m, ty) => { said.push(m); return t0(m, ty); };
+      try { applyPreset(p); doExport('png'); } finally { window.toast = t0; }
+      return said.join(' | '); }, preset);
+    expect(await gateText(page)).toBe('');
+    expect(toastText).toMatch(expected);
+    expect(toastText).toMatch(/unverified/);
   }
   expect(errors).toEqual([]);
 });
@@ -159,8 +170,8 @@ test('the submission package is gated too, not just single-file export', async (
   const errors = await loadApp(page);
   await seedPanels(page, 1);
   await seedAI(page);
-  await page.evaluate(() => { applyPreset('cell'); exportSubmissionPackage(); });
-  expect(await gateText(page)).toMatch(/Cell Press/);
+  await page.evaluate(() => { applyPreset('asm'); exportSubmissionPackage(); });
+  expect(await gateText(page)).toMatch(/ASM journals/);
   expect(errors).toEqual([]);
 });
 
@@ -175,7 +186,8 @@ test('the compliance row names the active journal once a preset is applied', asy
     checkCompliance();
     return read();
   });
-  expect(r).toMatch(/Science \/ AAAS does not accept generative-AI figures/);
-  expect(r).toMatch(/verify/);
+  // Science is unverified (round 3, F18): the rule sheet's words, marked unverified
+  expect(r).toMatch(/not permitted without editor permission/);
+  expect(r).toMatch(/unverified/);
   expect(errors).toEqual([]);
 });

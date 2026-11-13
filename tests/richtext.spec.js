@@ -69,7 +69,7 @@ test('the marks give the right runs: italic, bold, nesting, super/subscript, esc
   expect(by['\\^{x}'].plain).toBe('^{x}');
   expect(by['*p* < 0.05'].runs).toEqual(['p[i]', ' < 0.05[]']);
   expect(by['x^{*a*}'].runs).toEqual(['x[]', 'a[i^]']);                                   // nested in a group
-  expect(by['x^{*a*}'].plain).toBe('xa');
+  expect(by['x^{*a*}'].plain).toBe('x^a');   // a superscript with no Unicode form keeps its caret (round 3, F02)
   expect(errors).toEqual([]);
 });
 

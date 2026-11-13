@@ -91,7 +91,8 @@ test('each verified journal applies exactly its own page, as one undo step', asy
   expect(pt.max).toBeLessThanOrEqual(7 + 0.05);
   await page.evaluate(() => { undo(); });
 
-  const plos = await run('plos');
+  // PLOS names the file Fig<N> from the figure's own number (round 3, F10: never Fig1 for every figure)
+  const plos = await run('plos', "sv('export-name','Figure 1')");
   expect(plos.steps).toBe(1);
   expect(plos.undone).toBe(true);
   expect(+plos.w).toBeGreaterThanOrEqual(66.8);                   // 789–2250 px at 300 dpi
@@ -106,7 +107,7 @@ test('each verified journal applies exactly its own page, as one undo step', asy
   expect(pt.max).toBeLessThanOrEqual(12 + 0.05);
   await page.evaluate(() => { undo(); });
 
-  const elife = await run('elife');
+  const elife = await run('elife', "sv('export-name','figure')");
   expect(elife.steps).toBe(1);
   expect(+elife.w).toBeGreaterThanOrEqual(100);                   // at least 10 cm, 20 cm full page
   expect(+elife.w).toBeLessThanOrEqual(200);
@@ -156,7 +157,7 @@ const CASES = [
   { j: 'plos', label: 'Printed width', bad: "sv('export-width-mm','200')" },
   { j: 'plos', label: 'Export DPI', bad: "sv('export-dpi','1200')" },
   { j: 'plos', label: 'Export format', bad: "sc('export-tiff-lzw',false)" },
-  { j: 'plos', label: 'File name', bad: "sv('export-name','figure')" },
+  { j: 'plos', label: 'File name', bad: "sv('export-name','figure 2')", fixT: /Name Fig2/ },
   { j: 'plos', label: 'Text size', bad: "sv('label-size',6)" },
   { j: 'plos', label: 'Font', bad: "sv('label-font','\\'Helvetica Neue\\',Arial,sans-serif')" },
   { j: 'elife', label: 'Scale bars', bad: "images[0].umPerPx=1; images[0].sbUm=20; images[0].sbOn=false;" },
@@ -375,6 +376,7 @@ test('the target journal survives a saved session, a share link and a template',
 test('choosing a journal in the Target journal menu applies it as one step; Ctrl+Z takes it back', async ({ page }) => {
   const errors = await setup(page, 2);
   await page.evaluate(() => document.querySelectorAll('aside.sidebar details').forEach(d => { d.open = true; }));
+  await page.evaluate(() => sv('export-name', 'Figure 1'));   // the figure's number names the PLOS file
   const d0 = await page.evaluate(() => undoStack.length);
   await page.locator('#target-journal').focus();
   await page.locator('#target-journal').selectOption('plos');
@@ -384,7 +386,7 @@ test('choosing a journal in the Target journal menu applies it as one step; Ctrl
   const shown = await page.evaluate(() => [...document.getElementById('export-width-mm').options].filter(o => !o.hidden).map(o => o.value));
   expect(shown).toEqual(['0', '66.8', '173', '190.5']);
   await page.keyboard.press('ControlOrMeta+z');
-  expect(await page.evaluate(() => [undoStack.length, gv('target-journal'), _lastPresetName, gv('export-name')])).toEqual([d0, 'none', '', 'figure']);
+  expect(await page.evaluate(() => [undoStack.length, gv('target-journal'), _lastPresetName, gv('export-name')])).toEqual([d0, 'none', '', 'Figure 1']);
   // the preset button the tutorial presses still reports PLOS
   await page.evaluate(() => applyPreset('plos'));
   expect(await page.evaluate(() => [gv('target-journal'), _lastPresetName])).toEqual(['plos', 'plos']);
@@ -409,7 +411,7 @@ test('the package names files the journal\'s way: PLOS Fig1 + S1_raw_images, eLi
   const errors = await setup(page, 2);
   await page.evaluate(ZIPREAD);
   const names = await page.evaluate(async () => {
-    selectedPanel = 0; addSpliceMarker();
+    selectedPanel = 0; addSpliceMarker(); sv('export-name', 'Figure 1');
     const out = {};
     for (const j of ['plos', 'elife']) {
       applyPreset(j); render();
