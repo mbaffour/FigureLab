@@ -1096,6 +1096,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label for="inset-connectors" style="cursor:pointer" title="Draw two thin lines from the outlined region on the parent to the inset panel, the way zoom-ins are conventionally linked. Only when the inset sits in another cell of the same figure.">Connect outline to inset</label>
       <input type="checkbox" id="inset-connectors" onchange="scheduleRender()"></div>
     <button class="btn" onclick="runDuplicateScan()" style="width:100%;justify-content:center;margin-top:4px" title="Whole panels AND regions within/across panels — a cloned lane, a pasted patch, a hidden re-crop — including rotated and mirrored reuse. The check journals run (Proofig, ImageTwin), before they run it.">🧬 Duplication check</button>
+    <button class="btn" onclick="openCrossFigureCheck()" style="width:100%;justify-content:center;margin-top:4px" title="The same micrograph or blot in two figures of the paper — flipped, rotated, re-scaled or cropped differently. Compares this figure's panels with your other figures (session library, session files) and image files, on this computer. Journals screen whole papers for this (Imagetwin, Proofig).">🧬 Check against other figures…</button>
 
     <div class="divider"></div>
     <div class="sec-lbl">Inspect</div>
@@ -2312,6 +2313,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="help-pane" id="help-pane-faq">
 <!-- HELP:FAQ -->
 <h3 class="help-h">Privacy &amp; data</h3>
+<details class="faq-item"><summary class="faq-q">Can FigureLab check whether an image is reused across my figures?</summary><div class="faq-a"><p class="help-p">Yes: <span class="help-ui">🧬 Check against other figures…</span> (Check section) compares every panel with the figures in your session library, session files you drop in, and loose PNG, JPEG or TIFF files, and finds identical, flipped, rotated, re-scaled (0.45&ndash;2.2&times;) and partly overlapping copies, on the source pixels. Mark each finding as an intentional reuse (a sentence stating it goes into the caption and Methods) or as different images. It compares only what you give it &mdash; it cannot search published papers and does not detect AI-generated images &mdash; so a clean result is not a guarantee.</p></div></details>
 <details class="faq-item"><summary class="faq-q">Is my data uploaded anywhere?</summary><div class="faq-a"><p class="help-p">No. FigureLab runs entirely in your browser — everything happens on your own computer and no image or setting ever leaves it. There is no server, no account, and no telemetry. You can even work fully offline (see the browser question below).</p></div></details>
 <details class="faq-item"><summary class="faq-q">Does FigureLab work offline?</summary><div class="faq-a"><p class="help-p">Yes, completely. The whole tool is a single HTML file and it fetches <b>nothing</b> from the network — no fonts, no scripts, no stylesheets, no icons. Opening it contacts no server at all, so nothing about you or your images is disclosed to anyone, online or off. The interface uses whichever of its preferred faces you happen to have installed and falls back to your system fonts otherwise; the figure itself is unaffected either way.</p><div class="help-callout help-tip"><b>Tip</b> To guarantee an offline copy, just save <span class="help-ui">figure_lab.html</span> locally and open it directly.</div></div></details>
 <details class="faq-item"><summary class="faq-q">Which browsers work best?</summary><div class="faq-a"><p class="help-p">Chrome and Firefox are recommended and give the most reliable canvas rendering and export behaviour. Other Chromium-based browsers generally work too, but if you hit an export or clipboard quirk, try Chrome first.</p></div></details>
@@ -4524,6 +4526,7 @@ const CMD_REGISTRY=[
   {label:'Lane table — the +/− condition matrix over or under a blot…', keys:'lane table condition table conditions plus minus +/- treatment matrix sample key blot labels lanes gel western iptg phage moi dose', run:()=>openLaneTable()},
   {label:'Estimate molecular weight from the ladder (kDa)', keys:'molecular weight kda mw ladder marker size estimate band gel blot western', run:()=>openGelAnalysis()},
   {label:'Duplicate-panel check',    keys:'duplicate reuse identical panel integrity proofig imagetwin plagiarism', run:()=>runDuplicateScan()},
+  {label:'Check against other figures (image reuse)', keys:'duplicate duplication reuse reused image integrity proofig imagetwin across figures other figures same image paper manuscript compare figures copied micrograph blot', run:()=>openCrossFigureCheck()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
@@ -12542,6 +12545,7 @@ function checkCompliance(){
   ];
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
+  checks.push(_reuseComplianceRow());
   // With a target journal the rows come from its own figure guide; without one the
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
@@ -12550,7 +12554,9 @@ function checkCompliance(){
                   : checks.concat(_accessRows(null));
   const html=rowsOut.map(_complianceRowHtml).join('');
   const unv=rowsOut.filter(c=>c.unverified).length;
-  const pass=rowsOut.filter(c=>c.ok&&!c.unverified).length, total=rowsOut.length-unv;
+  // A check that has not been run is listed but is neither passed nor failed.
+  const unc=rowsOut.filter(c=>c.uncounted&&!c.unverified).length;
+  const pass=rowsOut.filter(c=>c.ok&&!c.unverified&&!c.uncounted).length, total=rowsOut.length-unv-unc;
   if(!J){
     showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
       `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
@@ -12975,6 +12981,8 @@ function snapshotState(opts){
     // A measurement taken by mistake is undone like anything else (it used to be
     // carried only across a figure boundary, so Ctrl+Z after one undid something else).
     measurements: JSON.parse(JSON.stringify(measurements)),
+    // A reuse decision is an edit of the figure (it writes the legend), so it is undone like one.
+    reuseDecisions: JSON.parse(JSON.stringify(_reuse.decisions)),
   };
   // A figure boundary (New, Load, a tutorial) also replaces what no ordinary step
   // touches — measurements, notes, the caption and Methods text, every saved control —
@@ -12983,7 +12991,8 @@ function snapshotState(opts){
     controls:_collectFigControls({layout:{},style:{}}),
     measurements:JSON.parse(JSON.stringify(measurements)),
     notes:gv('fig-notes'), caption:gv('caption-out'), methods:gv('methods-out'), altText:_figAltText,
-    labelOffsets:JSON.parse(JSON.stringify(labelOffsets)), reproLog:reproLog.map(e=>({...e})) };
+    labelOffsets:JSON.parse(JSON.stringify(labelOffsets)), reproLog:reproLog.map(e=>({...e})),
+    reuseRun:_reuse.lastRun?JSON.parse(JSON.stringify(_reuse.lastRun)):null };
   return snap;
 }
 function restoreState(s){
@@ -13000,7 +13009,14 @@ function restoreState(s){
     sv('fig-notes',s.fig.notes||''); sv('caption-out',s.fig.caption||''); sv('methods-out',s.fig.methods||'');
     _setAltText(s.fig.altText||'');
     if(Array.isArray(s.fig.reproLog)) reproLog=s.fig.reproLog.map(e=>({...e}));
+    if('reuseRun' in s.fig) _reuse.lastRun=s.fig.reuseRun?JSON.parse(JSON.stringify(s.fig.reuseRun)):null;
     _syncFigureLists();
+  }
+  if(s.reuseDecisions && JSON.stringify(s.reuseDecisions)!==JSON.stringify(_reuse.decisions)){
+    _reuse.decisions=JSON.parse(JSON.stringify(s.reuseDecisions));
+    // The legend sentences follow; a box the author edited is left as it is.
+    if(!s.fig) _reuseRefreshTexts('', true);
+    document.querySelectorAll('.xd-dec').forEach(el=>_reuseRepaint(el.dataset.xdKey));
   }
   if(Array.isArray(s.pending)) _pendingPanels=s.pending.map(p=>({...p}));
   if(s.images) images=s.images.map(cloneImageForUndo);
@@ -15904,7 +15920,7 @@ function _journalS1Name(){
 // insets, densitometry, the export-size cap) stay; the rows the general report phrased as
 // "journals require…" are replaced by what this journal's page says.
 const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration','Scale bar drawn','Adjustment sanity',
-  'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry'];
+  'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
 function _journalRows(J, g){
   const rows=[], src=_JSRC(J), V=J.verified, nm=esc(J.short||J.label);
   const f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
@@ -16674,6 +16690,8 @@ async function exportSubmissionPackage(){
           generated:new Date().toISOString(), signed:false,
           panels:images.filter(Boolean).map(_panelHistory)},null,2)});
     }
+    // What the image-reuse checks compared, found and the author decided.
+    files.push({name:'IMAGE_REUSE_CHECK.txt', data:_reuseReportText()});
     // individual panels (movable pieces for downstream editing)
     try{
       // panelBounds are logical units; derive the crop scale from the canvas that was
@@ -18496,7 +18514,9 @@ function _captionText(){
       : ' Adjustment settings differ between panels, as stated per panel above.';
   }
   const title=gv('fig-title').trim();
-  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+parts.join(' ')+uniformity;
+  // Reuse the author marked intentional, stated as the journals require.
+  const reuse=_reuseSentences().map(t=>' '+t).join('');
+  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+parts.join(' ')+uniformity+reuse;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -18613,6 +18633,7 @@ function generateMethodsParagraph(){
   _gelMethodsSentences(P).forEach(x=>S.push(x));
   // Only what the app knows: it records AI-generated objects, and nothing else.
   S.push(_aiDisclosureSentence()||'FigureLab records no generative-AI content in this figure.');
+  _reuseSentences().forEach(t=>S.push(t));
   if(hasHistory) S.push('A per-panel record of every operation is provided as PANEL_HISTORY.txt.');
   return S.join(' ');
 }
@@ -19044,6 +19065,9 @@ function _resetFigureState(opts){
   if(typeof _genText!=='undefined'){ _genText.caption=null; _genText.methods=null; }
   _setAltText('');
   _pendingPanels=[];
+  // Reuse decisions and the last cross-figure run belong to the figure; a style file
+  // applied to the panels on screen keeps them, as it keeps the log.
+  if(!opts.keepImages) _reuse={decisions:{}, lastRun:null};
   // A style file applied to the panels on screen is not a new figure; its log goes on.
   if(!opts.keepImages) reproLog=[];
   selectedPanel=-1; selectedAnnotation=-1; selectedPanelAnn=null; selectedElems.clear();
@@ -19094,6 +19118,8 @@ function serializeSession(bundleImages, mode){
     // another figure's text, so the boxes are cleared instead.
     captionText:gv('caption-out'), methodsText:gv('methods-out'),
     altText:_figAltText,
+    // Reuse decisions and the last cross-figure check (findings as text, no pixels).
+    imageReuse:{decisions:_reuse.decisions, lastRun:_reuse.lastRun},
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
@@ -19157,6 +19183,7 @@ function applySession(s,_opts){
       { const nt=document.getElementById('fig-notes'); if(nt) nt.value=s.notes||''; }
       sv('caption-out', s.captionText||''); sv('methods-out', s.methodsText||'');
       _setAltText(s.altText||'');
+      if(s.imageReuse) _reuseLoad(s.imageReuse);
       // The loaded figure's headings REPLACE the store. setAxisLabels only writes the
       // indices it is given, so the previous figure's headings used to survive past
       // the end of the loaded array and reappear in any column the grid later grew
@@ -19927,6 +19954,7 @@ const _DIALOGS = {
   'lt-modal-bg': { close:()=>closeLaneTable() },      // the lane condition table editor; every edit is already committed
   's1-modal-bg': {},                                   // the uncropped-originals sheet
   'replace-all-modal-bg': {},                          // old → new per panel; nothing changes until Replace
+  'xdup-modal-bg': { close:()=>closeCrossFigureCheck() },   // cancels a running comparison as it closes
 };
 // The compliance report and the confirm box are styled inline rather than with
 // .modal-bg, and exist only while open, so they are found by id.
@@ -24798,7 +24826,7 @@ function _panelSimilarityScan(threshold=0.92){
         const s=_ncc(thumbs[i].v,thumbs[i].norm,tv,thumbs[j].norm);
         if(s>best){ best=s; bestK=k; }
       }
-      if(best>=threshold) hits.push({a:panels[i].label, b:panels[j].label, score:best, tf:_DUP_TF[bestK]});
+      if(best>=threshold) hits.push({a:panels[i].label, b:panels[j].label, score:best, tf:_DUP_TF[bestK], ia:i, ib:j});
     }
   }
   hits.sort((x,y)=>y.score-x.score);
@@ -24894,7 +24922,7 @@ function _rdupKeypoints(lum){
   cand.sort((a,b)=>b.v-a.v);
   const kept=[];
   for(const c of cand){
-    if(kept.length>=_RDUP_KP) break;
+    if(kept.length>=_RDUP_KP){ kept.capped=true; break; }   // more texture than points: reported
     if(kept.every(k=>Math.abs(k.x-c.x)>=_RDUP_SEP||Math.abs(k.y-c.y)>=_RDUP_SEP)) kept.push(c);
   }
   return kept;
@@ -24906,7 +24934,8 @@ function _rdupKeypoints(lum){
 // rotation of its 4x4 block-mean grid.)
 function _rdupPatches(lum,panelIdx){
   const {L,w,h}=lum, P=_RDUP_P, out=[];
-  for(const kp of _rdupKeypoints(lum)){
+  const kps=_rdupKeypoints(lum); out.capped=!!kps.capped;
+  for(const kp of kps){
     const px=Math.max(0,Math.min(w-P,kp.x-P/2));
     const py=Math.max(0,Math.min(h-P,kp.y-P/2));
     const v=new Float32Array(P*P);
@@ -24975,7 +25004,7 @@ function _regionDupScan(){
   // Pair loop with the descriptor gate. Verification count is capped so a pathological
   // figure degrades to an honest "too many candidates" rather than a frozen tab.
   const CAP=6000;
-  let verified=0, capped=false;
+  let verified=0, capped=false, unverified=0;
   const hits=[];
   for(let a=0;a<all.length;a++){
     const A=all[a];
@@ -24994,7 +25023,9 @@ function _regionDupScan(){
         if(s<gate) gate=s;
       }
       if(gate>_RDUP_GATE) continue;
-      if(verified>=CAP){ capped=true; break; }
+      // Past the cap the gate still runs (it is cheap), so the report can say how many
+      // candidate pairs went unverified instead of only that some did.
+      if(verified>=CAP){ capped=true; unverified++; continue; }
       verified++;
       let best=-1,bestK=0;
       for(let k=0;k<8;k++){
@@ -25021,7 +25052,6 @@ function _regionDupScan(){
       }
       if(best>=_RDUP_T) hits.push({A,B,score:best,k:bestK});
     }
-    if(capped) break;
   }
   // Merge adjacent patch hits into regions, per (panelA,panelB,transform).
   const groups=new Map();
@@ -25068,7 +25098,8 @@ function _regionDupScan(){
     }
   }
   regions.sort((x,y)=>(y.patches-x.patches)||(y.score-x.score));
-  return {regions, skipped, capped,
+  return {regions, skipped, capped, unverified,
+          kpCapped:patchesPer.filter(p=>p.capped).length,
           panels:panels.length, patches:all.length, verified,
           rawHits:hits.length};   // pre-clustering, for the report footer and tests
 }
@@ -25097,6 +25128,14 @@ function _rdupEvidence(panels,r){
 // Standalone report, also surfaced as a row inside the Deep Figure Audit.
 function runDuplicateScan(){
   const r=_panelSimilarityScan();
+  // Decisions are per pair of panels (an internal repeat: the panel with itself).
+  const _dp=_dupPanels(), _pk=_dp.map(p=>_xdPanelKey(p));
+  const _wkey=(i,j)=>`w|${[_pk[i],_pk[j]].sort().join('|')}`;
+  const _isDiff=k=>_reuse.decisions[k]&&_reuse.decisions[k].verdict==='different';
+  let _hiddenN=0;
+  const _reported=new Set();
+  r.hits.forEach(h=>_reported.add(h.a+'|'+h.b));
+  const _hits=r.hits.filter(h=>{ if(_isDiff(_wkey(h.ia,h.ib))){ _hiddenN++; return false; } return true; });
   // "We could not check this" has to be as visible as "all clear" — a toast that
   // fades away would let a user believe the figure had been screened when it hadn't.
   const rows = r.compared<2
@@ -25104,10 +25143,10 @@ function runDuplicateScan(){
         <b>Nothing was checked.</b> ${r.compared?'Only one panel has':'No panel has'} enough image detail
         to compare${r.skipped.length?` — ${r.compared?'the others are':'they are'} too uniform (blank, saturated, or a smooth gradient) for a pixel comparison to carry any information`:''}.
         This is <b>not</b> a clean result: no duplicate check has been performed on this figure.</span></div>`
-    : r.hits.length
-    ? r.hits.map(h=>`<div class="cc-row cc-fail"><span class="cc-icon">✗</span><span>
+    : _hits.length
+    ? _hits.map(h=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
         <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}
-        — confirm these are different acquisitions</span></div>`).join('')
+        — confirm these are different acquisitions<br>${_reuseButtonsHtml(_wkey(h.ia,h.ib),{scope:'within', a:h.a, b:h.b, what:'whole panel'+(h.tf==='as-is'?'':', '+h.tf), sentence:`The image in panel ${h.b} is reused from panel ${h.a}.`})}</span></div>`).join('')
     : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`;
   const skip = r.skipped.length
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>Not compared (too uniform to judge): ${esc(r.skipped.join(', '))}</span></div>` : '';
@@ -25116,18 +25155,24 @@ function runDuplicateScan(){
   // cloned inside one blot, a patch of one micrograph living in another.
   const panels=_dupPanels();
   const rr=_regionDupScan();
-  const regionRows = rr.regions.length
-    ? rr.regions.slice(0,12).map(g=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
+  rr.regions.forEach(g=>{ if(!g.same) _reported.add(g.a+'|'+g.b); });
+  const _regs=rr.regions.filter(g=>{ if(_isDiff(_wkey(g.panelA,g.panelB))){ _hiddenN++; return false; } return true; });
+  const regionRows = _regs.length
+    ? _regs.slice(0,12).map(g=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
         ${g.same?`<b>${esc(g.a)}</b> contains an internal repeat`:`A region of <b>${esc(g.a)}</b> reappears in <b>${esc(g.b)}</b>`}${g.tf==='as-is'?'':` (${g.tf})`}
         — ${g.patches>1?`${g.patches} adjoining patches`:'one patch'} at ${(g.score*100).toFixed(1)}% correlation<br>
         <span style="display:inline-flex;gap:6px;margin-top:4px">${_rdupEvidence(panels,g)}</span><br>
-        <span style="font-size:10px;color:var(--muted)">Boxed regions match. Repeated texture, an inset you placed on purpose, or shared background can also trigger this — the check finds candidates, it does not judge them.</span></span></div>`).join('')
-      + (rr.regions.length>12?`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${rr.regions.length-12} more region matches not shown</span></div>`:'')
+        <span style="font-size:10px;color:var(--muted)">Boxed regions match. Repeated texture, an inset you placed on purpose, or shared background can also trigger this — the check finds candidates, it does not judge them.</span><br>
+        ${_reuseButtonsHtml(_wkey(g.panelA,g.panelB),{scope:'within', a:g.a, b:g.b, what:g.same?'repeated region within the panel':'region', sentence:g.same?`A region of panel ${g.a} is repeated within the panel.`:`Part of the image in panel ${g.b} is reused from panel ${g.a}.`})}</span></div>`).join('')
+      + (_regs.length>12?`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${_regs.length-12} more region matches not shown</span></div>`:'')
     : rr.patches<2
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>No regions were checked</b> — not enough textured image area to tile.</span></div>`
     : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No repeated regions found (${rr.patches} textured patches compared across ${rr.panels} panels, all rotations and mirrors)</span></div>`;
-  const cappedRow = rr.capped
-    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>The region scan hit its work cap</b> before finishing — this figure has unusually repetitive texture. Matches above are real, but the scan is not exhaustive.</span></div>` : '';
+  const cappedRow = (rr.capped
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>The region scan hit its work cap</b> before finishing — this figure has unusually repetitive texture. ${rr.verified} candidate patch pairs were verified and <b>${rr.unverified} were not</b>. Matches above are real, but the scan is not exhaustive.</span></div>` : '')
+    + (rr.kpCapped
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${rr.kpCapped} panel${rr.kpCapped>1?'s were':' was'} sampled at ${rr.kpCapped>1?'their':'its'} ${_RDUP_KP} most textured points (more were available), so a small repeat in ${rr.kpCapped>1?'them':'it'} can be missed.</span></div>` : '')
+    + (_hiddenN ? `<div class="cc-row cc-warn"><span class="cc-icon">ℹ</span><span>${_hiddenN} pair${_hiddenN>1?'s':''} you marked “different images” ${_hiddenN>1?'are':'is'} not listed.</span></div>` : '');
 
   const modal=document.createElement('div');
   modal.className='modal-bg open';
@@ -25138,13 +25183,887 @@ function runDuplicateScan(){
     ${rows}${skip}
     <div style="font-size:11px;font-weight:600;margin:12px 0 4px">Regions</div>
     ${regionRows}${cappedRow}
+    <div style="font-size:11px;font-weight:600;margin:12px 0 4px">Re-scaled or partly overlapping copies</div>
+    <div data-xd-scale><div class="cc-row cc-warn"><span class="cc-icon">…</span><span>Comparing panel pairs at 0.45–2.2× scale…</span></div></div>
     <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-      Flat, featureless areas are excluded — correlation on smooth content is meaningless, so a duplicate hiding in blank background is not findable this way. A reuse that was rescaled far from the original size may also score below threshold. Not a substitute for a journal's screening — a chance to catch an accidental reuse before a reviewer does.</div>
+      Flat, featureless areas are excluded — correlation on smooth content is meaningless, so a duplicate hiding in blank background is not findable this way. A reuse rescaled far from the original size (outside 0.45–2.2×) or rotated by other than a right angle is not searched. This looks inside this figure only — <a href="#" onclick="event.preventDefault();openCrossFigureCheck()" style="color:var(--accent)">🧬 Check against other figures…</a> compares it with the rest of the paper. Not a substitute for a journal's screening — a chance to catch an accidental reuse before a reviewer does.</div>
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
   </div>`;
   document.body.appendChild(modal);
+  _reuseWire(modal);
+  _dupScaleSection(modal, _reported);
   logAction('duplicateScan',{compared:r.compared, matches:r.hits.length,
                              regionMatches:rr.regions.length, patches:rr.patches});
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IMAGE REUSE ACROSS FIGURES — and re-scaled reuse within one
+//
+// The checks above look inside the figure on screen. An author's real exposure is the
+// same micrograph or blot in Figure 2 and Figure 5, or the same field at another zoom:
+// that is what the journals' screens (Imagetwin at ASM, Proofig at the Science journals
+// and MDPI, Nature's "duplication across figures") are built to catch. This is the
+// author-side version, run on images the author supplies, on this machine.
+//
+// What is compared: SOURCE pixels — the images as imported, before any brightness,
+// contrast, gamma or LUT FigureLab applies — reduced to luminance, over the part of each
+// panel the figure shows (its crop). Correlation is invariant to offset and gain, so a
+// copy shown brighter, at another contrast or through a LUT still correlates.
+//
+// Method, cheap to dear:
+//  1. Each image becomes a small luminance pyramid (long edge 256, 128, 64). Featureless
+//     images — blank, saturated, a smooth gradient, pixel noise with no spatial
+//     structure — are excluded and reported: correlation on them means nothing.
+//  2. Shortlist: textured keypoints at nine quarter-octave scales on both sides, each a
+//     16×16 patch. A 4×4 block descriptor, tried under all 8 flips/rotations, gates the
+//     pairs; survivors get full patch correlation. Every match implies a transform
+//     (flip/rotation, scale, offset); matches that agree on one are a candidate. A
+//     whole-image 32×32 comparison adds the plain "same picture" candidate.
+//  3. Confirm: the candidate transform is refined (scale ±, offset ±) by normalised
+//     cross-correlation over the whole region the two images share, at matched
+//     resolution. Only that score decides a finding — the shortlist only nominates.
+// Scales 0.45–2.2× and the 8 right-angle flips/rotations are searched. An arbitrary
+// rotation angle, a warp, or a copy smaller than ~24 working pixels is not.
+// ═══════════════════════════════════════════════════════════════
+// Work caps for one run. Each is reported by count when it bites, never applied silently.
+const _XDUP_CAPS={images:40, megapixels:50, pairs:900};
+const _XD_BASE=256;     // working long edge of the finest level
+const _XD_P=16;         // patch edge
+const _XD_SMIN=0.45, _XD_SMAX=2.2;  // scale range searched (other / this)
+const _XD_GATE=0.70;    // min |cosine| between 4×4 block descriptors to compute a full patch NCC
+const _XD_PT=0.72;      // min |NCC| for a patch match
+const _XD_MININ=4;      // patch matches that must agree on one transform to make a candidate
+const _XD_T=0.80;       // min NCC over the shared region for a FINDING. Measured: true copies
+                        // (8 transforms, 0.6–1.7×, gamma/contrast/LUT) confirm at ≥0.93;
+                        // unrelated textures of the same statistics, refined the same way,
+                        // stayed below 0.35. 0.80 sits in the empty band.
+// Named from this figure's panel to the other image: "the other image is this panel …".
+const _XD_TF=['same orientation','rotated 90° clockwise','rotated 180°','rotated 90° anticlockwise',
+  'mirrored left–right','mirrored, then rotated 90° clockwise','flipped top–bottom','mirrored, then rotated 90° anticlockwise'];
+
+// The pixel permutation of _dihedral for an N×N patch: dihedral(v)[t] === v[perm[t]].
+const _xdPermCache={};
+function _xdPerm(N){
+  if(_xdPermCache[N]) return _xdPermCache[N];
+  const idx=new Float32Array(N*N); for(let i=0;i<N*N;i++) idx[i]=i;
+  const out=[]; for(let k=0;k<8;k++){ const d=_dihedral(idx,N,k); const p=new Int32Array(N*N); for(let i=0;i<N*N;i++) p[i]=d[i]; out.push(p); }
+  return (_xdPermCache[N]=out);
+}
+// A point of a W×H frame under transform k, in continuous coordinates — the same mapping
+// _dihedral applies to pixels (mirror first, then a clockwise quarter turn per step).
+function _xdMap(x,y,W,H,k){
+  if(k>=4) x=W-x;
+  switch(k&3){ case 0: return [x,y]; case 1: return [H-y,x]; case 2: return [W-x,H-y]; default: return [y,W-x]; }
+}
+function _xdUnmap(u,v,W,H,k){
+  let x,y;
+  switch(k&3){ case 0: x=u; y=v; break; case 1: x=v; y=H-u; break; case 2: x=W-u; y=H-v; break; default: x=W-v; y=u; }
+  if(k>=4) x=W-x;
+  return [x,y];
+}
+
+// Luminance of an image's shown region at working size. Source pixels: whatever
+// CanvasImageSource is passed (an imported <img>, a decoded TIFF canvas) — never the
+// rendered, adjusted panel.
+function _xdLuma(src, crop, maxEdge){
+  const iw=src.naturalWidth||src.width, ih=src.naturalHeight||src.height;
+  if(!iw||!ih) return null;
+  const c=crop||{};
+  const sx=(c.cropL||0)/100*iw, sy=(c.cropT||0)/100*ih;
+  const sw=iw*(1-((c.cropL||0)+(c.cropR||0))/100), sh=ih*(1-((c.cropT||0)+(c.cropB||0))/100);
+  if(sw<1||sh<1) return null;
+  const g=Math.min(1, maxEdge/Math.max(sw,sh));
+  const w=Math.max(1,Math.round(sw*g)), h=Math.max(1,Math.round(sh*g));
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+  const cx=cv.getContext('2d',{willReadFrequently:true});
+  cx.imageSmoothingEnabled=true; cx.imageSmoothingQuality='high';
+  try{ cx.drawImage(src,sx,sy,sw,sh,0,0,w,h); }catch(e){ return null; }
+  const d=cx.getImageData(0,0,w,h).data;
+  const L=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++) L[i]=0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2];
+  cv.width=cv.height=0;
+  return {L,w,h,gx:w/sw,gy:h/sh,W:sw,H:sh};
+}
+function _xdHalf(o){
+  const w=o.w>>1, h=o.h>>1; if(w<12||h<12) return null;
+  const L=new Float32Array(w*h), S=o.L, W=o.w;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const i=2*y*W+2*x; L[y*w+x]=(S[i]+S[i+1]+S[i+W]+S[i+W+1])*0.25;
+  }
+  return {L,w,h,gx:o.gx/2, gy:o.gy/2};
+}
+// [1 2 1]² blur, so a patch tolerates a pixel of keypoint jitter.
+function _xdBlur(L,w,h){
+  const t=new Float32Array(w*h), o=new Float32Array(w*h);
+  for(let y=0;y<h;y++){ const r=y*w; for(let x=0;x<w;x++){ const a=L[r+(x>0?x-1:x)], c=L[r+(x<w-1?x+1:x)]; t[r+x]=(a+2*L[r+x]+c)*0.25; } }
+  for(let y=0;y<h;y++){ const u=(y>0?y-1:y)*w, d=(y<h-1?y+1:y)*w, r=y*w; for(let x=0;x<w;x++) o[r+x]=(t[u+x]+2*t[r+x]+t[d+x])*0.25; }
+  return o;
+}
+// One quarter-octave level from its octave, bilinear (the octave is already box-averaged).
+function _xdLevel(o,r){
+  const w=Math.floor(o.w*r), h=Math.floor(o.h*r); if(w<_XD_P+4||h<_XD_P+4) return null;
+  const L=new Float32Array(w*h), S=o.L, W=o.w, H=o.h;
+  for(let y=0;y<h;y++){
+    const fy=Math.min(H-1.001,Math.max(0,(y+0.5)/r-0.5)), y0=fy|0, ay=fy-y0;
+    for(let x=0;x<w;x++){
+      const fx=Math.min(W-1.001,Math.max(0,(x+0.5)/r-0.5)), x0=fx|0, ax=fx-x0, i=y0*W+x0;
+      L[y*w+x]=(S[i]*(1-ax)+S[i+1]*ax)*(1-ay)+(S[i+W]*(1-ax)+S[i+W+1]*ax)*ay;
+    }
+  }
+  return {L:_xdBlur(L,w,h),w,h,gx:o.gx*r,gy:o.gy*r};
+}
+// Mean and SD of an array.
+function _xdStats(L){ let s=0,ss=0; for(let i=0;i<L.length;i++){ s+=L[i]; ss+=L[i]*L[i]; } const m=s/L.length; return {mean:m, sd:Math.sqrt(Math.max(0,ss/L.length-m*m))}; }
+
+// Why an image cannot be compared, or null. Relative to the image's own contrast, so a
+// dim copy is judged by its structure, not its brightness.
+//   uniform  — no variation at all (blank, saturated)
+//   smooth   — variation, but only as a gradient: the 32×32 Laplacian is tiny next to the SD
+//   noise    — variation with no spatial structure: averaging 4×4 blocks removes almost
+//              all of it (white noise keeps 1/16; any real picture keeps far more)
+function _xdFeatureless(base, thumb){
+  const st=_xdStats(base.L);
+  if(st.sd<2) return 'blank or uniform (no variation to compare)';
+  const N=32; let lap=0, lsum=0; const hp=new Float32Array(N*N);
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const v=thumb, i=y*N+x;
+    hp[i]=4*v[i]-v[y*N+(x>0?x-1:x+1)]-v[y*N+(x<N-1?x+1:x-1)]-v[(y>0?y-1:y+1)*N+x]-v[(y<N-1?y+1:y-1)*N+x]; lsum+=hp[i];
+  }
+  const lm=lsum/(N*N); for(let i=0;i<N*N;i++) lap+=(hp[i]-lm)*(hp[i]-lm);
+  const ts=_xdStats(thumb);
+  if(ts.sd<1e-6 || Math.sqrt(lap/(N*N))/ts.sd<0.2) return 'smooth — a gradient or near-uniform background with no detail';
+  const {L,w,h}=base, bw=w>>2, bh=h>>2;
+  if(bw>=4&&bh>=4){
+    const B=new Float32Array(bw*bh);
+    for(let y=0;y<bh;y++) for(let x=0;x<bw;x++){ let s=0; for(let dy=0;dy<4;dy++) for(let dx=0;dx<4;dx++) s+=L[(4*y+dy)*w+4*x+dx]; B[y*bw+x]=s/16; }
+    const bs=_xdStats(B);
+    if((bs.sd*bs.sd)/(st.sd*st.sd)<0.12) return 'noise — pixel-to-pixel variation with no spatial structure';
+  }
+  return null;
+}
+// 32×32 area-averaged thumbnail of the base level (aspect not kept; used for the whole-
+// image candidate and the flatness test).
+function _xdThumb(base){
+  const N=32, t=new Float32Array(N*N), c=new Float32Array(N*N), {L,w,h}=base;
+  for(let y=0;y<h;y++){ const ty=Math.min(N-1,(y*N/h)|0); for(let x=0;x<w;x++){ const i=ty*N+Math.min(N-1,(x*N/w)|0); t[i]+=L[y*w+x]; c[i]++; } }
+  for(let i=0;i<N*N;i++) t[i]=c[i]?t[i]/c[i]:0;
+  return t;
+}
+// A content fingerprint of the WHOLE source image (not the crop), so a decision follows
+// the image, not the crop, and the same file reached from the library or from disk is
+// one image. 16×16 luminance, each cell above or below the median: 256 bits as hex.
+function _xdFingerprint(src){
+  const N=16, c=document.createElement('canvas'); c.width=N; c.height=N;
+  const cx=c.getContext('2d',{willReadFrequently:true}); cx.imageSmoothingQuality='high';
+  try{ cx.drawImage(src,0,0,N,N); }catch(e){ return ''; }
+  const d=cx.getImageData(0,0,N,N).data, v=[];
+  for(let i=0;i<N*N;i++) v.push(0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2]);
+  const med=[...v].sort((a,b)=>a-b)[N*N>>1];
+  let hex=''; for(let i=0;i<N*N;i+=4){ let n=0; for(let j=0;j<4;j++) n=n*2+(v[i+j]>med?1:0); hex+=n.toString(16); }
+  return hex+':'+(src.naturalWidth||src.width)+'x'+(src.naturalHeight||src.height);
+}
+
+// Keypoints of one level: local maxima of smoothed |Laplacian|, strongest first, spaced.
+function _xdKeypoints(lv, K){
+  const {L,w,h}=lv, e=new Float32Array(w*h), sm=new Float32Array(w*h), m=_XD_P/2+1;
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){ const i=y*w+x; e[i]=Math.abs(4*L[i]-L[i-1]-L[i+1]-L[i-w]-L[i+w]); }
+  for(let y=2;y<h-2;y++) for(let x=2;x<w-2;x++){ const i=y*w+x; sm[i]=e[i-w-1]+e[i-w]+e[i-w+1]+e[i-1]+e[i]+e[i+1]+e[i+w-1]+e[i+w]+e[i+w+1]; }
+  const cand=[];
+  for(let y=m;y<h-m;y++) for(let x=m;x<w-m;x++){
+    const i=y*w+x, v=sm[i]; if(v<=0) continue;
+    if(v<sm[i-1]||v<sm[i+1]||v<sm[i-w]||v<sm[i+w]||v<sm[i-w-1]||v<sm[i-w+1]||v<sm[i+w-1]||v<sm[i+w+1]) continue;
+    cand.push(i);
+  }
+  cand.sort((a,b)=>sm[b]-sm[a]);
+  const occ=new Uint8Array(w*h), R=4, kept=[];
+  for(const i of cand){
+    if(kept.length>=K) break;
+    if(occ[i]) continue;
+    const x=i%w, y=(i/w)|0; kept.push([x,y]);
+    for(let dy=-R;dy<=R;dy++){ const yy=y+dy; if(yy<0||yy>=h) continue; for(let dx=-R;dx<=R;dx++){ const xx=x+dx; if(xx>=0&&xx<w) occ[yy*w+xx]=1; } }
+  }
+  return kept;
+}
+// Patches + descriptors for one level. `withPerms` stores all 8 transformed descriptors
+// (this figure's side is transformed; the other side is compared as it is).
+function _xdPatches(lv, lvIdx, K, minSd, withPerms){
+  const P=_XD_P, out=[], perm4=_xdPerm(4);
+  for(const [cx,cy] of _xdKeypoints(lv,K)){
+    const x0=cx-P/2, y0=cy-P/2, v=new Float32Array(P*P);
+    let s=0; for(let y=0;y<P;y++) for(let x=0;x<P;x++){ const t=lv.L[(y0+y)*lv.w+x0+x]; v[y*P+x]=t; s+=t; }
+    const mean=s/(P*P); let ss=0; for(let i=0;i<P*P;i++){ v[i]-=mean; ss+=v[i]*v[i]; }
+    if(Math.sqrt(ss/(P*P))<minSd) continue;
+    const d=new Float32Array(16); const B=P/4;
+    for(let by=0;by<4;by++) for(let bx=0;bx<4;bx++){ let q=0; for(let y=0;y<B;y++) for(let x=0;x<B;x++) q+=v[(by*B+y)*P+bx*B+x]; d[by*4+bx]=q; }
+    let dn=0; for(let i=0;i<16;i++) dn+=d[i]*d[i]; dn=Math.sqrt(dn); if(dn<1e-6) continue;
+    for(let i=0;i<16;i++) d[i]/=dn;
+    let dd=null;
+    if(withPerms){ dd=new Float32Array(128); for(let k=0;k<8;k++){ const p=perm4[k]; for(let i=0;i<16;i++) dd[k*16+i]=d[p[i]]; } }
+    out.push({lv:lvIdx, g:lv.gx, X:cx/lv.gx, Y:cy/lv.gy, v, n:Math.sqrt(ss), d, dd});
+  }
+  return out;
+}
+// Everything the comparison needs from one image; the pixels themselves are not kept.
+function _xdPrepare(src, crop, side){
+  const base=_xdLuma(src,crop,_XD_BASE);
+  if(!base) return {bad:'could not be read'};
+  if(Math.min(base.w,base.h)<24) return {bad:'too small to compare (under 24 px on a side)'};
+  const thumb=_xdThumb(base);
+  const why=_xdFeatureless(base,thumb);
+  if(why) return {bad:why};
+  const oct=[base]; for(let o=1;o<3;o++){ const h=oct[o-1]&&_xdHalf(oct[o-1]); oct.push(h||null); }
+  const sd=_xdStats(base.L).sd;
+  const kps=[];
+  for(let l=0;l<9;l++){
+    const o=oct[l>>2]; if(!o) break;
+    const lv=_xdLevel(o, Math.pow(2,-(l&3)/4)); if(!lv) continue;
+    kps.push(..._xdPatches(lv, l, Math.max(12,Math.round(100*Math.pow(2,-l/2))), Math.max(1.5,0.2*sd), side==='this'));
+  }
+  return {W:base.W, H:base.H, oct, thumb, sd, kps};
+}
+
+// Shortlist: candidate transforms (k, s, tx, ty, sign) mapping this panel's points to the
+// other image's: Q = s·T_k(P) + t, in each image's own source pixels.
+function _xdCandidates(A, B){
+  const perm=_xdPerm(_XD_P), PP=_XD_P*_XD_P, matches=[];
+  for(const a of A.kps){
+    let best=null;
+    for(const b of B.kps){
+      const s=a.g/b.g; if(s<_XD_SMIN||s>_XD_SMAX) continue;
+      const bd=b.d, ad=a.dd;
+      let bk=-1, bv=0;
+      for(let k=0;k<8;k++){
+        let t=0; const o=k*16; for(let i=0;i<16;i++) t+=ad[o+i]*bd[i];
+        if(Math.abs(t)>Math.abs(bv)){ bv=t; bk=k; }
+      }
+      if(Math.abs(bv)<_XD_GATE) continue;
+      const p=perm[bk], av=a.v, bvv=b.v; let c=0;
+      for(let i=0;i<PP;i++) c+=av[p[i]]*bvv[i];
+      c/=(a.n*b.n);
+      if(Math.abs(c)<_XD_PT || (c>0)!==(bv>0)) continue;
+      if(!best||Math.abs(c)>Math.abs(best.c)) best={a,b,k:bk,c,s};
+    }
+    if(best){
+      const [u,v]=_xdMap(best.a.X,best.a.Y,A.W,A.H,best.k);
+      best.tx=best.b.X-best.s*u; best.ty=best.b.Y-best.s*v; best.sg=best.c>0?1:-1;
+      matches.push(best);
+    }
+  }
+  // Matches that agree on one transform are a candidate; the rest is noise.
+  const tolQ=0.025*Math.max(B.W,B.H), cands=[], used=new Uint8Array(matches.length);
+  for(let round=0;round<3;round++){
+    let bestSeed=-1, bestIn=null;
+    for(let i=0;i<matches.length;i++){
+      if(used[i]) continue;
+      const m=matches[i], inl=[];
+      for(let j=0;j<matches.length;j++){
+        if(used[j]) continue;
+        const n=matches[j];
+        if(n.k!==m.k||n.sg!==m.sg||Math.abs(Math.log2(n.s/m.s))>0.2) continue;
+        const [u,v]=_xdMap(n.a.X,n.a.Y,A.W,A.H,m.k);
+        const tol=Math.max(5/n.b.g,tolQ);
+        if(Math.abs(m.s*u+m.tx-n.b.X)<=tol && Math.abs(m.s*v+m.ty-n.b.Y)<=tol) inl.push(j);
+      }
+      if(!bestIn||inl.length>bestIn.length){ bestIn=inl; bestSeed=i; }
+    }
+    if(bestSeed<0||bestIn.length<_XD_MININ) break;
+    bestIn.forEach(j=>used[j]=1);
+    const ms=bestIn.map(j=>matches[j]), k=matches[bestSeed].k;
+    // Least-squares scale and offset over the agreeing matches; the pyramid step is only
+    // the starting guess.
+    const pts=ms.map(m=>{ const [u,v]=_xdMap(m.a.X,m.a.Y,A.W,A.H,k); return [u,v,m.b.X,m.b.Y]; });
+    let mu=0,mv=0,mx=0,my=0; pts.forEach(p=>{ mu+=p[0]; mv+=p[1]; mx+=p[2]; my+=p[3]; });
+    mu/=pts.length; mv/=pts.length; mx/=pts.length; my/=pts.length;
+    let num=0,den=0; pts.forEach(p=>{ num+=(p[0]-mu)*(p[2]-mx)+(p[1]-mv)*(p[3]-my); den+=(p[0]-mu)**2+(p[1]-mv)**2; });
+    const sMed=ms.map(m=>m.s).sort((x,y)=>x-y)[ms.length>>1];
+    let s=den>0?num/den:sMed; if(!(s>_XD_SMIN*0.8&&s<_XD_SMAX*1.25)||Math.abs(Math.log2(s/sMed))>0.35) s=sMed;
+    cands.push({k, s, tx:mx-s*mu, ty:my-s*mv, sg:matches[bestSeed].sg, votes:ms.length});
+  }
+  // The whole picture, any of the 8 orientations, any size: a 32×32 thumbnail ignores
+  // scale, so this catches a re-scaled whole copy even when keypoints are scarce.
+  for(let k=0;k<8;k++){
+    const Wk=(k&1)?A.H:A.W, Hk=(k&1)?A.W:A.H;
+    if(Math.abs(Math.log((Wk/Hk)/(B.W/B.H)))>0.08) continue;
+    const s=B.W/Wk; if(s<_XD_SMIN||s>_XD_SMAX) continue;
+    const ta=_dihedral(A.thumb,32,k);
+    const c=_xdCorr(ta,B.thumb);
+    if(Math.abs(c)>=0.85 && !cands.some(q=>q.k===k&&Math.abs(Math.log2(q.s/s))<0.1&&Math.abs(q.tx)<0.03*B.W&&Math.abs(q.ty)<0.03*B.H))
+      cands.push({k, s, tx:0, ty:0, sg:c>0?1:-1, votes:0, whole:true});
+  }
+  return cands;
+}
+function _xdCorr(a,b){
+  let ma=0,mb=0; for(let i=0;i<a.length;i++){ ma+=a[i]; mb+=b[i]; } ma/=a.length; mb/=b.length;
+  let s=0,sa=0,sb=0; for(let i=0;i<a.length;i++){ const x=a[i]-ma, y=b[i]-mb; s+=x*y; sa+=x*x; sb+=y*y; }
+  return (sa>0&&sb>0)?s/Math.sqrt(sa*sb):0;
+}
+// NCC over the region the two images share, under one transform, at matched resolution.
+function _xdEval(A,B,oA,oB,c,step){
+  const a=A.oct[oA], b=B.oct[oB], Lb=b.L, bw=b.w, bh=b.h;
+  let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0,tot=0;
+  for(let y=0;y<a.h;y+=step){
+    const Y=(y+0.5)/a.gy;
+    for(let x=0;x<a.w;x+=step){
+      tot++;
+      const X=(x+0.5)/a.gx, [u,v]=_xdMap(X,Y,A.W,A.H,c.k);
+      const qx=(c.s*u+c.tx)*b.gx-0.5, qy=(c.s*v+c.ty)*b.gy-0.5;
+      if(qx<0||qy<0||qx>bw-1.001||qy>bh-1.001) continue;
+      const x0=qx|0, y0=qy|0, ax=qx-x0, ay=qy-y0, i=y0*bw+x0;
+      const q=(Lb[i]*(1-ax)+Lb[i+1]*ax)*(1-ay)+(Lb[i+bw]*(1-ax)+Lb[i+bw+1]*ax)*ay;
+      const p=a.L[y*a.w+x];
+      n++; sx+=p; sy+=q; sxx+=p*p; syy+=q*q; sxy+=p*q;
+    }
+  }
+  if(n<16) return {ncc:0,n,tot,sdA:0};
+  const va=sxx/n-(sx/n)**2, vb=syy/n-(sy/n)**2;
+  return {ncc:(va>0&&vb>0)?(sxy/n-(sx/n)*(sy/n))/Math.sqrt(va*vb):0, n, tot, sdA:Math.sqrt(Math.max(0,va))};
+}
+// Refine a candidate and decide. Returns a finding or null.
+function _xdConfirm(A,B,c0){
+  let oA=0,oB=0, r=c0.s*B.oct[0].gx/A.oct[0].gx;
+  while(r>1.45&&oB<2&&B.oct[oB+1]){ oB++; r/=2; }
+  while(r<0.69&&oA<2&&A.oct[oA+1]){ oA++; r*=2; }
+  const a=A.oct[oA], b=B.oct[oB];
+  const coarse=Math.max(1,Math.round(Math.sqrt(a.w*a.h/6000)));
+  const c={...c0};
+  const f=p=>c.sg*_xdEval(A,B,oA,oB,p,coarse).ncc;
+  let cur=f(c), ds=0.03, dt=1.5/b.gx;
+  for(let round=0;round<5;round++){
+    let moved=true, guard=0;
+    while(moved&&guard++<12){
+      moved=false;
+      for(const [key,d] of [['s',c.s*ds],['tx',dt],['ty',dt]]){
+        for(const sgn of [1,-1]){
+          const t={...c}; t[key]+=sgn*d;
+          if(key==='s'&&(t.s<_XD_SMIN*0.9||t.s>_XD_SMAX*1.1)) continue;
+          const v=f(t); if(v>cur+1e-4){ cur=v; Object.assign(c,t); moved=true; }
+        }
+      }
+    }
+    ds/=2; dt/=2;
+  }
+  const fin=_xdEval(A,B,oA,oB,c,1), score=c.sg*fin.ncc;
+  // The shared region, exactly: this panel's frame intersected with the other image's
+  // frame mapped back. Right-angle transforms keep rectangles rectangles.
+  const corners=[[0,0],[B.W,B.H]].map(([x,y])=>_xdUnmap((x-c.tx)/c.s,(y-c.ty)/c.s,A.W,A.H,c.k));
+  const rx0=Math.max(0,Math.min(corners[0][0],corners[1][0])), rx1=Math.min(A.W,Math.max(corners[0][0],corners[1][0]));
+  const ry0=Math.max(0,Math.min(corners[0][1],corners[1][1])), ry1=Math.min(A.H,Math.max(corners[0][1],corners[1][1]));
+  if(rx1<=rx0||ry1<=ry0) return null;
+  const qc=[[rx0,ry0],[rx1,ry1]].map(([x,y])=>{ const [u,v]=_xdMap(x,y,A.W,A.H,c.k); return [c.s*u+c.tx,c.s*v+c.ty]; });
+  const rectA={x:rx0/A.W, y:ry0/A.H, w:(rx1-rx0)/A.W, h:(ry1-ry0)/A.H};
+  const qx0=Math.max(0,Math.min(qc[0][0],qc[1][0])), qx1=Math.min(B.W,Math.max(qc[0][0],qc[1][0]));
+  const qy0=Math.max(0,Math.min(qc[0][1],qc[1][1])), qy1=Math.min(B.H,Math.max(qc[0][1],qc[1][1]));
+  const rectB={x:qx0/B.W, y:qy0/B.H, w:(qx1-qx0)/B.W, h:(qy1-qy0)/B.H};
+  // Too small a shared region, or a featureless one, cannot carry a finding: a few
+  // hundred smooth pixels correlate with almost anything after refinement.
+  const minSide=Math.min((rx1-rx0)*a.gx,(ry1-ry0)*a.gy);
+  if(fin.n<400||minSide<24) return null;
+  if(fin.sdA<0.25*A.sd) return null;
+  if(score<_XD_T) return null;
+  return {k:c.k, s:c.s, tx:c.tx, ty:c.ty, inverted:c.sg<0, score,
+    rectA, rectB, fracA:rectA.w*rectA.h, fracB:rectB.w*rectB.h,
+    rectApx:{x:rx0,y:ry0,w:rx1-rx0,h:ry1-ry0}, rectBpx:{x:qx0,y:qy0,w:qx1-qx0,h:qy1-qy0}};
+}
+// All findings for one pair, best first; overlapping duplicates of one finding dropped.
+function _xdComparePair(A,B){
+  const out=[];
+  for(const c of _xdCandidates(A,B)){
+    const f=_xdConfirm(A,B,c); if(!f) continue;
+    const iou=(r,q)=>{ const x0=Math.max(r.x,q.x), y0=Math.max(r.y,q.y), x1=Math.min(r.x+r.w,q.x+q.w), y1=Math.min(r.y+r.h,q.y+q.h);
+      const i=Math.max(0,x1-x0)*Math.max(0,y1-y0); return i/(r.w*r.h+q.w*q.h-i||1); };
+    const dup=out.findIndex(o=>iou(o.rectA,f.rectA)>0.3);
+    if(dup<0) out.push(f); else if(f.score>out[dup].score) out[dup]=f;
+  }
+  return out.sort((x,y)=>(y.score*Math.sqrt(y.fracA))-(x.score*Math.sqrt(x.fracA))).slice(0,3);
+}
+// What a finding says in words.
+function _xdDescribe(f, aName, bName){
+  const parts=[];
+  const whole=f.fracA>0.97&&f.fracB>0.97;
+  if(whole && f.k===0 && Math.abs(f.s-1)<0.02 && f.score>0.995 && !f.inverted) return 'identical image';
+  if(f.k) parts.push(_XD_TF[f.k]);
+  if(Math.abs(f.s-1)>=0.03) parts.push(`${f.s.toFixed(2)}× scale (the other image is ${f.s>1?'larger':'smaller'})`);
+  if(f.inverted) parts.push('contrast inverted');
+  if(whole) parts.unshift('the whole image');
+  else parts.push(`overlapping region ~${Math.round(f.fracA*100)}% of ${aName} and ~${Math.round(f.fracB*100)}% of ${bName||'the other image'}`);
+  return parts.join(', ');
+}
+
+// The run. `panels` and `others` are lists of {label, load:async()=>({src, crop}), key,
+// id?, fig?}. Panels are this figure's; with `within` the list is compared with itself.
+// Progress and Cancel through `ui` ({onProgress(done,total,msg), cancelled}).
+// Memory: only the prepared summaries are held; an other image's pixels are dropped
+// as soon as it has been compared.
+async function _xdRun(panels, others, ui){
+  ui=ui||{};
+  const t0=performance.now(); let tY=performance.now();
+  const yieldNow=async()=>{ if(performance.now()-tY>24){ await new Promise(r=>setTimeout(r,0)); tY=performance.now(); } return !!ui.cancelled||!!(ui.stale&&ui.stale()); };
+  const res={findings:[], skipped:[], excluded:[], compared:0, total:others?others.length:0,
+    panelsCompared:0, panelsTotal:panels.length, pairs:0, pairsSkipped:0, cancelled:false, ms:0, keypoints:0};
+  const prepA=[];
+  for(const p of panels){
+    if(await yieldNow()){ res.cancelled=true; break; }
+    let got=null; try{ got=await p.load(); }catch(e){}
+    if(!got||!got.src){ res.skipped.push({label:p.label, why:'could not be read'}); prepA.push(null); continue; }
+    const P=_xdPrepare(got.src,got.crop,'this');
+    if(P.bad){ res.excluded.push({label:p.label, why:P.bad}); prepA.push(null); continue; }
+    P.thumbSrc=got.src; P.crop=got.crop; prepA.push(P); res.keypoints+=P.kps.length;
+  }
+  res.panelsCompared=prepA.filter(Boolean).length;
+  const nA=Math.max(1,res.panelsCompared);
+  if(!res.cancelled && others){
+    // Image cap first, then the pair budget: both name what they left out.
+    let budget=_XDUP_CAPS.pairs;
+    for(let j=0;j<others.length;j++){
+      const o=others[j];
+      if(j>=_XDUP_CAPS.images){ res.skipped.push({label:o.label, why:`over the ${_XDUP_CAPS.images}-image limit for one run`}); continue; }
+      if(budget<nA){ res.skipped.push({label:o.label, why:`over the ${_XDUP_CAPS.pairs}-comparison limit for one run`}); res.pairsSkipped+=nA; continue; }
+      if(await yieldNow()){ res.cancelled=true; others.slice(j).forEach(x=>res.skipped.push({label:x.label, why:'not reached — cancelled'})); break; }
+      if(ui.onProgress) ui.onProgress(j,others.length,o.label);
+      let got=null; try{ got=await o.load(); }catch(e){}
+      if(!got||!got.src){ res.skipped.push({label:o.label, why:(got&&got.why)||'could not be read'}); continue; }
+      const iw=got.src.naturalWidth||got.src.width, ih=got.src.naturalHeight||got.src.height;
+      if(iw*ih>_XDUP_CAPS.megapixels*1e6){ res.skipped.push({label:o.label, why:`over ${_XDUP_CAPS.megapixels} megapixels (${(iw*ih/1e6).toFixed(0)} MP)`}); continue; }
+      const Q=_xdPrepare(got.src,got.crop,'other');
+      if(Q.bad){ res.excluded.push({label:o.label, why:Q.bad}); continue; }
+      res.compared++; res.keypoints+=Q.kps.length;
+      for(let i=0;i<panels.length;i++){
+        const P=prepA[i]; if(!P) continue;
+        if(o.skipWith&&o.skipWith(panels[i])) continue;
+        budget--; res.pairs++;
+        if(await yieldNow()){ res.cancelled=true; break; }
+        for(const f of _xdComparePair(P,Q)){
+          res.findings.push({...f, a:panels[i], b:o, aSrc:P.thumbSrc, aCrop:P.crop, bSrc:got.src, bCrop:got.crop});
+        }
+      }
+      if(res.cancelled){ others.slice(j+1).forEach(x=>res.skipped.push({label:x.label, why:'not reached — cancelled'})); break; }
+    }
+  } else if(!res.cancelled){
+    // Within one figure: every pair of panels, once.
+    for(let i=0;i<panels.length&&!res.cancelled;i++) for(let j=i+1;j<panels.length;j++){
+      const P=prepA[i], Q=prepA[j]; if(!P||!Q) continue;
+      if(ui.skipPair&&ui.skipPair(panels[i],panels[j])) continue;
+      if(res.pairs>=_XDUP_CAPS.pairs){ res.pairsSkipped++; continue; }
+      res.pairs++;
+      if(await yieldNow()){ res.cancelled=true; break; }
+      // Q is prepared as "this" (it has the transformed descriptors) but compared as is.
+      for(const f of _xdComparePair(P,Q)) res.findings.push({...f, a:panels[i], b:panels[j], aSrc:P.thumbSrc, aCrop:P.crop, bSrc:Q.thumbSrc, bCrop:Q.crop});
+    }
+    res.compared=res.panelsCompared;
+  }
+  res.ms=Math.round(performance.now()-t0);
+  return res;
+}
+
+// ── Reuse decisions: part of the figure ───────────────────────
+// A finding is a candidate, not a verdict. The author says which it is: an intentional
+// reuse (the same control shown in two figures — allowed, but ASM and Nature require it
+// to be stated, so it becomes a sentence in the caption and the Methods), or different
+// images (remembered for that pair, so a re-run does not ask again). Undecided findings
+// stay open, and the compliance report counts them. Saved with the figure, one undo step
+// per decision, cleared at a figure boundary.
+let _reuse={decisions:{}, lastRun:null};
+function _reuseLoad(o){
+  const d=(o&&o.decisions&&typeof o.decisions==='object')?o.decisions:{}, clean={};
+  for(const [k,v] of Object.entries(d)) if(v&&(v.verdict==='intentional'||v.verdict==='different')) clean[k]=JSON.parse(JSON.stringify(v));
+  _reuse={decisions:clean, lastRun:(o&&o.lastRun&&typeof o.lastRun==='object')?JSON.parse(JSON.stringify(o.lastRun)):null};
+}
+function _reuseSentences(){
+  return Object.values(_reuse.decisions).filter(d=>d.verdict==='intentional'&&(d.sentence||'').trim()).map(d=>d.sentence.trim());
+}
+// A panel's identity for a decision: its id and the content of its whole source image, so
+// a re-crop keeps the decision and a replaced image does not inherit it.
+const _xdFpCache=new WeakMap();
+function _xdFp(img){
+  if(!img||typeof img!=='object') return '';
+  if(_xdFpCache.has(img)) return _xdFpCache.get(img);
+  const f=_xdFingerprint(img); _xdFpCache.set(img,f); return f;
+}
+function _xdPanelKey(p){ return `${p.src&&p.src.id!=null?p.src.id:''}@${_xdFp(p.img)}`; }
+function _xdThisPanels(){
+  return _dupPanels().map(p=>({label:p.label, id:p.src&&p.src.id, src:p.src, img:p.img, fp:_xdFp(p.img), key:_xdPanelKey(p),
+    load:async()=>({src:p.img, crop:p.src})}));
+}
+// Info for the decision buttons, by key, so no JSON has to live in an HTML attribute.
+const _reuseInfo=new Map();
+function _reuseDecide(key, verdict){
+  const info=_reuseInfo.get(key)||{};
+  const prev=_reuse.decisions[key];
+  if((prev?prev.verdict:null)===(verdict||null)) return;   // nothing changes: no empty undo step
+  pushUndo();
+  if(!verdict) delete _reuse.decisions[key];
+  else _reuse.decisions[key]={verdict, scope:info.scope||'cross', a:info.a||'', b:info.b||'', what:info.what||'',
+    sentence:verdict==='intentional'?((prev&&prev.sentence)||info.sentence||''):'', at:new Date().toISOString()};
+  logAction('reuseDecision',{verdict:verdict||'open', a:info.a, b:info.b, scope:info.scope});
+  _reuseRefreshTexts(verdict==='intentional'?_reuse.decisions[key].sentence:'');
+  _reuseRepaint(key);
+}
+function _reuseSetSentence(key, text){
+  const d=_reuse.decisions[key]; if(!d||d.verdict!=='intentional'||d.sentence===text) return;
+  pushUndo(); d.sentence=String(text||'');
+  _reuseRefreshTexts(d.sentence);
+}
+// The caption and Methods carry the sentences through their own generators. A box that
+// still holds FigureLab's text is rewritten; one the author has edited is left alone and
+// the sentence offered instead — the submission package flags that box as out of date.
+function _reuseRefreshTexts(sentence, quiet){
+  let kept=[];
+  for(const [kind,id,gen] of [['caption','caption-out',()=>_captionText()],['methods','methods-out',()=>generateMethodsParagraph()]]){
+    const box=gv(id).trim(), was=_genText[kind];
+    if(!box) continue;                                    // nothing written yet: the generator includes it when it is
+    if(was!=null && box===String(was).trim()) _setGeneratedText(kind, gen());
+    else kept.push(kind==='caption'?'caption':'Methods');
+  }
+  if(kept.length && sentence && !quiet) toast(`Your edited ${kept.join(' and ')} kept as written — add: “${sentence}”`,'warn');
+}
+function _reuseButtonsHtml(key, info){
+  _reuseInfo.set(key, info);
+  const d=_reuse.decisions[key], v=d&&d.verdict;
+  const k=esc(key);
+  return `<span class="xd-dec" data-xd-key="${k}" style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px">
+    <button class="btn" style="padding:1px 8px;font-size:10px${v==='intentional'?';border-color:var(--a2);color:var(--a2)':''}" data-xd-act="intentional" title="The same image on purpose (a shared control, say). A sentence stating the reuse goes into the caption and the Methods — journals require reuse to be stated.">${v==='intentional'?'✓ ':''}Intentional reuse — say so in the legend</button>
+    <button class="btn" style="padding:1px 8px;font-size:10px${v==='different'?';border-color:var(--muted)':''}" data-xd-act="different" title="These are different images. Remembered for this pair, so it is not listed again.">${v==='different'?'✓ ':''}Different images</button>
+    ${v?`<button class="btn" style="padding:1px 8px;font-size:10px" data-xd-act="open" title="Undo the decision and leave this finding open">Reopen</button>`:''}
+    ${v==='intentional'?`<input type="text" class="xd-sentence" value="${esc(d.sentence||'')}" style="flex:1 1 100%;font-size:10.5px;padding:2px 4px" title="The sentence written into the caption and the Methods — edit the figure names">`:''}
+  </span>`;
+}
+// One delegated handler for every decision control, in either dialog.
+function _reuseWire(root){
+  root.addEventListener('click',e=>{
+    const b=e.target.closest('[data-xd-act]'); if(!b) return;
+    const key=b.closest('[data-xd-key]').dataset.xdKey, act=b.dataset.xdAct;
+    _reuseDecide(key, act==='open'?null:act);
+  });
+  root.addEventListener('change',e=>{
+    if(!e.target.classList.contains('xd-sentence')) return;
+    _reuseSetSentence(e.target.closest('[data-xd-key]').dataset.xdKey, e.target.value);
+  });
+}
+function _reuseRepaint(key){
+  document.querySelectorAll('.xd-dec').forEach(el=>{
+    if(el.dataset.xdKey!==key) return;
+    const tmp=document.createElement('div'); tmp.innerHTML=_reuseButtonsHtml(key,_reuseInfo.get(key)||{});
+    el.replaceWith(tmp.firstElementChild);
+  });
+  if(typeof _xdRenderSummary==='function') _xdRenderSummary();
+}
+// Open findings of the last cross-figure run: listed and not yet decided.
+function _reuseOpen(){
+  const r=_reuse.lastRun; if(!r) return [];
+  return (r.findings||[]).filter(f=>!_reuse.decisions[f.key]);
+}
+function _reusePanelsChanged(){
+  const r=_reuse.lastRun; if(!r||!Array.isArray(r.panelKeys)) return false;
+  const now=_xdThisPanels().map(p=>p.key).sort().join(','), then=[...r.panelKeys].sort().join(',');
+  return now!==then;
+}
+// The compliance report's one row.
+function _reuseComplianceRow(){
+  const r=_reuse.lastRun, label='Image reuse across figures';
+  if(!r) return {label, ok:true, info:true, uncounted:true, note:'Not run — 🧬 Check against other figures… compares each panel with your other figures and image files (flips, rotations, 0.45–2.2× scale, overlapping crops)'};
+  const when=new Date(r.at).toLocaleString([], {dateStyle:'medium', timeStyle:'short'});
+  const what=`${r.panels} panel${r.panels===1?'':'s'} × ${r.compared} image${r.compared===1?'':'s'} compared ${when}`
+    +(r.skipped&&r.skipped.length?`; ${r.skipped.length} skipped`:'')+(r.excluded&&r.excluded.length?`; ${r.excluded.length} too featureless to compare`:'');
+  if(r.cancelled) return {label, ok:false, warn:true, note:`Cancelled before it finished — ${what}. Run it again to complete it.`};
+  if(_reusePanelsChanged()) return {label, ok:false, warn:true, note:`The panels have changed since the check ran (${what}) — run it again`};
+  const open=_reuseOpen().length, done=(r.findings||[]).length-open;
+  if(open) return {label, ok:false, warn:true, note:`${open} open finding${open>1?'s':''} — decide each in 🧬 Check against other figures… (${what})`};
+  return {label, ok:true, note:`${(r.findings||[]).length?`${done} finding${done>1?'s':''}, each decided`:'No reuse found'} — ${what}. A clean result is not a guarantee.`};
+}
+// For the submission package: what was compared, what was found, what was decided.
+function _reuseReportText(){
+  const L=['IMAGE REUSE CHECK', `FigureLab v${APP_VERSION} — written ${new Date().toISOString()}`, ''];
+  L.push('Compares the source pixels (as imported, greyscale, before display adjustments) of each');
+  L.push('panel with the images the author supplied: other figures from the session library,');
+  L.push('session files and image files. Detects identical copies, the 8 flips/rotations,');
+  L.push('re-scaled copies (0.45-2.2x) and overlapping crops. It compares only what it was given:');
+  L.push('it does not search published papers, does not detect AI-generated images, and a clean');
+  L.push('result is not a guarantee.', '');
+  const r=_reuse.lastRun;
+  if(!r) L.push('Across figures: NOT RUN for this figure.');
+  else {
+    L.push(`Across figures: run ${r.at}${r.cancelled?' (CANCELLED — incomplete)':''}`);
+    L.push(`  ${r.panels} of ${r.panelsTotal} panels compared with ${r.compared} of ${r.total} images (${r.pairs} pairs, ${r.ms} ms).`);
+    (r.excluded||[]).forEach(x=>L.push(`  Not compared (featureless): ${x.label} — ${x.why}`));
+    (r.skipped||[]).forEach(x=>L.push(`  Skipped: ${x.label} — ${x.why}`));
+    if(r.pairsSkipped) L.push(`  ${r.pairsSkipped} panel-image pairs over the work cap were not compared.`);
+    if(_reusePanelsChanged()) L.push('  NOTE: the panels have changed since this run.');
+    if(!(r.findings||[]).length) L.push('  No reuse found.');
+    (r.findings||[]).forEach(f=>{
+      const d=_reuse.decisions[f.key];
+      L.push(`  - ${f.a} <-> ${f.b}: ${f.desc}; correlation ${f.score.toFixed(3)} — ${d?(d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+d.sentence+'"':'marked DIFFERENT IMAGES by the author'):'OPEN (not decided)'}`);
+    });
+  }
+  const within=Object.values(_reuse.decisions).filter(d=>d.scope==='within');
+  if(within.length){
+    L.push('', 'Within this figure (🧬 Duplication check), decided by the author:');
+    within.forEach(d=>L.push(`  - ${d.a} <-> ${d.b}${d.what?' ('+d.what+')':''}: ${d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+d.sentence+'"':'marked DIFFERENT IMAGES'}`));
+  }
+  return L.join('\n')+'\n';
+}
+
+// ── The cross-figure dialog ───────────────────────────────────
+let _xdUI=null;
+function closeCrossFigureCheck(){
+  if(_xdUI&&_xdUI.token) _xdUI.token.cancelled=true;
+  const m=document.getElementById('xdup-modal-bg'); if(m) m.remove();
+  _xdUI=null;   // drops every decoded comparison image with it
+}
+function openCrossFigureCheck(){
+  closeCrossFigureCheck();
+  _xdUI={lib:[], files:[], token:null, findings:[]};
+  const m=document.createElement('div'); m.id='xdup-modal-bg'; m.className='modal-bg open';
+  m.innerHTML=`<div class="modal" style="max-width:780px;width:96vw;padding:20px;max-height:88vh;overflow-y:auto">
+    <div style="font-weight:600;font-size:14px;margin-bottom:4px">🧬 Check against other figures</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Journals screen for the same micrograph or blot in two figures of a paper (ASM with Imagetwin, the Science journals and MDPI with Proofig, Nature for duplication across figures). This compares each panel of this figure with images from your other figures and finds identical copies, flipped or rotated copies (all 8 right-angle orientations), re-scaled copies (0.45–2.2×) and overlapping crops of the same field. It compares <b>source pixels</b> — the images as imported, in greyscale, before any brightness, contrast, gamma or LUT you set here — so a copy shown differently is still found. Nothing leaves this computer.</div>
+    <div style="font-size:11px;font-weight:600;margin:4px 0">Figures in your session library</div>
+    <div id="xdup-lib" style="font-size:11px;max-height:150px;overflow-y:auto">Reading the library…</div>
+    <div style="font-size:11px;font-weight:600;margin:10px 0 4px">Session files and image files</div>
+    <div id="xdup-drop" style="border:1px dashed var(--border);border-radius:6px;padding:10px;font-size:11px;color:var(--muted);text-align:center">Drop session files (.json, .figlab, saved with images) or images (PNG, JPEG, TIFF) here — the other figures or their exported panels — or
+      <button class="btn" style="padding:1px 8px;font-size:10px" onclick="document.getElementById('xdup-file').click()">choose files…</button>
+      <input type="file" id="xdup-file" multiple accept=".json,.figlab,application/json,image/png,image/jpeg,image/tiff,.tif,.tiff" style="display:none"></div>
+    <div id="xdup-files" style="font-size:11px;margin-top:4px"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn btn-primary" id="xdup-run" onclick="_xdStart()">Compare</button>
+      <button class="btn" id="xdup-cancel" onclick="_xdCancel()" style="display:none">Cancel</button>
+      <span id="xdup-status" style="font-size:11px;color:var(--muted)"></span></div>
+    <div id="xdup-prog" style="display:none;height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden"><div id="xdup-prog-bar" style="height:100%;width:0;background:var(--accent)"></div></div>
+    <div id="xdup-viewer"></div>
+    <div id="xdup-results" style="margin-top:8px"></div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:10px;border-top:1px solid var(--border);padding-top:8px"><b>What this cannot do.</b> It compares only the images you give it here; it cannot search published papers (Proofig and Imagetwin compare against their own databases of the literature), and it does not detect AI-generated images. It searches right-angle flips and rotations and scales of 0.45–2.2×, not arbitrary angles or warps. Blank, saturated, smoothly graded and pure-noise images are excluded and named — correlation on them means nothing. A clean result is not a guarantee; it is a chance to catch an accidental reuse before a reviewer does.</div>
+    <button class="btn" onclick="closeCrossFigureCheck()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
+  </div>`;
+  document.body.appendChild(m);
+  const dz=document.getElementById('xdup-drop');
+  dz.addEventListener('dragover',e=>{ e.preventDefault(); e.stopPropagation(); });
+  dz.addEventListener('drop',e=>{ e.preventDefault(); e.stopPropagation(); _xdAddFiles(e.dataTransfer.files); });
+  document.getElementById('xdup-file').addEventListener('change',e=>{ _xdAddFiles(e.target.files); e.target.value=''; });
+  _reuseWire(m);
+  _xdLoadLibrary();
+  if(_reuse.lastRun) _xdRenderSummary();
+}
+// Library figures, each ticked unless it holds exactly this figure's images (this figure
+// saved earlier: every panel would "match" itself).
+async function _xdLoadLibrary(){
+  const el=document.getElementById('xdup-lib'); if(!el||!_xdUI) return;
+  let recs=[]; try{ recs=await _dbAll(); }catch(e){ el.textContent='The session library is not available in this browser.'; return; }
+  if(!_xdUI) return;
+  const mine=new Set(_dupPanels().map(p=>p.src&&p.src.src).filter(Boolean));
+  _xdUI.lib=recs.sort((a,b)=>b.savedAt-a.savedAt).map(r=>{
+    const imgs=_xdFigureImages(r.data||{}, r.name);
+    const self=imgs.length>0 && imgs.every(i=>mine.has(i.srcUrl));
+    return {id:r.id, name:r.name, imgs, self, on:!self&&imgs.length>0, noPix:_xdNoPixels(r.data||{})};
+  });
+  _xdRenderLib();
+}
+function _xdRenderLib(){
+  const el=document.getElementById('xdup-lib'); if(!el||!_xdUI) return;
+  if(!_xdUI.lib.length){ el.innerHTML='<span style="color:var(--muted)">No figures saved in the library yet (☰ Session library → Save). You can still drop session files or images below.</span>'; return; }
+  el.innerHTML=_xdUI.lib.map((r,i)=>`<label style="display:flex;gap:6px;align-items:center;padding:2px 0">
+    <input type="checkbox" data-xd-lib="${i}" ${r.on?'checked':''} ${r.imgs.length?'':'disabled'}>
+    <span><b>${esc(r.name)}</b> — ${r.imgs.length} image${r.imgs.length===1?'':'s'}${r.noPix?` · ${r.noPix} saved without pixels (not comparable)`:''}${r.self?' · <i>the same images as this figure — unticked</i>':''}</span></label>`).join('');
+  el.querySelectorAll('[data-xd-lib]').forEach(cb=>cb.onchange=()=>{ _xdUI.lib[+cb.dataset.xdLib].on=cb.checked; });
+}
+// The images a saved figure holds, with the crop it showed them at.
+function _xdFigureImages(data, figName){
+  const out=[], crop=d=>({cropL:d.cropL||0,cropR:d.cropR||0,cropT:d.cropT||0,cropB:d.cropB||0});
+  (Array.isArray(data.images)?data.images:[]).forEach((d,i)=>{
+    if(d&&d.src) out.push({label:`${figName} · panel ${d.label||i+1}`, fig:figName, panel:d.label||String(i+1), id:d.id, srcUrl:d.src, crop:crop(d)});
+  });
+  (Array.isArray(data.freeformElements)?data.freeformElements:[]).forEach((el,i)=>{
+    if(el&&el.type==='image'&&el.src) out.push({label:`${figName} · ${el.label||'object '+(i+1)}`, fig:figName, panel:el.label||`object ${i+1}`, id:el.id, srcUrl:el.src, crop:crop(el)});
+  });
+  return out;
+}
+function _xdNoPixels(data){
+  return (Array.isArray(data.images)?data.images:[]).filter(d=>d&&!d.src&&d.insetOf==null).length;
+}
+async function _xdAddFiles(list){
+  if(!_xdUI) return;
+  for(const f of [...(list||[])]){
+    const n=f.name||'file', low=n.toLowerCase();
+    if(/\.(json|figlab)$/.test(low)||f.type==='application/json'){
+      let data=null; try{ data=JSON.parse(await f.text()); }catch(e){}
+      if(!data||typeof data!=='object'){ toast(`${n} is not a FigureLab session file`,'warn'); continue; }
+      const imgs=_xdFigureImages(data, n.replace(/\.(json|figlab)$/i,''));
+      const noPix=_xdNoPixels(data);
+      _xdUI.files.push({name:n, kind:'session', imgs, noPix});
+      if(!imgs.length) toast(`${n} has no images saved in it${noPix?' (saved as settings only)':''} — nothing to compare`,'warn');
+    } else if(/\.tiff?$/.test(low)||f.type==='image/tiff'){
+      _xdUI.files.push({name:n, kind:'tiff', file:f});
+    } else if(/^image\/(png|jpeg)$/.test(f.type)||/\.(png|jpe?g)$/.test(low)){
+      _xdUI.files.push({name:n, kind:'image', file:f});
+    } else toast(`${n}: only session files (.json, .figlab) and PNG, JPEG or TIFF images can be compared`,'warn');
+  }
+  _xdRenderFiles();
+}
+function _xdRenderFiles(){
+  const el=document.getElementById('xdup-files'); if(!el||!_xdUI) return;
+  el.innerHTML=_xdUI.files.map((f,i)=>`<div style="display:flex;gap:6px;align-items:center;padding:1px 0">
+    <span style="flex:1">${esc(f.name)} — ${f.kind==='session'?`session, ${f.imgs.length} image${f.imgs.length===1?'':'s'}${f.noPix?` (${f.noPix} saved without pixels)`:''}`:f.kind==='tiff'?'TIFF image':'image'}</span>
+    <button class="icon-btn del" data-xd-rm="${i}" title="Remove from the comparison">×</button></div>`).join('');
+  el.querySelectorAll('[data-xd-rm]').forEach(b=>b.onclick=()=>{ _xdUI.files.splice(+b.dataset.xdRm,1); _xdRenderFiles(); });
+}
+function _xdImgFromUrl(url){
+  return new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src=url; });
+}
+// The comparison set as a flat list of loaders, so a decoded image exists only while
+// it is being compared.
+function _xdOthers(){
+  const out=[];
+  for(const r of _xdUI.lib) if(r.on) for(const i of r.imgs)
+    out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, kind:'library', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
+  for(const f of _xdUI.files){
+    if(f.kind==='session') for(const i of f.imgs)
+      out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, kind:'session', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
+    else if(f.kind==='image') out.push({label:f.name, fig:f.name, kind:'file', load:async()=>{
+      const u=URL.createObjectURL(f.file); const im=await _xdImgFromUrl(u); URL.revokeObjectURL(u); return {src:im}; }});
+    else out.push({label:f.name, fig:f.name, kind:'file', load:async()=>{
+      // The app's own TIFF decoder; page 1 of a stack (the result names it).
+      const t=await decodeTIFF(new Uint8Array(await f.file.arrayBuffer()),0);
+      const c=document.createElement('canvas'); c.width=t.width; c.height=t.height;
+      c.getContext('2d').putImageData(new ImageData(t.rgba,t.width,t.height),0,0);
+      if((t.pages||1)>1) f.note=`page 1 of ${t.pages} compared`;
+      return {src:c}; }});
+  }
+  return out;
+}
+function _xdCancel(){ if(_xdUI&&_xdUI.token){ _xdUI.token.cancelled=true; const s=document.getElementById('xdup-status'); if(s) s.textContent='Cancelling…'; } }
+async function _xdStart(){
+  if(!_xdUI||_xdUI.token) return;
+  const panels=_xdThisPanels();
+  if(!panels.length){ toast('This figure has no image panels to compare','warn'); return; }
+  const others=_xdOthers();
+  if(!others.length){ toast('Tick a library figure or add session files or images to compare against','warn'); return; }
+  const run=document.getElementById('xdup-run'), cancel=document.getElementById('xdup-cancel'),
+        prog=document.getElementById('xdup-prog'), bar=document.getElementById('xdup-prog-bar'), st=document.getElementById('xdup-status');
+  run.disabled=true; cancel.style.display=''; prog.style.display='';
+  const ui=_xdUI, token={cancelled:false, onProgress:(i,n,lbl)=>{
+    if(_xdUI!==ui) return;
+    bar.style.width=`${Math.round(100*i/Math.max(1,n))}%`; st.textContent=`Comparing with ${lbl} (${i+1} of ${n})…`; }};
+  ui.token=token;
+  // Library self-copies: a library panel with this panel's id and the same pixels is this
+  // figure saved earlier — skipped and counted, never a finding.
+  let selfPairs=0;
+  others.forEach(o=>{
+    const ld=o.load;
+    o.load=async()=>{ const g=await ld(); if(g&&g.src) o.fp=_xdFp(g.src); return g; };
+    o.skipWith=p=>{ if(o.id!=null&&p.id===o.id&&o.fp&&o.fp===p.fp){ selfPairs++; return true; } return false; };
+  });
+  const res=await _xdRun(panels, others, token);
+  if(_xdUI!==ui){ return; }       // closed while running
+  ui.token=null; run.disabled=false; cancel.style.display='none'; prog.style.display='none';
+  st.textContent=res.cancelled?'Cancelled — incomplete.':`Done in ${(res.ms/1000).toFixed(1)} s.`;
+  res.selfPairs=selfPairs;
+  _xdFinish(res, panels, others);
+}
+function _xdFinish(res, panels, others){
+  _xdUI.findings=res.findings.map(f=>{
+    const o=f.b;
+    const key=`x|${f.a.key}|${o.fp||''}`;
+    return {...f, key, aLabel:f.a.label, bLabel:f.b.label, desc:_xdDescribe(f, `panel ${f.a.label}`),
+      sentence:`The image in panel ${f.a.label} is reused from ${o.panel&&o.kind!=='file'?`panel ${o.panel} of “${o.fig}”`:`“${o.fig}”`}${f.k?`, ${_XD_TF[f.k]}`:''}${Math.abs(f.s-1)>=0.03?', at a different magnification':''}.`};
+  });
+  const tiffNotes=(_xdUI.files||[]).filter(f=>f.note).map(f=>({label:f.name, why:f.note}));
+  _reuse.lastRun={at:new Date().toISOString(), panels:res.panelsCompared, panelsTotal:res.panelsTotal,
+    compared:res.compared, total:res.total, pairs:res.pairs, pairsSkipped:res.pairsSkipped, ms:res.ms,
+    cancelled:res.cancelled, selfPairs:res.selfPairs||0,
+    skipped:res.skipped.map(s=>({label:s.label, why:s.why})), excluded:res.excluded.map(s=>({label:s.label, why:s.why})),
+    notes:tiffNotes, panelKeys:panels.map(p=>p.key),
+    findings:_xdUI.findings.map(f=>({key:f.key, a:f.aLabel, b:f.bLabel, desc:f.desc, score:+f.score.toFixed(4), k:f.k, s:+f.s.toFixed(4),
+      fracA:+f.fracA.toFixed(3), fracB:+f.fracB.toFixed(3), rectA:f.rectA, rectB:f.rectB}))};
+  logAction('crossFigureDupScan',{panels:res.panelsCompared, images:res.compared, of:res.total, pairs:res.pairs,
+    findings:res.findings.length, skipped:res.skipped.length, excluded:res.excluded.length, cancelled:res.cancelled, ms:res.ms});
+  if(typeof scheduleAutosave==='function') scheduleAutosave();
+  _xdRenderSummary();
+}
+// Evidence: an image with the matching region outlined, from its source pixels.
+function _xdEvidence(src, crop, rect, W){
+  const iw=src.naturalWidth||src.width, ih=src.naturalHeight||src.height, c0=crop||{};
+  const sx=(c0.cropL||0)/100*iw, sy=(c0.cropT||0)/100*ih;
+  const sw=iw*(1-((c0.cropL||0)+(c0.cropR||0))/100), sh=ih*(1-((c0.cropT||0)+(c0.cropB||0))/100);
+  const s=Math.min(W/sw, W/sh), w=Math.max(8,Math.round(sw*s)), h=Math.max(8,Math.round(sh*s));
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const x=c.getContext('2d');
+  try{ x.drawImage(src,sx,sy,sw,sh,0,0,w,h); }catch(e){ return ''; }
+  x.lineWidth=2; x.strokeStyle='#e05252'; x.setLineDash([5,3]);
+  x.strokeRect(rect.x*w+1, rect.y*h+1, Math.max(2,rect.w*w-2), Math.max(2,rect.h*h-2));
+  const u=c.toDataURL(); c.width=c.height=0; return u;
+}
+function _xdRenderSummary(){
+  const el=document.getElementById('xdup-results'); if(!el||!_xdUI) return;
+  const r=_reuse.lastRun; if(!r){ el.innerHTML=''; return; }
+  const live=_xdUI.findings.length?_xdUI.findings:null;
+  const list=live||[];
+  const diff=f=>_reuse.decisions[f.key]&&_reuse.decisions[f.key].verdict==='different';
+  const hidden=_xdUI.showHidden?[]:(live?list:(r.findings||[])).filter(diff);
+  const shown=(live?list:[]).map((f,i)=>({f,i})).filter(({f})=>_xdUI.showHidden||!diff(f));
+  const head=`<div class="cc-row ${r.cancelled?'cc-warn':'cc-pass'}" style="font-size:11px"><span class="cc-icon">${r.cancelled?'⚠':'ℹ'}</span><span>
+    ${r.cancelled?'<b>Cancelled</b> — the comparison is incomplete. ':''}Compared <b>${r.panels} of ${r.panelsTotal}</b> panels with <b>${r.compared} of ${r.total}</b> images (${r.pairs} pairs, ${(r.ms/1000).toFixed(1)} s).
+    ${r.skipped.length?` <b>${r.skipped.length} skipped</b>: ${r.skipped.slice(0,8).map(s=>`${esc(s.label)} — ${esc(s.why)}`).join('; ')}${r.skipped.length>8?`; and ${r.skipped.length-8} more`:''}.`:''}
+    ${r.excluded.length?` <b>${r.excluded.length} not compared</b> (featureless): ${r.excluded.map(s=>`${esc(s.label)} — ${esc(s.why)}`).join('; ')}.`:''}
+    ${r.pairsSkipped?` ${r.pairsSkipped} pairs over the ${_XDUP_CAPS.pairs}-comparison limit were not compared.`:''}
+    ${r.selfPairs?` ${r.selfPairs} pair${r.selfPairs>1?'s':''} of a panel with its own saved copy in the library skipped.`:''}
+    ${(r.notes||[]).map(n=>` ${esc(n.label)}: ${esc(n.why)}.`).join('')}</span></div>`;
+  const rows=shown.map(({f,i})=>`<div class="cc-row ${_reuse.decisions[f.key]?'cc-pass':'cc-fail'}" style="align-items:flex-start"><span class="cc-icon">${_reuse.decisions[f.key]?'✓':'✗'}</span><span style="flex:1">
+      <b>Panel ${esc(f.aLabel)}</b> ↔ <b>${esc(f.bLabel)}</b> — ${esc(f.desc)} · correlation ${(f.score*100).toFixed(1)}%<br>
+      <span style="display:inline-flex;gap:6px;margin-top:4px;cursor:zoom-in" onclick="_xdView(${i})" title="Open side by side, larger">
+        <img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,140)}" style="max-width:140px;border:1px solid var(--border);border-radius:3px">
+        <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,140)}" style="max-width:140px;border:1px solid var(--border);border-radius:3px"></span><br>
+      ${_reuseButtonsHtml(f.key,{scope:'cross', a:`panel ${f.aLabel}`, b:f.bLabel, what:f.desc, sentence:f.sentence})}</span></div>`).join('');
+  const none=!live&&(r.findings||[]).length
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${_reuseOpen().length} open finding(s) from the last run (${esc(new Date(r.at).toLocaleString())}). Run it again to see them side by side.</span></div>`
+    : (!list.length?`<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No reuse found among what was compared. A clean result is not a guarantee — see below for what this cannot see.</span></div>`:'');
+  el.innerHTML=head+rows+none+(hidden.length?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px">${hidden.length} pair${hidden.length>1?'s':''} you marked “different images” ${hidden.length>1?'are':'is'} not listed. ${live?`<button class="btn" style="padding:0 6px;font-size:10px" onclick="_xdUI.showHidden=true;_xdRenderSummary()">Show</button>`:''}</div>`:'');
+}
+// Side by side, larger, both regions outlined.
+function _xdView(i){
+  const v=document.getElementById('xdup-viewer'); if(!v||!_xdUI) return;
+  const f=_xdUI.findings[i]; if(!f){ v.innerHTML=''; return; }
+  v.innerHTML=`<div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:8px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px"><span><b>Panel ${esc(f.aLabel)}</b> (this figure) ↔ <b>${esc(f.bLabel)}</b> — ${esc(f.desc)}</span>
+      <button class="icon-btn" onclick="document.getElementById('xdup-viewer').innerHTML=''" title="Close the viewer">×</button></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <figure style="margin:0;flex:1;min-width:200px"><img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,340)}" style="max-width:100%"><figcaption style="font-size:10px;color:var(--muted)">This figure, panel ${esc(f.aLabel)}: matching region outlined</figcaption></figure>
+      <figure style="margin:0;flex:1;min-width:200px"><img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,340)}" style="max-width:100%"><figcaption style="font-size:10px;color:var(--muted)">${esc(f.bLabel)}: the same region</figcaption></figure>
+    </div><div style="font-size:10px;color:var(--muted);margin-top:4px">Both shown as imported (source pixels), not as adjusted in either figure.</div></div>`;
+  v.scrollIntoView({block:'nearest'});
+}
+
+// ── Within one figure: the scale-tolerant pass of the 🧬 Duplication check ──
+// The whole-panel and region scans compare at one scale; a panel that is a zoom of
+// another, or the same field cropped differently and resized, slips between them. This
+// runs the cross-figure engine over the figure's own panel pairs and appends what it
+// finds to the report — nothing already listed above is repeated.
+async function _dupScaleSection(modal, reported){
+  const sec=modal.querySelector('[data-xd-scale]'); if(!sec) return;
+  const panels=_xdThisPanels();
+  const byId=new Map(panels.map(p=>[p.id,p]));
+  let insetPairs=0;
+  const ui={cancelled:false, stale:()=>!sec.isConnected, skipPair:(a,b)=>{
+    // A linked inset IS a magnified crop of its parent, by construction and on purpose.
+    if((a.src&&a.src.insetOf!=null&&a.src.insetOf===b.id)||(b.src&&b.src.insetOf!=null&&b.src.insetOf===a.id)){ insetPairs++; return true; }
+    return reported.has(a.label+'|'+b.label)||reported.has(b.label+'|'+a.label);
+  }};
+  modal._xdToken=ui;
+  const res=await _xdRun(panels,null,ui);
+  if(!sec.isConnected) return;
+  const rows=[], hiddenN={n:0};
+  res.findings.forEach(f=>{
+    const key=`w|${[f.a.key,f.b.key].sort().join('|')}`;
+    if(_reuse.decisions[key]&&_reuse.decisions[key].verdict==='different'){ hiddenN.n++; return; }
+    rows.push(`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
+      <b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> show the same field — ${esc(_xdDescribe(f,f.a.label,f.b.label))} · correlation ${(f.score*100).toFixed(1)}%<br>
+      <span style="display:inline-flex;gap:6px;margin-top:4px"><img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"> <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"></span><br>
+      ${_reuseButtonsHtml(key,{scope:'within', a:f.a.label, b:f.b.label, what:_xdDescribe(f,f.a.label,f.b.label), sentence:`The image in panel ${f.b.label} is reused from panel ${f.a.label}${Math.abs(f.s-1)>=0.03?' at a different magnification':''}.`})}</span></div>`);
+  });
+  const notes=[];
+  if(res.excluded.length) notes.push(`Not compared (featureless): ${res.excluded.map(x=>`${esc(x.label)} — ${esc(x.why)}`).join('; ')}`);
+  if(res.pairsSkipped) notes.push(`${res.pairsSkipped} panel pairs over the ${_XDUP_CAPS.pairs}-comparison limit were not compared`);
+  if(insetPairs) notes.push(`${insetPairs} linked inset${insetPairs>1?'s':''} not compared with ${insetPairs>1?'their parents':'its parent'} — an inset is a declared magnified crop`);
+  if(hiddenN.n) notes.push(`${hiddenN.n} pair${hiddenN.n>1?'s':''} you marked “different images” not listed`);
+  sec.innerHTML=(rows.length?rows.join(''):`<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations)</span></div>`)
+    +notes.map(n=>`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${n}</span></div>`).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -25220,15 +26139,26 @@ function runAdvancedConsistency(){
   else results.push({status:'pass',msg:`Label font size ${labelSz}px`});
 
   // 7. Duplicated panels — the only check here that compares pixels, not settings
+  // A pair the author marked "different images" in the 🧬 report is not raised again here.
+  const _dpk=_dupPanels().map(p=>_xdPanelKey(p));
+  const _diff=(i,j)=>{ const d=_reuse.decisions[`w|${[_dpk[i],_dpk[j]].sort().join('|')}`]; return !!(d&&d.verdict==='different'); };
+  let _decidedN=0;
   const dup=_panelSimilarityScan();
+  const dupHits=dup.hits.filter(h=>_diff(h.ia,h.ib)?(_decidedN++,false):true);
   if(dup.compared<2) results.push({status:'pass',msg:'Duplicate check skipped — fewer than two comparable panels'});
-  else if(dup.hits.length) dup.hits.forEach(h=>results.push({status:'fail',
+  else if(dupHits.length) dupHits.forEach(h=>results.push({status:'fail',
     msg:`${h.a} and ${h.b} are ${(h.score*100).toFixed(1)}% identical${h.tf==='as-is'?'':` (${h.tf})`} — confirm these are different acquisitions`}));
   else results.push({status:'pass',msg:`No duplicated panels among the ${dup.compared} compared (whole-panel, incl. rotated/mirrored)`});
   const rdup=_regionDupScan();
-  if(rdup.regions.length) rdup.regions.slice(0,6).forEach(g=>results.push({status:'fail',
-    msg:`${g.same?`${g.a} contains an internal repeated region`:`A region of ${g.a} reappears in ${g.b}`}${g.tf==='as-is'?'':` (${g.tf})`} — open the 🧬 Duplication check to see it boxed`}));
+  const regs=rdup.regions.filter(g=>_diff(g.panelA,g.panelB)?(_decidedN++,false):true);
+  if(regs.length){
+    regs.slice(0,6).forEach(g=>results.push({status:'fail',
+      msg:`${g.same?`${g.a} contains an internal repeated region`:`A region of ${g.a} reappears in ${g.b}`}${g.tf==='as-is'?'':` (${g.tf})`} — open the 🧬 Duplication check to see it boxed`}));
+    if(regs.length>6) results.push({status:'fail', msg:`${regs.length-6} more repeated region${regs.length-6>1?'s':''} not listed here — the 🧬 Duplication check lists them`});
+  }
   else if(rdup.patches>=2) results.push({status:'pass',msg:`No repeated regions (${rdup.patches} textured patches compared within and across panels)`});
+  if(rdup.capped) results.push({status:'warn', msg:`The region scan hit its work cap: ${rdup.unverified} candidate patch pairs were not verified`});
+  if(_decidedN) results.push({status:'pass', msg:`${_decidedN} match${_decidedN>1?'es':''} you marked “different images” in the 🧬 Duplication check not listed`});
 
   // Show results in modal
   const rows=results.map(r=>`

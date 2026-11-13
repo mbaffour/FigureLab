@@ -42,6 +42,9 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     's1-modal-bg',
     // The Replace-all summary (old → new per panel), built when the files are picked.
     'replace-all-modal-bg',
+    // Check against other figures, built when it opens.
+    'xdup-modal-bg', 'xdup-lib', 'xdup-drop', 'xdup-file', 'xdup-files', 'xdup-run', 'xdup-cancel',
+    'xdup-status', 'xdup-prog', 'xdup-prog-bar', 'xdup-viewer', 'xdup-results',
   ]);
   const real = missing.filter(id => !runtimeBuilt.has(id));
   expect(real, `ids the script looks up but the markup no longer has: ${real.join(', ')}`).toEqual([]);
