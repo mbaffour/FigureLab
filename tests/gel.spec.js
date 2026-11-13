@@ -1220,3 +1220,263 @@ test('total-protein normalisation: whole-lane signal, 1:2:1:2 stain → 2:1:2:1,
   expect(r.sat.banner).toMatch(/Lane 3 of the total-protein image has clipped samples/);
   expect(errors).toEqual([]);
 });
+
+// ── Round 3 of the adversarial gel tests (T2-*) ───────────────────────────────────────
+// A Gaussian band's volume is amp × lane width × σ√(2π); the stains' lanes share one
+// profile, so their totals are in exactly the ratio of their amplitudes.
+const TP_TARGET = { w: 400, h: 120, pol: 'dark', bg: 228, noise: 2, name: 'target.png',
+  lanes: [0, 1, 2, 3].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 60, s: 3, amp: 60 }] })) };
+
+// Fails on 4bb72e9: one per-row median over every gap, applied to every lane, read a stain
+// whose membrane darkens 0.04 grey levels per px as 1.00 / 0.76 / 0.62 / 0.52 for four
+// equal lanes, said nothing, and had no lane-by-lane background or one-sided flag.
+test('total protein on an uneven membrane: each lane\'s background from the gaps beside it — equal lanes stay equal (T2-03)', async ({ page }) => {
+  const errors = await setup(page);
+  const grads = ['-0.02*x', '-0.04*x', '-0.1*y', '-0.02*x-0.05*y'];
+  const r = await page.evaluate(async ({ target, grads, eq, odd }) => {
+    const out = {}, toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    const pair = async (st, crop) => {
+      images = []; await __gelMake(target); await __gelMake(st);
+      if (crop) { Object.assign(images[1], crop); render(); }
+      runGelAnalysis(0); gelSetRefLane(0, 0);
+      if (!gelSetLoading(0, 1, 'total')) return { refused: toasts.pop() };
+      const a = images[0].gelAnalysis, t = a.loading.lanes.map(l => l.volume);
+      return { rel: t.map(v => v / t[0]), norm: _gelRows(a).map(x => x.normLCRef), loading: a.loading };
+    };
+    for (const g of grads) {
+      out[g] = { eq: await pair({ ...eq, bgExpr: g }), odd: await pair({ ...odd, bgExpr: g }) };
+      if (g === '-0.04*x') {
+        out[g].csv = gelCSV(0).split('\n').find(l => l.startsWith('# Loading'));
+        out[g].methods = generateMethodsParagraph();
+        openGelAnalysis(0); out[g].banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+      }
+    }
+    // the crop tight to lane 1's left edge: membrane on its right only — extrapolated, flagged
+    out.edge = await pair({ ...eq, bgExpr: '-0.04*x' }, { cropL: 7.5 });
+    out.edge.csv = gelCSV(0).split('\n').find(l => l.startsWith('# Loading'));
+    checkCompliance(); out.edge.row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+    document.getElementById('info-modal-bg')?.remove();
+    // lanes with 2 px between them: no membrane to measure — refused, as before
+    out.narrow = await pair({ ...eq, lanes: eq.lanes.map((L, k) => ({ ...L, x0: 4 + 97 * k, x1: 99 + 97 * k })) });
+    // a gap carrying stain (a spill between lanes 2 and 3) is set aside: lanes 2 and 3 take
+    // the trend of the other gaps, and are flagged (the stain's own analysis holds 4 lanes)
+    images = []; await __gelMake(target); await __gelMake({ ...eq, bgExpr: '-0.04*x-((x>=178&&x<202)?5:0)' });
+    runGelAnalysis(1, { laneCount: 4 }); runGelAnalysis(0); gelSetRefLane(0, 0); gelSetLoading(0, 1, 'total');
+    { const L = images[0].gelAnalysis.loading; out.stained = { gaps: L.stainedGaps, one: L.oneSided, rel: L.lanes.map(l => l.volume / L.lanes[0].volume), csv: gelCSV(0).split('\n').find(l => l.startsWith('# Loading')) }; }
+    window.toast = t0;
+    return out;
+  }, { target: TP_TARGET, grads, eq: stain([30, 30, 30, 30], 'stain.png'), odd: stain([20, 40, 20, 40], 'stain.png') });
+  for (const g of grads) {
+    console.log(`gradient ${g}: equal lanes ${r[g].eq.rel.map(v => v.toFixed(3))} | 1:2:1:2 ${r[g].odd.rel.map(v => v.toFixed(3))} | one level for the stain would have moved a lane by ${(100 * r[g].eq.loading.bgShift).toFixed(0)}%`);
+    r[g].eq.rel.forEach(v => expect(Math.abs(v - 1)).toBeLessThan(0.03));
+    [1, 2, 1, 2].forEach((t, i) => expect(Math.abs(r[g].odd.rel[i] - t) / t).toBeLessThan(0.03));
+    r[g].eq.norm.forEach(v => expect(Math.abs(v - 1)).toBeLessThan(0.03));
+  }
+  // a left-to-right gradient is reported; a top-to-bottom one moves no lane against another
+  expect(r['-0.04*x'].eq.loading.bgShift).toBeGreaterThan(0.1);
+  expect(r['-0.1*y'].eq.loading.bgShift).toBeLessThan(0.02);
+  expect(r['-0.04*x'].csv).toMatch(/a straight line across the lane between the medians of the membrane just left and just right of it/);
+  expect(r['-0.04*x'].csv).toMatch(/uneven background corrected lane by lane/);
+  expect(r['-0.04*x'].banner).toMatch(/Uneven background corrected lane by lane/);
+  expect(r['-0.04*x'].methods).toMatch(/measured on either side of that lane and interpolated across it, row by row; the stain's background was uneven and was corrected lane by lane/);
+  // the end lane, extrapolated: still right, and flagged
+  r.edge.rel.forEach(v => expect(Math.abs(v - 1)).toBeLessThan(0.03));
+  expect(r.edge.loading.oneSided).toEqual([1]);
+  expect(r.edge.csv).toMatch(/lane 1 of the stain has membrane on one side only/);
+  expect(r.edge.row).toMatch(/lane 1 of the stain has membrane on one side only/);
+  expect(r.narrow.refused).toMatch(/no membrane between or beside them|no usable membrane/);
+  expect(r.stained.gaps.length).toBe(1);
+  expect(r.stained.one).toEqual([2, 3]);
+  r.stained.rel.forEach(v => expect(Math.abs(v - 1)).toBeLessThan(0.03));
+  expect(r.stained.csv).toMatch(/1 gap between the stain's lanes stands well above the others \(stain, not membrane\) and was not used/);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: the stamp was stored only when the control had its own analysis, so a
+// control picked first and analysed or edited afterwards was never stale (133358 kept
+// where 104029 is right), in either mode.
+test('a loading control analysed or edited after it was picked is stale, in either order and either mode (T2-04)', async ({ page }) => {
+  const errors = await setup(page);
+  const mk = (amps, name) => ({ w: 400, h: 120, pol: 'dark', bg: 228, noise: 1, name,
+    lanes: amps.map((a, k) => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 40, s: 3, amp: a }, { y: 80, s: 3, amp: a }] })) });
+  const r = await page.evaluate(async ({ T, L }) => {
+    const out = {};
+    const stale = () => _gelLoadingStale(images[0].gelAnalysis, images[0]);
+    const norm = () => _gelRows(images[0].gelAnalysis).map(x => x.normLC);
+    for (const mode of ['bands', 'total']) {
+      const o = out[mode] = {};
+      // picked first, the control analysed later with nothing changed: not stale
+      images = []; await __gelMake(T); await __gelMake(L);
+      runGelAnalysis(0); gelSetLoading(0, 1, mode);
+      o.from = images[0].gelAnalysis.loading.from; o.n0 = norm();
+      runGelAnalysis(1); o.sameAnalysis = stale();
+      // ...then edited: stale, and no normalised value is given
+      if (mode === 'bands') gelDeleteBand(1, 0, 0); else gelSetLane(1, 1, 110, 150);
+      o.afterEdit = stale(); o.n1 = norm();
+      o.csv = gelCSV(0).split('\n').find(l => l.startsWith('# Loading'));
+      // the other order: the control analysed first, picked, then edited (as before)
+      images = []; await __gelMake(T); await __gelMake(L);
+      runGelAnalysis(0); runGelAnalysis(1); gelSetLoading(0, 1, mode);
+      o.ownFrom = images[0].gelAnalysis.loading.from;
+      if (mode === 'bands') gelDeleteBand(1, 0, 0); else gelSetLane(1, 1, 110, 150);
+      o.ownAfterEdit = stale();
+    }
+    return out;
+  }, { T: mk([40, 80, 80, 120], 'target.png'), L: mk([30, 60, 30, 45], 'actin.png') });
+  for (const mode of ['bands', 'total']) {
+    const o = r[mode];
+    expect(o.from).toBe('detected for this pairing');
+    expect(o.n0.every(v => v != null)).toBe(true);
+    expect(o.sameAnalysis).toBeNull();
+    expect(o.afterEdit).toMatch(/re-analysed or edited after it was used/);
+    expect(o.n1.every(v => v == null)).toBe(true);
+    expect(o.csv).toMatch(/STALE/);
+    expect(o.ownFrom).toBe('its own analysis');
+    expect(o.ownAfterEdit).toMatch(/re-analysed or edited after it was used/);
+  }
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: valley-to-valley read the smaller of two bands 10 px apart 94% low and
+// flagged it only 'split'; no overlap flag existed, and its ratios were given.
+test('valley-to-valley on overlapping bands: flagged, kept out of ratios, named everywhere; the flag goes with the method (T2-01)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const out = {};
+    for (const d of [10, 12, 16, 30]) {
+      images = [];
+      await __gelMake({ w: 300, h: 200, pol: 'dark', bg: 220, noise: 3, name: 'd.png', lanes: [0, 1, 2].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 100, s: 3, amp: 60 }, { y: 100 + d, s: 3, amp: 30 }] })) });
+      runGelAnalysis(0); gelSetRefLane(0, 0); gelSetBaseline(0, 'valley-to-valley');
+      const a = images[0].gelAnalysis, rows = _gelRows(a);
+      out[d] = { overlap: rows.map(x => x.overlap), rel: rows.map(x => x.relRef), pct: rows.map(x => x.pctLane),
+        // the verdict does not hang on the detection window
+        w31: _gelAnalyse(images[0], { window: 31, method: 'valley-to-valley' }).lanes[1].bands.map(b => !!b.overlap) };
+      if (d === 10) {
+        out[d].csv = gelCSV(0); out[d].methods = generateMethodsParagraph();
+        openGelAnalysis(0); out[d].table = document.getElementById('gel-table').textContent; out[d].banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' ');
+        out[d].tip = document.getElementById('gel-bg').title; closeGelAnalysis();
+        checkCompliance(); out[d].row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || '';
+        document.getElementById('info-modal-bg')?.remove();
+        gelSetBaseline(0, 'rolling minimum'); out[d].back = _gelRows(images[0].gelAnalysis).map(x => x.overlap);
+      }
+    }
+    return out;
+  });
+  // 16 px apart the smaller band is still 16% low: flagged too
+  for (const d of [10, 12, 16]) {
+    expect(r[d].overlap.every(Boolean)).toBe(true);
+    expect(r[d].w31).toEqual([true, true]);
+    expect(r[d].rel.every(v => v == null)).toBe(true);
+    expect(r[d].pct.every(v => v == null)).toBe(true);
+  }
+  // well-separated bands: no flag, ratios given
+  expect(r[30].overlap.some(Boolean)).toBe(false);
+  expect(r[30].w31).toEqual([false, false]);
+  expect(r[30].rel.every(v => v != null)).toBe(true);
+  expect(r[10].table).toMatch(/overlapping — valley-to-valley under-measures; use rolling minimum/);
+  expect(r[10].banner).toMatch(/6 bands overlap a neighbour — valley-to-valley under-measures them/);
+  expect(r[10].csv).toMatch(/# Overlapping bands: 6/);
+  expect(r[10].csv.split('\n').filter(l => /,OVERLAP,/.test(l)).length).toBe(6);
+  expect(r[10].methods).toMatch(/6 bands overlapping a neighbour were under-measured by the valley-to-valley background and were excluded from ratios/);
+  expect(r[10].row).toMatch(/6 overlapping bands under-measured by valley-to-valley/);
+  expect(r[10].tip).toMatch(/for well-separated bands/);
+  expect(r[10].back.some(Boolean)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: the opening rode up a sloping background by slope × the band's
+// half-width — 11–14% low at 0.25 grey levels/row — with no flag.
+test('a band on a sloping background: the rolling minimum follows the slope, within 3% of truth, and says so (T2-02)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const out = {}, V = 40 * 50 * 3 * Math.sqrt(2 * Math.PI);
+    for (const sl of [0, 0.1, 0.25, -0.25]) for (const noise of [0, 3]) {
+      images = [];
+      await __gelMake({ w: 300, h: 200, pol: 'dark', bg: sl < 0 ? 160 : 220, noise, name: 's.png', bgExpr: `${-sl}*y`, lanes: [0, 1, 2].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 70, s: 3, amp: 40 }, { y: 140, s: 3, amp: 40 }] })) });
+      const a = _gelAnalyse(images[0]), L = a.lanes[1];
+      out[`${sl}/${noise}`] = { err: L.bands.map(b => b.volume / V - 1), n: L.bands.length, slope: L.bands.map(b => !!b.slope) };
+    }
+    return out;
+  });
+  for (const [k, o] of Object.entries(r)) {
+    console.log(`slope ${k}: rolling-minimum error ${o.err.map(e => (100 * e).toFixed(1))}%`);
+    expect(o.n).toBe(2);
+    o.err.forEach(e => expect(Math.abs(e)).toBeLessThan(0.03));
+  }
+  expect(r['0.25/3'].slope.every(Boolean)).toBe(true);
+  expect(r['0/3'].slope.some(Boolean)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: a band 5 px inside a tight crop read 0.903 against its equal partner,
+// unflagged; at 2 px it vanished with no word.
+test('a band cut by the crop edge is flagged and kept out of ratios; a lane whose signal runs into the edge says so (T2-06)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const out = {};
+    for (const d of [5, 2]) {
+      images = [];
+      await __gelMake({ w: 300, h: 260, pol: 'dark', bg: 220, noise: 3, name: 'e.png', lanes: [0, 1, 2].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 60 + d, s: 4, amp: 50 }, { y: 160, s: 4, amp: 50 }] })) });
+      images[0].cropT = 60 / 260 * 100; render();
+      runGelAnalysis(0); gelSetRefLane(0, 0);
+      const a = images[0].gelAnalysis, rows = _gelRows(a);
+      out[d] = { edge: rows.map(x => x.edge), rel: rows.map(x => x.relRef), n: a.lanes.map(L => L.bands.length), lanes: a.lanes.map(L => L.edgeSignal || null),
+        csv: gelCSV(0), methods: generateMethodsParagraph() };
+      openGelAnalysis(0); out[d].banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); out[d].table = document.getElementById('gel-table').textContent; closeGelAnalysis();
+    }
+    return out;
+  });
+  // 5 px inside: two bands a lane, the cut one flagged, no ratio given with it
+  expect(r[5].n).toEqual([2, 2, 2]);
+  expect(r[5].edge.filter(Boolean).length).toBe(3);
+  expect(r[5].rel.filter((v, i) => r[5].edge[i]).every(v => v == null)).toBe(true);
+  expect(r[5].rel.filter((v, i) => !r[5].edge[i]).every(v => v != null)).toBe(true);
+  expect(r[5].table).toMatch(/cut by the crop edge/);
+  expect(r[5].banner).toMatch(/3 bands are cut by the crop edge/);
+  expect(r[5].csv).toMatch(/# Bands cut by the crop edge: 3/);
+  expect(r[5].csv.split('\n').filter(l => /,CUT,/.test(l)).length).toBe(3);
+  expect(r[5].methods).toMatch(/3 bands were cut by the crop edge and were not quantified/);
+  // 2 px inside: the cut band is not offered, but the lanes say their signal runs off the top
+  expect(r[2].lanes).toEqual(['top', 'top', 'top']);
+  expect(r[2].banner).toMatch(/Lanes 1 \(top\), 2 \(top\) and 3 \(top\): band-strength signal on the crop's edge rows/);
+  expect(r[2].csv).toMatch(/have band-strength signal on the crop's edge rows in no band/);
+  expect(r[2].methods).toMatch(/signal on the crop's edge rows .* was not measured/);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: on a stain spanning under 50 grey levels the pile-up window was under
+// one level, so the eight darkest samples read as a clip and every lane was withheld.
+test('a faint, low-noise stain is not read as clipped; a real clip still is (T2-05)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async (target) => {
+    const out = {};
+    const gauss = (() => { let s = 5; const u = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s + 0.5) / 4294967296; }; return () => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()); })();
+    const commit = (W, H, f, name) => new Promise(res => { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), id = x.createImageData(W, H);
+      for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const v = Math.max(0, Math.min(255, Math.round(f(i, j)))), o = (j * W + i) * 4; id.data[o] = id.data[o + 1] = id.data[o + 2] = v; id.data[o + 3] = 255; }
+      x.putImageData(id, 0, 0); const src = c.toDataURL('image/png'), img = new Image(); img.onload = () => { _commitImage(img, src, name); render(); res(); }; img.src = src; });
+    for (const sig of [1, 2]) {
+      images = []; await __gelMake(target);
+      await commit(400, 160, (i, j) => { let s = 0; for (let k = 0; k < 4; k++) if (i >= 30 + 90 * k && i < 80 + 90 * k) for (const y of [30, 60, 90, 120]) s += 30 * Math.exp(-((j - y) ** 2) / 72); return 215 - s + sig * gauss(); }, 'stain.png');
+      runGelAnalysis(0); gelSetRefLane(0, 0); gelSetLoading(0, 1, 'total');
+      const rows = _gelRows(images[0].gelAnalysis);
+      out['gauss' + sig] = { clipLo: _gelFrame(images[1]).clipLo, flags: rows.map(x => x.lcFlag), norm: rows.map(x => x.normLCRef) };
+    }
+    // uniform ±2 noise, amplitude 30: the tester's case
+    images = []; await __gelMake(target);
+    await __gelMake({ w: 400, h: 160, pol: 'dark', bg: 215, noise: 2, name: 'stain.png', lanes: [0, 1, 2, 3].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [30, 60, 90, 120].map(y => ({ y, s: 6, amp: 30 })) })) });
+    runGelAnalysis(0); gelSetRefLane(0, 0); gelSetLoading(0, 1, 'total');
+    const rows = _gelRows(images[0].gelAnalysis);
+    out.uniform = { clipLo: _gelFrame(images[1]).clipLo, flags: rows.map(x => x.lcFlag), norm: rows.map(x => x.normLCRef) };
+    // and a faint stain that IS clipped at 190: still caught
+    images = []; await __gelMake({ w: 400, h: 160, pol: 'dark', bg: 215, noise: 2, floor: 190, name: 'clip.png', lanes: [0, 1, 2, 3].map(k => ({ x0: 30 + 90 * k, x1: 80 + 90 * k, bands: [{ y: 80, s: 6, amp: 40 }] })) });
+    out.clipped = _gelFrame(images[0]).clipLo;
+    return out;
+  }, TP_TARGET);
+  for (const k of ['gauss1', 'gauss2', 'uniform']) {
+    expect(r[k].clipLo).toBe(0);
+    expect(r[k].flags).toEqual(['', '', '', '']);
+    r[k].norm.forEach(v => expect(Math.abs(v - 1)).toBeLessThan(0.03));
+  }
+  expect(r.clipped).toBe(190);
+  expect(errors).toEqual([]);
+});

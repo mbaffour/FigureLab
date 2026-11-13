@@ -10,7 +10,7 @@ const { test, expect } = require('@playwright/test');
 const { loadApp } = require('./helpers');
 
 // A dark-on-light blot with n lanes of known position (x0 = 30 + pitch·k, 50 px wide),
-// one band each, through a lossless PNG and the real _commitImage path.
+// one band each (amplitude 60, or opts.amps[k]), through a lossless PNG and the real _commitImage path.
 const GEN = () => {
   window.__blot = (n, name, opts) => {
     opts = opts || {};
@@ -20,7 +20,7 @@ const GEN = () => {
     let seed = 7; const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
       let s = 0;
-      for (let k = 0; k < n; k++) if (i + 0.5 >= 30 + pitch * k && i + 0.5 < 80 + pitch * k) s += 60 * Math.exp(-((j + 0.5 - H / 2) ** 2) / 18);
+      for (let k = 0; k < n; k++) if (i + 0.5 >= 30 + pitch * k && i + 0.5 < 80 + pitch * k) s += (opts.amps ? opts.amps[k] : 60) * Math.exp(-((j + 0.5 - H / 2) ** 2) / 18);
       const v = Math.max(0, Math.min(255, Math.round(225 - s + (rnd() - 0.5) * 4))), o = (j * W + i) * 4;
       id.data[o] = id.data[o + 1] = id.data[o + 2] = v; id.data[o + 3] = 255;
     }
@@ -292,5 +292,192 @@ test('the S1 sheet is unaffected; freeform refuses; reachable from the sidebar, 
   for (const q of Object.keys(r.q)) expect(r.q[q], q).toMatch(/^Lane table/);
   expect(r.dlg).toBe(true);
   expect(r.ff).toBe(false); expect(r.ffEdit).toBe(false); expect(r.ffSteps).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// ── Round 3 of the adversarial lane-table tests (T3-*) ────────────────────────────────
+// The drawn lanes, read back from the figure canvas: runs of columns darker than the
+// background along the band's row, each with how dark it gets (lane k is darker than k−1).
+const DRAWN = () => {
+  window.__drawnLanes = (idx) => {
+    render();
+    const pb = panelBounds.find(p => p.idx === idx), cv = document.getElementById('fig-canvas'), s = cv.width / canvasLogicalW;
+    const x = cv.getContext('2d'), y = Math.round((pb.iy + pb.ih / 2) * s), W = Math.round(pb.iw * s);
+    const d = x.getImageData(Math.round(pb.ix * s), y - 2, W, 4).data, col = [];
+    for (let i = 0; i < W; i++) { let t = 0; for (let r = 0; r < 4; r++) t += d[(r * W + i) * 4]; col.push(t / 4); }
+    const runs = []; let st = -1;
+    for (let i = 0; i <= W; i++) { const dark = i < W && col[i] < 212; if (dark && st < 0) st = i;
+      if (!dark && st >= 0) { if (i - st > 5) { let m = 255; for (let k = st; k < i; k++) m = Math.min(m, col[k]); runs.push({ x: pb.ix + (st + i) / 2 / s, min: m }); } st = -1; } }
+    // lane number = rank by darkness (lightest is lane 1)
+    const byDark = runs.slice().sort((p, q) => q.min - p.min);
+    return runs.map(r => ({ x: r.x, lane: byDark.indexOf(r) + 1 }));
+  };
+};
+
+// Fails on 4bb72e9: mirrored, the columns kept their left-to-right order, so dose 6 was
+// printed over lane 1 (and evenly spaced, up to 22 px off the lanes).
+test('mirrored or turned 180°, the table reverses with the picture: each condition stays over its own lane (T3-01)', async ({ page }) => {
+  const errors = await setup(page);
+  await page.evaluate(DRAWN);
+  const r = await page.evaluate(async () => {
+    const toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    await __blot(6, 'blot.png', { amps: [30, 50, 70, 90, 110, 130] });
+    runGelAnalysis(0);
+    __fill(0, [{ name: 'dose', cells: ['1', '2', '3', '4', '5', '6'] }]);
+    const read = () => ({ lanes: __drawnLanes(0), cells: __lt(0).filter(t => /^\d$/.test(t.str)).map(t => ({ k: +t.str, x: t.x })) });
+    const out = { plain: read() };
+    images[0].flipH = true; out.flipH = read(); out.flipToast = toasts.filter(m => /mirrored/.test(m)).length;
+    openLaneTable(0); out.flipStatus = document.getElementById('lt-status').textContent; closeLaneTable();
+    images[0].flipH = false; images[0].rotate = 180; out.rot180 = read();
+    images[0].flipH = true; out.both = read();      // mirrored AND turned 180°: the right way round again
+    window.toast = t0;
+    return out;
+  });
+  for (const k of ['plain', 'flipH', 'rot180', 'both']) {
+    const { lanes, cells } = r[k];
+    expect(lanes.length, k).toBe(6);
+    cells.forEach(c => { const L = lanes.find(l => l.lane === c.k); expect(Math.abs(c.x - L.x), `${k}: dose ${c.k}`).toBeLessThanOrEqual(2); });
+  }
+  // and it is the drawing that moved: mirrored, lane 1 (dose 1) is the rightmost
+  expect(r.flipH.cells.find(c => c.k === 1).x).toBeGreaterThan(r.flipH.cells.find(c => c.k === 6).x);
+  expect(r.flipToast).toBe(1);
+  expect(r.flipStatus).toMatch(/mirrored — the columns are reversed with the picture/);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: turned, the table was silently spaced evenly — no toast, no banner or
+// compliance warning, and nothing to confirm it with.
+test('turned 90°, the table is flagged everywhere until it is re-mapped to the lanes as drawn, one undo step (T3-01)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    await __blot(4, 'blot.png');
+    runGelAnalysis(0);
+    __fill(0, [{ name: 'IPTG', cells: ['–', '+', '–', '+'] }]);
+    __lt(0);
+    const row = () => { checkCompliance(); const t = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Densitometry/.test(x)) || ''; document.getElementById('info-modal-bg')?.remove(); return t; };
+    // the analysis dialog refuses a turned panel, so it is open when the panel is turned
+    openGelAnalysis(0);
+    pushUndo(); images[0].rotate = 90; __lt(0); _gelRefresh();
+    const out = { toast: toasts.filter(m => /turned 90°/.test(m)), align: _ltAlign(images[0]) };
+    out.banner = document.getElementById('gel-banner').textContent.replace(/\s+/g, ' '); closeGelAnalysis();
+    out.row = row();
+    openLaneTable(0); out.status = document.getElementById('lt-status').textContent; out.btn = !!document.getElementById('lt-remap');
+    const n = undoStack.length; document.getElementById('lt-remap').click();
+    out.steps = undoStack.length - n; out.after = { align: _ltAlign(images[0]), status: document.getElementById('lt-status').textContent, row: row() };
+    closeLaneTable();
+    images[0].rotate = 270; out.again = _ltAlign(images[0]);
+    images[0].rotate = 90; undo(); out.undone = _ltAlign(images[0]);
+    window.toast = t0;
+    return out;
+  });
+  expect(r.toast.length).toBe(1);
+  expect(r.align.why).toBe('turned'); expect(r.align.ok).toBe(false);
+  expect(r.row).toMatch(/the panel is turned 90° — its lane table is spaced evenly and may not match the lanes/);
+  expect(r.banner).toMatch(/The panel is turned 90° — its lanes are no longer columns/);
+  expect(r.status).toMatch(/turned 90° — its lanes no longer run across the page/);
+  expect(r.btn).toBe(true);
+  expect(r.steps).toBe(1);
+  expect(r.after.align.ok).toBe(true);
+  expect(r.after.status).toMatch(/you accepted the table as drawn/);
+  expect(r.after.row).not.toMatch(/turned 90°/);
+  expect(r.again.ok).toBe(false);                    // turned again: flagged again
+  expect(r.undone.ok).toBe(false);                   // and the acceptance undoes
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: 10 rows at 24 px gave the lower blot a picture of −79 × −30 px, the
+// texts overprinted, and the stacked blots fell out of register.
+test('a table too tall for its cell is set smaller to fit half the cell, the picture stays positive and in register, and a row past the floor is refused (T3-06)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    await __blot(4, 'top.png'); await __blot(4, 'bottom.png');
+    sv('cols', 1); sv('rows', 2); sc('show-col-labels', true); onLayoutChange(); render();
+    runGelAnalysis(1);
+    const rows = []; for (let i = 0; i < 10; i++) rows.push({ name: 'cond ' + (i + 1), cells: ['+', '–', '+', '–'] });
+    __fill(1, rows); laneTableSet(1, { fs: 24 }); render();
+    const ov = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const read = () => { render(); const all = figTextItems.filter(t => t.bbox), lt = all.filter(t => t.kind === 'lanetable');
+      let self = 0, other = 0; for (let i = 0; i < lt.length; i++) { for (let j = i + 1; j < lt.length; j++) if (ov(lt[i].bbox, lt[j].bbox)) self++; all.forEach(o => { if (o.kind !== 'lanetable' && ov(lt[i].bbox, o.bbox)) other++; }); }
+      const p0 = panelBounds.find(p => p.idx === 0), p1 = panelBounds.find(p => p.idx === 1);
+      return { p0: { ix: p0.ix, iw: p0.iw, ih: p0.ih }, p1: { ix: p1.ix, iw: p1.iw, ih: p1.ih }, self, other, n: lt.length, fs: Math.max(...lt.map(t => t.fs)) }; };
+    const out = { at24: read() };
+    openLaneTable(1); out.status = document.getElementById('lt-status').textContent; closeLaneTable();
+    // more rows until one is refused: the picture never goes below 20 px
+    let k = 0; while (k < 40 && laneTableAddRow(1, 'more ' + k)) { laneTableSetCell(1, images[1].laneTable.rows.length - 1, 0, '+'); k++; }
+    out.added = k; out.refusal = toasts.filter(m => /No room for another row/.test(m)).length; out.full = read();
+    out.texts = images[1].laneTable.rows.reduce((s, row) => s + (row.name ? 1 : 0) + row.cells.filter(Boolean).length, 0);
+    window.toast = t0;
+    return out;
+  });
+  for (const s of [r.at24, r.full]) {
+    expect(s.p1.iw).toBeGreaterThan(20); expect(s.p1.ih).toBeGreaterThanOrEqual(20);
+    expect(s.p1.ix).toBe(s.p0.ix); expect(s.p1.iw).toBe(s.p0.iw);    // the stacked blots stay in register
+    expect(s.self).toBe(0); expect(s.other).toBe(0);
+  }
+  expect(r.at24.fs).toBeLessThan(24);
+  expect(r.status).toMatch(new RegExp(`Drawn at ${r.at24.fs} px, not 24 px`));
+  expect(r.added).toBeLessThan(40);
+  expect(r.refusal).toBe(1);
+  expect(r.full.n).toBe(r.texts);                     // every row that was accepted is drawn
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: long cells were centred with no width check and overprinted their
+// neighbours (36 px) and the row name; names with format marks stopped 19 px short of the
+// picture instead of 7, measured with their asterisks.
+test('cells fit their lanes (smaller, then cut with … and the full text in the editor); marked-up names sit the designed gap from the picture (T3-02, T3-03)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    await __blot(6, 'blot.png');
+    runGelAnalysis(0);
+    __fill(0, [{ name: 'treatment', cells: ['ciprofloxacin', 'ampicillin 100', '+', 'kanamycin', '–', 'tetracycline 10'] },
+               { name: '*E. coli* strain', cells: ['*WT*', 'Δ*fliC*', '', '', '', ''] }, { name: 'IPTG', cells: ['+', '–', '+', '–', '+', '–'] }]);
+    laneTableSet(0, { fs: 14 });
+    const ov = (a, b) => a.x < b.x + b.w - 0.01 && b.x < a.x + a.w - 0.01 && a.y < b.y + b.h - 0.01 && b.y < a.y + a.h - 0.01;
+    const lt = __lt(0), pb = panelBounds.find(p => p.idx === 0);
+    let overlaps = 0; for (let i = 0; i < lt.length; i++) for (let j = i + 1; j < lt.length; j++) if (ov(lt[i].bbox, lt[j].bbox)) overlaps++;
+    const names = ['treatment', '*E. coli* strain', 'IPTG'].map(s => { const t = lt.find(x => x.str === s); return { s, gap: pb.ix - (t.bbox.x + t.bbox.w) }; });
+    const cells = lt.filter(t => !['treatment', '*E. coli* strain', 'IPTG'].includes(t.str));
+    openLaneTable(0);
+    const cutTitle = document.querySelector('#lt-grid .lt-cell[data-r="0"][data-c="0"]').title, status = document.getElementById('lt-status').textContent;
+    closeLaneTable();
+    // twenty columns of '10' / '0.1' on a narrow panel
+    images = []; await __blot(4, 'narrow.png', { pitch: 60 });
+    laneTableSet(0, { lanes: 20 }); for (let c = 0; c < 20; c++) laneTableSetCell(0, 0, c, c % 2 ? '0.1' : '10');
+    const l20 = __lt(0); let o20 = 0; for (let i = 0; i < l20.length; i++) for (let j = i + 1; j < l20.length; j++) if (ov(l20[i].bbox, l20[j].bbox)) o20++;
+    return { overlaps, names, inPicture: cells.every(t => t.bbox.x >= pb.ix - 0.5 && t.bbox.x + t.bbox.w <= pb.ix + pb.iw + 0.5), cutTitle, status, o20, n20: l20.length };
+  });
+  expect(r.overlaps).toBe(0);
+  r.names.forEach(n => expect(Math.abs(n.gap - 7), n.s).toBeLessThanOrEqual(1));    // fs 14 × 0.5
+  expect(r.inPicture).toBe(true);                    // every cell between the picture's edges, clear of the names
+  expect(r.cutTitle).toMatch(/cut short with … on the figure\. Full text: ciprofloxacin/);
+  expect(r.status).toMatch(/cut short with … on the figure/);
+  expect(r.n20).toBe(20); expect(r.o20).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// Fails on 4bb72e9: switching to freeform dropped the table from the figure with no word.
+test('switching to freeform says the lane table is not drawn there, and that it is back on return to grid (T3-04)', async ({ page }) => {
+  const errors = await setup(page);
+  const r = await page.evaluate(async () => {
+    const toasts = []; const t0 = window.toast; window.toast = m => toasts.push(m);
+    await __blot(4);
+    __fill(0, [{ name: 'IPTG', cells: ['–', '+', '–', '+'] }]);
+    setLayoutMode('freeform'); render();
+    const out = { ff: toasts.slice(), drawnFF: figTextItems.filter(t => t.kind === 'lanetable').length, kept: !!images[0].laneTable };
+    checkCompliance(); out.row = [...document.querySelectorAll('#info-modal-bg .compliance-row')].map(e => e.textContent).find(x => /Lane table|Densitometry/.test(x)) || '';
+    document.getElementById('info-modal-bg')?.remove();
+    setLayoutMode('grid'); out.back = toasts.slice(out.ff.length); out.drawn = __lt(0).length;
+    window.toast = t0;
+    return out;
+  });
+  expect(r.ff.length).toBe(1);
+  expect(r.ff[0]).toMatch(/lane table on panel A is not drawn in freeform layout — kept, and drawn again when you switch back to Grid/);
+  expect(r.drawnFF).toBe(0); expect(r.kept).toBe(true);
+  expect(r.row).toMatch(/its lane table is not drawn in freeform layout/);
+  expect(r.back.length).toBe(1); expect(r.back[0]).toMatch(/drawn again/);
+  expect(r.drawn).toBe(5);
   expect(errors).toEqual([]);
 });

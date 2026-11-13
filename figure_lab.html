@@ -6688,7 +6688,7 @@ function addLaneLabels(){
   // below that. iy-fs*0.6 therefore put the numbers across the blot's top edge, their
   // lower third over the first band; iy-fs-4 leaves a 4 px gap under them.
   // Above a lane table over the blot, not into it.
-  const _lt=_ltCellReserve(images[t.idx],0), top=t.iy-(_lt&&_lt.draw?_lt.top:0);
+  const _lt=_ltReserveDrawn(images[t.idx]), top=t.iy-(_lt&&_lt.draw?_lt.top:0);
   const yf = (top>=fs+4 ? (top-fs-4)/t.H : t.fy(0.04));
   for(let i=0;i<n;i++){
     const u=(i+0.5)/n;                          // one per lane, centred in its share
@@ -6879,9 +6879,13 @@ function _gelPileUp(V,hi){
   let ext=hi?-Infinity:Infinity, n=0;
   for(let i=0;i<V.length;i++){ const v=V[i]; if(!(v===v)) continue; n++; if(hi?v>ext:v<ext) ext=v; }
   if(!n||!isFinite(ext)) return null;
-  // Counts of the values within 2% of the range of the extreme.
+  // Counts of the values within 2% of the range of the extreme — and never fewer than the
+  // three integer levels beside it (only integer samples come here). On a faint stain
+  // spanning under 50 levels, 2% was under one level: the extreme had no neighbours to be
+  // compared with, so the eight darkest samples of an unclipped image read as a clip and
+  // every lane was withheld as saturated.
   let other=hi?Infinity:-Infinity; for(let i=0;i<V.length;i++){ const v=V[i]; if(v===v&&(hi?v<other:v>other)) other=v; }
-  const span=Math.max(1e-9,Math.abs(ext-other)*0.02), cnt=new Map();
+  const span=Math.max(3,Math.abs(ext-other)*0.02), cnt=new Map();
   for(let i=0;i<V.length;i++){ const v=V[i]; if(v===v&&Math.abs(v-ext)<=span) cnt.set(v,(cnt.get(v)||0)+1); }
   const at=cnt.get(ext)||0;
   const near=[...cnt.keys()].filter(v=>v!==ext).sort((x,y)=>hi?y-x:x-y).slice(0,3).map(v=>cnt.get(v));
@@ -7181,9 +7185,25 @@ function _gelLaneProfile(S,W,H,c0,c1){
 }
 function _gelLaneCols(a,L){ const fr=a.frame;
   return [Math.max(0,Math.round(L.x0-fr.sx)), Math.min(fr.W-1,Math.round(L.x1-fr.sx)-1)]; }
+// On a sloping background the opening rides up under a band: the minimum over a window
+// centred on the band comes from its far, higher shoulder, so the background is lifted
+// by about the slope × the band's half-width — on a background sloping 0.25 grey levels
+// per row a band came out 11–16% low. A straight line is fitted to a first opening (the
+// background as found), taken off the profile, the opening found on what is left, and
+// the line added back. A flat lane is unchanged: its line is flat.
+function _gelDetrendedBaseline(R,win){
+  const B0=_gelBaseline(R,win), n=R.length;
+  if(n<3) return {B:B0,slope:0};
+  let mx=(n-1)/2, sxx=0, sxy=0, my=0; for(let i=0;i<n;i++) my+=B0[i]; my/=n;
+  for(let i=0;i<n;i++){ sxx+=(i-mx)*(i-mx); sxy+=(i-mx)*(B0[i]-my); }
+  const sl=sxx?sxy/sxx:0, line=i=>my+sl*(i-mx);
+  const R2=new Float64Array(n); for(let i=0;i<n;i++) R2[i]=R[i]-line(i);
+  const B=_gelBaseline(R2,win); for(let i=0;i<n;i++) B[i]+=line(i);
+  return {B,slope:sl};
+}
 function _gelLaneModel(a,ctx,L){
   const [c0,c1]=_gelLaneCols(a,L), fr=ctx.fr;
-  const R=_gelLaneProfile(ctx.S,fr.W,fr.H,c0,c1), B=_gelBaseline(R,a.baseline.window), sig=_gelNoise(R);
+  const R=_gelLaneProfile(ctx.S,fr.W,fr.H,c0,c1), DB=_gelDetrendedBaseline(R,a.baseline.window), B=DB.B, sig=_gelNoise(R);
   // A rolling minimum of a noisy profile sits below the background's mean by about one
   // noise SD, and every row of a band then adds that gap times the lane width: a faint
   // band came out 9–44% high. The gap is measured on the rows with no band (the rows
@@ -7199,7 +7219,7 @@ function _gelLaneModel(a,ctx,L){
   // The flanks are walked on a 5-row smoothing, so noise on a faint band's flank does
   // not end the band a row or two early.
   return {c0,c1,R,B,D,Ds:_gelSmooth(D,1),Dw:_gelSmooth(D,2),sig,off,offSE:D0.length?1.25*sig/Math.sqrt(D0.length):0,
-    nc:Math.max(1,(c1-inset)-(c0+inset)+1)};
+    nc:Math.max(1,(c1-inset)-(c0+inset)+1), slope:DB.slope};
 }
 // ── Background methods ─────────────────────────────────────────
 // Detection always runs on the rolling-minimum model above: finding a peak needs a
@@ -7241,6 +7261,9 @@ function _gelBgMethods(a){
 // Rewrites m.B and m.D for the analysis's method, given the lane's bands (valley-to-
 // valley anchors between them, so it is re-run whenever a band is added, moved or removed).
 function _gelApplyBaseline(a,m,bands){
+  // The overlap flag is valley-to-valley's own: cleared here, so it never survives a
+  // change of method.
+  (bands||[]).forEach(b=>{ delete b.overlap; });
   const meth=_gelBgMethod(a); if(meth==='rolling minimum') return m;
   const R=m.R, n=R.length, sig=m.sig||0, B=new Float64Array(n);
   if(meth==='flat'){
@@ -7249,7 +7272,7 @@ function _gelApplyBaseline(a,m,bands){
     B.fill(lvl); m.off=0; m.offSE=1.25*sig/Math.sqrt(Math.max(1,A.length));
   } else {
     const Rs=_gelSmooth(R,Math.max(0,Math.floor(_gelBgParam(a)/2))), sy=a.frame.sy;
-    const rows=(bands||[]).map(b=>({r0:Math.max(0,Math.min(n-1,Math.round(b.y0-sy))), r1:Math.max(0,Math.min(n-1,Math.round(b.y1-sy)-1))}))
+    const rows=(bands||[]).map(b=>({b, r0:Math.max(0,Math.min(n-1,Math.round(b.y0-sy))), r1:Math.max(0,Math.min(n-1,Math.round(b.y1-sy)-1))}))
       .filter(b=>b.r1>=b.r0).sort((x,y)=>x.r0-y.r0);
     const low=(i0,i1)=>{ i0=Math.max(0,Math.min(n-1,i0)); i1=Math.max(i0,Math.min(n-1,i1)); let v=i0; for(let i=i0;i<=i1;i++) if(Rs[i]<Rs[v]) v=i; return v; };
     const mid=b=>Math.round((b.r0+b.r1)/2);
@@ -7265,6 +7288,27 @@ function _gelApplyBaseline(a,m,bands){
       if(p&&p.r1+1>=b.r0) anc.push(low(mid(p),mid(b))); else anc.push(low(Math.max(p?p.r1:0,b.r0-reach),b.r0));
       if(q&&b.r1+1>=q.r0) anc.push(low(mid(b),mid(q))); else anc.push(low(b.r1,Math.min(q?q.r0:n-1,b.r1+reach)));
     });
+    // Where two touching bands' tails overlap, the valley between them sits above the
+    // lane's floor, and a line through it cuts the overlap off both: on bands 10 px apart
+    // the smaller came out 94% low, 16 px apart 16% low. Bands closer than a band's height
+    // (touching or not: the anchors between them sit on the same tails) form a run, whose
+    // floor is the line joining the valleys outside it (as if it were one band — no window
+    // to choose, so the verdict does not depend on one). A valley between two of them
+    // standing more than 5% of the smaller band's net peak above that line (and clear of
+    // the noise) marks both, which are then kept out of every ratio.
+    for(let k=0;k<rows.length;){
+      let e=k; while(e+1<rows.length&&rows[e].r1+Math.max(3,rows[e].r1-rows[e].r0+1)>=rows[e+1].r0) e++;
+      if(e>k){
+        const f=rows[k], l=rows[e], p0=rows[k-1], q0=rows[e+1];
+        const aL=low(Math.max(p0?p0.r1:0,f.r0-Math.max(3,f.r1-f.r0+1)),f.r0), aR=low(l.r1,Math.min(q0?q0.r0:n-1,l.r1+Math.max(3,l.r1-l.r0+1)));
+        const line=i=>Rs[aL]+(Rs[aR]-Rs[aL])*(i-aL)/((aR-aL)||1);
+        const pk=x=>{ let t=-Infinity; for(let i=x.r0;i<=x.r1;i++) t=Math.max(t,Rs[i]-line(i)); return t; };
+        for(let j=k+1;j<=e;j++){ const p=rows[j-1], b=rows[j], v=low(mid(p),mid(b));
+          const ex=Rs[v]-line(v), small=Math.min(pk(p),pk(b));
+          if(small>0&&ex>Math.max(0.05*small,3*sig/Math.sqrt(Math.max(1,_gelBgParam(a))))){ p.b.overlap=true; b.b.overlap=true; } }
+      }
+      k=e+1;
+    }
     anc=[...new Set(anc)].sort((x,y)=>x-y);
     for(let i=0;i<n;i++){
       if(i<=anc[0]){ B[i]=Rs[anc[0]]; continue; }
@@ -7301,6 +7345,10 @@ function _gelQuantBand(a,ctx,m,band){
     const d=Math.max(0,m.D[r]); dw+=d; dy+=d*(r+0.5);
   }
   band.volume=vol; band.clipped=clipped; band.saturated=clipped>0;
+  // A band whose rows reach the crop's first or last row runs on past the crop: its volume
+  // is only the part inside, and two equal bands read 0.90 as data. Flagged, and kept out
+  // of every ratio as a band partly outside the image is.
+  band.edge=(r0<=0||r1>=fr.H-1)||undefined;
   // A tilted crop can reach past the image: a band with samples out there is only part
   // of a band, and is left out of every ratio as a saturated one is.
   band.outside=outside; band.partial=outside>0;
@@ -7313,6 +7361,10 @@ function _gelQuantBand(a,ctx,m,band){
   }
   band.yc=fr.sy+(dw>0?dy/dw:(r0+r1+1)/2);
   band.peak=Math.max(...Array.from(m.D.slice(r0,r1+1)));
+  // The lane's background trend changes across the band by a twentieth of its net peak
+  // or more: it stands on a slope (the rolling minimum is taken off the lane's trend;
+  // valley-to-valley follows it), noted so the reader knows the background did real work.
+  band.slope=(m.slope!=null&&band.peak>0&&Math.abs(m.slope)*(r1-r0+1)>0.05*band.peak)||undefined;
   return band;
 }
 // Walk down each flank to 10% of the peak (or into the noise), stopping only at the
@@ -7353,7 +7405,10 @@ function _gelDetectBands(a,ctx){
   const fr=ctx.fr;
   const models=a.lanes.map(L=>_gelLaneModel(a,ctx,L));
   let gmax=0; models.forEach(m=>{ for(const v of m.Ds) if(v>gmax) gmax=v; });
-  const sig=Math.max(1e-9,_gelMedian(models.map(m=>_gelNoise(m.R))));
+  // Integer samples carry at least their rounding noise (one level / √12). An image with
+  // no other noise measured 0 here, and a ramp's one-level steps, left by the detrended
+  // background as a sawtooth, passed for eight bands.
+  const sig=Math.max((fr.rawRef&&fr.rawRef.format===3)?1e-9:1/Math.sqrt(12),_gelMedian(models.map(m=>_gelNoise(m.R))));
   // One threshold for the whole blot, so a faint lane is judged against the same bar
   // as a strong one and an empty lane comes back empty.
   const thr=Math.max(5*sig,0.02*gmax);
@@ -7376,6 +7431,12 @@ function _gelDetectBands(a,ctx){
         split:(l0>0&&r0===l0&&m.Ds[l0]>2*sig)||(l1<fr.H-1&&r1===l1&&m.Ds[l1]>2*sig)||undefined}); });
     for(let k=1;k<bands.length;k++) if(bands[k].y0<bands[k-1].y1) bands[k].y0=bands[k-1].y1;
     const kept=bands.filter(b=>b.y1>b.y0);
+    // Signal at band strength on the crop's first or last rows, in no offered band, is a
+    // band the crop cuts through — or the strip above a well. Neither is measured, and the
+    // banner says so rather than letting a cut band vanish without a word.
+    { const hit=(i0,i1)=>{ for(let i=i0;i<=i1;i++){ const y=fr.sy+i+0.5; if(m.Ds[i]>=thr&&!kept.some(b=>y>=b.y0&&y<b.y1)) return true; } return false; };
+      const top=hit(0,Math.min(2,fr.H-1)), bot=hit(Math.max(0,fr.H-3),fr.H-1);
+      L.edgeSignal=top&&bot?'top and bottom':top?'top':bot?'bottom':undefined; }
     _gelApplyBaseline(a,m,kept);
     L.bands=kept.map(b=>_gelQuantBand(a,ctx,m,b));
   });
@@ -7508,9 +7569,17 @@ function _gelApplyLadder(a){
 // Total protein (a stain-free, Ponceau or Revert image of the same membrane): each
 // lane's whole signal over its full length. Its own rolling minimum cannot be the
 // background — a smear that fills the lane is its own minimum, and would be subtracted
-// away — so the background is the membrane BESIDE the lanes: per row, the median of
-// every column outside all lanes (and a margin off each lane's edge, which bleeds).
-// Without such columns there is no background to measure, and it refuses.
+// away — so the background is the membrane BESIDE the lanes (a margin off each lane's
+// edge, which bleeds, left out). It is local to each lane: per row, the median of the
+// membrane just left of the lane and just right of it, joined by a straight line across
+// the lane. One median over every gap, applied to every lane, turned a stain whose
+// membrane darkened 0.04 grey levels per px left to right into a loading trend of
+// 1.00 / 0.76 / 0.62 / 0.52 across four equal lanes. A lane with membrane on one side
+// only (a crop tight to the end lane) takes the trend of all the gaps through its one
+// gap, and is flagged. A gap under 3 columns, or one standing well above the trend of
+// the others (stained, not membrane), is not used; a lane with no usable gap on either
+// side has no background to measure, and it refuses.
+const GEL_TP_MIN_GAP=3;
 function _gelLaneTotals(lc,la){
   const ctx=_gelCtx(lc,la); if(ctx.error) return {error:ctx.error};
   const fr=ctx.fr, S=ctx.S, W=fr.W, H=fr.H, lab=formatLabel(lc.label)||'?';
@@ -7518,22 +7587,82 @@ function _gelLaneTotals(lc,la){
   la.lanes.forEach(L=>{ const [c0,c1]=_gelLaneCols(la,L), g=Math.max(2,Math.round((c1-c0+1)*0.1));
     for(let c=Math.max(0,c0-g);c<=Math.min(W-1,c1+g);c++) inLane[c]=1; });
   const gap=[]; for(let c=0;c<W;c++) if(!inLane[c]) gap.push(c);
-  if(gap.length<3) return {error:`panel ${lab}'s lanes leave no membrane between or beside them (${gap.length} column${gap.length===1?'':'s'}) to measure the total-protein background from — widen its crop to include the gaps between the lanes`};
-  const bg=new Float64Array(H), tmp=[];
-  for(let r=0;r<H;r++){ tmp.length=0; for(const c of gap){ const v=S[r*W+c]; if(v===v) tmp.push(v); } bg[r]=tmp.length?_gelMedian(tmp):NaN; }
-  const B=_gelSmooth(_gelFillNaN(bg),3);
-  const lanes=la.lanes.map(L=>{
-    const [c0,c1]=_gelLaneCols(la,L); let tot=0, clipped=0, outside=0;
-    for(let r=0;r<H;r++) for(let c=c0;c<=c1;c++){
-      const s=S[r*W+c]; if(!(s===s)){ outside++; continue; }
-      tot+=s-B[r];
-      const v=fr.V[r*W+c];
-      if(la.polarity==='light'?v>=fr.clipHi:v<=fr.clipLo) clipped++;
+  if(gap.length<GEL_TP_MIN_GAP) return {error:`panel ${lab}'s lanes leave no membrane between or beside them (${gap.length} column${gap.length===1?'':'s'}) to measure the total-protein background from — widen its crop to include the gaps between the lanes`};
+  // The gaps as runs of columns, each with its own per-row background (3-row smoothed).
+  const runs=[];
+  for(let c=0;c<W;){ if(inLane[c]){ c++; continue; } let e=c; while(e+1<W&&!inLane[e+1]) e++; runs.push({c0:c,c1:e,x:(c+e)/2,w:e-c+1}); c=e+1; }
+  const tmp=[];
+  runs.forEach(g=>{ if(g.w<GEL_TP_MIN_GAP) return;
+    const bg=new Float64Array(H);
+    for(let r=0;r<H;r++){ tmp.length=0; for(let c=g.c0;c<=g.c1;c++){ const v=S[r*W+c]; if(v===v) tmp.push(v); } bg[r]=tmp.length?_gelMedian(tmp):NaN; }
+    g.B=_gelSmooth(_gelFillNaN(bg),3); g.level=_gelMedian(Array.from(g.B)); });
+  let use=runs.filter(g=>g.B);
+  // Per row, the least-squares line through the usable gaps' levels against x: the trend an
+  // end lane is extrapolated along, and what a stained gap stands out from.
+  const trend=G=>{ const n=G.length, sl=new Float64Array(H);
+    if(n<2) return sl;
+    const mx=G.reduce((s,g)=>s+g.x,0)/n, sxx=G.reduce((s,g)=>s+(g.x-mx)*(g.x-mx),0)||1;
+    for(let r=0;r<H;r++){ const my=G.reduce((s,g)=>s+g.B[r],0)/n; sl[r]=G.reduce((s,g)=>s+(g.x-mx)*(g.B[r]-my),0)/sxx; }
+    return sl; };
+  // A gap whose level stands far above the line through the others (residual over 4× the
+  // others' spread and over 3 grey levels' worth of the noise) carries stain — lane bleed or
+  // a spill — and is set aside rather than subtracted from its neighbours.
+  const stained=[];
+  if(use.length>=4){
+    const res=use.map((g,k)=>{ const o=use.filter((_,j)=>j!==k), n=o.length, mx=o.reduce((s,q)=>s+q.x,0)/n, my=o.reduce((s,q)=>s+q.level,0)/n,
+      sxx=o.reduce((s,q)=>s+(q.x-mx)*(q.x-mx),0)||1, sl=o.reduce((s,q)=>s+(q.x-mx)*(q.level-my),0)/sxx;
+      const rr=o.map(q=>Math.abs(q.level-(my+sl*(q.x-mx))));
+      return {g, d:g.level-(my+sl*(g.x-mx)), spread:_gelMedian(rr)}; });
+    const sig=Math.max(1e-9,_gelMedian(use.map(g=>_gelNoise(g.B))));
+    // ...and over 5% of the lanes' mean net signal per pixel, so a stain the volumes would
+    // never feel is not a reason to refuse.
+    let ls=0, ln=0; la.lanes.forEach(L=>{ const [c0,c1]=_gelLaneCols(la,L); for(let r=0;r<H;r+=2) for(let c=c0;c<=c1;c++){ const v=S[r*W+c]; if(v===v){ ls+=v; ln++; } } });
+    const net=Math.max(0,(ln?ls/ln:0)-_gelMedian(use.map(g=>g.level)));
+    res.forEach(q=>{ if(q.d>Math.max(4*q.spread,3*sig,0.05*net)) stained.push(q.g); });
+    use=use.filter(g=>!stained.includes(g));
+  }
+  const SL=trend(use);
+  const order=la.lanes.map((L,i)=>({i,cols:_gelLaneCols(la,L)})).sort((p,q)=>p.cols[0]-q.cols[0]);
+  const flank=new Array(la.lanes.length);
+  order.forEach((o,k)=>{ const lo=k>0?order[k-1].cols[1]:-1, hi=k<order.length-1?order[k+1].cols[0]:W;
+    const [c0,c1]=o.cols;
+    const left=use.filter(g=>g.c1<c0&&g.c0>lo).sort((p,q)=>q.c1-p.c1)[0]||null;
+    const right=use.filter(g=>g.c0>c1&&g.c1<hi).sort((p,q)=>p.c0-q.c0)[0]||null;
+    flank[o.i]={left,right}; });
+  const bad=flank.map((f,i)=>(!f.left&&!f.right)?i+1:0).filter(Boolean);
+  if(bad.length) return {error:`lane${bad.length>1?'s':''} ${_listAnd(bad.map(String))} of panel ${lab} ${bad.length>1?'have':'has'} no usable membrane on either side (${stained.length?'a gap there carries stain, or ':''}the gaps are under ${GEL_TP_MIN_GAP} columns) to measure the total-protein background from — widen the crop or the gaps between the lanes`};
+  const oneSided=[];
+  // Uncorrected, what one level per row over every gap would have given — kept only to
+  // say how much the lane-by-lane background moved each lane.
+  const glob=new Float64Array(H);
+  for(let r=0;r<H;r++){ tmp.length=0; for(const c of gap){ const v=S[r*W+c]; if(v===v) tmp.push(v); } glob[r]=tmp.length?_gelMedian(tmp):NaN; }
+  const GB=_gelSmooth(_gelFillNaN(glob),3);
+  const lanes=la.lanes.map((L,i)=>{
+    const [c0,c1]=_gelLaneCols(la,L), {left,right}=flank[i]; let tot=0, totG=0, clipped=0, outside=0;
+    if(!(left&&right)) oneSided.push(i+1);
+    for(let r=0;r<H;r++){
+      let b0, sl;
+      if(left&&right){ sl=(right.B[r]-left.B[r])/((right.x-left.x)||1); b0=left.B[r]-sl*left.x; }
+      else { const g=left||right; sl=use.length>=2?SL[r]:0; b0=g.B[r]-sl*g.x; }
+      for(let c=c0;c<=c1;c++){
+        const s=S[r*W+c]; if(!(s===s)){ outside++; continue; }
+        tot+=s-(b0+sl*c); totG+=s-GB[r];
+        const v=fr.V[r*W+c];
+        if(la.polarity==='light'?v>=fr.clipHi:v<=fr.clipLo) clipped++;
+      }
     }
-    return {total:tot, clipped, outside};
+    return {total:tot, totalFlat:totG, clipped, outside, oneSided:!(left&&right)||undefined};
   });
-  return {lanes, gapCols:gap.length, bgLevel:_gelMedian(Array.from(B))};
+  // How uneven the membrane was: the largest change, lane by lane, that the local
+  // background made against one level for the whole stain, as a share of that lane.
+  let shift=0; lanes.forEach(l=>{ if(Math.abs(l.total)>0) shift=Math.max(shift,Math.abs(l.totalFlat-l.total)/Math.abs(l.total)); });
+  const lv=use.map(g=>g.level);
+  return {lanes, gapCols:gap.length, gaps:use.length, bgLevel:_gelMedian(Array.from(GB)), oneSided, stainedGaps:stained.map(g=>[g.c0,g.c1]),
+    bgSpread:lv.length?Math.max(...lv)-Math.min(...lv):0, bgShift:shift};
 }
+// A membrane background that moved some lane's total by more than this, against one
+// level for the whole stain, is reported as uneven (and corrected lane by lane).
+const GEL_TP_UNEVEN=0.02;
 // What a loading control's staleness stamp records: the band volumes for loading bands,
 // the lanes' extents (all a whole-lane total depends on) for total protein.
 function _gelLoadStamp(la,mode){
@@ -7549,22 +7678,50 @@ function _gelLoadingFrom(lcIdx,nLanes,mode){
   if(la.lanes.length!==nLanes) return {error:`panel ${lab} has ${la.lanes.length} lane${la.lanes.length===1?'':'s'} (${from}) and this panel has ${nLanes} — lanes are paired by order, so the counts must match. Open panel ${lab}'s analysis, set its lane count, and pick it again`};
   const out={ id:lc.id, idx:lcIdx, label:lab, name:lc.name||'', from, mode,
     sourceLabel:la.sourceLabel, polarity:la.polarity, cropKey:_gelCropKey(lc), fp:_gelFingerprint(lc),
-    stamp:from==='its own analysis'?_gelLoadStamp(la,mode):null };
+    // What the pairing measured, whichever analysis it used. Only the panel's own analysis
+    // used to be stamped: a control picked before it had one was never marked stale, and
+    // a band deleted on it later left the old lane values in use.
+    stamp:_gelLoadStamp(la,mode) };
   if(mode==='total'){
     const T=_gelLaneTotals(lc,la); if(T.error) return T;
-    out.gapCols=T.gapCols;
+    out.gapCols=T.gapCols; out.gaps=T.gaps; out.bgShift=T.bgShift; out.bgSpread=T.bgSpread;
+    if(T.oneSided.length) out.oneSided=T.oneSided;
+    if(T.stainedGaps.length) out.stainedGaps=T.stainedGaps;
     // Any clipped sample anywhere in the lane (or one outside the image) and that lane's
     // total is an underestimate: its normalised values are withheld and flagged.
     out.lanes=la.lanes.map((L,i)=>({x0:L.x0,x1:L.x1,nBands:L.bands.length, clipped:T.lanes[i].clipped,
-      saturated:T.lanes[i].clipped>0||T.lanes[i].outside>0, partial:T.lanes[i].outside>0||undefined, volume:T.lanes[i].total}));
+      saturated:T.lanes[i].clipped>0||T.lanes[i].outside>0, partial:T.lanes[i].outside>0||undefined, volume:T.lanes[i].total,
+      oneSided:T.lanes[i].oneSided}));
   } else out.lanes=la.lanes.map(L=>({x0:L.x0,x1:L.x1,nBands:L.bands.length,
-      saturated:L.bands.some(b=>b.saturated||b.partial), volume:L.bands.reduce((s,b)=>s+b.volume,0)}));
+      // Any band that cannot be quantified (clipped, cut by the image or the crop, or
+      // under-measured on overlapping tails) makes the lane's sum an underestimate, and the
+      // flag names which.
+      saturated:L.bands.some(_gelUnq), volume:L.bands.reduce((s,b)=>s+b.volume,0),
+      partial:(!L.bands.some(b=>b.saturated)&&L.bands.some(b=>b.partial||b.edge))||undefined,
+      overlap:(!L.bands.some(b=>b.saturated||b.partial||b.edge)&&L.bands.some(b=>b.overlap))||undefined}));
   return out;
 }
 function _gelLoadMode(a){ return a&&a.loading&&a.loading.mode==='total'?'total':'bands'; }
 // "the loading control in panel B" / "total protein in panel B, whole-lane signal"
 function _gelLoadingWhat(a){ return _gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`the loading control in panel ${_gelLoadingLabel(a)}`; }
 function _gelLoadSatLanes(a){ return a&&a.loading?a.loading.lanes.map((l,i)=>l.saturated?i+1:0).filter(Boolean):[]; }
+// The total-protein background in words. A pairing saved before the lane-by-lane
+// background (no a.loading.gaps) was measured the old way, and is described as such.
+function _gelTpLocal(a){ return !!(a&&a.loading&&a.loading.gaps!=null); }
+function _gelTpUneven(a){ return _gelTpLocal(a)&&(a.loading.bgShift||0)>GEL_TP_UNEVEN; }
+function _gelTpBgText(a){
+  const L=a.loading;
+  if(!_gelTpLocal(a)) return `the per-row median of the ${L.gapCols} membrane columns between and beside the lanes`;
+  return `row by row, a straight line across the lane between the medians of the membrane just left and just right of it (${L.gaps} membrane gaps, ${L.gapCols} columns)`;
+}
+// Uneven membrane, end lanes with membrane on one side, gaps set aside: one clause each.
+function _gelTpNotes(a){
+  const L=a&&a.loading, n=[]; if(!L||_gelLoadMode(a)!=='total'||!_gelTpLocal(a)) return n;
+  if(_gelTpUneven(a)) n.push(`uneven background corrected lane by lane: the membrane background varies by ${_gelFmt(L.bgSpread,1)} ${/^8-bit/.test(L.sourceLabel||'')?'grey levels':'sample units'} across the stain, and one level for the whole stain would have moved a lane's total by up to ${Math.round(100*L.bgShift)}%`);
+  if(L.oneSided&&L.oneSided.length) n.push(`lane${L.oneSided.length>1?'s':''} ${_listAnd(L.oneSided.map(String))} of the stain ${L.oneSided.length>1?'have':'has'} membrane on one side only — ${L.oneSided.length>1?'their':'its'} background is extrapolated along the trend of the other gaps`);
+  if(L.stainedGaps&&L.stainedGaps.length) n.push(`${L.stainedGaps.length} gap${L.stainedGaps.length>1?'s':''} between the stain's lanes stand${L.stainedGaps.length>1?'':'s'} well above the others (stain, not membrane) and ${L.stainedGaps.length>1?'were':'was'} not used`);
+  return n;
+}
 function _gelStamp(a){ const m=_gelBgMethod(a);
   return (m==='rolling minimum'?'':`${m}:${_gelBgParam(a)}|`)+JSON.stringify(a.lanes.map(L=>L.bands.map(b=>Math.round(b.volume)))); }
 // Where the loading control is now (by id), or -1.
@@ -7582,7 +7739,11 @@ function _gelLoadingStale(a,im){
   if(_gelCropKey(lc)!==a.loading.cropKey) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-cropped after it was measured`;
   const fp=_gelFingerprint(lc);
   if(fp!=null&&a.loading.fp!=null&&fp!==a.loading.fp) return `the loading-control panel ${formatLabel(lc.label)||li+1} has a different image now`;
-  if(a.loading.stamp&&!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp)) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
+  // Paired from the panel's own analysis: that analysis must still be the one used. Paired
+  // from a detection of its own: any analysis the panel has since been given must agree
+  // with it, in whichever order the two were made.
+  const own=a.loading.from==='its own analysis', now=lc.gelAnalysis&&_gelFresh(lc)?_gelLoadStamp(lc.gelAnalysis,a.loading.mode):null;
+  if(a.loading.stamp&&(own?!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp):(now!=null&&now!==a.loading.stamp))) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
   return null;
 }
 function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; return lc?(formatLabel(lc.label)||String(_gelLoadingIdx(a)+1)):a.loading.label; }
@@ -7590,7 +7751,7 @@ function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; return lc?(for
 // Everything the table, the CSV and the Methods sentence read.
 // A band that cannot be quantified — saturated, or partly outside the image — is
 // reported, but no ratio is computed with it.
-function _gelUnq(b){ return !!(b&&(b.saturated||b.partial)); }
+function _gelUnq(b){ return !!(b&&(b.saturated||b.partial||b.edge||b.overlap)); }
 function _gelRows(a,im){
   im=im||images.find(p=>p&&p.gelAnalysis===a);
   const rows=[];
@@ -7608,10 +7769,10 @@ function _gelRows(a,im){
     L.bands.forEach((b,bi)=>{
       const r={lane:li+1, laneIdx:li, band:bi+1, bandIdx:bi, x0:L.x0, x1:L.x1, inferred:!!L.inferred,
         y0:b.y0, y1:b.y1, yc:b.yc, rf:_gelRf(a,b), volume:b.volume, saturated:!!b.saturated, clipped:b.clipped||0,
-        partial:!!b.partial, merged:!!b.merged, split:!!b.split, nearNoise:!!b.nearNoise, se:b.se,
+        partial:!!b.partial, edge:!!b.edge, overlap:!!b.overlap, slope:!!b.slope, merged:!!b.merged, split:!!b.split, nearNoise:!!b.nearNoise, se:b.se,
         manual:!!b.manual, resized:!!b.resized, peak:b.peak, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null,
         // The paired loading lane could not be used (clipped or cut): no normalised value, and said so.
-        lcFlag:(lcOK&&a.loading.lanes[li]&&a.loading.lanes[li].saturated)?(a.loading.lanes[li].partial?'PARTIAL':'SATURATED'):''};
+        lcFlag:(lcOK&&a.loading.lanes[li]&&a.loading.lanes[li].saturated)?(a.loading.lanes[li].partial?'PARTIAL':a.loading.lanes[li].overlap?'OVERLAP':'SATURATED'):''};
       // A saturated or cut band is an underestimate, and so is every share computed with it.
       if(!laneBad&&tot>0) r.pctLane=100*b.volume/tot;
       if(a.refLane!=null&&!_gelUnq(b)){ const o=match(a.refLane,b); if(o&&!_gelUnq(o)&&o.volume>0) r.relRef=b.volume/o.volume; }
@@ -7627,6 +7788,8 @@ function _gelRows(a,im){
   return rows;
 }
 function _gelSatCount(a){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.saturated).length,0):0; }
+// "lanes 2 and 3 (top)": lanes with band-strength signal on the crop's edge rows that no band holds.
+function _gelEdgeLanes(a){ return a?a.lanes.map((L,i)=>L.edgeSignal?`${i+1} (${L.edgeSignal})`:null).filter(Boolean):[]; }
 function _gelFlagCount(a,k){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b[k]).length,0):0; }
 // How the lanes were placed, in words: every inferred lane, and every feature set aside.
 function _gelLaneNote(a){
@@ -7874,19 +8037,23 @@ function gelCSV(idx){
     `# Lanes: ${!a.lanes.length?'NONE FOUND — nothing was measured; set the lane count (1 for a crop that is one lane) and re-detect':a.laneInfo&&a.laneInfo.whole?'1 forced: the whole crop width':a.laneMode==='forced'?`${a.laneCount} forced (evenly pitched best fit to the background-flattened column profile)`:'detected from the background-flattened column profile'}${a.lanes.length?`; ${a.lanes.length} lane(s) at x ${a.lanes.map((L,i)=>`${i+1}: ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' (inferred)':''}`).join(', ')}`:''}${note?`; ${note}`:''}`,
     `# Saturated bands: ${sat}${sat?` — clipped ${_gelClipText(a)}; their volumes are underestimates and are excluded from every ratio`:''}`,
     `# Bands partly outside the image: ${part}${part?' — the tilted crop reaches past the image there; their volumes are partial and are excluded from every ratio':''}`,
+    `# Bands cut by the crop edge: ${_gelFlagCount(a,'edge')}${_gelFlagCount(a,'edge')?' — they reach the crop\'s first or last row; their volumes are partial and are excluded from every ratio (cut_by_crop_edge)':''}${_gelEdgeLanes(a).length?`; lane${_gelEdgeLanes(a).length>1?'s':''} ${_listAnd(_gelEdgeLanes(a))} have band-strength signal on the crop's edge rows in no band — a band cut by the crop (or the strip above a well), not measured`:''}`,
+    ...(_gelFlagCount(a,'overlap')?[`# Overlapping bands: ${_gelFlagCount(a,'overlap')} — the valley between touching bands sits above the lane's floor (over 5% of the smaller band's net peak), so valley-to-valley under-measures both; excluded from every ratio — use the rolling minimum (overlapping_tails)`]:[]),
+    ...(_gelFlagCount(a,'slope')?[`# Sloping background: ${_gelFlagCount(a,'slope')} band(s) where the lane's background trend changes across the band by over 5% of its net peak; the background follows it (the rolling minimum is taken off each lane's straight-line trend) (sloping_background)`]:[]),
     `# Band flags: merged? = a shoulder or a second crown inside one band (its volume is the total of what may be two bands); split = two touching bands divided at the valley between them; near noise = the volume is under 10 noise SEs (volume_noise_se)`,
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
     `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:_gelLoadMode(a)==='total'
-      ?`total protein in panel ${lcLab}, whole-lane signal, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = Σ (signal − background) over every row and column of the lane, the background being the per-row median of the ${a.loading.gapCols} membrane columns between and beside the lanes${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the total-protein image have clipped samples (or samples outside the image) — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`
-      :`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the loading control have a saturated or cut band — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`}`,
+      ?`total protein in panel ${lcLab}, whole-lane signal, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = Σ (signal − background) over every row and column of the lane, the background being ${_gelTpBgText(a)}${_gelTpNotes(a).length?'; '+_gelTpNotes(a).join('; '):''}${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the total-protein image have clipped samples (or samples outside the image) — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`
+      :`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the loading control have a saturated, cut or overlapping band — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`}`,
     `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?`REFUSED — ${a.ladder.error}; no molecular weights are given`:'none'}`,
     `# Edited by hand: ${a.edits||0} edit(s)`,
   ];
   const q=v=>v==null?'':(typeof v==='number'?(Number.isInteger(v)?String(v):v.toPrecision(6)):_csvCell(v));
-  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se','net_peak','boundaries_by_hand','loading_lane_flag'];
+  const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se','net_peak','boundaries_by_hand','cut_by_crop_edge','overlapping_tails','sloping_background','loading_lane_flag'];
   const body=rows.map(r=>[r.lane,r.band,r.x0,r.x1,r.inferred?'yes':'',r.y0,r.y1,r.yc,r.rf,r.volume,r.pctLane,r.relRef,r.normLC,r.normLCRef,
     r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':'',
-    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se,r.peak,r.resized?'yes':'',r.lcFlag].map(q).join(','));
+    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se,r.peak,r.resized?'yes':'',
+    r.edge?'CUT':'',r.overlap?'OVERLAP':'',r.slope?'yes':'',r.lcFlag].map(q).join(','));
   // Lanes with no bands still get a row, or an empty lane would vanish from the table.
   a.lanes.forEach((L,li)=>{ if(!L.bands.length){ const v=new Array(cols.length).fill('');
     v[0]=li+1; v[2]=L.x0; v[3]=L.x1; v[4]=L.inferred?'yes':''; v[9]='0'; body.push(v.map(q).join(',')); } });
@@ -7915,7 +8082,7 @@ function gelPlaceLaneNumbers(idx){
   if(!a.lanes.length){ toast('No lanes were found, so there is nothing to number — set the lane count and re-detect','warn'); return false; }
   pushUndo();
   // Above a lane table over the blot, not into it.
-  const _lt=_ltCellReserve(im,0), fs=16, top=M.map.dy-(_lt&&_lt.draw?_lt.top:0);
+  const _lt=_ltReserveDrawn(im), fs=16, top=M.map.dy-(_lt&&_lt.draw?_lt.top:0);
   // Same rule as addLaneLabels: above the blot when the margin has room, else just inside.
   const yf=(top>=fs+4?(top-fs-4):(M.map.dy+0.04*M.map.dh))/M.H;
   a.lanes.forEach((L,i)=>{ const t=String(i+1), tw=t.length*fs*0.58, cx=M.fx((L.x0+L.x1)/2);
@@ -7974,7 +8141,7 @@ function _gelMethodsSentences(P){
     const norm=[];
     // A loading control that changed or vanished after it was measured is not claimed.
     if(a.loading&&!_gelLoadingStale(a,im)) norm.push(_gelLoadMode(a)==='total'
-      ?`normalised to total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal (each lane's signal summed over its full length above the membrane background measured between the lanes), lanes paired by order${_gelLoadSatLanes(a).length?` (lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} not normalised: clipped in the total-protein image)`:''}`
+      ?`normalised to total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal (each lane's signal summed over its full length above the membrane background ${_gelTpLocal(a)?'measured on either side of that lane and interpolated across it, row by row':'measured between the lanes'}${_gelTpUneven(a)?'; the stain\'s background was uneven and was corrected lane by lane':''}${_gelTpLocal(a)&&a.loading.oneSided&&a.loading.oneSided.length?`; lane${a.loading.oneSided.length>1?'s':''} ${_listAnd(a.loading.oneSided.map(String))}, with membrane on one side only, extrapolated along the trend of the other gaps`:''}), lanes paired by order${_gelLoadSatLanes(a).length?` (lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} not normalised: clipped in the total-protein image)`:''}`
       :`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
     s+=(norm.length?'; volumes were '+_listAnd(norm):'')+'.';
@@ -7983,6 +8150,10 @@ function _gelMethodsSentences(P){
     s+=sat?` ${sat} band${sat===1?' was':'s were'} saturated (clipped at the ${a.polarity==='dark'?'floor':'ceiling'} of the data) and could not be quantified.`
           :' No band was saturated.';
     if(part) s+=` ${part} band${part===1?' lay':'s lay'} partly outside the image and ${part===1?'was':'were'} not quantified.`;
+    const cut=_gelFlagCount(a,'edge'), ov=_gelFlagCount(a,'overlap'), el=_gelEdgeLanes(a);
+    if(cut) s+=` ${cut} band${cut===1?' was':'s were'} cut by the crop edge and ${cut===1?'was':'were'} not quantified.`;
+    if(el.length) s+=` In lane${el.length>1?'s':''} ${_listAnd(el)}, signal on the crop's edge rows (a band cut by the crop, or the strip above a well) was not measured.`;
+    if(ov) s+=` ${ov} band${ov===1?'':'s'} overlapping a neighbour ${ov===1?'was':'were'} under-measured by the valley-to-valley background and ${ov===1?'was':'were'} excluded from ratios.`;
     out.push(s);
   });
   return out;
@@ -7996,15 +8167,32 @@ function _gelImportKind(im){
   return 'unknown';
 }
 function _gelComplianceRow(shown){
-  const P=shown.filter(im=>im&&im.gelAnalysis);
+  // Lane tables are checked on every shown panel that has one, analysed or not.
+  const P=shown.filter(im=>im&&(im.gelAnalysis||(im.laneTable&&_ltHasContent(im.laneTable))));
   if(!P.length) return null;
   const notes=[]; let warn=false;
   P.forEach(im=>{
-    const a=im.gelAnalysis, nm=esc(_rtText(formatLabel(im.label))||'?'), sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
+    const nm0=esc(_rtText(formatLabel(im.label))||'?');
+    if(im.laneTable&&_ltHasContent(im.laneTable)){
+      const o=_ltOrient(im), L=im.id!=null&&_ltLast.get(im.id), f=L&&L.R&&L.R.fit, cut=(im.id!=null&&_ltCut.get(im.id))||[];
+      if(layoutMode==='freeform'){ warn=true; notes.push(`${nm0}: its lane table is not drawn in freeform layout — switch Layout to Grid to show it`); }
+      else {
+        if(!_ltTurnOK(im)){ warn=true; notes.push(`${nm0}: the panel is turned ${o.deg}° — its lane table is spaced evenly and may not match the lanes; check it and re-map it (⊞ Lane table…)`); }
+        else if(o.mirror) notes.push(`${nm0}: mirrored — the lane table is reversed with the picture, each condition over its own lane`);
+        if(f&&f.drawRows<f.rows){ warn=true; notes.push(`${nm0}: only ${f.drawRows} of the lane table's ${f.rows} rows fit in the panel's cell — the rest are not drawn`); }
+        if(cut.length){ warn=true; notes.push(`${nm0}: ${cut.length} lane-table cell${cut.length>1?'s are':' is'} too wide for ${cut.length>1?'their lanes':'its lane'} and cut short with …`); }
+      }
+    }
+    if(!im.gelAnalysis) return;
+    const a=im.gelAnalysis, nm=nm0, sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting`); return; }
     if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
     if(part){ warn=true; notes.push(`${nm}: ${part} band${part===1?'':'s'} partly outside the image — not quantified`); }
+    { const cut=_gelFlagCount(a,'edge'), ov=_gelFlagCount(a,'overlap'), el=_gelEdgeLanes(a);
+      if(cut){ warn=true; notes.push(`${nm}: ${cut} band${cut===1?'':'s'} cut by the crop edge — not quantified; widen the crop`); }
+      if(el.length){ warn=true; notes.push(`${nm}: lane${el.length>1?'s':''} ${esc(_listAnd(el))} — signal on the crop's edge rows in no band (a band the crop cuts?)`); }
+      if(ov){ warn=true; notes.push(`${nm}: ${ov} overlapping band${ov===1?'':'s'} under-measured by valley-to-valley — left out of ratios; use the rolling minimum`); } }
     if(_gelWindowShort(a)){ warn=true; notes.push(`${nm}: the background window (${a.baseline.window} px) is barely taller than the bands — volumes are underestimated; widen it`); }
     if(a.polarityUncertain&&a.polaritySetBy!=='user'){ warn=true; notes.push(`${nm}: the band polarity was guessed with low confidence — check the Bands setting`); }
     if(a.lanes.some(L=>L.inferred&&L.end)){ warn=true; notes.push(`${nm}: end lane${a.lanes.filter(L=>L.inferred&&L.end).length>1?'s':''} inferred from the lane pitch — check the lane numbering`); }
@@ -8013,6 +8201,8 @@ function _gelComplianceRow(shown){
     else if(a.loading){
       const bad=_gelLoadSatLanes(a);
       notes.push(`${nm}: normalised to ${esc(_gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`loading band(s) in panel ${_gelLoadingLabel(a)}`)}`);
+      _gelTpNotes(a).forEach(s=>notes.push(`${nm}: ${esc(s)}`));
+      if(_gelTpLocal(a)&&((a.loading.oneSided||[]).length||(a.loading.stainedGaps||[]).length)) warn=true;
       if(bad.length){ warn=true; notes.push(`${nm}: lane${bad.length>1?'s':''} ${bad.join(', ')} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${bad.length>1?'are':'is'} saturated or cut — not normalised`); }
     }
     if(im.laneTable&&a.lanes.length&&_ltLanes(im)!==a.lanes.length){ warn=true;
@@ -8024,7 +8214,8 @@ function _gelComplianceRow(shown){
       else if(!sat) notes.push(`${nm}: 8-bit image pixels from a ${esc((im.name.split('.').pop()||'').toUpperCase())} file, no saturated bands ✓`);
     } else if(!sat) notes.push(`${nm}: ${esc(a.sourceLabel)}, no saturated bands ✓`);
   });
-  return {label:'Densitometry', ok:!warn, warn, note:notes.join('; ')};
+  if(!notes.length&&!P.some(im=>im.gelAnalysis)) return null;
+  return {label:P.some(im=>im.gelAnalysis)?'Densitometry':'Lane table', ok:!warn, warn, note:notes.join('; ')};
 }
 
 // ── The analysis dialog ────────────────────────────────────────
@@ -8081,7 +8272,7 @@ function openGelAnalysis(idx){
             <input id="gel-win" type="number" min="3" max="4001" style="width:60px" title="Rolling-minimum background window (source px) — taller than any band">
             <button class="btn" style="padding:1px 8px;font-size:10px" title="Detect lanes and bands again with these settings (replaces hand edits; one undo step)" onclick="runGelAnalysis(_gelUI.idx,{laneCount:document.getElementById('gel-nlanes').value,window:document.getElementById('gel-win').value,polarity:document.getElementById('gel-pol').value})">↻ Re-detect</button></span>
           <label for="gel-bg" title="What every band's volume is measured above. Drawn on the lane profile; named in the CSV and the Methods sentence.">Background</label>
-          <span><select id="gel-bg" title="Rolling minimum: a morphological opening (rolling-ball-like) with the window above. Valley-to-valley: straight lines joining the profile's lowest points between bands (LI-COR's Lane background) — follows a slope, and does not ride up into a cluster of close bands the way a short window does. None / flat: one low percentile of each lane. Changing it re-measures the bands; it does not re-detect them (one undo step)."
+          <span><select id="gel-bg" title="Rolling minimum: a morphological opening (rolling-ball-like) with the window above. Valley-to-valley: straight lines joining the profile's lowest points between bands (LI-COR's Lane background) — for well-separated bands; it follows a slope, but where two bands' tails overlap the valley sits above the floor and both come out low (those bands are flagged and left out of ratios: use the rolling minimum for close bands). None / flat: one low percentile of each lane. Changing it re-measures the bands; it does not re-detect them (one undo step)."
               onchange="gelSetBaseline(_gelUI.idx,this.value,'')">
             <option value="rolling minimum">Rolling minimum</option><option value="valley-to-valley">Valley-to-valley</option><option value="flat">None / flat</option></select>
             <input id="gel-bg-p" type="number" min="0" max="51" style="width:52px" title="Valley-to-valley: the running mean (rows) the valleys are found on. Flat: the percentile of the lane's row profile." onchange="gelSetBaseline(_gelUI.idx,document.getElementById('gel-bg').value,this.value)">
@@ -8336,14 +8527,20 @@ function _gelRenderModal(){
     ${a.polarityUncertain&&a.polaritySetBy!=='user'?'<div style="color:var(--warn);margin-top:2px">⚠ The band polarity is a low-confidence guess (the crop border and the image median disagree) — check the Bands setting.</div>':''}
     ${_gelWindowShort(a)?'<div style="color:var(--warn);margin-top:3px">⚠ The background window is barely taller than the tallest band — the background rides up the bands and volumes come out low. Widen it and re-detect.</div>':''}
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
+    ${_gelFlagCount(a,'edge')?`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelFlagCount(a,'edge')} band${_gelFlagCount(a,'edge')===1?' is':'s are'} cut by the crop edge — partial, left out of every ratio. Widen the crop and re-detect.</div>`:''}
+    ${_gelEdgeLanes(a).length?`<div style="color:var(--warn);margin-top:3px">⚠ Lane${_gelEdgeLanes(a).length>1?'s':''} ${esc(_listAnd(_gelEdgeLanes(a)))}: band-strength signal on the crop's edge rows, in no band — a band the crop cuts through (or the strip above a well). Widen the crop to measure it.</div>`:''}
+    ${_gelFlagCount(a,'overlap')?`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelFlagCount(a,'overlap')} band${_gelFlagCount(a,'overlap')===1?'':'s'} overlap${_gelFlagCount(a,'overlap')===1?'s':''} a neighbour — valley-to-valley under-measures them, so they are left out of every ratio. Use the rolling minimum for close bands.</div>`:''}
+    ${_gelFlagCount(a,'slope')?`<div style="color:var(--muted);margin-top:2px">${_gelFlagCount(a,'slope')} band${_gelFlagCount(a,'slope')===1?' sits':'s sit'} on a sloping background — the background follows the slope (the rolling minimum is taken off each lane's straight-line trend).</div>`:''}
     ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
     ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
       :_gelLoadMode(a)==='total'
-        ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`
+        ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes${_gelTpLocal(a)?' (on either side of each lane, interpolated across it)':''}, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>${_gelTpNotes(a).map((s,k)=>`<div style="color:${k===0&&_gelTpUneven(a)?'var(--muted)':'var(--warn)'};margin-top:2px">${k===0&&_gelTpUneven(a)?'':'⚠ '}${esc(s.charAt(0).toUpperCase()+s.slice(1))}.</div>`).join('')}`
         :`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(_gelLoadingLabel(a))}</b>, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`):''}
     ${a.loading&&!lcWhy&&_gelLoadSatLanes(a).length?`<div style="color:var(--warn);margin-top:3px">⚠ Lane${_gelLoadSatLanes(a).length>1?'s':''} ${esc(_listAnd(_gelLoadSatLanes(a).map(String)))} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${_gelLoadSatLanes(a).length>1?'have':'has'} clipped samples (or reach past the image) — ${_gelLoadSatLanes(a).length>1?'their':'its'} bands are not normalised.</div>`:''}
     ${a.refLane!=null?`<div>Reference lane: <b>${a.refLane+1}</b>.</div>`:''}
-    ${im.laneTable&&a.lanes.length&&_ltLanes(im)!==a.lanes.length?`<div style="color:var(--warn);margin-top:3px">⚠ The lane table has ${_ltLanes(im)} columns and ${a.lanes.length} lanes were found — it is spaced evenly, not on the lanes. Open ⊞ Lane table… to match it.</div>`:''}`;
+    ${im.laneTable&&a.lanes.length&&_ltLanes(im)!==a.lanes.length?`<div style="color:var(--warn);margin-top:3px">⚠ The lane table has ${_ltLanes(im)} columns and ${a.lanes.length} lanes were found — it is spaced evenly, not on the lanes. Open ⊞ Lane table… to match it.</div>`:''}
+    ${im.laneTable&&_ltHasContent(im.laneTable)&&!_ltTurnOK(im)?`<div style="color:var(--warn);margin-top:3px">⚠ The panel is turned ${_ltOrient(im).deg}° — its lanes are no longer columns, so the lane table is spaced evenly and may not match them. Open ⊞ Lane table… to check and re-map it.</div>`:''}
+    ${im.laneTable&&_ltHasContent(im.laneTable)&&_ltOrient(im).mirror?'<div style="color:var(--muted);margin-top:2px">The panel is mirrored — its lane table is reversed with the picture, each condition over its own lane.</div>':''}`;
   const pol=document.getElementById('gel-pol'); pol.value=a.polarity;
   document.getElementById('gel-pol-guess').textContent=`guessed from the image: ${a.polarityGuess==='dark'?'dark on light':'light on dark'}${a.polaritySetBy==='user'?' · set by you':''}`;
   const nl=document.getElementById('gel-nlanes'); if(document.activeElement!==nl) nl.value=a.laneMode==='forced'?a.laneCount:'';
@@ -8377,12 +8574,15 @@ function _gelRenderModal(){
       const fl=[];
       if(r.saturated) fl.push(`<span style="color:var(--danger)" title="${r.clipped} samples in this band reached the clip value: the volume is an underestimate and is excluded from every ratio">SATURATED (clipped at ${clipAt})</span>`);
       if(r.partial) fl.push('<span style="color:var(--warn)" title="Part of this band lies outside the image (the tilted crop reaches past it): the volume is partial and is excluded from every ratio">partly outside image</span>');
+      if(r.edge) fl.push('<span style="color:var(--warn)" title="This band reaches the crop\'s first or last row: the crop cuts it, so the volume is only the part inside and is excluded from every ratio. Widen the crop and re-detect.">cut by the crop edge</span>');
+      if(r.overlap) fl.push('<span style="color:var(--warn)" title="The valley between this band and its neighbour sits well above the lane\'s floor: their tails overlap, and a valley-to-valley line cuts the overlap off both. The volume is an underestimate and is excluded from every ratio — use the rolling minimum for close bands.">overlapping — valley-to-valley under-measures; use rolling minimum</span>');
+      if(r.slope) fl.push('<span title="The lane\'s background slopes across this band by a twentieth of its net peak or more. The background follows it (the rolling minimum is taken off the lane\'s straight-line trend), so the volume stands — but the background did real work here.">on a sloping background</span>');
       if(r.merged) fl.push('<span style="color:var(--warn)" title="A shoulder or a second crown inside this band: it may be two bands, and its volume is their total">merged?</span>');
       if(r.split) fl.push('<span title="Touches its neighbour: the two were divided at the valley between them">split</span>');
       if(r.nearNoise) fl.push(`<span style="color:var(--warn)" title="The volume is under 10 noise SEs (SE ${_gelFmt(r.se,0)})">near noise</span>`);
       if(r.manual) fl.push('<span title="Added by hand">hand</span>');
       if(r.resized) fl.push('<span title="Its boundaries were set by hand on the lane profile">edges set</span>');
-      if(r.lcFlag) fl.push(`<span style="color:var(--warn)" title="The paired lane of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} has clipped samples or reaches past the image: no normalised value is given">LC lane ${r.lcFlag==='PARTIAL'?'cut':'saturated'}</span>`);
+      if(r.lcFlag) fl.push(`<span style="color:var(--warn)" title="The paired lane of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} has clipped samples, reaches past the image or the crop, or holds bands valley-to-valley under-measures: no normalised value is given">LC lane ${r.lcFlag==='PARTIAL'?'cut':r.lcFlag==='OVERLAP'?'overlapping bands':'saturated'}</span>`);
       const flag=fl.join(' ');
       const kd=r.marker!=null?`<b>${esc(r.marker)}</b>`:(r.kda!=null?`${r.kda.toFixed(1)}${r.extrapolated?'<span title="Outside the ladder range — extrapolated">*</span>':''}`:'—');
       html+=`<tr style="${sel?'background:rgba(250,204,21,.15)':''}">${td(r.lane)}${td(r.band)}${td(r.rf.toFixed(3))}${td(`${Math.round(r.y0)}–${Math.round(r.y1)}`)}${td(_gelFmt(r.peak,1))}${td(_gelFmt(r.volume,0),r.saturated?'color:var(--danger)':'')}${td(_gelFmt(r.pctLane,1))}${td(_gelFmt(r.relRef,3))}${td(_gelFmt(r.normLC,4))}${a.loading&&a.refLane!=null?td(_gelFmt(r.normLCRef,3)):''}${td(kd)}${td(flag)}<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this band (one undo step)" onclick="gelDeleteBand(_gelUI.idx,${li},${r.bandIdx})">✕</button></td></tr>`;
@@ -8392,6 +8592,8 @@ function _gelRenderModal(){
   if(rows.some(r=>r.extrapolated)) html+='<div style="font-size:10px;color:var(--muted);margin-top:3px">* outside the ladder range — extrapolated</div>';
   if(sat) html+='<div style="font-size:10px;color:var(--danger);margin-top:3px">Saturated bands are clipped: their volumes are underestimates, so they and their lanes\' shares are left out of every ratio.</div>';
   if(rows.some(r=>r.partial)) html+='<div style="font-size:10px;color:var(--warn);margin-top:3px">Bands partly outside the image are partial: they and their lanes\' shares are left out of every ratio.</div>';
+  if(rows.some(r=>r.edge)) html+='<div style="font-size:10px;color:var(--warn);margin-top:3px">Bands cut by the crop edge are partial: they and their lanes\' shares are left out of every ratio. Widen the crop to include the whole band.</div>';
+  if(rows.some(r=>r.overlap)) html+='<div style="font-size:10px;color:var(--warn);margin-top:3px">Overlapping bands are under-measured by valley-to-valley: they and their lanes\' shares are left out of every ratio. The rolling minimum separates close bands better.</div>';
   tb.innerHTML=html;
 }
 // While the dialog is open its keys are its own: Delete removes the selected band, not
@@ -8418,6 +8620,11 @@ document.addEventListener('keydown',e=>{
 // text in the SVG and PDF and moves with the panel — in a strip of the panel's own cell.
 // Its columns sit on the detected lane centres of a current analysis with as many lanes
 // as it has columns; otherwise they are spaced evenly across the picture, and it says so.
+// The table belongs to the LANES: its columns are stored in source-lane order (column 1
+// is lane 1 of the image as imported), and drawing maps them through the panel's flip
+// and turn. Mirrored (or turned 180°), the columns reverse with the picture, so a dose
+// stays over its own lane; turned 90° (or any angle but 0/180) the lanes are no longer
+// columns, so the table is spaced evenly and flagged until the user re-maps it.
 // Every edit replaces the object (never mutates it), so a duplicate or an undo snapshot
 // that still holds the old one is never changed under it.
 // ═══════════════════════════════════════════════════════════════
@@ -8430,15 +8637,40 @@ function _ltFont(fs){
   const fam=gv('axis-font')||gv('label-font')||'system-ui,sans-serif';
   return `${gc('axis-italic')?'italic':'normal'} ${gc('axis-bold')?'bold':'400'} ${fs}px ${fam}`;
 }
-// Where the columns go, as fractions of the drawn picture's width.
+// How the panel's flip and turn carry its lanes across the page. The picture is turned
+// after it is mirrored, so lanes run left-to-right reversed when it is mirrored XOR
+// turned 180°; at any other angle they are not columns at all.
+function _ltOrient(im){
+  const r=((Math.round((+im.rotate||0)*10)/10)%360+360)%360;
+  const key=`${r}|${im.flipH?1:0}|${im.flipV?1:0}`;
+  if(r!==0&&r!==180) return {turned:true, deg:r, key, mirror:false};
+  return {turned:false, deg:r, key, mirror:!!im.flipH!==(r===180)};
+}
+// A turned table the user has looked at and accepted as drawn (one undo step).
+function _ltTurnOK(im){ const t=im&&im.laneTable, o=_ltOrient(im); return !o.turned||!!(t&&t.turnOK===o.key); }
+// Where the columns go, as fractions of the drawn picture's width, column k for lane k.
 function _ltAlign(im){
-  const n=_ltLanes(im), a=im.gelAnalysis;
-  const even=why=>({mode:'even', why, u:Array.from({length:n},(_,k)=>(k+0.5)/n)});
+  const n=_ltLanes(im), a=im.gelAnalysis, o=_ltOrient(im), m=u=>o.mirror?1-u:u;
+  const even=why=>({mode:'even', why, mirror:o.mirror, u:Array.from({length:n},(_,k)=>m((k+0.5)/n))});
+  if(o.turned) return {mode:'even', why:'turned', mirror:false, deg:o.deg, ok:_ltTurnOK(im), u:Array.from({length:n},(_,k)=>(k+0.5)/n)};
   if(!a) return even('none');
   if(!_gelFresh(im)) return even('stale');
   if(!a.lanes.length||a.lanes.length!==n) return even('count');
-  if(im.rotate||im.flipH||im.flipV) return even('turned');
-  return {mode:'lanes', why:'', u:a.lanes.map(L=>((L.x0+L.x1)/2-a.frame.sx)/a.frame.sw)};
+  return {mode:'lanes', why:'', mirror:o.mirror, u:a.lanes.map(L=>m(((L.x0+L.x1)/2-a.frame.sx)/a.frame.sw))};
+}
+// A flip or turn of a panel with a table says, once, what happened to the table. It is
+// noticed where the table is drawn, so every way of turning a panel (the drawer, the
+// canvas grip, the angle field, a batch edit, undo) is covered.
+const _ltOrientSeen=new Map();
+function _ltOrientNotice(im){
+  if(!im||im.id==null) return;
+  const o=_ltOrient(im), st=o.turned?(_ltTurnOK(im)?'turned-ok':'turned'):o.mirror?'mirror':'plain', prev=_ltOrientSeen.get(im.id);
+  _ltOrientSeen.set(im.id,st);
+  if(prev==null||prev===st) return;
+  const nm=_rtText(formatLabel(im.label))||'?';
+  if(st==='turned') toast(`Panel ${nm} is turned ${o.deg}° — its lanes no longer run across the page, so its lane table is spaced evenly and may not match them. Check it in ⊞ Lane table… and re-map it to the lanes as now drawn.`,'warn');
+  else if(st==='mirror') toast(`Panel ${nm} is mirrored — its lane table is reversed with the picture, so each condition stays over its own lane (lane 1 is now on the right).`,'ok');
+  else if(st==='plain'&&(prev==='mirror'||prev==='turned'||prev==='turned-ok')) toast(`Panel ${nm} is back the right way round — its lane table follows its lanes (lane 1 on the left).`,'ok');
 }
 // Room to the left of a cell the row names may use without reaching the next panel: half
 // the gutter, or the figure margin beside the first column (none with row labels there).
@@ -8452,7 +8684,8 @@ function _ltNameNeed(im){
   const fs=Math.max(6,Math.min(72,+t.fs||12));
   _ltMeasure=_ltMeasure||document.createElement('canvas').getContext('2d');
   _ltMeasure.font=_ltFont(fs);
-  // Measured as drawn: "**Ca^{2+}** (mM)" is as wide as its runs, not as its marks.
+  // The drawn width: format marks (*E. coli*) are not drawn, and were measured, so a
+  // marked name stopped 12 px short of the picture.
   const nw=Math.max(0,...t.rows.map(r=>String(r.name||'').trim()?_rtMeasure(_ltMeasure,String(r.name).trim()):0));
   return nw>0?Math.ceil(nw+fs*0.5+2):0;
 }
@@ -8470,27 +8703,80 @@ function _ltColumnLefts(cols,rows){
   }
   return L;
 }
-// The strip of the cell the table takes: {top, bot, left, lh, gap, fs, draw}, or null.
+// The strip of the cell the table takes: {top, bot, left, lh, gap, fs, draw, fit}, or null.
 // left is the column's (above); a panel with no table of its own only gives that up.
-function _ltCellReserve(im,colLeft){
+// cellW/cellH are the cell before any reserve, at the panel height the user set (never
+// the hugged height, so the row-height pass and the draw agree on the same strip).
+// A table taller than its cell gave the picture a negative size (−79 × −30 px) and
+// overprinted itself. It may take at most half the cell and must leave 20 px of picture;
+// it keeps out of the room a full-width picture needs when it can, so a blot stacked
+// over another stays in register; past that its type shrinks, down to LT_FS_MIN, and at
+// that floor only the rows that fit are drawn (and adding one more is refused).
+const LT_FS_MIN=6, LT_MAX_FRAC=0.5, LT_MIN_PIC=20;
+const _ltLast=new Map();    // im.id → the reserve as last laid out, for the editor and lane numbers
+function _ltRowsH(fs,rows){ const lh=Math.round(fs*1.35), gap=Math.round(fs*0.4); return {lh, gap, v:rows*lh+gap}; }
+function _ltCellReserve(im,colLeft,cellW,cellH){
   const t=im&&im.laneTable, has=!!t&&layoutMode!=='freeform'&&_ltHasContent(t);
   if(!has) return colLeft>0?{top:0,bot:0,left:colLeft,draw:false}:null;
-  const fs=Math.max(6,Math.min(72,+t.fs||12)), lh=Math.round(fs*1.35), gap=Math.round(fs*0.4), v=t.rows.length*lh+gap;
-  return {top:t.pos==='below'?0:v, bot:t.pos==='below'?v:0, left:colLeft||0, lh, gap, fs, draw:true};
+  const fs0=Math.max(6,Math.min(72,+t.fs||12)), rows=t.rows.length;
+  let fs=fs0, M=_ltRowsH(fs,rows), drawRows=rows, cap=Infinity;
+  if(cellH>0){
+    cap=Math.max(0,Math.min(LT_MAX_FRAC*cellH, cellH-LT_MIN_PIC));
+    const picH=cellW>0?_panelOuterH(im, Math.max(1,cellW-(colLeft||0)), 1e9):0, spare=cellH-picH;
+    const target=(spare>=_ltRowsH(LT_FS_MIN,rows).v)?Math.min(cap,spare):cap;
+    if(M.v>target){ let f=Math.floor(fs*2)/2; while(f>LT_FS_MIN&&_ltRowsH(f,rows).v>target) f-=0.5; fs=Math.max(LT_FS_MIN,f); M=_ltRowsH(fs,rows); }
+    if(M.v>cap){ drawRows=Math.max(0,Math.floor((cap-M.gap)/M.lh)); M={lh:M.lh, gap:M.gap, v:drawRows?drawRows*M.lh+M.gap:0}; }
+  }
+  const R={top:t.pos==='below'?0:M.v, bot:t.pos==='below'?M.v:0, left:colLeft||0, lh:M.lh, gap:M.gap, fs, draw:drawRows>0,
+    fit:{fs0, fs, rows, drawRows, cap, cellH:cellH||0}};
+  if(im.id!=null&&cellH>0) _ltLast.set(im.id,{R, cellW, cellH, colLeft:colLeft||0});
+  return R;
 }
+// The reserve the panel was last laid out with (lane numbers go above it), or a fresh one.
+function _ltReserveDrawn(im){ const L=im&&im.id!=null&&_ltLast.get(im.id); return L?_ltCellReserve(im,L.colLeft,L.cellW,L.cellH):_ltCellReserve(im,0); }
 // box: the drawn picture {ox,oy,ow,oh} and, before any turn, {dx,dw}.
+// Each cell is fitted to its lane: centred on the lane, it may reach halfway to the
+// next column on either side (and no further out than the picture's edge, so it stays
+// clear of the row names). Text wider than that is set smaller, down to LT_CELL_MIN of
+// the table's size, then cut with an ellipsis — the editor keeps the full text. Long
+// cells used to print over each other ('ciproflo/ampicillin', 36 px) and over the names.
+const LT_CELL_MIN=0.6, _ltCut=new Map();   // im.id → [[row, col]] of cells drawn cut short
+function _ltFitCell(ctx,str,fs,budget,fontOf){
+  ctx.font=fontOf(fs); let w=_rtMeasure(ctx,str);
+  if(w<=budget) return {str, fs};
+  const fMin=Math.max(LT_FS_MIN,Math.round(fs*LT_CELL_MIN*2)/2);
+  let f=Math.max(fMin,Math.floor(fs*budget/w*2)/2);
+  ctx.font=fontOf(f); w=_rtMeasure(ctx,str);
+  while(w>budget&&f>fMin){ f=Math.max(fMin,f-0.5); ctx.font=fontOf(f); w=_rtMeasure(ctx,str); }
+  if(w<=budget) return {str, fs:f};
+  // Still too wide at the floor: the plain text, cut, with an ellipsis.
+  const plain=_rtText(str); let k=plain.length;
+  while(k>0&&ctx.measureText(plain.slice(0,k)+'…').width>budget) k--;
+  return {str:(k>0?plain.slice(0,k):'')+'…', fs:f, cut:true};
+}
 function _ltDraw(im,imgIdx,box,R,ink,emitText){
   const t=im.laneTable, n=_ltLanes(im), al=_ltAlign(im), font=_ltFont(R.fs);
+  _ltOrientNotice(im);
   const xs=al.mode==='lanes'?al.u.map(u=>box.dx+u*box.dw):al.u.map(u=>box.ox+u*box.ow);
-  const top=t.pos==='below'?box.oy+box.oh+R.gap:box.oy-R.gap-t.rows.length*R.lh;
+  const nRows=Math.min(t.rows.length,(R.fit&&R.fit.drawRows!=null)?R.fit.drawRows:t.rows.length);
+  const top=t.pos==='below'?box.oy+box.oh+R.gap:box.oy-R.gap-nRows*R.lh;
   // Measured here and left-aligned, so the bbox, the SVG anchor and the PDF all agree.
   if(!_ltMeasure) _ltMeasure=document.createElement('canvas').getContext('2d');
-  _ltMeasure.font=font;
-  t.rows.forEach((row,ri)=>{
+  // Each column's room: halfway to its neighbours, never past the picture's edges.
+  const order=xs.map((x,k)=>k).sort((p,q)=>xs[p]-xs[q]), half=new Array(n).fill(Infinity);
+  order.forEach((k,j)=>{ const l=j>0?(xs[k]-xs[order[j-1]])/2:xs[k]-box.ox, r=j<n-1?(xs[order[j+1]]-xs[k])/2:box.ox+box.ow-xs[k];
+    half[k]=Math.max(0,Math.min(l,r)); });
+  const pad=Math.max(1,R.fs*0.15), fontOf=f=>_ltFont(f), cut=[];
+  t.rows.slice(0,nRows).forEach((row,ri)=>{
     const yc=top+ri*R.lh+R.lh/2, nm=String(row.name||'').trim();
+    _ltMeasure.font=font;
     if(nm) emitText('lanetable',imgIdx,nm,box.ox-Math.round(R.fs*0.5)-_rtMeasure(_ltMeasure,nm),yc,font,ink,'left','middle',0);
-    for(let k=0;k<n;k++){ const v=_ltNorm((row.cells||[])[k]); if(v) emitText('lanetable',imgIdx,v,xs[k],yc,font,ink,'center','middle',0); }
+    for(let k=0;k<n;k++){ const v=_ltNorm((row.cells||[])[k]); if(!v) continue;
+      const f=_ltFitCell(_ltMeasure,v,R.fs,Math.max(1,2*half[k]-pad),fontOf);
+      if(f.cut) cut.push([ri,k]);
+      emitText('lanetable',imgIdx,f.str,xs[k],yc,f.fs===R.fs?font:fontOf(f.fs),ink,'center','middle',0); }
   });
+  if(im.id!=null){ if(cut.length) _ltCut.set(im.id,cut); else _ltCut.delete(im.id); }
 }
 function _ltDefault(im){
   const a=im&&im.gelAnalysis, n=(a&&_gelFresh(im)&&a.lanes.length)||4;
@@ -8517,7 +8803,17 @@ function _ltEdit(idx,fn){
 function laneTableCycle(idx,r,c){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row||c<0||c>=t.lanes) return false; row.cells[c]=_ltCycle(row.cells[c]); }); }
 function laneTableSetCell(idx,r,c,text){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row||c<0||c>=t.lanes) return false; row.cells[c]=_ltNorm(text); }); }
 function laneTableSetName(idx,r,name){ return _ltEdit(idx,t=>{ const row=t.rows[r]; if(!row) return false; row.name=String(name==null?'':name).trim(); }); }
-function laneTableAddRow(idx,name){ return _ltEdit(idx,t=>{ t.rows.push({name:String(name||'').trim(),cells:new Array(t.lanes).fill('')}); }); }
+function laneTableAddRow(idx,name){ return _ltEdit(idx,(t,im)=>{
+  // At the smallest size the rows already fill the half of the cell a table may take:
+  // another would not be drawn, so it is refused rather than silently left off.
+  const L=im&&im.id!=null&&_ltLast.get(im.id);
+  if(L&&L.cellH>0){ const cap=Math.max(0,Math.min(LT_MAX_FRAC*L.cellH,L.cellH-LT_MIN_PIC));
+    if(_ltRowsH(LT_FS_MIN,t.rows.length+1).v>cap){
+      toast(`No room for another row: at the smallest size (${LT_FS_MIN} px) ${t.rows.length} row${t.rows.length===1?'':'s'} already fill${t.rows.length===1?'s':''} the half of panel ${_rtText(formatLabel(im.label))||'?'}'s cell a lane table may take — make the panels taller, or use fewer rows`,'warn');
+      return false; } }
+  t.rows.push({name:String(name||'').trim(),cells:new Array(t.lanes).fill('')}); }); }
+// Accept a turned panel's table as it is now drawn (evenly spaced, columns left to right).
+function laneTableAcceptTurn(idx){ return _ltEdit(idx,(t,im)=>{ const o=_ltOrient(im); if(!o.turned||t.turnOK===o.key) return false; t.turnOK=o.key; }); }
 function laneTableDeleteRow(idx,r){ return _ltEdit(idx,t=>{ if(!t.rows[r]) return false; t.rows.splice(r,1); if(!t.rows.length) t.rows.push({name:'',cells:new Array(t.lanes).fill('')}); }); }
 function laneTableSet(idx,o){ return _ltEdit(idx,t=>{ o=o||{};
   if(o.lanes!=null){ const n=Math.round(+o.lanes); if(!(n>=1&&n<=60)) return false; t.lanes=n; }
@@ -8583,8 +8879,16 @@ function _ltRender(){
   st.innerHTML+=al.mode==='lanes'?`Columns on the <b>${n} detected lane centres</b> of panel ${esc(lab)}'s analysis — they follow any lane you move or re-detect.`
     :al.why==='count'?`<span style="color:var(--warn)">⚠ The analysis found <b>${a.lanes.length}</b> lanes and the table has <b>${n}</b> columns — spaced evenly across the panel, not on the lanes.</span>`
     :al.why==='stale'?`<span style="color:var(--warn)">⚠ ${esc(_gelStaleText(im))}, so its lanes are not used — the ${n} columns are spaced evenly until it is re-detected.</span>`
-    :al.why==='turned'?`The panel is rotated or mirrored — the ${n} columns are spaced evenly across it.`
+    :al.why==='turned'?(al.ok?`The panel is turned ${al.deg}° and you accepted the table as drawn: ${n} columns spaced evenly across it, column 1 on the left.`
+      :`<span style="color:var(--warn)">⚠ The panel is turned ${al.deg}° — its lanes no longer run across the page, so the ${n} columns are spaced evenly across it and may not match them. Check the drawing, then re-map.</span> <button class="btn" id="lt-remap" style="font-size:10px" onclick="laneTableAcceptTurn(_ltUI.idx)" title="Keep the cells in the order they are now drawn, left to right, spaced evenly across the turned panel (one undo step)">Re-map to the lanes as now drawn</button>`)
     :`No lane analysis on this panel — the ${n} columns are spaced evenly across it. ⫼ Analyse lanes &amp; bands to put them on the detected lanes.`;
+  // The table follows its lanes through a mirror, and says so.
+  if(al.mirror) st.innerHTML+=` <span style="color:var(--muted)">The panel is mirrored — the columns are reversed with the picture, so each condition stays over its own lane (column 1 is drawn on the right).</span>`;
+  // What the fit to the cell did: a smaller size, rows left off, cells cut short.
+  { const L=im.id!=null&&_ltLast.get(im.id), f=L&&L.R&&L.R.fit, cut=(im.id!=null&&_ltCut.get(im.id))||[];
+    if(f&&f.drawRows<f.rows) st.innerHTML+=`<div style="color:var(--warn)">⚠ Only ${f.drawRows} of the ${f.rows} rows fit in the half of the cell a lane table may take, even at ${LT_FS_MIN} px — make the panels taller or use fewer rows.</div>`;
+    else if(f&&f.fs<f.fs0) st.innerHTML+=`<div style="color:var(--warn)">Drawn at <b>${f.fs} px</b>, not ${f.fs0} px: a lane table may take at most half of its cell${f.cellH?` (${Math.round(LT_MAX_FRAC*f.cellH)} px of ${Math.round(f.cellH)})`:''} and leave the blot its full width.</div>`;
+    if(cut.length) st.innerHTML+=`<div style="color:var(--warn)">⚠ ${cut.length} cell${cut.length>1?'s are':' is'} wider than ${cut.length>1?'their':'its'} lane even at the smallest size and ${cut.length>1?'are':'is'} cut short with … on the figure (marked below; the full text is kept).</div>`; }
   const canMatch=a&&_gelFresh(im)&&a.lanes.length&&a.lanes.length!==n;
   mb.style.display=canMatch?'':'none';
   if(canMatch){ mb.textContent=`Match the ${a.lanes.length} detected lanes`; mb.title=`Set the table to ${a.lanes.length} columns, one per detected lane (columns past the last are dropped; one undo step)`; }
@@ -8594,7 +8898,9 @@ function _ltRender(){
   let h=`<table style="border-collapse:collapse;font-size:11px"><tr><th style="text-align:left;padding:2px 4px">Row</th>${Array.from({length:n},(_,k)=>`<th style="padding:2px;color:var(--muted)">${k+1}</th>`).join('')}<th></th></tr>`;
   t.rows.forEach((row,r)=>{
     h+=`<tr><td style="padding:2px 4px"><input class="lt-name" data-r="${r}" value="${esc(row.name||'')}" placeholder="e.g. IPTG" style="width:120px" title="The row's name, drawn left of the blot"></td>`;
-    row.cells.forEach((v,c)=>{ h+=`<td style="padding:1px"><input class="lt-cell" data-r="${r}" data-c="${c}" value="${esc(v)}" style="${cell}" title="Lane ${c+1}: click to cycle + / – / blank; type to write anything else"></td>`; });
+    const _cut=(im.id!=null&&_ltCut.get(im.id))||[];
+    row.cells.forEach((v,c)=>{ const cu=_cut.some(q=>q[0]===r&&q[1]===c);
+      h+=`<td style="padding:1px"><input class="lt-cell" data-r="${r}" data-c="${c}" value="${esc(v)}" style="${cell}${cu?';outline:1px solid var(--warn)':''}" title="Lane ${c+1}: click to cycle + / – / blank; type to write anything else${cu?` — too wide for its lane: cut short with … on the figure. Full text: ${esc(v)}`:''}"></td>`; });
     h+=`<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this row (one undo step)" onclick="laneTableDeleteRow(_ltUI.idx,${r})">✕</button></td></tr>`;
   });
   document.getElementById('lt-grid').innerHTML=h+'</table>';
@@ -9533,7 +9839,7 @@ function autoRowHeights(rows, cols, pw, ph, gH, gV){
     const apw=cs*pw+spanGapsW(c,cs,gH);
     const aph=rs*ph+spanGapsH(r,rs,gV);
     // A lane table's strip is part of what the row has to hold.
-    const _lt=_ltCellReserve(p, _ltLefts[c]||0);
+    const _lt=_ltCellReserve(p, _ltLefts[c]||0, apw, aph);
     const need=_lt?_panelOuterH(p, apw-_lt.left, aph-_lt.top-_lt.bot)+_lt.top+_lt.bot:_panelOuterH(p, apw, aph);
     if(rs>1){ spans.push({r,rs,need}); continue; }  // measured after the single rows settle
     H[r]=Math.max(H[r], need);
@@ -9856,7 +10162,9 @@ function render(targetCanvas, exportScale, opts){
         // lies over the neighbouring panel. Everything below — the fit, panelBounds, the
         // furniture — sees the smaller box, which is what _panelSourceMap and the lane
         // mapping read back.
-        const _lt=im?_ltCellReserve(im,_ltLefts[c]||0):null;
+        // The table is fitted to the cell at the panel height the user set, as the hugged
+        // row heights were (so both see the same strip); the picture keeps ≥ 20 px.
+        const _lt=im?_ltCellReserve(im,_ltLefts[c]||0,apw,rs*Math.max(20,gi('panel-h'))+spanGapsH(r,rs,gV)):null;
         if(_lt){ px+=_lt.left; apw-=_lt.left; py+=_lt.top; aph-=_lt.top+_lt.bot; }
         if(!isExport) panelBounds.push({idx:imgIdx, x:px, y:py, w:apw, h:aph});
         if(imgIdx>=0) _cellRects.set(imgIdx,{x:px,y:py,w:apw,h:aph});
@@ -20748,6 +21056,12 @@ function toast(msg,type=''){
 // FREEFORM CANVAS MODE
 // ═══════════════════════════════════════════════════════════════
 function setLayoutMode(mode){
+  // A lane table is a grid panel's furniture: switching away from the grid hid it with no
+  // word. It is kept, and said to be, both ways.
+  if(mode!==layoutMode){ const T=images.filter(im=>im&&im.laneTable&&_ltHasContent(im.laneTable)).map(im=>_rtText(formatLabel(im.label))||'?');
+    if(T.length) toast(mode==='freeform'
+      ?`The lane table${T.length>1?'s':''} on panel${T.length>1?'s':''} ${_listAnd(T)} ${T.length>1?'are':'is'} not drawn in freeform layout — kept, and drawn again when you switch back to Grid`
+      :`The lane table${T.length>1?'s':''} on panel${T.length>1?'s':''} ${_listAnd(T)} ${T.length>1?'are':'is'} drawn again`, mode==='freeform'?'warn':'ok'); }
   layoutMode=mode;
   document.getElementById('grid-controls').style.display=mode==='grid'?'':'none';
   document.getElementById('freeform-controls').style.display=mode==='freeform'?'':'none';
