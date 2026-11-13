@@ -145,13 +145,17 @@ test('layered SVG: one layer per panel, each with one picture, named after its l
   expect(errors).toEqual([]);
 });
 
+// 150 dpi and a printed width are the cases that caught the picture scale: the render is
+// round(W·S) px wide but drawn at exactly S, and pictures placed at device px ÷ S drifted
+// by up to a pixel across the figure (3–5 grey levels at 150 dpi, 5.3 at 89 mm). The old
+// 150/300-dpi pair passed only because this figure's W·S happened to be nearly whole.
 test('layered SVG looks like the flat SVG and the PNG export, pixel for pixel', async ({ page }) => {
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   const errors = await loadApp(page);
   await buildFigure(page);
-  for (const dpi of ['150', '300']) {
-    const r = await page.evaluate(async (dpi) => {
-      sv('export-dpi', dpi); render();
+  for (const [dpi, mm] of [['72', '0'], ['150', '0'], ['300', '0'], ['150', '89'], ['300', '183']]) {
+    const r = await page.evaluate(async ([dpi, mm]) => {
+      sv('export-dpi', dpi); sv('export-width-mm', mm); render();
       const layered = await __svgCap('layered');
       const flat = await __svgCap('flat');
       const c = renderExportCanvas(getExportDPI());
@@ -163,10 +167,10 @@ test('layered SVG looks like the flat SVG and the PNG export, pixel for pixel', 
       doc.querySelector('g[id^="panel-"]').setAttribute('transform', 'translate(1 0)');
       const shifted = await __raster(new XMLSerializer().serializeToString(doc), P.width, P.height);
       return { LF: __diff(L, F), LP: __diff(L, P), FP: __diff(F, P), shift: __diff(shifted, L), w: P.width };
-    }, dpi);
-    console.log(`dpi ${dpi}: ${r.w}px  layered~flat ${r.LF.mad.toFixed(3)}  layered~png ${r.LP.mad.toFixed(3)}  flat~png ${r.FP.mad.toFixed(3)}  shifted ${r.shift.mad.toFixed(3)}`);
+    }, [dpi, mm]);
+    console.log(`dpi ${dpi} width ${mm} mm: ${r.w}px  layered~flat ${r.LF.mad.toFixed(3)}  layered~png ${r.LP.mad.toFixed(3)}  flat~png ${r.FP.mad.toFixed(3)}  shifted ${r.shift.mad.toFixed(3)}`);
     expect(r.LF.mad).toBeLessThan(1.5);
-    expect(r.LP.mad).toBeLessThan(1.5);
+    expect(r.LP.mad).toBeLessThan(1.0);
     expect(r.LF.big).toBeLessThan(0.002);
     expect(r.shift.mad).toBeGreaterThan(r.LF.mad);   // a 1-px shift of one panel is visible to this test
   }

@@ -1044,6 +1044,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <input type="hidden" id="sample-colours" value="">
     <input type="hidden" id="chart-axis-w" value="">
     <input type="hidden" id="lab-style-src" value="">
+    <!-- The values the lab style put on the font and size controls, so the status line can
+         say when a target journal (or a hand) has since replaced them. -->
+    <input type="hidden" id="lab-style-set" value="">
     </div>
 
   </div>
@@ -2962,6 +2965,27 @@ function _rtWrap(ctx, str, font, maxW){
   ctx.font=saved;
   return out;
 }
+// ── XML text for every writer of XML (flat and layered SVG, the key SVG, chart and
+// gene-map fragments, every PowerPoint part) ──
+// Escaping is not enough: XML 1.0 has no way to write most C0 controls, U+FFFE/U+FFFF
+// or a lone surrogate, escaped or not, so one pasted vertical tab in the alt text made
+// the whole SVG unreadable to Inkscape and PowerPoint offered to repair the deck.
+// Those are dropped (a vertical tab or form feed becomes a space); & < > " ' are
+// escaped, which is right in text and in attribute values alike.
+// (A pair is matched first and kept, so only a lone half reaches the last branch: no
+// lookbehind, which older Safari cannot even parse.)
+const _XML_BAD=/[\x00-\x08\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g;
+function _xmlEsc(s){
+  return String(s??'').replace(/[\x0B\x0C]/g,' ').replace(_XML_BAD,m=>m.length===2?m:'')
+    .replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Text inside <!-- … -->: "--" ends a comment early and a trailing "-" runs into the
+// closing "-->", so a file named WT--KO.svg made the SVG malformed. Each run of hyphens
+// becomes single hyphens with spaces between them; no user text reaches a comment
+// without passing here.
+function _xmlComment(s){
+  return _xmlEsc(s).replace(/-{2,}/g,m=>m.split('').join(' ')).replace(/-$/,'- ');
+}
 // The same runs as SVG: tspans inside the caller's <text>, which sits on the
 // alphabetic baseline. Super/subscripts move by dy in px (em would be relative to the
 // smaller size) and the run after them moves back.
@@ -2987,7 +3011,7 @@ function _rtSVGItem(it, esc, extra){
   const anchor=it.align==='center'?'middle':(it.align==='right'||it.align==='end')?'end':'start';
   const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
   // rotate() turns about the anchor point, so the baseline shift runs along the turned text
-  return `<text x="${it.x.toFixed(2)}" y="${yb.toFixed(2)}" style="font:${it.font}" fill="${it.fill}" text-anchor="${anchor}"${rot}${extra||''}>${_rtSVGSpans(it.runs, it.font, esc)}</text>`;
+  return `<text x="${it.x.toFixed(2)}" y="${yb.toFixed(2)}" style="font:${_xmlEsc(it.font)}" fill="${_xmlEsc(it.fill)}" text-anchor="${anchor}"${rot}${extra||''}>${_rtSVGSpans(it.runs, it.font, esc)}</text>`;
 }
 var _rtMcCtx=null;
 function _rtMc(){ return _rtMcCtx||(_rtMcCtx=document.createElement('canvas').getContext('2d')); }
@@ -4037,9 +4061,11 @@ function _decodeImageFile(f, page){
       const buf=new Uint8Array(await f.arrayBuffer());
       const first=await decodeTIFF(buf,0), total=first.pages||1;
       const p=(page>0&&page<=total)?page:1;
+      // A page the new stack does not have is reported (pageMissing), never silently
+      // replaced by page 1 — Replace all leaves such a panel as it is.
       const res=p===1?first:await decodeTIFF(buf,p-1);
       const it=await _tiffResToImg(res,f.name); if(!it) return null;
-      return {img:it.img, src:it.src, name:f.name, svgSource:null, raw:res.raw||null, page:p, pages:total,
+      return {img:it.img, src:it.src, name:f.name, svgSource:null, raw:res.raw||null, page:p, pages:total, pageMissing:page>total?page:0,
         calib:{umPerPx:res.umPerPx||0, source:res.calibSource||'', deltaT:res.deltaT==null?null:res.deltaT,
           acqTime:res.acqTime==null?null:res.acqTime, timeSource:res.timeSource||'',
           page:total>1?p:0, pages:total>1?total:undefined}};
@@ -4051,11 +4077,11 @@ function _decodeImageFile(f, page){
     if(isSVG){
       reader.onload=ev=>{ const svg=ev.target.result;
         _rasterizeSVG('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg),
-          (img,png)=>resolve({img, src:png, name:f.name, svgSource:svg, raw:null, calib:null, page:1, pages:1}), ()=>resolve(null)); };
+          (img,png)=>resolve({img, src:png, name:f.name, svgSource:svg, raw:null, calib:null, page:1, pages:1, pageMissing:page>1?page:0}), ()=>resolve(null)); };
       reader.readAsText(f);
     } else {
       reader.onload=ev=>{ const img=new Image();
-        img.onload=()=>resolve({img, src:ev.target.result, name:f.name, svgSource:null, raw:null, calib:null, page:1, pages:1});
+        img.onload=()=>resolve({img, src:ev.target.result, name:f.name, svgSource:null, raw:null, calib:null, page:1, pages:1, pageMissing:page>1?page:0});
         img.onerror=()=>resolve(null); img.src=ev.target.result; };
       reader.readAsDataURL(f);
     }
@@ -4081,6 +4107,12 @@ function _replacePlan(im, d){
   if(ow&&oh&&nw&&nh){
     const a=ow/oh, b=nw/nh;
     if(Math.abs(b/a-1)>0.01){ notes.push(`aspect ratio ${a.toFixed(2)} → ${b.toFixed(2)}: the crop is kept as percentages, so check it`); warn=true; }
+  }
+  // A blot's lane analysis was made on the old pixels; its lane table is kept, but its
+  // columns were placed on the old lanes.
+  if(im.gelAnalysis||(im.laneTable&&(im.laneTable.rows||[]).length)){
+    notes.push(`its lane analysis is now out of date — re-detect the lanes${im.laneTable&&(im.laneTable.rows||[]).length?'; the lane table is kept but may no longer line up with the new lanes':''}`);
+    warn=true;
   }
   const lostCh=(im.channels||[]).length;
   if(lostCh) notes.push(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — replace ${lostCh>1?'them':'it'} too if ${lostCh>1?'they':'it'} belonged to it`);
@@ -4127,25 +4159,40 @@ async function replacePanelImage(pid, f){
   logAction('replaceImage',{label:im.label, from:was, to:_sourceName(im)});
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   const pg=d.pages>1?` (page ${d.page} of ${d.pages})`:'';
-  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg}${plan.notes.length?' — '+plan.notes.join('; '):' — crop, labels and settings kept'}`, plan.warn?'warn':'ok');
+  const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
+  const notes=(pm?[pm]:[]).concat(plan.notes);
+  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg}${notes.length?' — '+notes.join('; '):' — crop, labels and settings kept'}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
 // Which file goes to which panel. By file name first — the rule a figure opened without
 // its pixels uses to take re-dropped files (_fillPendingPanel): same name, and for a
 // stack the same page, so every panel cut from one TIFF takes its page of the new one.
-// The files no panel names fill the remaining panels in list order. Linked insets are
-// not targets; they follow their parent.
-function _replaceMatch(panels, names){
-  const used=new Set(), out=[], byFile=new Set();
-  names.forEach((n,fi)=>{
-    panels.forEach(im=>{ if(!used.has(im) && im.name===n){ used.add(im); byFile.add(fi);
-      out.push({im, fi, page:im.srcPage||0, how:'name'}); } });
+// Two or more files of one name (fields saved under one name in two folders) go to the
+// panels of that name one to one, in order — never one file to both panels, and never
+// spilling onto a panel of another name; a surplus file of that name is listed unused.
+// Files no panel names fill the remaining panels in list order. `files`: {name, ok};
+// an unreadable file (ok false) takes no slot. Linked insets are not targets.
+function _replaceMatch(panels, files){
+  files=files.map(f=>typeof f==='string'?{name:f, ok:true}:f);
+  const used=new Set(), out=[], byFile=new Set(), surplus=[];
+  const names=[...new Set(files.map(f=>f.name))];
+  names.forEach(n=>{
+    const fis=files.map((f,fi)=>fi).filter(fi=>files[fi].ok&&files[fi].name===n);
+    const pans=panels.filter(im=>!used.has(im)&&im.name===n);
+    if(!fis.length||!pans.length) return;
+    if(fis.length===1) pans.forEach(im=>{ used.add(im); out.push({im, fi:fis[0], page:im.srcPage||0, how:'name'}); });
+    else {
+      pans.forEach((im,k)=>{ if(k<fis.length){ used.add(im); out.push({im, fi:fis[k], page:im.srcPage||0, how:'name'}); } });
+      fis.slice(pans.length).forEach(fi=>surplus.push(fi));
+    }
+    fis.forEach(fi=>byFile.add(fi));
   });
   const free=panels.filter(im=>!used.has(im));
-  const rest=names.map((n,fi)=>fi).filter(fi=>!byFile.has(fi));
+  const rest=files.map((f,fi)=>fi).filter(fi=>files[fi].ok&&!byFile.has(fi));
   rest.forEach(fi=>{ const im=free.shift(); if(im){ used.add(im); out.push({im, fi, page:0, how:'order'}); } });
   return {pairs:out, unchanged:panels.filter(im=>!used.has(im)),
-    unused:rest.filter(fi=>!out.some(p=>p.fi===fi))};
+    unused:rest.filter(fi=>!out.some(p=>p.fi===fi)), surplus,
+    bad:files.map((f,fi)=>fi).filter(fi=>!files[fi].ok)};
 }
 function openReplaceAll(){
   if(layoutMode==='freeform'){ toast('Replace all works on grid panels — switch to a grid layout','warn'); return; }
@@ -4157,14 +4204,22 @@ async function replaceAllImages(fileList){
   const files=[...(fileList||[])].filter(f=>_fileKind(f)==='image');
   if(!files.length){ toast('No image files picked','warn'); return null; }
   const panels=images.filter(im=>im&&!im.insetOf);
-  const m=_replaceMatch(panels, files.map(f=>f.name));
-  const cache=new Map();
+  // Every file is read before any is matched: an unreadable one used to take a panel's
+  // slot, so that panel kept its old image while a readable file went unused.
+  const cache=new Map(), first=[];
+  for(let fi=0;fi<files.length;fi++){ const d=await _decodeImageFile(files[fi], 0); first.push(d); cache.set(fi+'|0', d); }
+  const m=_replaceMatch(panels, files.map((f,fi)=>({name:f.name, ok:!!first[fi]})));
   for(const p of m.pairs){
-    const key=p.fi+'|'+p.page;
+    const f0=first[p.fi];
+    // A page the new file does not have: the panel is left as it is and listed, never
+    // given page 1 (two panels then showed one image).
+    if(p.page>1&&p.page>(f0.pages||1)){ p.missing={page:p.page, pages:f0.pages||1}; continue; }
+    const key=p.fi+'|'+(p.page>1?p.page:0);
     if(!cache.has(key)) cache.set(key, await _decodeImageFile(files[p.fi], p.page));
     p.d=cache.get(key);
   }
-  const bad=m.pairs.filter(p=>!p.d);
+  const missing=m.pairs.filter(p=>p.missing);
+  const bad=m.pairs.filter(p=>!p.d&&!p.missing);
   const ok=m.pairs.filter(p=>p.d);
   ok.forEach(p=>{ p.plan=_replacePlan(p.im, p.d); p.ids=p.im.id; });
   document.getElementById('replace-all-modal-bg')?.remove();
@@ -4176,9 +4231,11 @@ async function replaceAllImages(fileList){
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Each panel keeps its label, crop, tilt, adjustments, LUT, scale bar, tags, annotations, span and insets; only its file changes. Files go to the panel whose file has the same name, the rest to the remaining panels in order.</div>
     <div id="ra-list" style="max-height:300px;overflow:auto;font-size:11px;line-height:1.55">
       ${ok.map(p=>`<div class="ra-row" data-id="${esc(p.im.id)}"><b>${L(p.im)}</b> ${esc(_sourceName(p.im)||'(unnamed)')} → <b>${esc(p.d.name)}${esc(pg(p))}</b> <span style="color:var(--muted)">(${p.how==='name'?'same name':'in order'})</span>${p.plan.notes.length?`<div style="color:${p.plan.warn?'var(--warn)':'var(--muted)'};padding-left:14px">${p.plan.notes.map(esc).join('<br>')}</div>`:''}</div>`).join('')}
-      ${m.unchanged.length?`<div style="margin-top:6px" id="ra-unchanged"><b>Left unchanged:</b> ${m.unchanged.map(im=>`${L(im)} (${esc(_sourceName(im)||'')})`).join(', ')}</div>`:''}
+      ${m.unchanged.length?`<div style="margin-top:6px" id="ra-unchanged"><b>Left unchanged</b> (no file for them): ${m.unchanged.map(im=>`${L(im)} (${esc(_sourceName(im)||'')})`).join(', ')}</div>`:''}
+      ${missing.length?`<div style="margin-top:6px;color:var(--warn)" id="ra-missing"><b>Page not in the new file</b>, so these panels stay as they are: ${missing.map(p=>`${L(p.im)} ${esc(_sourceName(p.im))} → ${esc(files[p.fi].name)} has ${p.missing.pages} page${p.missing.pages===1?'':'s'}`).join('; ')}</div>`:''}
+      ${m.surplus.length?`<div style="margin-top:6px;color:var(--warn)" id="ra-surplus"><b>Not used</b> (more files of that name than panels with it): ${m.surplus.map(fi=>esc(files[fi].name)).join(', ')}</div>`:''}
       ${m.unused.length?`<div style="margin-top:6px;color:var(--warn)" id="ra-unused"><b>Not used</b> (more files than panels): ${m.unused.map(fi=>esc(files[fi].name)).join(', ')}</div>`:''}
-      ${bad.length?`<div style="margin-top:6px;color:var(--danger)"><b>Could not be read</b>, so those panels stay as they are: ${bad.map(p=>esc(files[p.fi].name)).join(', ')}</div>`:''}
+      ${(m.bad.length||bad.length)?`<div style="margin-top:6px;color:var(--danger)" id="ra-bad"><b>Could not be read</b>, so no panel takes ${m.bad.length+bad.length===1?'it':'them'}: ${m.bad.map(fi=>esc(files[fi].name)).concat(bad.map(p=>esc(files[p.fi].name)+` (page ${p.page})`)).join(', ')}</div>`:''}
     </div>
     <div style="display:flex;gap:6px;margin-top:14px">
       <button class="btn btn-primary" id="ra-apply" style="flex:1;justify-content:center"${ok.length?'':' disabled'}>⇄ Replace ${ok.length} panel${ok.length===1?'':'s'}</button>
@@ -4198,7 +4255,8 @@ async function replaceAllImages(fileList){
     syncLinkedInsets();
     logAction('replaceAll',{n:live.length, unchanged:m.unchanged.length});
     renderImgList(); renderMiniGrid(); scheduleRender(0);
-    toast(`${live.length} panel${live.length===1?'':'s'} took new files${m.unchanged.length?`, ${m.unchanged.length} left unchanged`:''}${warns?` — ${warns} need a look (calibration or crop), see each panel`:''}`, warns?'warn':'ok');
+    const kept=m.unchanged.length+missing.length+bad.length, nBad=m.bad.length;
+    toast(`${live.length} panel${live.length===1?'':'s'} took new files${kept?`, ${kept} left unchanged`:''}${missing.length?` (${missing.length} because the page is not in the new file)`:''}${nBad?`; ${nBad} file${nBad===1?'':'s'} could not be read`:''}${warns?` — ${warns} need a look (calibration, crop or lane analysis), see each panel`:''}`, (warns||missing.length||nBad)?'warn':'ok');
   };
   return bg;
 }
@@ -9074,17 +9132,21 @@ function importHouseStyles(obj){
   if(!list){ toast('That file is not a FigureLab house-styles file','err'); return 0; }
   const keys=new Set(Object.keys(_collectHouseStyle()));
   const arr=getHouseStyles(); let added=0, replaced=0;
+  const badFonts=[];
   list.forEach(s=>{
     const name=String((s&&s.name)||'').trim().slice(0,24);
     if(!name||!s.style||typeof s.style!=='object') return;
     const style={}; Object.entries(s.style).forEach(([k,v])=>{ if(keys.has(k)&&(typeof v==='string'||typeof v==='boolean'||typeof v==='number')) style[k]=v; });
+    // A font list with characters no font name has is left out of the style, and said.
+    ['labelFont','axisFont'].forEach(k=>{ if(k in style && style[k]!=='' && !_fontListOk(style[k])){ badFonts.push(`${name}: ${String(style[k]).slice(0,40)}`); delete style[k]; } });
     const at=arr.findIndex(x=>x.name===name);
     if(at>=0){ arr[at]={name, style}; replaced++; } else { arr.push({name, style}); added++; }
   });
   if(!added&&!replaced){ toast('No house styles found in that file','warn'); return 0; }
   try{ localStorage.setItem('figurelab_housestyles',JSON.stringify(arr)); }catch(e){ toast('Could not save (storage full)','err'); return 0; }
   renderHouseStyles();
-  toast(`${added+replaced} house style${added+replaced>1?'s':''} imported${replaced?` (${replaced} replaced one of the same name)`:''}`,'ok');
+  toast(`${added+replaced} house style${added+replaced>1?'s':''} imported${replaced?` (${replaced} replaced one of the same name)`:''}`
+    +(badFonts.length?` — font left out (a font name holds only letters, digits, spaces, . - _): ${badFonts.join('; ')}`:''), badFonts.length?'warn':'ok');
   return added+replaced;
 }
 
@@ -9105,6 +9167,15 @@ const _LAB_FONT={sans:'Arial,Helvetica,sans-serif', serif:"'Times New Roman',ser
 const _LAB_KEYS=['font_family','font_family_custom','font_size','title_size','axis_color','axis_line_width','sample_palette'];
 // ggplot2 draws linewidth L at L × .pt (72.27/25.4) lwd, and R draws one lwd as 1/96 in = 0.75 pt.
 const _GG_LW_PT=72.27/25.4*0.75;
+// A CSS font-family list FigureLab will write into SVG, PowerPoint and the canvas: each
+// family a run of letters, digits, spaces, dots, hyphens and underscores, bare or in
+// matching quotes. A name with & < " ; or a backslash came in from a lab style or a
+// house-styles file and broke every SVG export; such a value is refused where it enters.
+const _FONT_NAME_RE=/^[\p{L}\p{N} ._-]+$/u;
+function _fontListOk(v){
+  if(typeof v!=='string'||!v.trim()||v.length>200) return false;
+  return v.split(',').every(f=>{ f=f.trim(); const m=/^(['"])(.*)\1$/.exec(f); return _FONT_NAME_RE.test(m?m[2]:f); });
+}
 function _ensureFontOption(v){
   if(!v) return;
   ['label-font','axis-font'].forEach(id=>{
@@ -9118,6 +9189,21 @@ function _sampleColours(){
   if(_sampleColours._s===s) return _sampleColours._m;
   let m={}; try{ const o=s?JSON.parse(s):{}; if(o&&typeof o==='object') m=o; }catch(e){}
   _sampleColours._s=s; _sampleColours._m=m; return m;
+}
+// The colours of one chart's series (or categories), in order. A name in the lab palette
+// takes its lab colour; every other name takes the chart's default colour for its place,
+// unless a lab sample in this chart already holds that colour (or an earlier series got
+// it), when it takes the next default colour that is free. Without this ΔfliC kept
+// palette orange beside a lab ΔmotA in orange and the chart, its key and the legend text
+// could not tell the two strains apart.
+function _seriesColours(names, colours){
+  const n=colours.length, lab=names.map(nm=>_sampleColour(nm));
+  const used=new Set(lab.filter(Boolean).map(c=>String(c).toLowerCase()));
+  return names.map((nm,i)=>{
+    if(lab[i]) return lab[i];
+    for(let k=0;k<n;k++){ const c=colours[(i+k)%n]; if(!used.has(String(c).toLowerCase())){ used.add(String(c).toLowerCase()); return c; } }
+    return colours[i%n];
+  });
 }
 // A chart series or category takes its lab colour only on an exact name match.
 function _sampleColour(name){ const m=_sampleColours(); return Object.prototype.hasOwnProperty.call(m,String(name))?m[String(name)]:null; }
@@ -9133,6 +9219,14 @@ function _labStylePlan(settings){
   let ff=str(settings.font_family);
   if(ff==='custom'){ ff=str(settings.font_family_custom); used.add('font_family_custom'); }
   if('font_family' in settings) used.add('font_family');
+  // A name FigureLab cannot write safely (see _fontListOk), or no name at all, is listed
+  // under "Read but not applied" instead of vanishing from the summary.
+  if('font_family' in settings && (!ff || !_FONT_NAME_RE.test(ff))){
+    skipped.push([str(settings.font_family)==='custom'?'font_family_custom':'font_family',
+      String(str(settings.font_family)==='custom'?settings.font_family_custom:settings.font_family).slice(0,60),
+      ff?'not applied: a font name may hold only letters, digits, spaces, dots, hyphens and underscores':'not applied: not a font name']);
+    ff='';
+  }
   if(ff){
     const v=_LAB_FONT[ff]||_LAB_FONT[ff.toLowerCase()]||`'${ff.replace(/['"\\]/g,'')}',sans-serif`;
     set['label-font']=v; set['axis-font']='';
@@ -9142,13 +9236,15 @@ function _labStylePlan(settings){
   const fs=num(settings.font_size);
   if('font_size' in settings){ used.add('font_size');
     if(fs){ const p=Math.max(6,Math.min(36,Math.round(px(fs)))); set['axis-fs']=String(p);
-      rows.push(['font_size', `${fs} pt`, `row/column headings ${p} px (${f(p*k)} pt at print size); the title follows at ${p+4} px (${f((p+4)*k)} pt)`]); } }
+      rows.push(['font_size', `${fs} pt`, `row/column headings ${p} px (${f(p*k)} pt at print size); the title follows at ${p+4} px (${f((p+4)*k)} pt)`]); }
+    else skipped.push(['font_size', String(JSON.stringify(settings.font_size)).slice(0,40), 'not applied: not a positive number of points']); }
   const ts=num(settings.title_size);
   if('title_size' in settings){ used.add('title_size');
     const head=set['axis-fs']?+set['axis-fs']:gi('axis-fs');
     if(ts&&!fs){ const p=Math.max(6,Math.min(36,Math.round(px(ts))-4)); set['axis-fs']=String(p);
       rows.push(['title_size', `${ts} pt`, `title ${p+4} px (${f((p+4)*k)} pt); headings ${p} px, since FigureLab sets the title 4 px above the headings`]); }
-    else if(ts) skipped.push(['title_size', `${ts} pt`, `not applied: FigureLab sets the title 4 px above the headings, so it prints at ${f((head+4)*k)} pt here`]); }
+    else if(ts) skipped.push(['title_size', `${ts} pt`, `not applied: FigureLab sets the title 4 px above the headings, so it prints at ${f((head+4)*k)} pt here`]);
+    else skipped.push(['title_size', String(JSON.stringify(settings.title_size)).slice(0,40), 'not applied: not a positive number of points']); }
   const ac=str(settings.axis_color);
   if('axis_color' in settings){ used.add('axis_color');
     if(/^#[0-9a-f]{6}$/i.test(ac)){ set['axis-color']=ac.toLowerCase(); check['axis-auto-color']=false;
@@ -9157,16 +9253,21 @@ function _labStylePlan(settings){
   const lw=num(settings.axis_line_width);
   if('axis_line_width' in settings){ used.add('axis_line_width');
     if(lw){ const pt=lw*_GG_LW_PT, p=f(px(pt)); set['chart-axis-w']=String(p);
-      rows.push(['axis_line_width', `${lw} (ggplot2 linewidth)`, `chart axis lines ${p} px (${f(pt)} pt: ggplot2 draws linewidth × 2.13 pt)`]); } }
+      rows.push(['axis_line_width', `${lw} (ggplot2 linewidth)`, `chart axis lines ${p} px (${f(pt)} pt: ggplot2 draws linewidth × 2.13 pt)`]); }
+    else skipped.push(['axis_line_width', String(JSON.stringify(settings.axis_line_width)).slice(0,40), 'not applied: not a positive number']); }
   let pal=null;
   if('sample_palette' in settings){ used.add('sample_palette');
     const sp=settings.sample_palette, out={}, bad=[];
     if(sp&&typeof sp==='object'&&!Array.isArray(sp)) Object.entries(sp).forEach(([n,c])=>{ c=Array.isArray(c)?c[0]:c;
       if(n&&typeof c==='string'&&/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c.trim())) out[n]=c.trim().slice(0,7).toLowerCase(); else bad.push(n); });
-    pal=out;
     const n=Object.keys(out).length;
-    rows.push(['sample_palette', `${n} sample${n===1?'':'s'}`, `sample colours: a chart series or category with exactly that name is drawn in it, and the key and its text follow — ${Object.entries(out).map(([a,b])=>`${a} ${b}`).join(', ')||'none'}`]);
-    if(bad.length) skipped.push(['sample_palette', bad.join(', '), 'not applied for these names: not #rrggbb colours']); }
+    // A palette with no usable entry leaves the loaded one alone: it used to replace it
+    // with nothing, so a typo in the file wiped the strain colours already in the figure.
+    if(n){ pal=out;
+      rows.push(['sample_palette', `${n} sample${n===1?'':'s'}`, `sample colours: a chart series or category with exactly that name is drawn in it, and the key and its text follow — ${Object.entries(out).map(([a,b])=>`${a} ${b}`).join(', ')}`]);
+      if(bad.length) skipped.push(['sample_palette', bad.join(', '), 'not applied for these names: not #rrggbb colours']); }
+    else skipped.push(['sample_palette', Array.isArray(sp)?'a list':(sp&&typeof sp==='object')?bad.join(', ')||'empty':String(JSON.stringify(sp)).slice(0,40),
+      `not applied: no sample name → #rrggbb colour in it${Object.keys(_sampleColours()).length?', so the sample colours already loaded stay':''}`]); }
   const ignored=Object.keys(settings).filter(x=>!used.has(x));
   return {set, check, pal, rows, skipped, ignored, ptPerPx:k};
 }
@@ -9175,11 +9276,14 @@ function loadLabStyle(obj, fileName){
   if(!obj||typeof obj!=='object'){ toast('That file is not a paper style (JSON object expected)','err'); return null; }
   const settings=(obj.settings&&typeof obj.settings==='object')?obj.settings:obj;
   const P=_labStylePlan(settings);
-  if(!P.rows.length){ toast(`Nothing in ${fileName||'that file'} is used by FigureLab — no font, sizes, axis colour, line width or sample colours`,'warn'); return P; }
+  if(!P.rows.length){ toast(`Nothing in ${fileName||'that file'} is used by FigureLab — no font, sizes, axis colour, line width or sample colours${P.skipped.length?`; read but unusable: ${P.skipped.map(r=>r[0]+' ('+r[2].replace(/^not applied: /,'')+')').join(', ')}`:''}`,'warn'); return P; }
   pushUndo();
   Object.entries(P.set).forEach(([id,v])=>{ if(id==='label-font') _ensureFontOption(v); sv(id,v); });
   Object.entries(P.check).forEach(([id,v])=>sc(id,v));
-  if(P.pal) sv('sample-colours', Object.keys(P.pal).length?JSON.stringify(P.pal):'');
+  if(P.pal) sv('sample-colours', JSON.stringify(P.pal));
+  // What this style put on the font and size controls: a journal chosen later may change
+  // them, and the status line then says so instead of claiming the lab font.
+  { const rec={}; ['label-font','axis-fs','axis-color'].forEach(id=>{ if(id in P.set) rec[id]=P.set[id]; }); sv('lab-style-set', Object.keys(rec).length?JSON.stringify(rec):''); }
   const app=typeof obj.app==='string'?obj.app:'', when=typeof obj.created_at==='string'?obj.created_at:'';
   sv('lab-style-src', [fileName||'paper_style.json', app, when?'saved '+when:''].filter(Boolean).join(' · '));
   logAction('labStyle',{file:fileName||'', used:P.rows.map(r=>r[0]), ignored:P.ignored.length});
@@ -9191,16 +9295,39 @@ function loadLabStyle(obj, fileName){
       <div style="color:var(--muted);margin-bottom:6px">${esc(fileName||'paper_style.json')}${app?` · ${esc(app)}`:''}${when?` · saved ${esc(when)}`:''}. One undo step; saved with the figure.</div>
       <div style="margin-bottom:4px"><b>Applied</b></div>
       <table id="lab-style-applied" style="border-collapse:collapse;font-size:11px">${P.rows.map(tr).join('')}</table>
-      ${P.skipped.length?`<div style="margin:8px 0 4px"><b>Read but not applied</b></div><table style="border-collapse:collapse;font-size:11px">${P.skipped.map(tr).join('')}</table>`:''}
+      ${P.skipped.length?`<div style="margin:8px 0 4px"><b>Read but not applied</b></div><table id="lab-style-skipped" style="border-collapse:collapse;font-size:11px">${P.skipped.map(tr).join('')}</table>`:''}
+      ${_labJournalNote()}
       <div style="color:var(--muted);margin-top:8px">Sizes: the file's sizes are points; FigureLab's are layout pixels, and at this figure's export width and DPI 1 px prints at ${(+P.ptPerPx).toFixed(3)} pt, so pt ÷ ${(+P.ptPerPx).toFixed(3)} = px. Change the export width or DPI later and the printed sizes move with it.</div>
       ${P.ignored.length?`<div style="margin-top:8px"><b>Not used by FigureLab</b> (${P.ignored.length}) — settings for CFU Plot Studio's own plots: <span id="lab-style-ignored">${P.ignored.map(esc).join(', ')}</span></div>`:''}
     </div>`);
   return P;
 }
+// A lab style and a target journal both set the font and the type size. Neither is
+// above the other: whichever was applied last is in force. Said in the lab-style
+// summary (with what the journal asks for that this style breaks) and, from the other
+// side, in the journal's toast and the lab-style status line (_labStyleOverrides).
+function _labJournalNote(){
+  const J=_targetJournal(); if(!J) return '';
+  const k=_physFacts().ptPerPx||0.75, bits=[];
+  const fn=_fontName(gv('label-font')||'system-ui,sans-serif');
+  if(J.fonts&&!J.fonts.includes(fn)) bits.push(`${J.label} asks for ${J.fonts.join(' or ')}; the letters are now in ${fn}`);
+  const hp=gi('axis-fs')*k;
+  if((J.ptMin!=null&&hp<J.ptMin-0.05)||(J.ptMax!=null&&hp>J.ptMax+0.05)) bits.push(`${J.label} asks for ${J.ptNote||`${J.ptMin}–${J.ptMax} pt`} type; the headings now print at ${hp.toFixed(1)} pt`);
+  return `<div id="lab-style-journal" style="margin-top:8px"><b>Target journal: ${esc(J.label)}.</b> A lab style and a target journal both set the font and sizes; the one applied last wins, so this lab style is in force now. ${bits.length?esc(bits.join('; '))+' — Check › compliance flags it, and choosing '+esc(J.label)+' again puts its rules back over the lab style.':'Nothing it sets conflicts with '+esc(J.label)+'’s rules.'}</div>`;
+}
+// The lab style's font and size values that the controls no longer hold, in words.
+function _labStyleOverrides(){
+  let rec={}; try{ rec=JSON.parse(gv('lab-style-set')||'{}')||{}; }catch(e){ rec={}; }
+  const out=[];
+  if(rec['label-font']!=null&&rec['label-font']!==gv('label-font')) out.push(`font ${_fontName(rec['label-font'])} → ${_fontName(gv('label-font')||'system-ui,sans-serif')}`);
+  if(rec['axis-fs']!=null&&String(rec['axis-fs'])!==String(gv('axis-fs'))) out.push(`headings ${rec['axis-fs']} → ${gv('axis-fs')} px`);
+  if(rec['axis-color']!=null&&rec['axis-color']!==gv('axis-color')) out.push(`heading colour ${rec['axis-color']} → ${gv('axis-color')}`);
+  return out;
+}
 function clearLabStyle(){
   if(!gv('sample-colours')&&!gv('chart-axis-w')&&!gv('lab-style-src')) return;
   pushUndo();
-  sv('sample-colours',''); sv('chart-axis-w',''); sv('lab-style-src','');
+  sv('sample-colours',''); sv('chart-axis-w',''); sv('lab-style-src',''); sv('lab-style-set','');
   _labStyleSync(); scheduleRender(0);
   toast('Lab sample colours and chart axis width cleared — fonts and sizes stay as they are','ok');
 }
@@ -9208,7 +9335,10 @@ function _labStyleSync(){
   const el=document.getElementById('lab-style-status'); if(!el) return;
   const src=gv('lab-style-src'), n=Object.keys(_sampleColours()).length, aw=gv('chart-axis-w');
   if(!src&&!n&&!aw){ el.innerHTML=''; return; }
-  el.innerHTML=`Lab style: ${esc(src||'loaded')}${n?` · ${n} sample colour${n>1?'s':''}`:''}${aw?` · chart axes ${esc(aw)} px`:''} <a href="#" onclick="event.preventDefault();clearLabStyle()" style="color:var(--accent)" title="Forget the sample colours and chart axis width (one undo step)">clear</a>`;
+  const ov=_labStyleOverrides(), J=_targetJournal();
+  el.innerHTML=`Lab style: ${esc(src||'loaded')}${n?` · ${n} sample colour${n>1?'s':''}`:''}${aw?` · chart axes ${esc(aw)} px`:''}`
+    +(ov.length?` · <span id="lab-style-overridden" style="color:var(--warn)">overridden${J?` by ${esc(J.label)}`:''}, applied after it: ${esc(ov.join(', '))}</span>`:'')
+    +` <a href="#" onclick="event.preventDefault();clearLabStyle()" style="color:var(--accent)" title="Forget the sample colours and chart axis width (one undo step)">clear</a>`;
 }
 (function bindStyleFiles(){
   const read=(inp,fn)=>{ if(!inp) return; inp.addEventListener('change',()=>{ const f=inp.files[0]; inp.value=''; if(!f) return;
@@ -10384,7 +10514,10 @@ function render(targetCanvas, exportScale, opts){
         // Panel-bound annotations (follow image when reordered); the spotlight veil went first
         // skipPanelLegends is set only by the SVG export, which re-emits the key as text.
         // It is not tied to skipLabels: the PDF passes a function there and re-emits no key.
-        drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight', skipLegend:!!(opts&&opts.skipPanelLegends)});
+        // skipPanelMarks (a Set of panel indices): the layered exports paint those marks as
+        // a picture of their own, above the letter and borders, as the canvas stacks them.
+        if(!(opts&&opts.skipPanelMarks&&opts.skipPanelMarks.has(imgIdx)))
+          drawPanelAnnotations(ctx, px, py, apw, aph, im, {skip:'spotlight', skipLegend:!!(opts&&opts.skipPanelLegends)});
         if(_lt&&_lt.draw) _ltDraw(im, imgIdx, {ox,oy,ow,oh,dx,dw}, _lt, axisClr, emitText);
       }
     }
@@ -13801,14 +13934,14 @@ function _keyEmitCanvas(ctx, sink, skip){
 // SVG backend: real <text>, a <linearGradient> for a ramp.
 function _keyEmitSVG(out){
   const e=_chartEmitSVG(out), f2=v=>(+v).toFixed(2);
-  const ex=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const ex=_xmlEsc;
   e.chip=(x,y,w,h,fill,op)=>out.push(`<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(h)}" rx="4" fill="${fill}" fill-opacity="${op??1}"/>`);
   e.gradient=(x,y,w,h,stops)=>{ const id='flkey'+(++_keyGradN);
     out.push(`<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="0">${stops.map((c,i)=>`<stop offset="${(i/(stops.length-1)).toFixed(3)}" stop-color="${c}"/>`).join('')}</linearGradient>`
       +`<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(h)}" fill="url(#${id})"/>`); };
   e.text=(str,x,y,font,fill)=>{ const R=_rtDrawRuns(str);
     if(R) out.push(_rtSVGItem({str:String(str), x, y, font, fill, align:'left', baseline:'middle', rot:0, runs:R}, ex));
-    else out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${fill}" dominant-baseline="central">${ex(str)}</text>`); };
+    else out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${ex(fill)}" dominant-baseline="central">${ex(str)}</text>`); };
   return e;
 }
 // The placed key keeps its own chip and text colour; the standalone file is drawn on the
@@ -13847,7 +13980,7 @@ function _keySVG(dpi){
   const buf=[], f2=v=>(+v).toFixed(2);
   _keyDraw(_keyEmitSVG(buf), 0, 0, L, _keyStandaloneStyle());
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${(L.w*S/eff).toFixed(4)}in" height="${(L.h*S/eff).toFixed(4)}in" viewBox="0 0 ${f2(L.w)} ${f2(L.h)}">\n`
-    +`  <rect x="0" y="0" width="${f2(L.w)}" height="${f2(L.h)}" fill="${gv('bg-color')||'#ffffff'}"/>\n  ${buf.join('\n  ')}\n</svg>`;
+    +`  <rect x="0" y="0" width="${f2(L.w)}" height="${f2(L.h)}" fill="${_xmlEsc(gv('bg-color')||'#ffffff')}"/>\n  ${buf.join('\n  ')}\n</svg>`;
 }
 // Write <name>-key.<ext> through the same writers the figure's own export uses.
 async function _exportKeyFile(fmt, dpi, name){
@@ -17482,7 +17615,7 @@ function _pptxTypeface(fam){
   const f=String(fam||'').split(',').map(s=>s.trim().replace(/^["']|["']$/g,'')).find(s=>s&&!/^(system-ui|-apple-system|BlinkMacSystemFont|sans-serif|serif|monospace|ui-sans-serif|ui-serif)$/i.test(s));
   return f||'Arial';
 }
-const _pptxX=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const _pptxX=_xmlEsc;   // every PowerPoint part is XML: the one sanitiser
 // A label's runs as PowerPoint runs: italic, bold, superscript (baseline 30000) and
 // subscript (-25000) carried over from *…*, **…**, ^{…} and _{…}.
 function _pptxRuns(str, font, fill, ptPerPx){
@@ -17504,8 +17637,12 @@ function _pptxSlideBuilder(E){
     S.media.push({name:`ppt/media/image${n}.png`, data:new Uint8Array(await blob.arrayBuffer())});
     S.rels.push(`<Relationship Id="${rid}" Type="${_PPTX_RELNS}/image" Target="../media/image${n}.png"/>`);
     const amt=o.opacity!=null&&o.opacity<1?`<a:alphaModFix amt="${Math.round(o.opacity*100000)}"/>`:'';
+    // o.crop: fractions of the picture cut off each side (a source crop), so the shape is
+    // exactly the box given while the picture keeps its whole pixels.
+    const cr=o.crop?['l','t','r','b'].map(k=>Math.round(Math.max(0,o.crop[k]||0)*100000)):null;
+    const src=cr&&cr.some(v=>v>0)?`<a:srcRect l="${cr[0]}" t="${cr[1]}" r="${cr[2]}" b="${cr[3]}"/>`:'';
     S.sp.push(`<p:pic><p:nvPicPr><p:cNvPr id="${S.id++}" name="${_pptxX(name)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`
-      +`<p:blipFill><a:blip r:embed="${rid}">${amt}</a:blip><a:stretch><a:fillRect/></a:stretch></p:blipFill>`
+      +`<p:blipFill><a:blip r:embed="${rid}">${amt}</a:blip>${src}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`
       +`<p:spPr>${xfrm(x,y,w,h,o.rot)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`);
   };
   // A shape: prst rect / roundRect / ellipse / line, with fill and outline (null = none).
@@ -17573,14 +17710,15 @@ async function exportPPTX(){
     const ff=layoutMode==='freeform';
     const dpi=getExportDPI();
     const L=ff?_layerFreeform(dpi, {textApart:true}):_layerGrid(dpi, {});
-    const {S:sc, Lw, Lh}=L;
+    const {S:sc, kx, ky, Lw, Lh}=L;
     // The slide is the figure's shape, at most 13.33 in wide (a 16:9 slide) and never
     // larger than the figure at 96 px per inch; text keeps its size relative to the figure.
     let E=Math.min(9525, 12192000/Lw);
     if(Lw*E<914400||Lh*E<914400) E=Math.max(E, 914400/Math.min(Lw,Lh));      // PowerPoint's 1-inch minimum
     const cx=Math.round(Lw*E), cy=Math.round(Lh*E), ptPerPx=E/12700;
     const B=_pptxSlideBuilder(E);
-    const pic=(c,r,name,o)=>B.picture(c, r.x0/sc, r.y0/sc, r.w/sc, r.h/sc, name, o);
+    // Device pixels to slide units with the render's own ratios, as in the layered SVG.
+    const pic=(c,r,name,o)=>B.picture(c, r.x0*kx, r.y0*ky, r.w*kx, r.h*ky, name, o);
     const furn=(f,name)=>{
       if(f.type==='sb') B.shape('rect', f.x, f.y, f.w, f.h, f.color, null, 0, name||'Scale bar');
       else if(f.type==='border') B.shape('rect', f.x, f.y, f.w, f.h, null, f.color, f.lw, name||'Border');
@@ -17615,18 +17753,40 @@ async function exportPPTX(){
     };
     if(!ff){
       const lbl=im=>_rtText(formatLabel(im.label)||_sourceName(im)||'panel');
-      if(L.base){ await pic(L.base, {x0:0,y0:0,w:L.base.width,h:L.base.height}, L.fallback.length?'Flattened panels: '+L.fallback.map(f=>lbl(f.im)).join(', '):'Flattened'); nPics++; }
+      const keysOf=async idx=>{ const cell=L.cells&&L.cells.get(idx); if(cell) for(const a of (images[idx]?.panelAnns||[]))
+        if(a.type==='legend') await _pptxKey(B, a, cell.x+a.xf*cell.w, cell.y+a.yf*cell.h, E, ptPerPx, sc); };
+      if(L.base){ await pic(L.base, {x0:0,y0:0,w:L.base.width,h:L.base.height}, L.fallback.length?'Flattened panels: '+L.fallback.map(f=>lbl(f.im)).join(', '):'Painted outside every panel’s cell'); nPics++;
+        const bt=k=>L.baseItems.filter(it=>it.kind===k).forEach(it=>{ textOf(it, (kindName[it.kind]||'Label')+': '+_rtText(it.str)); nText++; });
+        const bf=async t=>{ for(const f of L.baseFurn.filter(f=>f.type===t)){ if(f.type==='cbar') await cbarPic(f); else furn(f); } };
+        bt('panel'); await bf('sb'); bt('sb'); bt('tag'); await bf('cbar'); bt('cbar'); await bf('border');
+        if(L.baseMarks){ await pic(L.baseMarks.canvas, L.baseMarks.r, 'Flattened panels: marks'); nPics++; }
+        for(const f of L.fallback) await keysOf(f.idx);
+        bt('lanetable');
+        L.baseFrames.forEach(frame); }
+      // Each panel in the order the canvas paints it (see _exportLayeredSVG): picture,
+      // letter, scale bar, tag, intensity bar, borders, marks, key, lane table, inset
+      // outlines — PowerPoint stacks shapes in the order they are written.
       for(const p of L.panels){
-        if(p.canvas){ await pic(p.canvas, p.r, 'Panel '+lbl(p.im)); nPics++; }
+        const pn=lbl(p.im);
+        // The picture's edge pixels straddle the cell's edge; the shape is the cell itself,
+        // with the overhang cropped from the source, so no picture reaches into a gutter.
+        if(p.canvas){ const r=p.r, b=p.b, X=r.x0*kx, Y=r.y0*ky, Wd=r.w*kx, Ht=r.h*ky;
+          await B.picture(p.canvas, b.x, b.y, b.w, b.h, 'Panel '+pn, {crop:{l:(b.x-X)/Wd, t:(b.y-Y)/Ht, r:(X+Wd-b.x-b.w)/Wd, b:(Y+Ht-b.y-b.h)/Ht}}); nPics++; }
+        if(p.spill){ await pic(p.spill.canvas, p.spill.r, `Panel ${pn}: edge pixels outside its cell`); nPics++; }
+        const its=L.items.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&it.idx===p.idx);
+        const fu=L.furn.filter(f=>f.type!=='bracket'&&f.idx===p.idx);
+        const txt=k=>its.filter(it=>it.kind===k).forEach(it=>{ textOf(it, (kindName[it.kind]||'Label')+': '+_rtText(it.str)); nText++; });
+        const fur=async t=>{ for(const f of fu.filter(f=>f.type===t)){ if(f.type==='cbar') await cbarPic(f); else furn(f); } };
+        txt('panel'); await fur('sb'); txt('sb'); txt('tag'); await fur('cbar'); txt('cbar'); await fur('border');
+        if(p.marks){ await pic(p.marks.canvas, p.marks.r, `Panel ${pn}: marks`); nPics++; }
+        await keysOf(p.idx);
+        txt('lanetable');
+        L.frames.filter(f=>f.parentIdx===p.idx).forEach(frame);
       }
-      for(const f of L.furn.concat(L.baseFurn)){ if(f.type==='cbar') await cbarPic(f); else furn(f); }
-      for(const f of L.frames.concat(L.baseFrames)) frame(f);
       if(gc('inset-connectors')&&L.cells) L.frames.concat(L.baseFrames).forEach(f=>{ const cell=L.cells.get(f.insetIdx); if(!cell) return;
         for(const [p1,p2] of _insetConnectorLines(f,cell)) B.line(p1[0],p1[1],p2[0],p2[1],f.ink,1,'Inset connector'); });
-      // Keys pinned to panels
-      if(L.cells) for(const [idx,cell] of L.cells) for(const a of (images[idx]?.panelAnns||[]))
-        if(a.type==='legend') await _pptxKey(B, a, cell.x+a.xf*cell.w, cell.y+a.yf*cell.h, E, ptPerPx, sc);
-      L.items.concat(L.baseItems).forEach(it=>{ textOf(it, (kindName[it.kind]||'Label')+': '+_rtText(it.str)); nText++; });
+      for(const f of L.furn.filter(f=>f.type==='bracket')) furn(f);
+      L.items.filter(it=>!_LAYER_PANEL_KINDS.has(it.kind)).forEach(it=>{ textOf(it, (kindName[it.kind]||'Label')+': '+_rtText(it.str)); nText++; });
     } else {
       for(const it of L.items){
         if(it.kind==='slice'){ await pic(it.canvas, it.r, 'Objects'); nPics++; }
@@ -17647,7 +17807,7 @@ async function exportPPTX(){
             return {x:cx0+mx*Math.cos(rad)-my*Math.sin(rad)-w/2, y:cy0+mx*Math.sin(rad)+my*Math.cos(rad)-h/2}; };
           // An imported SVG kept vector in the SVG export is a picture here, like the rest.
           const pc=it.pic||_ffPicture(el, sc), c=pc.canvas, r=pc.r;
-          await B.picture(c, r.x0/sc, r.y0/sc, r.w/sc, r.h/sc, 'Panel '+_rtText(formatLabel(el.label)||'image'), {rot, opacity:el.opacity});
+          await B.picture(c, r.x0*kx, r.y0*ky, r.w*kx, r.h*ky, 'Panel '+_rtText(formatLabel(el.label)||'image'), {rot, opacity:el.opacity});
           nPics++;
           if(it.fu.sb){ const q=turn(it.fu.sb.x,it.fu.sb.y,it.fu.sb.w,it.fu.sb.h); B.shape('rect', q.x, q.y, it.fu.sb.w, it.fu.sb.h, it.fu.sb.color, null, 0, 'Scale bar', {rot}); }
           for(const t of [it.fu.sbText, it.fu.label].filter(Boolean)){
@@ -17667,7 +17827,16 @@ async function exportPPTX(){
     for(const a of annotations){
       if(!a||a.hidden) continue;
       const x1=a.xf*W, y1=a.yf*H, x2=(a.x2f??a.xf)*W, y2=(a.y2f??a.yf)*H, col=a.color||'#ffffff', lw=a.width||2;
-      if(a.type==='line'||a.type==='arrow') B.line(x1,y1,x2,y2,col,lw,a.type==='arrow'?'Arrow':'Line',a.type==='arrow');
+      // A blot's lane numbers, MW labels and splice marker stay loose shapes, named for
+      // the panel they belong to, so they can be found and moved with it.
+      const tp=(a.splice||a.blotPanel!=null)?_findPanelById(a.splice?a.splicePanel:a.blotPanel):null;
+      const tn=tp?`Panel ${_rtText(formatLabel(tp.label)||'?')}: `+(a.splice?'splice marker':a.mw?'MW label':'lane number'):'';
+      if(tn&&(a.type==='line'||a.type==='arrow')) B.line(x1,y1,x2,y2,col,lw,tn,a.type==='arrow');
+      else if(tn&&a.type==='text'){
+        const fs=a.fontSize||16, font=`${gc('label-italic')?'italic':'normal'} ${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+        _pptxTextItem(B, {str:a.text||'', x:x1, y:y1, fs, font, fill:col, align:'left', baseline:'top'}, ptPerPx, tn+' '+_rtText(a.text||'').slice(0,20)); nText++;
+      }
+      else if(a.type==='line'||a.type==='arrow') B.line(x1,y1,x2,y2,col,lw,a.type==='arrow'?'Arrow':'Line',a.type==='arrow');
       else if(a.type==='rect'||a.type==='ellipse') B.shape(a.type==='rect'?'rect':'ellipse', Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1),
         a.fill?`rgba(${_pptxColor(a.fillColor||col).hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${a.fillOpacity??0.3})`:null, col, lw, a.type==='rect'?'Box':'Ellipse');
       else if(a.type==='text'){
@@ -17676,7 +17845,7 @@ async function exportPPTX(){
       } else if(a.type==='legend') await _pptxKey(B, a, x1, y1, E, ptPerPx, sc);
       else if(a.type!=='inset'){ drawAnnotationSingle(octx, a, W, H); overUsed.push(a.type); }
     }
-    if(overUsed.length){ const ib=_inkBounds(over); if(ib){ await B.picture(_cropCanvas(over,ib), ib.x0/sc, ib.y0/sc, ib.w/sc, ib.h/sc, 'Marks as a picture: '+[...new Set(overUsed)].join(', ')); nPics++; } }
+    if(overUsed.length){ const ib=_inkBounds(over); if(ib){ await pic(_cropCanvas(over,ib), ib, 'Marks as a picture: '+[...new Set(overUsed)].join(', ')); nPics++; } }
 
     const slide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="${A}" xmlns:r="${R}" xmlns:p="${P}"><p:cSld><p:bg><p:bgPr>${_pptxFill(gv('bg-color')||'#ffffff')}<a:effectLst/></p:bgPr></p:bg><p:spTree>
@@ -17784,7 +17953,7 @@ function _svgVectorPlan(){
 // The figure's title and alt text as the SVG's own <title> and <desc>, which screen
 // readers announce for an SVG; nothing when neither is written.
 function _svgAltTags(){
-  const x=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const x=_xmlEsc;
   const t=_rtText((gv('fig-title')||'').trim()), d=(_figAltText||'').trim();
   return (t?`<title>${x(t)}</title>\n  `:'')+(d?`<desc>${x(d)}</desc>\n  `:'');
 }
@@ -17793,13 +17962,13 @@ function _svgAltTags(){
 function _svgTextItem(it, esc){
   let s='';
   if(it.bg){ const g=it.bg;
-    s+=`<rect x="${g.x.toFixed(2)}" y="${g.y.toFixed(2)}" width="${g.w.toFixed(2)}" height="${g.h.toFixed(2)}" rx="${g.r}" ry="${g.r}" fill="${g.fill}"/>`;
+    s+=`<rect x="${g.x.toFixed(2)}" y="${g.y.toFixed(2)}" width="${g.w.toFixed(2)}" height="${g.h.toFixed(2)}" rx="${g.r}" ry="${g.r}" fill="${_xmlEsc(g.fill)}"/>`;
   }
   if(it.runs) return s+_rtSVGItem(it, esc);   // one <text>, a <tspan> per run
   const anchor=it.align==='center'?'middle':'start';
   const base=it.baseline==='top'?'text-before-edge':it.baseline==='middle'?'central':'alphabetic';
   const rot=it.rot?` transform="rotate(-90 ${it.x.toFixed(2)} ${it.y.toFixed(2)})"`:'';
-  return s+`<text x="${it.x.toFixed(2)}" y="${it.y.toFixed(2)}" style="font:${it.font}" fill="${it.fill}" text-anchor="${anchor}" dominant-baseline="${base}"${rot}>${esc(it.str)}</text>`;
+  return s+`<text x="${it.x.toFixed(2)}" y="${it.y.toFixed(2)}" style="font:${_xmlEsc(it.font)}" fill="${_xmlEsc(it.fill)}" text-anchor="${anchor}" dominant-baseline="${base}"${rot}>${esc(it.str)}</text>`;
 }
 // An inset's outline on its parent, with its letter.
 function _svgInsetFrame(f, esc){
@@ -17814,7 +17983,7 @@ function _svgInsetFrame(f, esc){
   if(f.letter){
     const inside=f.h>=f.fs+8;
     const tx=f.x+4, ty=inside?f.y+4:f.y-3, base=inside?'text-before-edge':'alphabetic';
-    s+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${font}" fill="${f.ink}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(f.letter)}</text>`;
+    s+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${_xmlEsc(font)}" fill="${_xmlEsc(f.ink)}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(f.letter)}</text>`;
   }
   return s;
 }
@@ -17833,7 +18002,7 @@ function _svgInsetConnectors(f, cell){
 // not know are left out; the layered export paints those instead (_SVG_ANN_VECTOR).
 const _SVG_ANN_VECTOR=new Set(['line','arrow','rect','counter','legend','axes','spotlight','ruler','ellipse','text']);
 function _svgAnnMarkup(list, W, H){
-  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const esc=_xmlEsc;
   let annSVG='';
   const fam=gv('label-font')||'system-ui,sans-serif';
   const wt=gc('label-bold')?'bold':'normal';
@@ -17847,9 +18016,11 @@ function _svgAnnMarkup(list, W, H){
     annSVG+=buf.join('');
   };
   (list||[]).forEach(a=>{
+    // A mark hidden in the Layers list is not in the figure or the PNG; nor is it here.
+    if(!a||a.hidden) return;
     const x1=(a.xf*W).toFixed(2), y1=(a.yf*H).toFixed(2);
     const x2=((a.x2f??a.xf)*W).toFixed(2), y2=((a.y2f??a.yf)*H).toFixed(2);
-    const col=a.color||'#ffffff'; const lw=a.width||2;
+    const col=esc(a.color||'#ffffff'); const lw=+a.width||2;
     if(a.type==='line'){
       annSVG+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${lw}" stroke-linecap="round"/>`;
     } else if(a.type==='arrow'){
@@ -17868,8 +18039,8 @@ function _svgAnnMarkup(list, W, H){
       // Counters were missing from the SVG altogether: the export empties the
       // annotation list for the raster and re-emits only the types it knows.
       const r=8, n=a.n||1;
-      annSVG+=`<circle cx="${x1}" cy="${y1}" r="${r}" fill="${a.color||'#ff4444'}" stroke="#ffffff" stroke-width="1.5"/>`
-             +`<text x="${x1}" y="${y1}" style="font:bold ${Math.max(8,r*1.2)}px system-ui,sans-serif" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${n}</text>`;
+      annSVG+=`<circle cx="${x1}" cy="${y1}" r="${r}" fill="${esc(a.color||'#ff4444')}" stroke="#ffffff" stroke-width="1.5"/>`
+             +`<text x="${x1}" y="${y1}" style="font:bold ${Math.max(8,r*1.2)}px system-ui,sans-serif" fill="#ffffff" text-anchor="middle" dominant-baseline="central">${esc(n)}</text>`;
     } else if(a.type==='legend'){
       legendSVG(a, +x1, +y1);
     } else if(a.type==='axes'){
@@ -17882,7 +18053,7 @@ function _svgAnnMarkup(list, W, H){
              +`M${f2(cx-hl)} ${f2(cy+L-hl)}L${f2(cx)} ${f2(cy+L)}L${f2(cx+hl)} ${f2(cy+L-hl)}`
              +`M${f2(cx-L+hl)} ${f2(cy-hl)}L${f2(cx-L)} ${f2(cy)}L${f2(cx-L+hl)} ${f2(cy+hl)}`
              +`M${f2(cx+L-hl)} ${f2(cy-hl)}L${f2(cx+L)} ${f2(cy)}L${f2(cx+L-hl)} ${f2(cy+hl)}" stroke="${col}" stroke-width="${lw}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-      const put=(t,tx,ty,anchor,base)=>{ if(t) annSVG+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${font}" fill="${col}" text-anchor="${anchor}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(t)}</text>`; };
+      const put=(t,tx,ty,anchor,base)=>{ if(t) annSVG+=`<text x="${f2(tx)}" y="${f2(ty)}" style="font:${esc(font)}" fill="${col}" text-anchor="${anchor}" dominant-baseline="${base}" stroke="rgba(0,0,0,0.7)" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(t)}</text>`; };
       put(up,cx,cy-L-3,'middle','alphabetic'); put(down,cx,cy+L+3,'middle','text-before-edge');
       put(left,cx-L-4,cy,'end','central'); put(right,cx+L+4,cy,'start','central');
     } else if(a.type==='spotlight'){
@@ -17890,7 +18061,7 @@ function _svgAnnMarkup(list, W, H){
       // then the region's outline — editable in Illustrator or Inkscape like the rest.
       const rx=Math.min(+x1,+x2), ry=Math.min(+y1,+y2);
       const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
-      annSVG+=`<path d="M0 0H${W}V${H}H0Z M${rx.toFixed(2)} ${ry.toFixed(2)}h${rw.toFixed(2)}v${rh.toFixed(2)}h${(-rw).toFixed(2)}Z" fill="${a.fillColor||'#000000'}" fill-opacity="${a.fillOpacity??0.6}" fill-rule="evenodd"/>`;
+      annSVG+=`<path d="M0 0H${W}V${H}H0Z M${rx.toFixed(2)} ${ry.toFixed(2)}h${rw.toFixed(2)}v${rh.toFixed(2)}h${(-rw).toFixed(2)}Z" fill="${esc(a.fillColor||'#000000')}" fill-opacity="${+(a.fillOpacity??0.6)}" fill-rule="evenodd"/>`;
       annSVG+=`<rect x="${rx.toFixed(2)}" y="${ry.toFixed(2)}" width="${rw.toFixed(2)}" height="${rh.toFixed(2)}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
     } else if(a.type==='ruler'){
       // Rulers were missing from the SVG altogether: the raster pass empties the list and
@@ -17905,7 +18076,7 @@ function _svgAnnMarkup(list, W, H){
       const rm=_rulerMeasure(a,W,H);
       if(rm.status==='ok'){
         const L=_rulerLabelAt(X1,Y1,X2,Y2,lw,rm.label,false);
-        annSVG+=`<text x="${f2(L.x)}" y="${f2(L.y)}" style="font:${L.font}" fill="${col}" text-anchor="middle" dominant-baseline="central" stroke="rgba(0,0,0,0.6)" stroke-width="${f2(Math.max(2,L.fs*0.18))}" stroke-linejoin="round" paint-order="stroke">${esc(rm.label)}</text>`;
+        annSVG+=`<text x="${f2(L.x)}" y="${f2(L.y)}" style="font:${esc(L.font)}" fill="${col}" text-anchor="middle" dominant-baseline="central" stroke="rgba(0,0,0,0.6)" stroke-width="${f2(Math.max(2,L.fs*0.18))}" stroke-linejoin="round" paint-order="stroke">${esc(rm.label)}</text>`;
       }
     } else if(a.type==='ellipse'){
       const cx=((+x1+(+x2))/2).toFixed(2), cy=((+y1+(+y2))/2).toFixed(2);
@@ -17913,9 +18084,9 @@ function _svgAnnMarkup(list, W, H){
       annSVG+=`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry2}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
     } else if(a.type==='text'){
       const fs=a.fontSize||16;
-      const halo=a.halo?` stroke="${a.haloColor||'rgba(0,0,0,0.85)'}" stroke-width="${Math.max(2,fs*0.18).toFixed(2)}" stroke-linejoin="round" paint-order="stroke"`:'';
+      const halo=a.halo?` stroke="${esc(a.haloColor||'rgba(0,0,0,0.85)')}" stroke-width="${Math.max(2,fs*0.18).toFixed(2)}" stroke-linejoin="round" paint-order="stroke"`:'';
       const _r=_rtDrawRuns(a.text);
-      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${fam}" font-size="${fs}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${_r?_rtSVGSpans(_r,`${st} ${wt} ${fs}px ${fam}`,esc):a.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</text>`;
+      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${esc(fam)}" font-size="${+fs||16}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${_r?_rtSVGSpans(_r,`${st} ${wt} ${fs}px ${fam}`,esc):esc(a.text)}</text>`;
     }
   });
   return annSVG;
@@ -18021,6 +18192,19 @@ function _layerDevRect(x,y,w,h,S,W,H){
   const x1=Math.min(W,Math.ceil((x+w)*S-1e-6)), y1=Math.min(H,Math.ceil((y+h)*S-1e-6));
   return {x0, y0, w:Math.max(0,x1-x0), h:Math.max(0,y1-y0)};
 }
+// A grid panel's picture, in device pixels: every pixel its cell touches, in the render
+// (drawn at S) and in the file rasterised at the PNG's size (kx, ky logical px per device
+// px). An edge pixel the cell only partly covers is the PNG's blend of picture and
+// gutter, so it is kept, and the writers clip the picture to the cell itself (a clipPath
+// in the SVG, a source crop in PowerPoint): what shows never reaches into a gutter, and
+// the cut pixels cannot fall into a layer of their own.
+function _layerCellRect(b, S, kx, ky, W, H){
+  const e=1e-6, L=b.x, T=b.y, R=b.x+b.w, B=b.y+b.h;
+  const x0=Math.max(0,Math.floor(Math.min(L*S, L/kx)+e)), y0=Math.max(0,Math.floor(Math.min(T*S, T/ky)+e));
+  const x1=Math.min(W,Math.ceil(Math.max(R*S, R/kx)-e)), y1=Math.min(H,Math.ceil(Math.max(B*S, B/ky)-e));
+  const w=Math.max(0,x1-x0), h=Math.max(0,y1-y0);
+  return {x0, y0, w, h, ox0:x0, oy0:y0, ow:w, oh:h};
+}
 function _cropCanvas(src, r){
   const c=document.createElement('canvas'); c.width=Math.max(1,r.w); c.height=Math.max(1,r.h);
   if(r.w&&r.h) c.getContext('2d').drawImage(src, r.x0,r.y0,r.w,r.h, 0,0,r.w,r.h);
@@ -18080,23 +18264,57 @@ function _layerGrid(dpi, o){
   const fb=new Set(why.keys());
   const lay=cellsB.filter(b=>!fb.has(b.idx));
   const layIdx=new Set(lay.map(b=>b.idx));
+  // Panels whose marks are painted apart from their picture: every layered panel with
+  // marks, and a flattened one whose marks reach past its cell (not one an inset copies
+  // from, since the inset copies the marks with the pixels).
+  const hasMarks=b=>_layerRasterAnns(images[b.idx]).some(a=>a.type!=='spotlight');
+  const fbMarks=cellsB.filter(b=>fb.has(b.idx)&&hasMarks(b)&&why.get(b.idx)!=='a magnified inset copies its pixels');
+  const markIdx=new Set(lay.filter(hasMarks).map(b=>b.idx).concat(fbMarks.map(b=>b.idx)));
   const ro={skipLabels:true, skipCharts:true, skipInsetFrames:true, skipPanelLegends:true, skipFurniture:true,
-    noBg:true, vectorPanels:vecIdx, noShapeClip:!!o.noShapeClip};
+    noBg:true, vectorPanels:vecIdx, noShapeClip:!!o.noShapeClip, skipPanelMarks:markIdx};
   const savedAnns=annotations;
-  let off, items, frames, furn, cells, base=null, baseItems=[], baseFrames=[], baseFurn=[];
+  let off, items, frames, furn, cells, base=null, baseItems=[], baseFrames=[], baseFurn=[], baseMarks=null;
   try{
     annotations=[];
     off=document.createElement('canvas');
     render(off, S, {...ro, omitPanels:fb});
     items=figTextItems.slice(); frames=_lastFrames.slice(); furn=_lastFurn.slice(); cells=_lastCells;
     off.getContext('2d').setTransform(1,0,0,1,0,0);      // the cuts below are in device pixels
+    // Device px → user units. The writers give the SVG a viewBox of exactly the render's
+    // pixels ÷ S (_svgFrame), so 1/S is exact for pictures and vector alike.
+    const kx=1/S, ky=1/S;
     const panels=lay.map(b=>{
-      const r=_layerDevRect(b.x,b.y,b.w,b.h,S,off.width,off.height);
+      const r=_layerCellRect(b, S, kx, ky, off.width, off.height);
       const c=_cropCanvas(off, r);
-      off.getContext('2d').clearRect(r.x0,r.y0,r.w,r.h);   // cells partition the picture
-      return {idx:b.idx, im:images[b.idx], b, canvas:(r.w&&r.h&&_canvasHasInk(c))?c:null, r};
+      off.getContext('2d').clearRect(r.ox0,r.oy0,r.ow,r.oh);   // cells partition the picture
+      const p={idx:b.idx, im:images[b.idx], b, canvas:(r.w&&r.h&&_canvasHasInk(c))?c:null, r};
+      // The panel's marks (arrows, boxes, text…) on a picture of their own, drawn as the
+      // render draws them, so the writers can stack them over the letter and borders.
+      if(markIdx.has(b.idx) && r.w && r.h){
+        const m=document.createElement('canvas'); m.width=r.w; m.height=r.h;
+        const mx=m.getContext('2d'); mx.setTransform(S,0,0,S,-r.x0,-r.y0);
+        try{ _annExport=true; drawPanelAnnotations(mx, b.x, b.y, b.w, b.h, images[b.idx], {skip:'spotlight', skipLegend:true}); } finally { _annExport=false; }
+        if(_canvasHasInk(m)) p.marks={canvas:m, r};
+      }
+      return p;
     });
-    // Whatever the render painted outside every panel's cell (nothing, normally).
+    // A panel turned by a free angle can paint a pixel or two past its cell. Those go
+    // with the panel they came from, as a second picture in its layer, so moving the
+    // layer moves them; only what is near no panel is left for a layer of its own.
+    if(_canvasHasInk(off)){
+      const g=Math.max(2, Math.ceil(2*S)), cx=off.getContext('2d');
+      panels.forEach(p=>{
+        const r=p.r, x0=Math.max(0,r.ox0-g), y0=Math.max(0,r.oy0-g);
+        const q={x0, y0, w:Math.min(off.width,r.ox0+r.ow+g)-x0, h:Math.min(off.height,r.oy0+r.oh+g)-y0};
+        if(!(q.w>0&&q.h>0)) return;
+        const c=_cropCanvas(off, q), ib=_inkBounds(c);
+        if(!ib) return;
+        const s={x0:q.x0+ib.x0, y0:q.y0+ib.y0, w:ib.w, h:ib.h};
+        p.spill={canvas:_cropCanvas(off, s), r:s};
+        cx.clearRect(q.x0,q.y0,q.w,q.h);
+      });
+    }
+    // Whatever the render painted outside every panel's cell and near none (nothing, normally).
     const rest=_canvasHasInk(off)?off:null;
     if(fb.size){
       base=document.createElement('canvas');
@@ -18105,12 +18323,18 @@ function _layerGrid(dpi, o){
       baseItems=figTextItems.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&fb.has(it.idx));
       baseFrames=_lastFrames.filter(f=>fb.has(f.parentIdx));
       baseFurn=_lastFurn.filter(f=>f.type!=='bracket'&&fb.has(f.idx));
+      if(fbMarks.length){
+        const m=document.createElement('canvas'); m.width=base.width; m.height=base.height;
+        const mx=m.getContext('2d'); mx.setTransform(S,0,0,S,0,0);
+        try{ _annExport=true; fbMarks.forEach(b=>drawPanelAnnotations(mx, b.x, b.y, b.w, b.h, images[b.idx], {skip:'spotlight', skipLegend:true})); } finally { _annExport=false; }
+        const ib=_inkBounds(m); if(ib) baseMarks={canvas:_cropCanvas(m, ib), r:ib};
+      }
       if(rest){ const bx=base.getContext('2d'); bx.save(); bx.setTransform(1,0,0,1,0,0);
         bx.globalCompositeOperation='destination-over'; bx.drawImage(rest,0,0); bx.restore(); }
     } else base=rest;
     annotations=savedAnns;
     const annRaster=_layerAnnRaster(savedAnns, Lw, Lh, S);
-    return {S, Lw, Lh, panels, base, annRaster, items, baseItems, frames, baseFrames, furn, baseFurn, cells, vecIdx,
+    return {S, kx, ky, Lw, Lh, panels, base, baseMarks, rest:!!rest, annRaster, items, baseItems, frames, baseFrames, furn, baseFurn, cells, vecIdx,
       fallback:[...why].map(([idx,w])=>({idx, im:images[idx], why:w}))};
   } finally {
     annotations=savedAnns;
@@ -18185,16 +18409,31 @@ function _layerFreeform(dpi, o){
     flush();
   } finally { annotations=savedAnns; scheduleRender(0); }
   const annRaster=_layerAnnRaster(savedAnns, Lw, Lh, S);
-  return {S, Lw, Lh, items:out, annRaster, fallback:[...why].map(([el,w])=>({el, why:w}))};
+  const kx=1/S, ky=1/S;   // see _layerGrid
+  return {S, kx, ky, Lw, Lh, items:out, annRaster, fallback:[...why].map(([el,w])=>({el, why:w}))};
 }
 // Valid, unique XML ids for the layers, from the panel letters ("A" → panel-A).
 function _layerIds(){
-  const used=new Set();
+  // The fixed layer ids are taken from the start, and clip paths come from here too, so a
+  // panel lettered "A-clip" or "annotations" cannot share an id with anything.
+  const used=new Set(['background','flattened','outside-cells','inset-connectors','headings','group-bands','annotations']);
   return (prefix, name)=>{
     let b=prefix+'-'+(String(_rtText(name||'')).normalize('NFKD').replace(/[^\w.-]+/g,'_').replace(/^_+|_+$/g,'')||'x');
     let id=b, n=2; while(used.has(id)) id=b+'-'+(n++);
     used.add(id); return id;
   };
+}
+// The SVG's frame for a raster drawn at scale S. render() makes its canvas round(W·S) ×
+// round(H·S) px but draws at exactly S, so a viewBox of W × H, rasterised at the PNG's
+// size, mapped a user unit to round(W·S)/W px instead: every picture and every line and
+// letter landed up to half a pixel from where the PNG has it, worst at 150 dpi and at a
+// printed width (3–5 grey levels mean). The viewBox is the render's pixels ÷ S instead —
+// at most half a device pixel more or less than the figure — so one user unit is exactly
+// S px. The declared size keeps the figure's printed width; the height follows the box.
+function _svgFrame(W, H, S){
+  const vw=Math.max(1,Math.round(W*S))/S, vh=Math.max(1,Math.round(H*S))/S;
+  const tgt=getTargetWidthMm(), wIn=tgt>0?tgt/25.4:W/96;
+  return {vw, vh, wIn:wIn.toFixed(4), hIn:(wIn*vh/vw).toFixed(4), viewBox:`0 0 ${+vw.toFixed(4)} ${+vh.toFixed(4)}`};
 }
 function _svgMode(){ const el=document.getElementById('export-svg-mode'); return el&&el.value==='flat'?'flat':'layered'; }
 function exportSVG(name, dpi, canvas){
@@ -18207,22 +18446,22 @@ function exportSVG(name, dpi, canvas){
 // picture and its own letter, tag, scale bar, intensity bar, borders, inset outlines and
 // pinned key, so moving the layer moves all of it.
 function _exportLayeredSVG(name, dpi){
-  const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const esc=_xmlEsc;
   const f2=v=>(+v).toFixed(2), f4=v=>(+v).toFixed(4);
   const ff=layoutMode==='freeform';
   const L=ff?_layerFreeform(dpi):_layerGrid(dpi, {svgVector:true, noShapeClip:true});
-  const {S, Lw:W, Lh:H}=L;
-  const _tgtMm=getTargetWidthMm();
-  const wIn=(_tgtMm>0 ? _tgtMm/25.4 : W/96).toFixed(4);
-  const hIn=(_tgtMm>0 ? (_tgtMm/25.4)*(H/W) : H/96).toFixed(4);
+  const {S, kx, ky, Lw:W, Lh:H}=L;
+  const FR=_svgFrame(W, H, S), wIn=FR.wIn, hIn=FR.hIn;
   const png=c=>c.toDataURL('image/png');
-  const img=(c,r,extra)=>`<image x="${f4(r.x0/S)}" y="${f4(r.y0/S)}" width="${f4(r.w/S)}" height="${f4(r.h/S)}" preserveAspectRatio="none"${extra||''} xlink:href="${png(c)}"/>`;
+  // Device pixels to user units: exact in this file's frame (_svgFrame). A picture whose
+  // whole pixels overhang its cell is clipped to the cell by the caller.
+  const img=(c,r,extra)=>`<image x="${f4(r.x0*kx)}" y="${f4(r.y0*ky)}" width="${f4(r.w*kx)}" height="${f4(r.h*ky)}" preserveAspectRatio="none"${extra||''} xlink:href="${png(c)}"/>`;
   const layer=(id,label,body,extra)=>`<g id="${id}" inkscape:groupmode="layer" inkscape:label="${esc(label)}"${extra||''}>\n    ${body}\n  </g>`;
   const ids=_layerIds();
   const defs=[];
   const furnSVG=f=>{
-    if(f.type==='sb') return `<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" fill="${f.color}"/>`;
-    if(f.type==='border') return `<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" fill="none" stroke="${f.color}" stroke-width="${f.lw}"/>`;
+    if(f.type==='sb') return `<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" fill="${esc(f.color)}"/>`;
+    if(f.type==='border') return `<rect x="${f2(f.x)}" y="${f2(f.y)}" width="${f2(f.w)}" height="${f2(f.h)}" fill="none" stroke="${esc(f.color)}" stroke-width="${+f.lw}"/>`;
     if(f.type==='cbar') return `<g>${f.rows.map((c,i)=>`<rect x="${f2(f.x)}" y="${f2(f.y+i)}" width="${f2(f.w)}" height="1" fill="${c}"/>`).join('')}`
       +`<rect x="${f2(f.x-0.5)}" y="${f2(f.y-0.5)}" width="${f2(f.w+1)}" height="${f2(f.h+1)}" fill="none" stroke="rgba(0,0,0,.6)" stroke-width="1"/></g>`;
     if(f.type==='bracket'){
@@ -18233,20 +18472,33 @@ function _exportLayeredSVG(name, dpi){
     }
     return '';
   };
-  const layers=[], notes=[];
-  layers.push(layer('background','Background',`<rect x="0" y="0" width="${W}" height="${H}" fill="${esc(gv('bg-color')||'#ffffff')}"/>`));
+  const layers=[], notes=[], spilt=[];
+  // Marks the app ties to a blot (lane numbers, MW labels, the splice marker) travel in
+  // that blot's layer, as its lane table does; they used to stay in Annotations when the
+  // blot was moved, so a splice line could end up marking another panel.
+  const tiedTo=a=>a&&!a.hidden&&_SVG_ANN_VECTOR.has(a.type)?(a.splice?a.splicePanel:a.blotPanel):null;
+  const layIds=new Set(ff?[]:L.panels.map(p=>p.im&&p.im.id));
+  const tied=new Set(annotations.filter(a=>{ const t=tiedTo(a); return t!=null&&layIds.has(t); }));
+  layers.push(layer('background','Background',`<rect x="0" y="0" width="${f4(FR.vw)}" height="${f4(FR.vh)}" fill="${esc(gv('bg-color')||'#ffffff')}"/>`));
   let nPanels=0, fallbackTxt='';
   if(!ff){
     const lbl=im=>formatLabel(im.label)||_sourceName(im)||'panel';
     if(L.fallback.length){
       fallbackTxt=L.fallback.map(f=>`${_rtText(lbl(f.im))} (${f.why})`).join('; ');
+      // Stacked as a panel layer is (see below): letters under borders, marks over both.
+      const bt=k=>L.baseItems.filter(it=>it.kind===k).map(it=>_svgTextItem(it, esc)).join('');
+      const bf=t=>L.baseFurn.filter(f=>f.type===t).map(furnSVG).join('');
       const body=(L.base?img(L.base,{x0:0,y0:0,w:L.base.width,h:L.base.height}):'')
-        +L.baseFurn.map(furnSVG).join('')+L.baseFrames.map(f=>_svgInsetFrame(f, esc)).join('')
+        +bt('panel')+bf('sb')+bt('sb')+bt('tag')+bf('cbar')+bt('cbar')+bf('border')
+        +(L.baseMarks?img(L.baseMarks.canvas, L.baseMarks.r):'')
         +L.fallback.map(f=>_svgPanelLegends(L.cells, f.idx)).join('')
-        +L.baseItems.map(it=>_svgTextItem(it, esc)).join('');
+        +bt('lanetable')
+        +L.baseFrames.map(f=>_svgInsetFrame(f, esc)).join('');
       layers.push(layer('flattened', 'Flattened panels: '+L.fallback.map(f=>_rtText(lbl(f.im))).join(', '), body));
     } else if(L.base){
-      layers.push(layer('flattened','Flattened', img(L.base,{x0:0,y0:0,w:L.base.width,h:L.base.height})));
+      // Pixels the render painted near no panel's cell: named for what they are.
+      layers.push(layer('outside-cells','Painted outside every panel’s cell', img(L.base,{x0:0,y0:0,w:L.base.width,h:L.base.height})));
+      notes.push('Some pixels are painted outside every panel’s cell; they are in the layer “Painted outside every panel’s cell”.');
     }
     L.panels.forEach(p=>{
       const im=p.im, b=p.b, id=ids('panel', lbl(im));
@@ -18254,7 +18506,7 @@ function _exportLayeredSVG(name, dpi){
       if(p.canvas){
         // The cell, or the panel's shape when the picture was left whole for it.
         const shaped=(im.cropShape||'rect')!=='rect' && !_layerRasterAnns(im).length;
-        const cid=id+'-clip';
+        const cid=ids('clip', lbl(im));
         const cx=b.ix+b.iw/2, cy=b.iy+b.ih/2;
         const shape=!shaped ? `<rect x="${f2(b.x)}" y="${f2(b.y)}" width="${f2(b.w)}" height="${f2(b.h)}"/>`
           : im.cropShape==='circle' ? `<circle cx="${f2(cx)}" cy="${f2(cy)}" r="${f2(Math.min(b.iw,b.ih)/2)}"/>`
@@ -18263,18 +18515,30 @@ function _exportLayeredSVG(name, dpi){
         body+=img(p.canvas, p.r, ` clip-path="url(#${cid})"`);
       }
       if(L.vecIdx.has(p.idx)){
-        body+=`<!-- Panel ${esc(im.label||'?')}: ${esc(_sourceName(im)||'SVG')}, written as vector -->`;
+        body+=`<!-- Panel ${_xmlComment(_rtText(im.label||'?'))}: ${_xmlComment(_sourceName(im)||'SVG')}, written as vector -->`;
         const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(im.svgSource);
         const t=`translate(${f2(b.dx+b.dw/2)} ${f2(b.dy+b.dh/2)})${im.rotate?` rotate(${+im.rotate})`:''}${(im.flipH||im.flipV)?` scale(${im.flipH?-1:1} ${im.flipV?-1:1})`:''}`;
         body+=`<g transform="${t}"><image x="${f2(-b.dw/2)}" y="${f2(-b.dh/2)}" width="${f2(b.dw)}" height="${f2(b.dh)}" preserveAspectRatio="none" xlink:href="${uri}"/></g>`;
       }
-      body+=L.furn.filter(f=>f.type!=='bracket'&&f.idx===p.idx).map(furnSVG).join('');
-      body+=L.frames.filter(f=>f.parentIdx===p.idx).map(f=>_svgInsetFrame(f, esc)).join('');
+      // Pixels a turned panel paints just past its cell: in its own layer, so they move with it.
+      if(p.spill){ body+=img(p.spill.canvas, p.spill.r, ' data-note="edge pixels the panel paints outside its cell"'); spilt.push(_rtText(lbl(im))); }
+      // The rest in the order the canvas paints a panel (render(): letter, scale bar, tag,
+      // intensity bar, borders, marks, key, lane table; inset outlines and figure marks
+      // after every panel), so whatever overlaps stacks as it does in the PNG — the border
+      // over the letter's chip, an arrow over the letter.
+      const its=L.items.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&it.idx===p.idx);
+      const fu=L.furn.filter(f=>f.type!=='bracket'&&f.idx===p.idx);
+      const txt=k=>its.filter(it=>it.kind===k).map(it=>_svgTextItem(it, esc)).join('');
+      const fur=t=>fu.filter(f=>f.type===t).map(furnSVG).join('');
+      body+=txt('panel')+fur('sb')+txt('sb')+txt('tag')+fur('cbar')+txt('cbar')+fur('border');
+      if(p.marks) body+=img(p.marks.canvas, p.marks.r);
       body+=_svgPanelLegends(L.cells, p.idx);
-      body+=L.items.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&it.idx===p.idx).map(it=>_svgTextItem(it, esc)).join('');
+      body+=txt('lanetable');
+      body+=L.frames.filter(f=>f.parentIdx===p.idx).map(f=>_svgInsetFrame(f, esc)).join('');
+      body+=_svgAnnMarkup(annotations.filter(a=>tied.has(a)&&tiedTo(a)===im.id), W, H);
       // A panel imported as SVG but written as pixels says why, in the file itself.
       const vw=_svgPanelVectorWhy(im);
-      if(vw&&vw.length) body=`<!-- Panel ${esc(im.label||'?')} (${esc(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels: ${esc(vw.join('; '))}. -->`+body;
+      if(vw&&vw.length) body=`<!-- Panel ${_xmlComment(_rtText(im.label||'?'))} (${_xmlComment(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels: ${_xmlComment(vw.join('; '))}. -->`+body;
       layers.push(layer(id, 'Panel '+_rtText(lbl(im)), body, ` data-panel="${p.idx}"`));
       nPanels++;
     });
@@ -18308,13 +18572,15 @@ function _exportLayeredSVG(name, dpi){
   // Figure annotations: the ones with a vector form as shapes and text, the rest painted.
   const savedAnns=annotations;
   const annBody=(L.annRaster?img(L.annRaster.canvas,{x0:0,y0:0,w:L.annRaster.canvas.width,h:L.annRaster.canvas.height}):'')
-    +_svgAnnMarkup(savedAnns.filter(a=>a&&_SVG_ANN_VECTOR.has(a.type)), W, H);
+    +_svgAnnMarkup(savedAnns.filter(a=>a&&_SVG_ANN_VECTOR.has(a.type)&&!tied.has(a)), W, H);
   if(annBody) layers.push(layer('annotations','Annotations',annBody));
   if(L.annRaster) notes.push(`Annotations of type ${L.annRaster.types.join(', ')} are painted (one transparent picture in the Annotations layer).`);
+  if(!ff&&tied.size) notes.push('Lane numbers, MW labels and splice markers are in the layer of the blot they belong to.');
+  if(!ff&&spilt.length) notes.push(`Panel${spilt.length===1?'':'s'} ${spilt.join(', ')} paint${spilt.length===1?'s':''} a few pixels past ${spilt.length===1?'its':'their'} cell (a turned picture's edge); those are a second picture in ${spilt.length===1?'its':'their'} own layer.`);
   const desc=`Layered SVG from FigureLab v${APP_VERSION}: ${nPanels} panel${nPanels===1?'':'s'}, each its own layer with its picture (${Math.round(S*96)} px per inch of the logical figure) and its own letter, scale bar and labels as vector.`
     +(fallbackTxt?` Not layered, flattened into one picture instead: ${fallbackTxt}.`:' Every panel is its own layer.')
     +(notes.length?' '+notes.join(' '):'');
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n`
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${wIn}in" height="${hIn}in" viewBox="${FR.viewBox}">\n`
     // <desc> is what a screen reader announces: the alt text first when one is
     // written, then how the file is layered. The layering note alone used to be it.
     +`  <title>${esc(_rtText(gv('fig-title'))||name)}</title>\n  <desc>${esc(((_figAltText||'').trim()?(_figAltText||'').trim()+' — ':'')+desc)}</desc>\n`
@@ -18335,13 +18601,13 @@ function _exportFlatSVG(name, dpi, canvas){
   // do — choosing "183 mm — double column" used to change every other format and
   // silently do nothing here. The viewBox stays in logical units, so the vector layer
   // is untouched; only the size the SVG asks to be placed at changes.
-  const _tgtMm=getTargetWidthMm();
-  const wIn=(_tgtMm>0 ? _tgtMm/25.4 : Lw/96).toFixed(4);
-  const hIn=(_tgtMm>0 ? (_tgtMm/25.4)*(Lh/Lw) : Lh/96).toFixed(4);
   // High-resolution raster of the figure WITHOUT text labels or annotations.
   // The labels are re-emitted below as real vector <text> so they never pixelate.
   let S=_exportScaleFor(dpi);
   const MAXPX=60e6; if(Lw*Lh*S*S>MAXPX) S=Math.max(1, Math.sqrt(MAXPX/(Lw*Lh)));
+  // The frame the raster's pixels fill exactly (see _svgFrame), so the vector text sits
+  // where the PNG draws it.
+  const FR=_svgFrame(Lw, Lh, S), wIn=FR.wIn, hIn=FR.hIn;
   const off=document.createElement('canvas');
   // Imported-SVG grid panels that can stay vector, placed from this frame's geometry.
   render();
@@ -18364,7 +18630,7 @@ function _exportFlatSVG(name, dpi, canvas){
   const pngBg=off.toDataURL('image/png');
   scheduleRender(0); // restore on-screen state + figTextItems
 
-  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const esc=_xmlEsc;
 
   // Figure labels (title, row/col, panel letters, scale-bar text) → vector text
   const txtSVG=items.map(it=>_svgTextItem(it, esc)).join('');
@@ -18388,14 +18654,14 @@ function _exportFlatSVG(name, dpi, canvas){
   const gridVec=vecPanels.map(({im,b})=>{
     const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(im.svgSource);
     const t=`translate(${f2(b.dx+b.dw/2)} ${f2(b.dy+b.dh/2)})${im.rotate?` rotate(${+im.rotate})`:''}${(im.flipH||im.flipV)?` scale(${im.flipH?-1:1} ${im.flipV?-1:1})`:''}`;
-    return `<!-- Panel ${esc(im.label||'?')}: ${esc(_sourceName(im)||'SVG')}, written as vector -->`
+    return `<!-- Panel ${_xmlComment(_rtText(im.label||'?'))}: ${_xmlComment(_sourceName(im)||'SVG')}, written as vector -->`
       +`<rect x="${f2(b.ix)}" y="${f2(b.iy)}" width="${f2(b.iw)}" height="${f2(b.ih)}" fill="${esc(bgC)}"/>`
       +`<g transform="${t}"><image x="${f2(-b.dw/2)}" y="${f2(-b.dh/2)}" width="${f2(b.dw)}" height="${f2(b.dh)}" preserveAspectRatio="none" xlink:href="${uri}"/></g>`;
   }).join('\n  ');
   // A panel imported as SVG but written as pixels says why, in the file itself.
   const rasterNote=plan.raster.map(({im,why})=>
-    `<!-- Panel ${esc(im.label||'?')} (${esc(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels in the raster below: ${esc(why.join('; '))}. -->`).join('\n  ');
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  ${_svgAltTags()}${gridVec}\n  ${rasterNote}\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
+    `<!-- Panel ${_xmlComment(_rtText(im.label||'?'))} (${_xmlComment(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels in the raster below: ${_xmlComment(why.join('; '))}. -->`).join('\n  ');
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="${FR.viewBox}">\n  ${_svgAltTags()}${gridVec}\n  ${rasterNote}\n  <image x="0" y="0" width="${+FR.vw.toFixed(4)}" height="${+FR.vh.toFixed(4)}" preserveAspectRatio="none" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
   if(plan.raster.length){ toast(`SVG saved — ${plan.raster.length} SVG panel${plan.raster.length>1?'s are':' is'} written as pixels (${plan.raster.map(r=>_rtText(formatLabel(r.im.label))||'?').join(', ')}): ${plan.raster[0].why[0]}${plan.raster.length>1?' …':''}`,'warn'); return true; }
   return false;
@@ -18884,8 +19150,13 @@ function applyPreset(name){
   // journal, since someone who ticked it wants it) and file name. Same undo step.
   const did=J?_applyJournalRules(J):[];
   _syncWidthOptions(); _syncPhysReadout();
+  // Applied last, the journal wins over a loaded lab style; say what of it was replaced.
+  const labOv=gv('lab-style-src')?_labStyleOverrides():[];
+  const labNote=labOv.length?` — over the lab style (applied last wins): ${labOv.join(', ')}`:'';
+  _labStyleSync();
   scheduleRender();
-  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}`,'ok');
+  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}`, labNote?'warn':'ok');
+  else if(labNote) toast(`${nice} preset applied${labNote}`,'warn');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -19337,6 +19608,7 @@ const _FIG_CONTROLS=[
   ['fmCanvasW','fm-canvas-w'],['fmCanvasH','fm-canvas-h'],
   // a loaded lab style (paper_style.json): sample name → colour, chart axis width (px)
   ['labStyle.sampleColours','sample-colours'],['labStyle.chartAxisW','chart-axis-w'],['labStyle.source','lab-style-src'],
+  ['labStyle.applied','lab-style-set'],
 ];
 // The undo snapshot's two lists, by name: views of the one list above, so they cannot drift.
 const _layoutTextIds=_FIG_CONTROLS.filter(c=>c[2]!=='c').map(c=>c[1]);
@@ -19345,6 +19617,11 @@ const _layoutCheckIds=_FIG_CONTROLS.filter(c=>c[2]==='c').map(c=>c[1]);
 // same whenever it is asked for.
 function _ctlDefault(id){
   const el=document.getElementById(id); if(!el) return undefined;
+  // A hidden input has no separate default: setting its value rewrites the attribute, so
+  // defaultValue was the lab style just loaded and New figure kept its sample colours and
+  // "Lab style: …" status while the font went back to the default. The lab-style inputs
+  // are empty in the markup, so empty is their default.
+  if(el.type==='hidden') return '';
   if(el.type==='checkbox'||el.type==='radio') return el.defaultChecked;
   if(el.tagName==='SELECT'){ const o=[...el.options].find(o=>o.defaultSelected)||el.options[0]; return o?o.value:''; }
   return el.defaultValue;
@@ -20169,8 +20446,9 @@ LUTS = {  # the pseudocolour tables FigureLab uses, on an 8-bit grey value i
     "magenta": lambda i: (i, i * 0, i),
     "red":     lambda i: (i, i * 0, i * 0),
     "yellow":  lambda i: (i, i, i * 0),
-    "blue":    lambda i: (np.round(i * .28), np.round(i * .53), np.minimum(255, i)),
-    "orange":  lambda i: (i, np.round(i * .5), i * 0),
+    # floor(x + 0.5) is JavaScript's Math.round; np.round rounds halves to even (2.5 -> 2)
+    "blue":    lambda i: (np.floor(i * .28 + .5), np.floor(i * .53 + .5), np.minimum(255, i)),
+    "orange":  lambda i: (i, np.floor(i * .5 + .5), i * 0),
 }
 
 
@@ -22914,8 +23192,8 @@ function _chartStats(el){
     rows.forEach(r=>{ const t=num(r[tc]); if(!isFinite(t)) { warn.dropped++; return; }
       const g=(gc!=null)?String(r[gc]??''):'All';
       (groups[g]=groups[g]||[]).push({time:t, event:num(r[ec])?1:0}); });
-    const gnames=Object.keys(groups);
-    const curves=gnames.map((g,i)=>{ const km=_kmEstimate(groups[g]); return {name:g, color:_sampleColour(g)||colours[i%colours.length], ...km}; });
+    const gnames=Object.keys(groups), gcol=_seriesColours(gnames, colours);
+    const curves=gnames.map((g,i)=>{ const km=_kmEstimate(groups[g]); return {name:g, color:gcol[i], ...km}; });
     let tmax=0; curves.forEach(c=>c.steps.forEach(s=>{ tmax=Math.max(tmax,s.t); }));
     return {kind, curves, tmax:tmax||1, singleGroup:(gc==null), warn};
   }
@@ -22923,6 +23201,7 @@ function _chartStats(el){
   if(kind==='scatter'||kind==='line'){
     // Each y column is a series of (x,y) points against a numeric x.
     const xLog=!!ch.axes.x.log, yLog=!!ch.axes.y.log;
+    const scol=_seriesColours(yCols.map((yc,si)=>cols[yc]||('Series '+(si+1))), colours);
     const series=yCols.map((yc,si)=>{
       const pts=[]; rows.forEach(r=>{ const x=num(r[xc]), y=num(r[yc]);
         if(!isFinite(x)||!isFinite(y)) return;
@@ -22930,7 +23209,7 @@ function _chartStats(el){
         if((xLog&&x<=0)||(yLog&&y<=0)){ warn.dropped++; return; }
         pts.push({x,y}); });
       const nm=cols[yc]||('Series '+(si+1));
-      return {name:nm, color:_sampleColour(nm)||colours[si%colours.length], points:pts};
+      return {name:nm, color:scol[si], points:pts};
     });
     let xs=[],ys=[]; series.forEach(s=>s.points.forEach(p=>{ xs.push(p.x); ys.push(p.y); }));
     return {kind, series, categories:null,
@@ -22941,12 +23220,12 @@ function _chartStats(el){
   if(kind==='box'||kind==='violin'||kind==='beeswarm'){
     // Each category = the pooled numeric values across the y columns; box/violin/
     // beeswarm all summarise or display this same distribution.
-    const cats=[...new Set(rows.map(catOf))];
+    const cats=[...new Set(rows.map(catOf))], ccol=_seriesColours(cats, colours);
     const boxes=cats.map((c,ci)=>{
       const vals=[]; rows.filter(r=>catOf(r)===c).forEach(r=>yCols.forEach(yc=>{ const v=num(r[yc]); if(isFinite(v)) vals.push(v); }));
       vals.sort((a,b)=>a-b);
       const q=p=>{ if(!vals.length) return 0; const idx=(vals.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx); return vals[lo]+(vals[hi]-vals[lo])*(idx-lo); };
-      return {name:c, color:_sampleColour(c)||colours[ci%colours.length], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
+      return {name:c, color:ccol[ci], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
     });
     const all=boxes.flatMap(b=>b.raw);
     let yd=[_arrMin(all,0),_arrMax(all,1)];
@@ -22960,6 +23239,11 @@ function _chartStats(el){
   // A one-series bar chart of samples (strains on the x axis) takes the lab colours by
   // category, since there is no series to name; the key then lists the categories.
   const byCat=yCols.length===1 && cats.some(c=>_sampleColour(c));
+  const snames=yCols.map((yc,si)=>cols[yc]||('Series '+(si+1))), scol=_seriesColours(snames, colours);
+  // By category, a category off the palette takes the series colour, as before, or the
+  // first default colour no lab category on this chart holds.
+  const labCat=new Set(cats.map(c=>_sampleColour(c)).filter(Boolean).map(c=>String(c).toLowerCase()));
+  const offCat=labCat.has(String(scol[0]).toLowerCase())?(colours.find(c=>!labCat.has(String(c).toLowerCase()))||scol[0]):scol[0];
   const groups=cats.map((c,ci)=>{
     const crows=rows.filter(r=>catOf(r)===c);
     const bars=yCols.map((yc,si)=>{
@@ -22971,7 +23255,7 @@ function _chartStats(el){
       if(ch.error==='column' && errCol!=null){ const e=num((crows[0]||[])[errCol]); if(isFinite(e)) err=e; }
       // Keep the raw replicate values so "show points" can overlay them (exposes n + spread).
       const nm=cols[yc]||('Series '+(si+1));
-      return {series:nm, color:(byCat?_sampleColour(c):_sampleColour(nm))||colours[si%colours.length], value, err, n:vals.length, vals};
+      return {series:nm, color:byCat?(_sampleColour(c)||offCat):scol[si], value, err, n:vals.length, vals};
     });
     return {cat:c, bars};
   });
@@ -22986,7 +23270,7 @@ function _chartStats(el){
   // Only synthesise a [0,1] axis when there is NO finite data — an all-negative
   // dataset has a legitimate ymax of 0 and must not gain a spurious band above zero.
   if(!anyData){ ymin=0; ymax=1; } else if(ymin===0&&ymax===0){ ymax=1; }
-  const seriesNames=yCols.map((yc,si)=>{ const nm=cols[yc]||('Series '+(si+1)); return {name:nm, color:_sampleColour(nm)||colours[si%colours.length]}; });
+  const seriesNames=snames.map((nm,si)=>({name:nm, color:scol[si]}));
   const catColours=byCat?groups.map(g=>({name:g.cat, color:g.bars[0].color})):null;
   return {kind, groups, categories:cats, seriesNames, catColours, series:null, yDomain:[ymin,ymax], warn};
 }
@@ -23014,7 +23298,7 @@ function _chartEmitCanvas(ctx){
 // SVG backend — appends element strings to `out`. Same vocabulary as the canvas
 // backend, so _chartDraw produces true vector output with one geometry pass.
 function _chartEmitSVG(out){
-  const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const esc=_xmlEsc;
   const n=v=>(+v).toFixed(2);
   // Parse "12px system-ui" back into size + family for SVG font attributes.
   const fparts=f=>{ const m=/(\d+(?:\.\d+)?)px\s+(.*)$/.exec(f||''); const wt=/^(bold)\s/.test(f)?'bold':'normal'; return {size:m?m[1]:'12', fam:(m?m[2]:'sans-serif').replace(/^bold\s+/,''), wt}; };
@@ -23023,7 +23307,7 @@ function _chartEmitSVG(out){
     line(x1,y1,x2,y2,stroke,sw,dash){ out.push(`<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${stroke||'#000'}" stroke-width="${sw||1}"${dash?` stroke-dasharray="${dash.join(' ')}"`:''}/>`); },
     poly(pts,stroke,fill,sw){ const p=pts.map(q=>`${n(q[0])},${n(q[1])}`).join(' '); out.push(`<polyline points="${p}" fill="${fill||'none'}"${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''} stroke-linejoin="round"/>`); },
     circle(cx,cy,r,fill,stroke,sw){ out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}"${fill?` fill="${fill}"`:' fill="none"'}${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''}/>`); },
-    text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; const R=_rtDrawRuns(str); if(R){ out.push(`<text x="${n(x)}" y="${n(y+_rtBaseOff(_rtMc(),font,baseline||'alphabetic'))}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}"${tr}>${_rtSVGSpans(R,font,esc)}</text>`); return; } out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${fp.fam}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${fill}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
+    text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; const R=_rtDrawRuns(str); if(R){ out.push(`<text x="${n(x)}" y="${n(y+_rtBaseOff(_rtMc(),font,baseline||'alphabetic'))}" font-family="${esc(fp.fam)}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${esc(fill)}" text-anchor="${anchor}"${tr}>${_rtSVGSpans(R,font,esc)}</text>`); return; } out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${esc(fp.fam)}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${esc(fill)}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
   };
 }
 
@@ -27848,53 +28132,110 @@ async function _batchEncode(c, fmt, dpi){
   const du=await embedPNGMetadata(_safeDataURL(c,'image/png'), meta, dpi);
   return new Uint8Array(await (await fetch(du)).arrayBuffer());
 }
+// What a grid panel draws outside its own cell and belongs to it: its lane table (row
+// names sit in the gutter or margin, left of the cell), a letter or tag dragged out of
+// the cell, and the blot marks tied to it (lane numbers, MW labels, the splice marker).
+// Logical px; null when everything is inside the cell.
+function _batchFurnitureBox(b){
+  const im=images[b.idx]; let L=b.x, T=b.y, R=b.x+b.w, B=b.y+b.h, what=new Set();
+  const add=(x0,y0,x1,y1,w)=>{ if(x0<L-0.01||y0<T-0.01||x1>R+0.01||y1>B+0.01) what.add(w); L=Math.min(L,x0); T=Math.min(T,y0); R=Math.max(R,x1); B=Math.max(B,y1); };
+  figTextItems.forEach(it=>{ if(it.idx!==b.idx||!_LAYER_PANEL_KINDS.has(it.kind)||!it.bbox) return;
+    const q=it.bbox; add(q.x,q.y,q.x+q.w,q.y+q.h, it.kind==='lanetable'?'its lane table (row names and +/– cells)':it.kind==='panel'?'its letter':it.kind==='tag'?'its tag':'its scale-bar text'); });
+  const Lw=canvasLogicalW||1, Lh=canvasLogicalH||1, mc=_rtMc();
+  if(im) annotations.forEach(a=>{
+    if(!a||a.hidden||(a.splice?a.splicePanel:a.blotPanel)!==im.id) return;
+    const x1=a.xf*Lw, y1=a.yf*Lh, m=(a.width||2)/2+1;
+    if(a.type==='text'){ const fs=a.fontSize||16; mc.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+      add(x1-1, y1-1, x1+_rtMeasure(mc,String(a.text||''))+2, y1+fs*1.3, a.mw?'its MW labels':'its lane numbers'); }
+    else { const x2=(a.x2f??a.xf)*Lw, y2=(a.y2f??a.yf)*Lh;
+      add(Math.min(x1,x2)-m, Math.min(y1,y2)-m, Math.max(x1,x2)+m, Math.max(y1,y2)+m, a.splice?'its splice marker':'its marks'); }
+  });
+  if(!what.size) return null;
+  // a little room past the outermost glyph, on the sides that grew
+  if(L<b.x) L-=2; if(T<b.y) T-=2; if(R>b.x+b.w) R+=2; if(B>b.y+b.h) B+=2;
+  return {x:L, y:T, w:R-L, h:B-T, what:[...what]};
+}
 async function batchExportPanels(){
   const ff=layoutMode==='freeform';
   if(!images.length&&!(freeformElements||[]).length){ toast('Add images first','warn'); return; }
   render();
-  // Grid: the panels' cells. Freeform: each image object's box, turned with it.
+  // Grid: the panels' cells, widened to take in what the panel draws outside its cell
+  // (a blot's lane table and lane numbers) — cut at the cell, the +/– matrix shipped
+  // without its row names. Freeform: each image object's box, turned with it.
   const targets=[];
   if(ff) freeformElements.forEach((el,i)=>{
     if(!el||!(el.type==='image'||el.type==='aiicon')) return;
     const rad=(+el.rotation||0)*Math.PI/180, ca=Math.abs(Math.cos(rad)), sa=Math.abs(Math.sin(rad));
     const w=el.w*ca+el.h*sa, h=el.w*sa+el.h*ca;
-    targets.push({idx:i, label:el.label, x:el.x+el.w/2-w/2, y:el.y+el.h/2-h/2, w, h});
+    targets.push({idx:i, el, label:el.label, x:el.x+el.w/2-w/2, y:el.y+el.h/2-h/2, w, h, turned:!!((+el.rotation||0)%360)});
   });
-  else panelBounds.forEach(b=>{ if(images[b.idx]) targets.push({idx:b.idx, label:images[b.idx].label, x:b.x, y:b.y, w:b.w, h:b.h}); });
+  else panelBounds.forEach(b=>{ if(!images[b.idx]) return;
+    const fx=_batchFurnitureBox(b);
+    targets.push({idx:b.idx, label:images[b.idx].label, cell:b, x:fx?fx.x:b.x, y:fx?fx.y:b.y, w:fx?fx.w:b.w, h:fx?fx.h:b.h, extra:fx?fx.what:null}); });
   if(!targets.length){ toast(ff?'No image objects to export':'Render first, then batch export','warn'); return; }
   const dpi=getExportDPI(), fmt=(gv('export-batch-fmt')||'png'), ext={png:'png',tiff:'tiff',jpeg:'jpg'}[fmt]||'png';
+  // One clean, short stem for every name in the ZIP, so the names PANELS.txt lists are
+  // the entries' own: the raw export name ("Fig 1: growth/curve") was listed while the
+  // ZIP writer renamed the files, and a long name lost each file's panel number.
   const baseName=gv('export-name').trim()||'figure';
+  const stem=Array.from(String(baseName).replace(/[\x00-\x1f\x7f\\/:*?"<>|]+/g,'_').replace(/^[\s.]+|[\s.]+$/g,'')||'figure').slice(0,60).join('').replace(/[\s.]+$/,'')||'figure';
   toast(`Rendering ${targets.length} panel${targets.length!==1?'s':''} at ${dpi} DPI…`,'ok');
   try{
     const big=renderExportCanvas(dpi), sc=big._exportScale, eff=big._effDpi||dpi;
-    const files=[], lines=[];
+    const files=[];
     const pad=String(targets.length).length;
+    // Rounded once from the target's own start and size, so equal cells give equal files
+    // (floor of the start and ceil of the end gave 1902 × 1903 next to 1903 × 1902).
+    const devRect=t=>{ const x0=Math.max(0,Math.round(t.x*sc)), y0=Math.max(0,Math.round(t.y*sc));
+      return {x0, y0, w:Math.max(0,Math.min(Math.round(t.w*sc), big.width-x0)), h:Math.max(0,Math.min(Math.round(t.h*sc), big.height-y0))}; };
+    const overlaps=(t)=>panelBounds.some(b=>b.idx!==t.idx&&images[b.idx]&&b.x<t.x+t.w&&b.x+b.w>t.x&&b.y<t.y+t.h&&b.y+b.h>t.y);
     let pos=0;
     for(const t of targets){
-      const r=_layerDevRect(t.x,t.y,t.w,t.h,sc,big.width,big.height);
+      const r=devRect(t);
       if(!(r.w&&r.h)) continue;
-      const c=_cropCanvas(big, r);
+      let src=big;
+      if(ff){
+        // The object alone, on the figure background: a cut of the whole render carried
+        // whatever overlapped it, and a turned object's corners showed its neighbours.
+        src=document.createElement('canvas');
+        render(src, sc, {ffOnly:new Set([t.el]), noBg:true});
+        const k=src.getContext('2d'); k.save(); k.setTransform(1,0,0,1,0,0); k.globalCompositeOperation='destination-over';
+        k.fillStyle=gv('bg-color')||'#ffffff'; k.fillRect(0,0,src.width,src.height); k.restore();
+      } else if(t.extra&&overlaps(t)){
+        // Widened into another panel's cell: this panel alone, so the file holds no
+        // neighbour's pixels.
+        src=document.createElement('canvas');
+        render(src, sc, {omitPanels:new Set(panelBounds.map(b=>b.idx).filter(i=>i!==t.idx))});
+      }
+      const c=_cropCanvas(src, r);
       pos++;
-      const lbl=String(_rtText(formatLabel(t.label)||'')).replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
-      const name=`${baseName}_panel_${String(pos).padStart(pad,'0')}${lbl?'_'+lbl:''}.${ext}`;
-      files.push({name, data:await _batchEncode(c, fmt, eff)});
+      const lbl=String(_rtText(formatLabel(t.label)||'')).replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'').slice(0,30);
+      const name=`${stem}_panel_${String(pos).padStart(pad,'0')}${lbl?'_'+lbl:''}.${ext}`;
       const pp=_panelEffPpi(t.idx, dpi);
-      lines.push(`${name}: ${r.w} × ${r.h} px, prints ${(r.w/eff*25.4).toFixed(1)} × ${(r.h/eff*25.4).toFixed(1)} mm at ${eff} dpi`
-        +(pp?`; the picture's own pixels give ${Math.round(pp.ppi)} ppi at that size${pp.enlarge>1.05?` (enlarged ${pp.enlarge.toFixed(1)}× — the file has more pixels than the source)`:''}`:''));
+      const info=`${r.w} × ${r.h} px, prints ${(r.w/eff*25.4).toFixed(1)} × ${(r.h/eff*25.4).toFixed(1)} mm at ${eff} dpi`
+        +(pp?`; the picture's own pixels give ${Math.round(pp.ppi)} ppi at that size${pp.enlarge>1.05?` (enlarged ${pp.enlarge.toFixed(1)}× — the file has more pixels than the source)`:''}`:'')
+        +(t.extra?`; includes ${t.extra.join(', ')}, drawn outside the panel's cell, so the file is larger than the cell (${Math.round(t.cell.w*sc)} × ${Math.round(t.cell.h*sc)} px)`:'')
+        +(ff?`; only this object, on the figure background${t.turned?' (turned: the file is its turned bounding box)':''}`:'');
+      files.push({name, data:await _batchEncode(c, fmt, eff), info});
     }
     // The legend key goes with the panels: in the same format, and as an SVG.
     const withKey=_figureKey().length>0;
     if(withKey) for(const kf of [fmt, 'svg']){
-      const cap=await _captureDownload(()=>_exportKeyFile(kf, dpi, baseName));
-      if(cap) files.push({name:cap.name, data:cap.data});
+      const cap=await _captureDownload(()=>_exportKeyFile(kf, dpi, stem));
+      if(cap) files.push({name:cap.name, data:cap.data, info:`the figure's legend key (${kf.toUpperCase()})`});
     }
+    // Final entry names first, then PANELS.txt from those same names: one list.
+    _zipEntryNames(files, ['PANELS.txt']);
+    const lines=files.map(f=>`${f.name}: ${f.info}`);
+    files.forEach(f=>delete f.info);
     files.push({name:'PANELS.txt', data:`${baseName} — ${pos} panel${pos===1?'':'s'} rendered at ${eff} dpi by FigureLab v${APP_VERSION}\n`
-      +`Each file is its panel's cell, cut from a full render at the export DPI (not an enlarged preview).\n\n`+lines.join('\n')+'\n'});
-    _zipEntryNames(files);
+      +(ff?`Each panel file is its image object rendered alone, at the export DPI (not an enlarged preview).\n\n`
+          :`Each panel file is its panel's cell, plus anything the panel draws outside it (said on its line), cut from a full render at the export DPI (not an enlarged preview).\n\n`)
+      +lines.join('\n')+'\nPANELS.txt: this list\n'});
     const zip=await _zipMake(files);
-    dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), `${baseName}-panels.zip`);
+    dl(URL.createObjectURL(new Blob([zip],{type:'application/zip'})), `${stem}-panels.zip`);
     logAction('batchExport',{panels:pos, dpi:eff, format:fmt, key:withKey});
-    toast(`Saved ${baseName}-panels.zip — ${pos} panel${pos!==1?'s':''} at ${eff} dpi${withKey?' and the legend key':''}`,'ok');
+    toast(`Saved ${stem}-panels.zip — ${pos} panel${pos!==1?'s':''} at ${eff} dpi${withKey?' and the legend key':''}`,'ok');
   }catch(e){ console.error(e); toast('Batch export failed: '+(e&&e.message||e),'err'); }
 }
 
@@ -28351,11 +28692,19 @@ function embedPNGMetadata(pngDataUrl, metaObj, dpi){
       for(let b of buf) c=t[(c^b)&0xff]^(c>>>8);
       return (c^0xffffffff)>>>0;
     }
+    // tEXt is Latin-1 by the PNG spec: UTF-8 bytes in it read back as "Â5 Âµm" in
+    // Pillow and exiftool. Text that Latin-1 holds goes in tEXt as Latin-1 bytes; any
+    // other text goes in iTXt, which is UTF-8 by spec (keyword, no compression, no
+    // language tag, no translated keyword).
     function makeTextChunk(key,val){
-      const kv=key+'\0'+val;
-      const data=new TextEncoder().encode(kv);
+      const k=String(key).replace(/[^\x20-\x7e]/g,'_').slice(0,79)||'Comment';
+      const latin=[...String(val)].every(ch=>ch.codePointAt(0)<256);
+      let data;
+      if(latin){ const s=k+'\0'+String(val); data=new Uint8Array(s.length); for(let i=0;i<s.length;i++) data[i]=s.charCodeAt(i); }
+      else { const kb=new TextEncoder().encode(k), vb=new TextEncoder().encode(String(val));
+        data=new Uint8Array(kb.length+5+vb.length); data.set(kb,0); /* \0, flag 0, method 0, '' \0, '' \0 */ data.set(vb,kb.length+5); }
       const len=new Uint8Array(4); new DataView(len.buffer).setUint32(0,data.length);
-      const type=new TextEncoder().encode('tEXt');
+      const type=new TextEncoder().encode(latin?'tEXt':'iTXt');
       const crcBuf=new Uint8Array(type.length+data.length);
       crcBuf.set(type); crcBuf.set(data,type.length);
       const crcVal=crc32(crcBuf);
