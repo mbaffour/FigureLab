@@ -694,6 +694,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="">Same as panel labels</option>
         <option value="system-ui,sans-serif">System Sans</option>
         <option value="'Helvetica Neue',Arial,sans-serif">Helvetica</option>
+        <option value="Arial,Helvetica,sans-serif">Arial</option>
         <option value="Georgia,serif">Georgia</option>
         <option value="'Times New Roman',serif">Times New Roman</option>
         <option value="'Courier New',monospace">Courier</option>
@@ -954,7 +955,20 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div><!-- /look-grid-only -->
     <div id="look-ff-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4;margin-bottom:6px">
       Panel letters and the global scale-bar defaults apply to <b>grid</b> figures. In freeform, set these per object in the properties bar above the canvas.</div>
-    <div class="sec-lbl">Journal house style</div>
+    <div class="sec-lbl">Journal house style <span class="help-chip" tabindex="0" role="button" aria-label="About target journals" data-tip="Pick the journal the figure is for. FigureLab applies what that journal's own figure guide says where it is mechanical (printed width, font, type size, DPI, TIFF compression, file name) as one undo step, and ✓ Check journal compliance then checks the figure against that guide. Science, Cell and PNAS could only be read from secondary sources that disagree: they keep their size presets and their checks are marked unverified.">?</span></div>
+    <div class="field"><label for="target-journal" title="The journal this figure is for. Saved with the figure; the compliance check and the Save dialog check against it.">Target journal</label>
+      <select id="target-journal" onchange="_onTargetJournal(this.value)" style="width:150px" title="Choosing a journal applies its figure guide (width, font, type size, DPI, TIFF compression, file name) as one undo step. None checks against general guidance only.">
+        <option value="none" selected>None / general</option>
+        <option value="nature">Nature</option>
+        <option value="plos">PLOS ONE</option>
+        <option value="elife">eLife</option>
+        <option value="embo">EMBO J</option>
+        <option value="asm">ASM (mBio, J Bacteriol, J Virol…)</option>
+        <option value="jbc">JBC (data presentation)</option>
+        <option value="science">Science (unverified)</option>
+        <option value="cell">Cell (unverified)</option>
+        <option value="pnas">PNAS (unverified)</option>
+      </select></div>
     <div style="display:flex;gap:4px;flex-wrap:wrap">
       <button class="btn" onclick="applyPreset('nature')" style="flex:1;justify-content:center">Nature</button>
       <button class="btn" onclick="applyPreset('science')" style="flex:1;justify-content:center">Science</button>
@@ -966,6 +980,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="applyPreset('plos')" style="flex:1;justify-content:center">PLOS</button>
       <button class="btn" onclick="applyPreset('embo')" style="flex:1;justify-content:center">EMBO</button>
       <button class="btn" onclick="applyPreset('pnas')" style="flex:1;justify-content:center">PNAS</button>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="btn" onclick="applyPreset('asm')" style="flex:2;justify-content:center" title="ASM journals (mBio, J Bacteriol, J Virol, AEM…): at most 177.8 mm wide, Arial/Helvetica/Times New Roman, 300–600 dpi, TIFF at revision">ASM</button>
+      <button class="btn" onclick="applyPreset('jbc')" style="flex:2;justify-content:center" title="JBC data-presentation rules (MW markers above and below bands, splices, scale bars). Its widths and fonts could not be verified, so nothing about the size is changed">JBC</button>
     </div>
 
     <div class="divider"></div>
@@ -983,6 +1001,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <select id="label-font" onchange="scheduleRender()" style="width:140px">
         <option value="system-ui,sans-serif">System Sans</option>
         <option value="'Helvetica Neue',Arial,sans-serif">Helvetica</option>
+        <option value="Arial,Helvetica,sans-serif">Arial</option>
         <option value="Georgia,serif">Georgia</option>
         <option value="'Times New Roman',serif">Times New Roman</option>
         <option value="'Courier New',monospace">Courier</option>
@@ -1085,16 +1104,25 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Printed width <span class="help-chip" tabindex="0" role="button" aria-label="About printed width" data-tip="The physical width the figure will occupy in the journal. Journals specify this in millimetres, not pixels. Setting it makes the export land at exactly that size at the chosen DPI, and lets FigureLab tell you the true point size of your text.">?</span></label>
       <select id="export-width-mm" onchange="_syncPhysReadout()">
         <option value="0" selected>Free (whatever the canvas gives)</option>
-        <option value="89">89 mm — single column (Nature, eLife)</option>
-        <option value="183">183 mm — double column (Nature, eLife)</option>
-        <option value="55">55 mm — 1 column (Science)</option>
-        <option value="120">120 mm — 2 column (Science)</option>
-        <option value="183.5">183.5 mm — 3 column (Science)</option>
-        <option value="85">85 mm — single column (Cell)</option>
-        <option value="174">174 mm — double column (Cell)</option>
-        <option value="83">83 mm — single column (PLOS)</option>
-        <option value="173">173 mm — double column (PLOS)</option>
-        <option value="180">180 mm — full width (PNAS/EMBO)</option>
+        <option value="89">89 mm — single column (Nature)</option>
+        <option value="183">183 mm — double column (Nature; eLife preset)</option>
+        <option value="66.8">66.8 mm — narrowest (PLOS ONE)</option>
+        <option value="173">173 mm — PLOS ONE preset</option>
+        <option value="190.5">190.5 mm — widest (PLOS ONE)</option>
+        <option value="100">100 mm — narrowest (eLife)</option>
+        <option value="200">200 mm — full page (eLife)</option>
+        <option value="87">87 mm — narrowest (EMBO J); single column (PNAS, unverified)</option>
+        <option value="180">180 mm — widest (EMBO J); PNAS preset</option>
+        <option value="177.8">177.8 mm (7 in) — widest (ASM)</option>
+        <option value="55">55 mm — 1 column (Science, unverified)</option>
+        <option value="85">85 mm — single column (Cell, Science; unverified)</option>
+        <option value="114">114 mm — 1.5 column (Cell, PNAS; unverified)</option>
+        <option value="174">174 mm — double column (Cell, unverified)</option>
+        <option value="175">175 mm — double column (Science, unverified)</option>
+        <option value="178">178 mm — double column (PNAS, unverified)</option>
+        <option value="183.5">183.5 mm — Science preset</option>
+        <option value="120">120 mm</option>
+        <option value="83">83 mm</option>
       </select></div>
     <div id="phys-readout" style="font-size:10px;color:var(--muted);line-height:1.5;margin:-2px 0 6px"></div>
 
@@ -2202,7 +2230,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h3 class="help-h">6 · Preparing a journal submission figure</h3>
 <p class="help-p">The final-mile checklist: match a journal's spec, export a lossless high-resolution file, and generate the caption plus reproducibility records your methods section needs.</p>
 <ol class="help-ol">
-  <li>Apply a <span class="help-ui">Journal preset</span> (Nature, Science, Cell, or Poster) for one-click sizing that fits the target.</li>
+  <li>Pick a <span class="help-ui">Target journal</span> (or press its preset button): Nature, PLOS ONE, eLife, EMBO J, ASM (mBio, J Bacteriol, J Virol…) or JBC. FigureLab applies what that journal's own figure guide says where it is mechanical — printed width, font, type size at print size, DPI, TIFF compression, file name — as one undo step, and <span class="help-ui">✓ Check journal compliance</span> then checks the figure against that guide, each row naming its source, with a fix button where the fix is mechanical. Science, Cell and PNAS keep their size presets, but their pages could not be read and the secondary sources disagree, so their rows say <i>unverified</i> and never fail. <span class="help-ui">Poster</span> is a size preset only.</li>
   <li>Confirm a white background and that scale bars are calibrated — any <span class="help-ui">⚠</span> uncalibrated warning badge on a scale bar must be resolved first.</li>
   <li>Set a clear <span class="help-ui">file name</span> and choose <span class="help-ui">DPI</span> of 300–600. Check the info bar below the canvas for the physical size in mm at that DPI.</li>
   <li>Export as <span class="help-ui">TIFF</span> (uncompressed, or LZW-compressed and lossless when you tick <span class="help-ui">Compress TIFF</span>; pixel count scaled to the true DPI) or <span class="help-ui">PDF (lossless)</span> — journals prefer these over JPEG.</li>
@@ -2450,7 +2478,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <label for="be-gm">Gamma</label><input type="range" id="be-gm" style="width:100%" min="0.25" max="2.5" step="0.05" value="1" oninput="setBatchEdit('gamma',+this.value)"><code id="be-gm-v">1.00</code>
           <label for="be-lut">LUT</label>
           <select id="be-lut" onchange="setBatchEdit('lut',this.value)" style="font-size:10px;padding:1px 3px;grid-column:span 2">
-            <option value="none">none</option><option value="green">green</option><option value="magenta">magenta</option>
+            <option value="none">none</option><option value="green">green</option><option value="magenta">magenta</option><option value="red">red</option>
             <option value="cyan">cyan</option><option value="yellow">yellow</option><option value="blue">blue</option><option value="fire">fire</option>
           </select>
           <div style="grid-column:1 / -1;display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">
@@ -4286,6 +4314,24 @@ const CMD_REGISTRY=[
   {label:'Preset: PLOS',             keys:'preset journal plos',           run:()=>applyPreset('plos')},
   {label:'Preset: EMBO',             keys:'preset journal embo',           run:()=>applyPreset('embo')},
   {label:'Preset: PNAS',             keys:'preset journal pnas',           run:()=>applyPreset('pnas')},
+  {label:'Journal: Nature',          keys:'journal nature springer requirements figure guidelines column width 89 183 mm', run:()=>applyPreset('nature')},
+  {label:'Journal: PLOS ONE',        keys:'journal plos one plosone requirements figure guidelines tiff lzw fig1 column width', run:()=>applyPreset('plos')},
+  {label:'Journal: eLife',           keys:'journal elife requirements figure guidelines source data column width', run:()=>applyPreset('elife')},
+  {label:'Journal: EMBO J',          keys:'journal embo emboj embo journal requirements figure guidelines column width', run:()=>applyPreset('embo')},
+  {label:'Journal: ASM (mBio, J Bacteriol, J Virol…)', keys:'journal asm mbio jvi jb jbact j bacteriol j virol aem microbiology spectrum requirements figure guidelines column width', run:()=>applyPreset('asm')},
+  {label:'Journal: JBC (data presentation)', keys:'journal jbc asbmb biological chemistry western blot requirements figure guidelines', run:()=>applyPreset('jbc')},
+  {label:'Journal: Science (unverified)', keys:'journal science aaas requirements figure guidelines column width', run:()=>applyPreset('science')},
+  {label:'Journal: Cell (unverified)',    keys:'journal cell press requirements figure guidelines column width', run:()=>applyPreset('cell')},
+  {label:'Journal: PNAS (unverified)',    keys:'journal pnas requirements figure guidelines column width', run:()=>applyPreset('pnas')},
+  {label:'Check against Nature',     keys:'check compliance journal requirements figure guidelines nature', run:()=>checkAgainstJournal('nature')},
+  {label:'Check against PLOS ONE',   keys:'check compliance journal requirements figure guidelines plos one', run:()=>checkAgainstJournal('plos')},
+  {label:'Check against eLife',      keys:'check compliance journal requirements figure guidelines elife', run:()=>checkAgainstJournal('elife')},
+  {label:'Check against EMBO J',     keys:'check compliance journal requirements figure guidelines embo', run:()=>checkAgainstJournal('embo')},
+  {label:'Check against ASM (mBio, J Bacteriol, J Virol…)', keys:'check compliance journal requirements figure guidelines asm mbio jvi jb', run:()=>checkAgainstJournal('asm')},
+  {label:'Check against JBC',        keys:'check compliance journal requirements figure guidelines jbc blot', run:()=>checkAgainstJournal('jbc')},
+  {label:'Check against Science (unverified)', keys:'check compliance journal requirements science', run:()=>checkAgainstJournal('science')},
+  {label:'Check against Cell (unverified)',    keys:'check compliance journal requirements cell', run:()=>checkAgainstJournal('cell')},
+  {label:'Check against PNAS (unverified)',    keys:'check compliance journal requirements pnas', run:()=>checkAgainstJournal('pnas')},
   {label:'Toggle theme',             keys:'theme dark light lab',          run:()=>toggleTheme()},
   {label:'Help & FAQ',               keys:'help faq docs guide how',       run:()=>openHelp()},
   {label:"What's new in this version",        keys:'whats new changelog updates version', run:()=>openWhatsNew()},
@@ -4813,7 +4859,9 @@ function _refreshPreflight(){
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
   if(fmt==='webp') warns.push({t:'warn',m:`WebP has no standard print-resolution field, so the file cannot carry ${dpi} DPI: it opens at your software's default size. Use PNG or TIFF for print.`});
   if(capped) warns.push({t:'warn',m:'Export exceeds ~60 MP and will be scaled down to fit browser memory.'});
-  if(fmt==='tiff'&&!lzw&&_lastPresetName==='plos') warns.push({t:'warn',m:'PLOS asks for LZW-compressed TIFF — tick Compress (LZW) above.'});
+  // What the target journal accepts, and what this export breaks (the LZW line among them).
+  const _jp=_journalPreflight(fmt, dpi, est, nm);
+  if(_jp) warns.push(..._jp.warns);
   const bg=gv('bg-color'); const white=(bg.toLowerCase()==='#ffffff'||bg==='#fff');
   if(!white) warns.push({t:'info',m:`Background is ${bg}; most journals require white.`});
   // Counted over the panels the export draws, as the compliance check does: a hidden
@@ -4841,6 +4889,7 @@ function _refreshPreflight(){
     row('Pixel dimensions', `${fw} × ${fh} px`+(capped?' (capped)':''))+
     row('Physical size', `${mmW.toFixed(1)} × ${mmH.toFixed(1)} mm  ·  ${(mmW/25.4).toFixed(2)} × ${(mmH/25.4).toFixed(2)} in`)+
     row('Est. file size', estTxt)+
+    (_jp?row('Target journal', _jp.req):'')+
     `<div style="margin-top:10px;font-size:11.5px;color:var(--muted)">${vectorNote}</div>`+
     warnHtml;
   _preflightFmt=fmt;
@@ -5185,6 +5234,7 @@ function renderImgList(){
           <button class="f-lut ${im.lut==='green'?'lut-active':''}" data-lut="green" style="background:linear-gradient(to right,#000,#0f0);color:#0f0">GFP</button>
           <button class="f-lut ${im.lut==='cyan'?'lut-active':''}" data-lut="cyan"   style="background:linear-gradient(to right,#000,#0ff);color:#0ff">Cyan</button>
           <button class="f-lut ${im.lut==='magenta'?'lut-active':''}" data-lut="magenta" style="background:linear-gradient(to right,#000,#f0f);color:#f0f">Mag</button>
+          <button class="f-lut ${im.lut==='red'?'lut-active':''}" data-lut="red" style="background:linear-gradient(to right,#000,#f00);color:#f55" title="Red reads as green's twin to about 1 in 12 men; magenta is the safer partner for green">Red</button>
           <button class="f-lut ${im.lut==='yellow'?'lut-active':''}" data-lut="yellow"   style="background:linear-gradient(to right,#000,#ff0);color:#ff0">Yel</button>
           <button class="f-lut ${im.lut==='blue'?'lut-active':''}"   data-lut="blue"     style="background:linear-gradient(to right,#000,#48f);color:#48f">DAPI</button>
         </div>
@@ -5379,7 +5429,7 @@ function renderImgList(){
       chCount.textContent=im2.channels.length?`(${im2.channels.length})`:'';
       chList.innerHTML='';
       im2.channels.forEach((ch,ci)=>{
-        const lutNames={none:'Off',fire:'Fire',green:'GFP',cyan:'Cyan',magenta:'Mag',yellow:'Yel',blue:'DAPI'};
+        const lutNames={none:'Off',fire:'Fire',green:'GFP',cyan:'Cyan',magenta:'Mag',red:'Red',yellow:'Yel',blue:'DAPI'};
         const row=document.createElement('div');
         row.style.cssText='display:flex;align-items:center;gap:4px;font-size:10px';
         row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${esc(ch.name||'ch'+(ci+1))}</span>
@@ -6024,7 +6074,7 @@ function syncGroupToPanel(srcIdx){
 // Split-channel row: explode a multi-channel composite into separate
 // single-channel panels plus a merge — the classic split-channel figure.
 function _lutChannelName(lut){
-  return {blue:'DAPI',green:'GFP',magenta:'RFP',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
+  return {blue:'DAPI',green:'GFP',magenta:'RFP',red:'Red',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
 }
 // Auto-contrast ink: read what is already painted under a rectangle (logical units;
 // the context is scaled by S) and answer white or black. Used for the panel letter, a
@@ -6049,7 +6099,7 @@ function _autoInk(ctx,S,x,y,w,h,fallback){
 // ── Panel tags and intensity bars ─────────────────────────────
 // Swatches for naming a channel in its own colour: the LUT at full intensity, lifted
 // so it reads on a dark micrograph (pure blue text on black is unreadable).
-const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',cyan:'#4fe3e3',yellow:'#f0e050',fire:'#ff9a3c'};
+const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',red:'#ff5a5a',cyan:'#4fe3e3',yellow:'#f0e050',fire:'#ff9a3c'};
 function _channelName(name, lut){
   const d=_detectChannel(name||'');
   return (d&&d.label&&d.label!=='Merge')?d.label:_lutChannelName(lut);
@@ -6311,7 +6361,7 @@ function addLadderLabels(){
   pushUndo();
   const xf = (t.ix>=34 ? (t.ix-30)/t.W : t.fx(0.02));   // in the margin beside the blot, if there is one
   mw.forEach((v,i)=>{ const v01=mw.length>1?i/(mw.length-1):0.5;
-    annotations.push({type:'text', xf, yf:t.fy(0.1+0.8*v01), text:v, fontSize:13, color:'#000000', halo:false, blotPanel:images[t.idx]&&images[t.idx].id}); });
+    annotations.push({type:'text', xf, yf:t.fy(0.1+0.8*v01), text:v, fontSize:13, color:'#000000', halo:false, blotPanel:images[t.idx]&&images[t.idx].id, mw:true}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0); toast(`Added ${mw.length} MW labels beside panel ${t.name} — drag to align with the ladder`,'ok');
 }
@@ -8981,6 +9031,7 @@ const LUTS={
   green:   i=>[0,i,0],
   cyan:    i=>[0,i,i],
   magenta: i=>[i,0,i],
+  red:     i=>[i,0,0],      // offered because people use it; the compliance check flags it beside green
   yellow:  i=>[i,i,0],
   blue:    i=>[Math.round(i*.28),Math.round(i*.53),Math.min(255,i)],
 };
@@ -11382,23 +11433,31 @@ function checkCompliance(){
   ];
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
-  const html=checks.map(c=>{
-    const icon=c.ok?'✓':c.warn?'⚠':'✗';
-    const color=c.ok?'var(--a2)':c.warn?'var(--warn)':'var(--danger)';
-    const fixBtn=(!c.ok&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${c.fix.a}')">${c.fix.t}</button>`:'';
-    return `<div class="compliance-row">
-      <span class="c-icon" style="color:${color}">${icon}</span>
-      <span class="c-label">${c.label}</span>
-      <span class="c-note" style="flex:1">${c.note}</span>${fixBtn}
-    </div>`;
-  }).join('');
-  const pass=checks.filter(c=>c.ok).length, total=checks.length;
-  showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
-    `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
-      _lastPresetName ? ` — you have the <b>${esc(_lastPresetName)}</b> preset applied, so check its own spec too` : ''
-    }</div>${html}`);
+  // With a target journal the rows come from its own figure guide; without one the
+  // report is the general one it has always been, plus a colour-accessibility row only
+  // when there is something to flag.
+  const J=_targetJournal();
+  const rowsOut=J ? _journalRows(J,{pf:_pf, dpi, ppis:_ppis, shown:_shownPanels, labelPt, checks})
+                  : checks.concat(_accessRows(null));
+  const html=rowsOut.map(_complianceRowHtml).join('');
+  const unv=rowsOut.filter(c=>c.unverified).length;
+  const pass=rowsOut.filter(c=>c.ok&&!c.unverified).length, total=rowsOut.length-unv;
+  if(!J){
+    showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
+      `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
+        _lastPresetName ? ` — you have the <b>${esc(_lastPresetName)}</b> preset applied, so check its own spec too` : ''
+      }</div>${html}`);
+    return;
+  }
+  showInfoModal(`${J.label} compliance — ${pass}/${total} passed${unv?` · ${unv} unverified`:''}`,
+    `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against <b>${esc(J.name)}</b>${J.verified
+      ? ` — each journal row comes from its own figure guide (${esc(J.src)}), read ${JOURNAL_RULES_READ}. Guides change, so check its own spec too before you submit.`
+      : ` — its own page could not be read and the secondary sources disagree, so its rows are <b>unverified</b> (?) and never fail. Check its own spec on <a href="${J.url}" target="_blank" rel="noopener" style="color:var(--accent)">the journal's page</a>.`
+    } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Write the figure's alt text (embedded in the PNG export)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
 }
 function _auditFix(action){
+  // The journal rows' fixes, and the colour-accessibility ones: each its own undo step.
+  { const r=_journalFix(action); if(r==='done') return; if(r){ checkCompliance(); return; } }
   const m=document.getElementById('info-modal-bg');
   if(action==='dpi300'){ sv('export-dpi','300'); }
   else if(action==='white'){ sv('bg-color','#ffffff'); scheduleRender(); }
@@ -11773,6 +11832,7 @@ function applyLayoutSnapshot(o){
     else if(o.text[id]!==undefined) sv(id,o.text[id]);
   });
   { const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw'); }
+  _syncJournalFromControl();   // the AI gate and the reports read the journal the figure now shows
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();   // the printed-size readout under the export width
   onLayoutChange(); // rebuild label inputs for the restored cols/rows
   setAxisLabels('col', o.colLabels);
@@ -14307,20 +14367,624 @@ function _safeDataURL(canvas, type, q){
 // Summaries are paraphrases with a date on them, not quotations, and every one tells
 // the reader to verify. Policies change; this file does not.
 // ═══════════════════════════════════════════════════════════════
-const JOURNAL_AI_POLICIES={
-  nature:{name:'Nature portfolio / Springer Nature', blocks:true,
-    text:'Does not accept figures created with generative AI, with narrow exceptions (agency images under contract, and pieces specifically about AI, case by case). Non-generative machine learning used to enhance or combine images must be disclosed in the caption.',
-    url:'https://www.nature.com/nature-portfolio/editorial-policies/ai'},
-  science:{name:'Science / AAAS', blocks:true,
-    text:'AI-generated images are not permitted without explicit permission from the editors. Where permission is given, the methods must state the full prompt, the tool and its version.',
-    url:'https://www.science.org/content/page/science-journals-editorial-policies'},
-  cell:{name:'Cell Press / Elsevier', blocks:true,
-    text:'Generative AI may not be used to create or alter research images — explicitly including adjustments to brightness, contrast or colour balance. Cover art needs prior editorial approval.',
-    url:'https://www.cell.com/information-for-authors/figure-guidelines'},
+// ═══════════════════════════════════════════════════════════════
+// TARGET JOURNAL — what each journal's own figure guide says, in one table
+// The presets used to set sizes and nothing else: eLife was a copy of Nature, PNAS a copy
+// of Science with another DPI, and the compliance report held every figure to one fixed
+// set of thresholds whatever journal it was for. Each entry encodes only what that
+// journal's page states, read in November 2026; where a page says nothing, the entry says
+// nothing. Science, Cell and PNAS could not be read at the source and the secondary
+// sources disagree, so they keep their size presets, and every rule row for them says
+// "unverified" and can never fail.
+// Widths and heights are mm, type is pt at final print size, formats are FigureLab's
+// export formats (EPS, AI and PSD are not among them).
+// ═══════════════════════════════════════════════════════════════
+const JOURNAL_RULES_READ='Nov 2026';
+const JOURNALS={
+  nature:{label:'Nature', name:'Nature Portfolio', verified:true, src:'research-figure-guide.nature.com',
+    url:'https://research-figure-guide.nature.com/',
+    columns:[{mm:89,t:'single column'},{mm:183,t:'double column'}],
+    oneHalf:{min:120,max:136},            // 1.5 column: a secondary source only, so never a pass
+    widthOpts:['89','183'], maxH:170,
+    fonts:['Arial','Helvetica'], fontNote:'Arial or Helvetica, kept as editable text (not outlined); sequences in a monospace font',
+    ptMin:5, ptMax:7,
+    dpiPhoto:null, dpiLine:null, dpiMax:null,
+    dpiNote:'no resolution is stated for main figures, which should be vector; Extended Data at most 300 dpi',
+    colour:'RGB', colourNote:'RGB, not CMYK (Extended Data)',
+    formats:['pdf-lossless','pdf','svg'],
+    formatNote:'vector preferred (.ai/.eps/.pdf); layered PSD and SVG accepted; JPEG, TIFF and PNG are not accepted for main figures',
+    maxMB:50, maxMBFmt:'pdf-lossless',
+    access:{rg:'avoid red/green and rainbow colour maps', contrast:'text contrast above 4.5:1 (WCAG 2.1 AA)'},
+    blots:{uncropped:'uncropped gels and blots, matching the exposure, in figure order and labelled'},
+    ai:{gate:true, name:'Nature portfolio / Springer Nature',
+      text:'Does not accept figures created with generative AI, with narrow exceptions (agency images under contract, and pieces specifically about AI, case by case). Non-generative machine learning used to enhance or combine images must be disclosed in the caption.',
+      url:'https://www.nature.com/nature-portfolio/editorial-policies/ai'},
+    altText:'Springer Nature: “We expect all images in manuscripts to have sufficient alt text.”'},
+  plos:{label:'PLOS ONE', name:'PLOS ONE', verified:true, src:'journals.plos.org/plosone/s/figures',
+    url:'https://journals.plos.org/plosone/s/figures',
+    // 789–2250 px at 300 dpi: a range, not columns
+    widthRange:{min:66.8,max:190.5}, widthNote:'789–2250 px at 300 dpi (66.8–190.5 mm)',
+    widthOpts:['66.8','173','190.5'], maxH:222.3,
+    fonts:['Arial','Times New Roman','Symbol'], fontNote:'Arial, Times or Symbol',
+    ptMin:8, ptMax:12,
+    dpiPhoto:300, dpiLine:300, dpiMax:600, dpiNote:'300–600 dpi',
+    colour:'RGB', colourNote:'RGB 8-bit or greyscale',
+    formats:['tiff'], formatNote:'TIFF or EPS only; TIFF with LZW compression, flattened, no alpha channel',
+    lzw:true, maxMB:10, maxMBFmt:'tiff',
+    naming:{re:/^Fig\d+$/, stem:'Fig1', note:'Fig1.tif, Fig2.tif…'},
+    extraNote:'a 2-pt white border is recommended',
+    blots:{uncropped:'uncropped originals as one “S1_raw_images” PDF of at most 20 MB (or a repository); unused lanes marked “X”',
+      s1Name:'S1_raw_images', s1MaxMB:20, splice:'a thin line at splices'}},
+  elife:{label:'eLife', name:'eLife', verified:true, src:'eLife figure guidelines', url:'https://elifesciences.org/',
+    widthRange:{min:100,max:200}, widthNote:'at least 10 cm at 300 dpi, 20 cm for a full page',
+    widthOpts:['100','183','200'], heightNote:'the figure and its legend must fit on one page',
+    dpiPhoto:300, dpiLine:300, dpiMax:null, dpiNote:'at least 300 dpi',
+    colour:'RGB', colourNote:'RGB',
+    formats:['tiff','jpeg'],
+    formatNote:'TIFF (8-bit), JPG, EPS, AI or vector PDF, no multi-page files — FigureLab’s PDF carries the figure as an image, not as vector art',
+    access:{rg:'follow Colour Universal Design'},
+    scaleBar:'required',
+    blots:{mw:'present', mwNote:'molecular-weight markers on gels and blots',
+      uncropped:'uncropped files, and the uncropped figures with bands labelled, zipped as “Figure N—source data”', s1Name:'elife'},
+    ai:{gate:false, name:'eLife', text:'Generative AI is not allowed for striking images (the cover-style image); the guide states no ban for research figures.'}},
+  embo:{label:'EMBO J', name:'The EMBO Journal', verified:true, src:'link.springer.com/journal/44318/submission-guidelines',
+    url:'https://link.springer.com/journal/44318/submission-guidelines',
+    widthRange:{min:87,max:180}, widthNote:'87–180 mm at final size', widthOpts:['87','180'],
+    letters:{font:'Helvetica', bold:true, upper:true}, fontNote:'panel letters upper-case bold Helvetica; fonts embedded',
+    dpiPhoto:300, dpiLine:600, dpiMax:null, dpiNote:'300 ppi halftone; 600 ppi line art, text or combination, at print size',
+    colour:'RGB', colourNote:'RGB or CMYK',
+    formats:['tiff','pdf','pdf-lossless'], formatNote:'TIFF, PDF or EPS (AI, EPS or PDF for line art)',
+    access:{rg:'prefer magenta/green over red/green'},
+    scaleBar:'legend',
+    blots:{mw:'bracket', mwNote:'controls and MW markers on each gel, several band-widths above and below the band',
+      splice:'a black line between non-adjacent lanes', loading:'the loading control on the same blot',
+      uncropped:'source data are required at revision; grey (not white) backgrounds'}},
+  asm:{label:'ASM (mBio, J Bacteriol, J Virol…)', short:'ASM', name:'ASM journals', verified:true,
+    src:'journals.asm.org figure, image-integrity (July 2025) and generative-AI guidance', url:'https://journals.asm.org/',
+    widthRange:{min:0,max:177.8}, widthNote:'at most 7 × 9 inches (177.8 × 228.6 mm), submitted at publication size',
+    widthOpts:['177.8'], widthDefault:177.8, maxH:228.6,
+    fonts:['Arial','Helvetica','Times New Roman'], fontNote:'Arial, Helvetica or Times New Roman (no minimum size is stated)',
+    dpiPhoto:300, dpiLine:300, dpiMax:600, dpiNote:'300–600 dpi, not higher than 600',
+    colour:'RGB', colourNote:'RGB preferred',
+    formats:['tiff'], formatStage:'revision', formatNote:'TIFF or EPS at revision, one file per figure, flattened, whitespace cropped',
+    maxMB:15, maxMBFmt:'tiff', maxMBNote:'15 MB at initial submission, 20 MB at revision',
+    access:{rg:'avoid red/green, yellow/bright green, light blue/pink and dark blue/violet; use magenta for red; check with a colour-vision-deficiency simulator',
+      contrast:'contrast checked per WebAIM (its AA threshold for text is 4.5:1)'},
+    blots:{loading:'loading controls from the same gel', uncropped:'uncropped blots uploaded as a “Miscellaneous File not for Publication”'},
+    ai:{gate:true, name:'ASM journals', text:'“AI tools should not be used for images, cover art, videos, or schematics.”',
+      url:'https://journals.asm.org/'}},
+  jbc:{label:'JBC', name:'JBC / ASBMB', verified:true, src:'JBC data-presentation guidance (widths and fonts not verified)',
+    url:'https://www.jbc.org/', dataOnly:true,
+    scaleBar:'required',
+    blots:{mw:'bracket', mwNote:'MW markers above AND below the bands',
+      splice:'splices marked, and no splicing between blots', extra:'total-protein normalisation whenever possible; quantify within the linear range; gamma disclosed in the legend; fluorescence channels also shown in greyscale'}},
+  science:{label:'Science', name:'Science', verified:false, src:'secondary sources only — they conflict',
+    url:'https://www.science.org/content/page/instructions-preparing-initial-manuscript',
+    columns:[{mm:55,t:'1 column'},{mm:85,t:'single column'},{mm:175,t:'double column'}], widthOpts:['55','85','175','183.5'],
+    fonts:['Helvetica','Arial','Myriad'], fontNote:'Helvetica, Arial or Myriad',
+    dpiPhoto:150, dpiLine:null, dpiMax:300, dpiNote:'150–300 dpi for colour',
+    ai:{gate:true, name:'Science / AAAS',
+      text:'AI-generated images are not permitted without explicit permission from the editors. Where permission is given, the methods must state the full prompt, the tool and its version.',
+      url:'https://www.science.org/content/page/science-journals-editorial-policies'}},
+  cell:{label:'Cell', name:'Cell Press', verified:false, src:'secondary sources only',
+    url:'https://www.cell.com/information-for-authors/figure-guidelines',
+    columns:[{mm:85,t:'single column'},{mm:114,t:'1.5 column'},{mm:174,t:'double column'}], widthOpts:['85','114','174'],
+    dpiPhoto:300, dpiLine:600, dpiMax:1000, dpiNote:'300 dpi colour/grey, 500 black-and-white, 600–1000 line art',
+    ai:{gate:true, name:'Cell Press / Elsevier',
+      text:'Generative AI may not be used to create or alter research images — explicitly including adjustments to brightness, contrast or colour balance. Cover art needs prior editorial approval.',
+      url:'https://www.cell.com/information-for-authors/figure-guidelines'}},
+  pnas:{label:'PNAS', name:'PNAS', verified:false, src:'secondary sources only — they conflict', url:'https://www.pnas.org/',
+    columns:[{mm:87,t:'single column'},{mm:114,t:'1.5 column'},{mm:178,t:'double column'}], widthOpts:['87','114','178','180'],
+    maxH:225, ptMin:6, ptMax:8, ptNote:'6–8 pt (another source: 6–12 pt)',
+    dpiPhoto:300, dpiLine:600, dpiMax:1200, dpiNote:'300 photo, 600–900 with type, 1000–1200 line art'},
 };
+const JOURNAL_ORDER=['nature','plos','elife','embo','asm','jbc','science','cell','pnas'];
+// The journals whose policy stops an export carrying AI-generated objects until the
+// author has read it. A view of the table above, so the two cannot disagree.
+const JOURNAL_AI_POLICIES=Object.fromEntries(Object.entries(JOURNALS)
+  .filter(([,J])=>J.ai&&J.ai.gate).map(([id,J])=>[id,{name:J.ai.name, blocks:true, text:J.ai.text, url:J.ai.url}]));
 const JOURNAL_POLICY_FETCHED='August 2026';
 let _lastPresetName='';                 // which journal preset is in force
 let _aiPolicyAcked=false;               // acknowledged once per session, not per export
+var _lastExportFmt=null;                // the format the figure itself last went out in, this session
+
+// The journal the figure is for, from its Target journal control; null for None.
+function _targetJournalId(){ const v=gv('target-journal'); return (v&&JOURNALS[v])?v:''; }
+function _targetJournal(){ const id=_targetJournalId(); return id?JOURNALS[id]:null; }
+// The control is the state; _lastPresetName follows it wherever the control is restored
+// (undo, an opened file, a share link, a template), so the AI gate, the Save dialog and
+// the report always read the journal the figure shows.
+function _syncJournalFromControl(){ _lastPresetName=_targetJournalId(); _syncWidthOptions(); }
+// With a journal chosen, the printed-width list offers that journal's widths (and Free,
+// and whatever is set now); the others are hidden, not removed, so a saved width loads.
+function _syncWidthOptions(){
+  const sel=document.getElementById('export-width-mm'); if(!sel) return;
+  const J=_targetJournal(), list=J&&J.widthOpts&&J.widthOpts.length?new Set(['0',sel.value,...J.widthOpts]):null;
+  [...sel.options].forEach(o=>{ o.hidden=!!list&&!list.has(o.value); });
+}
+function _onTargetJournal(v){
+  // A chosen journal is applied, as its preset button would; None only stops checking
+  // against one. Either way the control's own change is the one undo step.
+  if(v&&JOURNALS[v]) applyPreset(v);
+  else { _lastPresetName=''; _syncWidthOptions(); scheduleRender(); }
+}
+// ⌘K "Check against …": target the journal without changing the figure, then report.
+function checkAgainstJournal(id){
+  if(!JOURNALS[id]) return;
+  if(_targetJournalId()!==id){ pushUndo(); sv('target-journal',id); _syncJournalFromControl(); }
+  checkCompliance();
+}
+
+// ── Fonts, by the name the font menu shows ──
+const _JFONT_VALUE={'Helvetica':"'Helvetica Neue',Arial,sans-serif", 'Arial':'Arial,Helvetica,sans-serif', 'Times New Roman':"'Times New Roman',serif"};
+function _fontName(v){
+  const sel=document.getElementById('label-font'), o=sel&&[...sel.options].find(o=>o.value===v);
+  if(o) return o.textContent.trim();
+  return String(v||'').split(',')[0].replace(/['"]/g,'').trim()||'System Sans';
+}
+// The fonts the figure's text is set in, from its two font controls, with where each is used.
+function _figFontUse(){
+  const out=[{where:'panel letters, tags and annotations', name:_fontName(gv('label-font')||'system-ui,sans-serif'), id:'label-font'}];
+  if(gv('axis-font')) out.push({where:'headings', name:_fontName(gv('axis-font')), id:'axis-font'});
+  return out;
+}
+function _journalFontValue(J){ return (J.fonts||[]).map(n=>_JFONT_VALUE[n]).find(Boolean)||null; }
+
+// ── Type sizes at final print size ──
+// Read, never re-measured: every text the last render drew (figTextItems), plus the
+// annotations and the placed key, each in logical px; pt = px × _physFacts().ptPerPx,
+// the factor the printed-size readout uses.
+const _TEXT_KIND={panel:'panel letters', tag:'panel tags', title:'figure title', col:'column headings', row:'row headings',
+  group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key'};
+function _figTextSizes(){
+  const out=[];
+  (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill}); });
+  const ann=a=>{ if(!a||a.hidden) return;
+    if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16});
+    if(a.type==='legend') out.push({kind:'key', fs:a.fontSize||12}); };
+  annotations.forEach(ann);
+  _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(ann));
+  return out;
+}
+// Text a journal's size range can be fixed for: what the letter, heading and annotation
+// size controls set. Scale-bar text follows the panel width and is reported, not changed.
+const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','key']);
+function _journalTextReport(J, ptPerPx){
+  const by=new Map();
+  _figTextSizes().forEach(t=>{ const pt=t.fs*ptPerPx, g=by.get(t.kind)||{min:Infinity,max:-Infinity};
+    g.min=Math.min(g.min,pt); g.max=Math.max(g.max,pt); by.set(t.kind,g); });
+  const bad=[...by].filter(([,g])=>(J.ptMin!=null&&g.min<J.ptMin-0.05)||(J.ptMax!=null&&g.max>J.ptMax+0.05));
+  const f=v=>v.toFixed(1);
+  return { by, bad, fixable:bad.some(([k])=>_TEXT_FIXABLE.has(k)),
+    list:[...by].map(([k,g])=>`${_TEXT_KIND[k]||k} ${g.min===g.max||Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', '),
+    badList:bad.map(([k,g])=>`${_TEXT_KIND[k]||k} ${Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', ') };
+}
+// Bring every adjustable text size into the journal's range at final print size. The
+// heading size moves the canvas width (the row-heading band), which moves pt per px when a
+// printed width is set, so it settles over a few passes. The caller records the undo step.
+function _journalClampText(J){
+  if(J.ptMin==null&&J.ptMax==null) return false;
+  let changed=false;
+  for(let pass=0;pass<5;pass++){
+    render();
+    const k=_physFacts().ptPerPx; if(!(k>0)) break;
+    const lo=J.ptMin!=null?J.ptMin/k:0, hi=J.ptMax!=null?J.ptMax/k:Infinity;
+    const fit=v=>{ if(v<lo-1e-9) v=Math.ceil(lo-1e-9); if(v>hi+1e-9) v=Math.floor(hi+1e-9); return Math.max(1,v); };
+    const kinds=new Set(_figTextSizes().map(t=>t.kind));
+    let ch=false;
+    if(kinds.has('panel')||kinds.has('tag')){
+      // letters draw at no less than 7 px and tags at 0.8 of the letter size
+      const p=gi('label-size'), drawn=Math.max(7,p); let L=fit(drawn);
+      if(kinds.has('tag')) while(Math.max(7,Math.round(L*0.8))<lo-1e-9 && L+1<=hi+1e-9) L++;
+      if(L!==drawn){ sv('label-size',L); ch=true; }
+    }
+    if(['col','row','group','title'].some(x=>kinds.has(x))){
+      const a=gi('axis-fs'); let A=fit(a);
+      if(kinds.has('title')&&A+4>hi+1e-9) A=Math.max(1,Math.floor(hi+1e-9)-4);   // the title is 4 px larger
+      if(A!==a){ sv('axis-fs',A); ch=true; }
+    }
+    const fixAnn=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='legend')) return;
+      const d=a.fontSize||(a.type==='legend'?12:16), v=fit(d); if(v!==d){ a.fontSize=v; ch=true; } };
+    annotations.forEach(fixAnn); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(fixAnn));
+    if(!ch) break;
+    changed=true;
+  }
+  render();
+  return changed;
+}
+
+// ── Width and resolution against the journal ──
+function _journalWidthOk(J, wMm){
+  if(J.columns){
+    const hit=J.columns.find(c=>Math.abs(wMm-c.mm)<=0.5);
+    if(hit) return {ok:true, t:`${hit.t} (${hit.mm} mm)`};
+    if(J.oneHalf&&wMm>=J.oneHalf.min-0.5&&wMm<=J.oneHalf.max+0.5) return {ok:false, half:true};
+    return {ok:false};
+  }
+  if(J.widthRange){ const r=J.widthRange; return {ok:wMm>=(r.min||0)-0.5&&wMm<=r.max+0.5}; }
+  return null;
+}
+function _journalWidthTarget(J, wMm){
+  if(J.columns) return J.columns.reduce((b,c)=>Math.abs(c.mm-wMm)<Math.abs(b.mm-wMm)?c:b).mm;
+  const r=J.widthRange; return (wMm>r.max||!r.min) ? r.max : r.min;
+}
+// The DPI a figure with text on it needs: EMBO asks 600 for text and combination
+// figures; the others state one floor for everything.
+function _journalDpiNeed(J, hasText){ return (hasText&&J.dpiLine)||J.dpiPhoto||null; }
+function _journalDpiTarget(J, dpi, hasText){
+  const lo=_journalDpiNeed(J,hasText);
+  if(lo&&dpi<lo) return lo;
+  if(J.dpiMax&&dpi>J.dpiMax) return J.dpiMax;
+  return null;
+}
+
+// What the journal's page asks for, done where it is mechanical. The caller records the
+// undo step. Nothing the page does not state is touched; unverified journals only get
+// their size presets. Returns what changed, in words.
+function _applyJournalRules(J){
+  const did=[];
+  if(!J.verified) return did;
+  render();
+  // printed width: a set width the journal allows is kept; otherwise its nearest
+  if(J.columns||J.widthRange){
+    const cur=getTargetWidthMm(), w=cur>0?cur:_physFacts().wMm, ok=_journalWidthOk(J,w);
+    if(!(cur>0&&ok&&ok.ok)){
+      const t=(!(cur>0)&&J.widthDefault)?J.widthDefault:_journalWidthTarget(J,w);
+      if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); did.push(`${t} mm wide`); }
+    }
+  }
+  // fonts: switched only when the current one is not on the journal's list
+  if(J.fonts){
+    const v=_journalFontValue(J);
+    if(v&&!J.fonts.includes(_fontName(gv('label-font')||'system-ui,sans-serif'))){ sv('label-font',v); did.push(_fontName(v)); }
+    if(gv('axis-font')&&!J.fonts.includes(_fontName(gv('axis-font')))){ sv('axis-font',''); did.push('headings in the same font'); }
+  }
+  if(J.letters){
+    if(_fontName(gv('label-font'))!==J.letters.font){ sv('label-font',_JFONT_VALUE[J.letters.font]); did.push(`${J.letters.font} letters`); }
+    if(J.letters.bold&&!gc('label-bold')){ sc('label-bold',true); did.push('bold letters'); }
+    if(J.letters.upper&&!['ABC','custom'].includes(gv('label-format'))){ sv('label-format','ABC'); did.push('upper-case letters'); }
+  }
+  if(J.lzw&&!gc('export-tiff-lzw')){ sc('export-tiff-lzw',true); did.push('LZW TIFF'); }
+  if(J.naming&&!J.naming.re.test(gv('export-name').trim())){ sv('export-name',J.naming.stem); did.push(`named ${J.naming.stem}`); }
+  render();
+  const hasText=_figTextSizes().length>0, dt=_journalDpiTarget(J,getExportDPI(),hasText);
+  if(dt){ sv('export-dpi',String(dt)); did.push(`${dt} DPI`); }
+  if(_journalClampText(J)) did.push(`text ${J.ptMin}–${J.ptMax} pt`);
+  const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw');
+  return did;
+}
+
+// ── Colour accessibility ──
+function _rgbaOf(c){
+  c=String(c||'').trim().toLowerCase();
+  let m=/^#([0-9a-f]{3})$/.exec(c); if(m) return [...m[1]].map(h=>parseInt(h+h,16)).concat(1);
+  m=/^#([0-9a-f]{6})([0-9a-f]{2})?$/.exec(c);
+  if(m) return [0,2,4].map(i=>parseInt(m[1].substr(i,2),16)).concat(m[2]?parseInt(m[2],16)/255:1);
+  m=/^rgba?\(([^)]+)\)$/.exec(c);
+  if(m){ const p=m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat); return [p[0],p[1],p[2],p.length>3?p[3]:1]; }
+  if(c==='white') return [255,255,255,1]; if(c==='black') return [0,0,0,1];
+  return null;
+}
+// WCAG 2.1 relative luminance and contrast ratio: 21 for black on white, 4.48 for #777 on white.
+function _relLum(c){
+  const v=_rgbaOf(c); if(!v) return null;
+  const f=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); };
+  return 0.2126*f(v[0])+0.7152*f(v[1])+0.0722*f(v[2]);
+}
+function _contrastRatio(a,b){ const A=_relLum(a), B=_relLum(b); if(A==null||B==null) return null; return (Math.max(A,B)+0.05)/(Math.min(A,B)+0.05); }
+const _JSRC=J=>J?(J.verified?`${J.short||J.label}'s figure guide, read ${JOURNAL_RULES_READ}`:`unverified — check the journal's page (secondary sources, ${JOURNAL_RULES_READ})`):'';
+// Three checks that hold whatever the journal, worded per journal when one is set. With
+// no journal each row appears only when it has something to say, so the report for a
+// figure with nothing to flag is the one it has always been.
+function _accessRows(J){
+  const rows=[], shown=_figurePanels().filter(im=>im&&im.img);
+  const lutsOf=im=>[im.lut,...((im.channels)||[]).map(c=>c.lut)].filter(l=>l&&l!=='none');
+  // (a) red with green, in one merge or across panels a reader compares
+  const merges=shown.filter(im=>{ const s=new Set(lutsOf(im)); return s.has('red')&&s.has('green'); });
+  const all=new Set(shown.flatMap(lutsOf)), rg=merges.length>0||(all.has('red')&&all.has('green'));
+  const rgRule=J&&J.access&&J.access.rg?`${J.short||J.label}: ${J.access.rg}`:'QUAREP-LiMi checklist: magenta/green, not red/green';
+  rows.push({label:'Red/green', ok:!rg, warn:rg, src:J&&J.access&&J.access.rg?_JSRC(J):'',
+    note:rg ? `${merges.length?`${merges.map(im=>esc(formatLabel(im.label)||'?')).join(', ')} merge${merges.length===1?'s':''} a red channel with a green one`:'red and green channels sit in panels compared side by side'} — about 1 in 12 men cannot tell them apart; ${rgRule}. The fix recolours the red lookup tables magenta (pseudocoloured channels only, never an imported RGB picture)`
+      : `No red lookup table beside a green one ✓ (${rgRule})`,
+    fix:rg?{a:'redmag',t:'Red → magenta'}:null});
+  // (b) merges of more than three channels
+  const many=shown.filter(im=>(im.channels||[]).length>=3);
+  rows.push({label:'Channels per merge', ok:!many.length, warn:many.length>0,
+    note:many.length ? `${many.map(im=>`${esc(formatLabel(im.label)||'?')} (${1+im.channels.length})`).join(', ')} — QUAREP-LiMi checklist: at most 3 channels in a merge, preferably 2; show the rest as separate greyscale panels`
+      : 'Every merge has at most 3 channels ✓ (QUAREP-LiMi checklist)'});
+  // (c) text contrast, where the text sits on a flat colour: the headings, title and group
+  // bands on the figure background. Letters and tags sit on the picture (a chip is
+  // translucent), so their background is pixels, not a colour.
+  const bg=gv('bg-color'), flat=new Set(['title','col','row','group']), low=new Map(); let n=0, worst=null, over=0;
+  (figTextItems||[]).forEach(t=>{ if(!t||!String(t.str||'').trim()) return;
+    if(!flat.has(t.kind)){ if(t.kind==='panel'||t.kind==='tag') over++; return; }
+    const fa=_rgbaOf(t.fill); if(!fa||fa[3]<1){ over++; return; }
+    const r=_contrastRatio(t.fill,bg); if(r==null) return;
+    n++; worst=worst==null?r:Math.min(worst,r);
+    if(r<4.5-1e-9){ const k=`${_TEXT_KIND[t.kind]} ${t.fill} on ${bg}`; if(!low.has(k)||low.get(k)>r) low.set(k,r); } });
+  const cRule=J&&J.access&&J.access.contrast?`${J.short||J.label}: ${J.access.contrast}`:'WCAG AA: at least 4.5:1 for text'+(J?` (${J.short||J.label} states no contrast rule)`:'');
+  const overNote=over?` · panel letters and tags sit over image pixels — not checked`:'';
+  rows.push({label:'Text contrast', ok:low.size===0, warn:low.size>0, src:J&&J.access&&J.access.contrast?_JSRC(J):'',
+    note:low.size ? [...low].map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+` — below 4.5:1; ${cRule}${overNote}`
+      : (n?`${n} text item${n===1?'':'s'} on the background, lowest ${worst.toFixed(1)}:1 ✓ (${cRule})${overNote}`:`No text on a flat background to check${overNote}`),
+    fix:(low.size&&!gc('axis-auto-color'))?{a:'contrast',t:'Auto colour'}:null});
+  return J?rows:rows.filter(r=>!r.ok);
+}
+
+// ── Blots and gels ──
+// A panel is a blot when it carries blot furniture: a densitometry analysis, a splice
+// marker, or lane / ladder labels placed on it.
+function _blotPanels(shown){
+  return shown.filter(im=>im&&(im.gelAnalysis||annotations.some(a=>a&&((a.splice&&a.splicePanel===im.id)||a.blotPanel===im.id))));
+}
+// MW labels from ↕ MW ladder: numbers tagged to the blot. Older ones carry no mw flag:
+// the ladder is a column of numbers (one x), lane numbers are a row (one y).
+function _mwLabelsFor(im){
+  const t=annotations.filter(a=>a&&a.type==='text'&&!a.hidden&&a.blotPanel===im.id&&/^\s*\d+(\.\d+)?\s*$/.test(a.text||''));
+  const tagged=t.filter(a=>a.mw); if(tagged.length) return tagged;
+  const byX=new Map(); t.forEach(a=>{ const k=(+a.xf).toFixed(4); byX.set(k,(byX.get(k)||[]).concat(a)); });
+  return [...byX.values()].filter(g=>g.length>=2&&new Set(g.map(a=>(+a.yf).toFixed(4))).size===g.length).flat();
+}
+// The ladder's labelled markers and every other lane's bands, in the analysis's frame.
+function _gelMarkerSpan(im){
+  const a=im.gelAnalysis; if(!a||!a.ladder||a.ladder.assignError||!a.lanes[a.ladder.lane]) return null;
+  const sizes=_gelParseSizes(a.ladder.sizes)||[];
+  const lb=a.lanes[a.ladder.lane].bands.slice().sort((x,y)=>x.yc-y.yc);
+  const marks=lb.slice(0,sizes.length).map((b,i)=>({yc:b.yc, kda:sizes[i]}));
+  const bands=[]; a.lanes.forEach((L,li)=>{ if(li!==a.ladder.lane) L.bands.forEach(b=>bands.push(b.yc)); });
+  return {marks, bands};
+}
+function _blotRows(J, shown){
+  const B=_blotPanels(shown), rows=[]; if(!B.length||!J.blots) return rows;
+  const bl=J.blots, src=_JSRC(J), nm=im=>esc(formatLabel(im.label)||'?'), jn=J.short||J.label;
+  if(bl.mw){
+    const notes=[]; let warn=false;
+    B.forEach(im=>{
+      const span=_gelMarkerSpan(im), labels=_mwLabelsFor(im);
+      const n=Math.max(span?span.marks.length:0, labels.length);
+      if(!n){ warn=true; notes.push(`${nm(im)}: no molecular-weight labels`); return; }
+      if(n<2){ warn=true; notes.push(`${nm(im)}: only one labelled marker`); return; }
+      if(bl.mw==='bracket'){
+        if(span&&span.marks.length>=2&&span.bands.length){
+          const lo=Math.min(...span.marks.map(m=>m.yc)), hi=Math.max(...span.marks.map(m=>m.yc));
+          const out=span.bands.filter(y=>y<lo||y>hi).length;
+          if(out){ warn=true; notes.push(`${nm(im)}: ${out} analysed band${out===1?' lies':'s lie'} above the top marker or below the bottom one`); }
+          else notes.push(`${nm(im)}: ${n} markers, above and below every analysed band ✓`);
+        } else notes.push(`${nm(im)}: ${n} labelled markers; above/below not checked — no ladder lane assigned in ⫼ Analyse lanes & bands`);
+      } else notes.push(`${nm(im)}: ${n} labelled markers ✓`);
+    });
+    rows.push({label:'MW markers', ok:!warn, warn, src, note:notes.join('; ')+` — ${jn}: ${bl.mwNote}`});
+  }
+  const splices=annotations.filter(a=>a&&a.splice&&B.some(im=>im.id===a.splicePanel)).length;
+  if(splices) rows.push({label:'Splices', ok:true, info:true, src:bl.splice?src:'',
+    note:`${splices} splice marker${splices===1?'':'s'} — say so in the figure legend too (the Methods paragraph already discloses ${splices===1?'it':'them'})${bl.splice?`; ${jn}: ${bl.splice}`:''}`});
+  if(bl.loading){
+    const lc=B.filter(im=>im.gelAnalysis&&im.gelAnalysis.loading);
+    if(lc.length) rows.push({label:'Loading control', ok:true, info:true, src,
+      note:`${lc.map(im=>`${nm(im)} is normalised to panel ${esc(im.gelAnalysis.loading.label||'?')}`).join('; ')} — ${jn} asks for ${bl.loading}; make sure it was`});
+  }
+  if(bl.uncropped){
+    const s1=_s1Panels().filter(_s1Selected).length;
+    let note=`${jn}: ${bl.uncropped}. 🗎 Export uncropped originals (S1) writes them${s1?` (${s1} panel${s1===1?'':'s'} ticked)`:''}, and the submission package includes it`;
+    if(bl.s1Name==='S1_raw_images') note+=` as <b>S1_raw_images.pdf</b>; FigureLab warns when the file is over ${bl.s1MaxMB} MB`;
+    if(bl.s1Name==='elife') note+=` as <b>${esc(_journalS1Name())}.pdf</b>`;
+    rows.push({label:'Uncropped originals', ok:true, info:true, src, note, fix:{a:'s1',t:'S1…'}});
+  }
+  return rows;
+}
+// The figure number an export name carries ("Fig2", "figure_3"), else 1.
+function _figNumber(){ const m=/(\d+)/.exec(gv('export-name')||''); return m?+m[1]:1; }
+// What the uncropped-originals sheet is called for the target journal.
+function _journalS1Name(){
+  const id=_targetJournalId();
+  if(id==='plos') return 'S1_raw_images';
+  if(id==='elife') return `Figure ${_figNumber()}—source data 1`;
+  return S1_FILENAME;
+}
+
+// ── The report, for a target journal ──
+// General integrity rows (labels, calibration, drawn bars, adjustments, display ranges,
+// insets, densitometry, the export-size cap) stay; the rows the general report phrased as
+// "journals require…" are replaced by what this journal's page says.
+const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration','Scale bar drawn','Adjustment sanity',
+  'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry'];
+function _journalRows(J, g){
+  const rows=[], src=_JSRC(J), V=J.verified, nm=esc(J.short||J.label);
+  const f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
+  const pf=g.pf, wMm=pf.wMm, hMm=pf.hMm, dpi=g.dpi;
+  // width
+  const wk=(J.columns||J.widthRange)?_journalWidthOk(J,wMm):null;
+  if(wk){
+    const allowed=J.columns?J.columns.map(c=>`${c.mm} mm ${c.t}`).join(', '):J.widthNote;
+    rows.push({label:'Printed width', ok:wk.ok, warn:!!wk.half, src,
+      note:`${f1(wMm)} mm${wk.ok?` — ${wk.t||'within the range'} ✓`:wk.half?` — inside the 1.5-column range (${J.oneHalf.min}–${J.oneHalf.max} mm) that only a secondary source gives; check the journal's page`:''} · ${nm}: ${allowed}`,
+      fix:wk.ok?null:{a:'jwidth',t:`Set ${_journalWidthTarget(J,wMm)} mm`}});
+  } else rows.push({label:'Printed width', ok:true, info:true, note:`${f1(wMm)} mm · ${nm}: ${J.dataOnly?'the data-presentation page states no width':'no width stated'}`});
+  // height
+  if(J.maxH) rows.push({label:'Printed height', ok:hMm<=J.maxH+0.5, src,
+    note:`${f1(hMm)} mm · ${nm}: at most ${J.maxH} mm tall${hMm>J.maxH+0.5?' — fewer rows, or a narrower printed width (it scales the height too)':' ✓'}`});
+  else rows.push({label:'Printed height', ok:true, info:!!J.heightNote, src:J.heightNote?src:'', note:`${f1(hMm)} mm${J.heightNote?` · ${nm}: ${J.heightNote}`:''}`});
+  // type size
+  if(J.ptMin!=null||J.ptMax!=null){
+    const tr=_journalTextReport(J,pf.ptPerPx), rng=J.ptNote||`${J.ptMin}–${J.ptMax} pt`;
+    rows.push({label:'Text size', ok:!tr.bad.length, src,
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}`
+        : (tr.list?`${esc(tr.list)} ✓ — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
+      fix:tr.fixable?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:null});
+  } else rows.push({label:'Text size', ok:true, info:true, note:`panel labels print at ${g.labelPt.toFixed(1)} pt · ${nm} states no type size`});
+  // fonts
+  if(J.fonts){
+    const use=_figFontUse(), off=use.filter(u=>!J.fonts.includes(u.name));
+    const sbSys=(figTextItems||[]).some(t=>t&&(t.kind==='sb'||t.kind==='cbar')&&String(t.str||'').trim());
+    rows.push({label:'Font', ok:!off.length, warn:!off.length&&sbSys, src,
+      note:(off.length?`${off.map(u=>`${esc(u.where)} in ${esc(u.name)}`).join('; ')} — `:`${esc(use.map(u=>u.name).filter((v,i,a)=>a.indexOf(v)===i).join(', '))} ✓ — `)
+        +`${nm}: ${J.fontNote}`+(sbSys?'. FigureLab draws scale-bar and intensity-bar text in the system sans-serif, which is not on that list':''),
+      fix:off.length?{a:'jfont',t:`Use ${_fontName(_journalFontValue(J))}`}:null});
+  }
+  if(J.letters){
+    const L=J.letters, bad=[];
+    if(_fontName(gv('label-font'))!==L.font) bad.push(`set in ${esc(_fontName(gv('label-font')))}`);
+    if(L.bold&&!gc('label-bold')) bad.push('not bold');
+    if(L.upper&&!['ABC','custom'].includes(gv('label-format'))) bad.push('not upper-case');
+    rows.push({label:'Panel letters', ok:!bad.length, src,
+      note:(bad.length?bad.join(', '):'upper-case bold Helvetica ✓')+` — ${nm}: ${J.fontNote}`,
+      fix:bad.length?{a:'jletters',t:'Fix letters'}:null});
+  }
+  // resolution
+  const hasText=_figTextSizes().length>0, need=_journalDpiNeed(J,hasText);
+  if(need||J.dpiMax){
+    const lowD=need&&dpi<need, highD=J.dpiMax&&dpi>J.dpiMax;
+    rows.push({label:'Export DPI', ok:!lowD&&!highD, src,
+      note:`${dpi} DPI${lowD?` — below ${need}`:highD?` — above ${J.dpiMax}`:' ✓'}${hasText&&J.dpiLine&&J.dpiLine!==J.dpiPhoto?' (the figure has text, so it is a combination figure)':''} · ${nm}: ${J.dpiNote}`,
+      fix:(lowD||highD)?{a:'jdpi',t:`Set ${_journalDpiTarget(J,dpi,hasText)}`}:null});
+  } else rows.push({label:'Export DPI', ok:true, info:true, note:`${dpi} DPI · ${nm}: ${J.dpiNote||'no resolution stated'}`});
+  if(J.dpiPhoto){
+    const low=g.ppis.filter(p=>p.ppi<J.dpiPhoto-0.5);
+    rows.push({label:'Panel resolution', ok:!low.length, src,
+      note:low.length ? `${low.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')} — below the ${J.dpiPhoto} ppi ${nm} asks for at print size; their pixels are interpolated, and a higher export DPI does not add detail — make them smaller or pick a narrower width`
+        : (g.ppis.length?`Every image panel prints at ≥${J.dpiPhoto} ppi ✓ (lowest ${Math.round(Math.min(...g.ppis.map(p=>p.ppi)))} ppi)`:'No raster image panels'),
+      fix:low.length?{a:'jlowppi',t:'Select panel'}:null});
+  }
+  // export format, colour mode, file size, file name
+  if(J.formats){
+    const FN={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF (lossless)',svg:'SVG'};
+    const last=_lastExportFmt, okFmt=!last||J.formats.includes(last), lzwBad=J.lzw&&!gc('export-tiff-lzw');
+    const stage=J.formatStage?` at ${J.formatStage}`:'';
+    rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src,
+      note:(lzwBad?'TIFFs are written uncompressed — tick Compress TIFF (LZW). ':'')
+        +(last?`last exported as ${FN[last]||last}${okFmt?' ✓':` — not accepted${stage}`}`:`not exported yet — use ${J.formats.map(f=>FN[f]).join(' or ')}`)
+        +` · ${nm}: ${J.formatNote}`,
+      fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
+  }
+  if(J.colour) rows.push({label:'Colour mode', ok:true, src, note:`FigureLab exports RGB ✓ · ${nm}: ${J.colourNote}`});
+  if(J.maxMB){
+    const px=pf.px*Math.round((canvasLogicalH||1)*pf.scale), est={tiff:px*3,'pdf-lossless':px*1.4}[J.maxMBFmt]||px*3;
+    const mb=est/1048576, over=mb>J.maxMB;
+    rows.push({label:'File size', ok:!over, warn:over, src,
+      note:`${J.maxMBFmt==='tiff'?'uncompressed TIFF':'lossless PDF'} ≈ ${mb.toFixed(1)} MB${over?(J.lzw?' — over the limit uncompressed; LZW makes it smaller by an amount that depends on the picture, so check the written file':' — over the limit; lower the DPI within the journal’s range, or a narrower width'):' ✓'} · ${nm}: at most ${J.maxMBNote||J.maxMB+' MB'}`});
+  }
+  if(J.naming){
+    const n=gv('export-name').trim(), ok=J.naming.re.test(n);
+    rows.push({label:'File name', ok, src,
+      note:`“${esc(n)}”${ok?' ✓':''} · ${nm}: ${J.naming.note} — FigureLab writes the TIFF as .tiff; rename it to .tif if the submission system insists`,
+      fix:ok?null:{a:'jname',t:`Name ${J.naming.stem}`}});
+  }
+  if(J.extraNote) rows.push({label:'Border', ok:true, info:true, src, note:`${nm}: ${J.extraNote}`});
+  // colour accessibility
+  rows.push(..._accessRows(J));
+  // scale bars
+  const shown=g.shown;
+  if(J.scaleBar==='required'){
+    const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip));
+    rows.push({label:'Scale bars', ok:!miss.length, src,
+      note:(miss.length?`${miss.map(im=>esc(formatLabel(im.label)||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
+        +` — ${nm}: scale bars on micrographs. Panels without a calibration are not checked: FigureLab cannot tell a micrograph from a photograph`,
+      fix:miss.length?{a:'jsbon',t:'Show bars'}:null});
+  }
+  if(J.scaleBar==='legend'){
+    const bars=shown.filter(im=>im.sbOn&&im.umPerPx>0&&!im._sbSkip);
+    if(bars.length){
+      const onBar=gc('sb-text');
+      rows.push({label:'Scale-bar length', ok:!onBar, src,
+        note:(onBar?'the length is printed on the bars':'no length on the bars ✓')+` — ${nm}: scale bars, not magnification, with the bar length in the legend, not on the bar`,
+        fix:onBar?{a:'jsbtext',t:'Text off'}:null});
+      const cap=(gv('caption-out')||'').trim(), has=/Scale bar/.test(cap);
+      rows.push({label:'Bar length in legend', ok:has, warn:!has, src,
+        note:has?'the caption states the bar length ✓':(cap?'the caption does not state the bar length — regenerate it (✦ Generate Caption), which writes “Scale bar, …” for each bar':'no caption yet — ✦ Generate Caption writes “Scale bar, …” for each bar')});
+    }
+  }
+  // blots
+  rows.push(..._blotRows(J, shown));
+  if(J.blots&&J.blots.extra) rows.push({label:'Data presentation', ok:true, info:true, src, note:`${nm}: ${J.blots.extra}`});
+  // alt text
+  if(J.altText){
+    const has=!!(typeof _figAltText==='string'&&_figAltText.trim());
+    rows.push({label:'Alt text', ok:has, warn:!has, src,
+      note:(has?`${_figAltText.trim().length} characters ✓`:'none yet — embedded in the PNG export once written')+` · ${esc(J.altText)}`,
+      fix:has?null:{a:'alttext',t:'Alt text'}});
+  }
+  // AI policy: what the table says, and the report's existing wording
+  const ai=_aiGeneratedCount();
+  rows.push({label:'AI disclosure', ok:ai===0, warn:ai>0, src:J.ai?src:'',
+    note:ai ? `${ai} AI-generated schematic(s) — `+(J.ai?(J.ai.gate?`${J.ai.name} does not accept generative-AI figures (summarised ${JOURNAL_POLICY_FETCHED}; verify)`:esc(J.ai.text)):`disclose to the journal; ${nm}'s figure guide states no AI policy`)
+      : 'No AI-generated content ✓'});
+  // An unverified journal's rule rows inform and never fail.
+  if(!V) rows.forEach(r=>{ if(r.src){ r.unverified=true; } });
+  rows.push(...g.checks.filter(c=>_GENERAL_ROWS.includes(c.label)));
+  return rows;
+}
+function _complianceRowHtml(c){
+  const st=c.unverified?'unv':c.ok?(c.info?'info':'ok'):c.warn?'warn':'fail';
+  const icon={ok:'✓',info:'ℹ',unv:'?',warn:'⚠',fail:'✗'}[st];
+  const color={ok:'var(--a2)',info:'var(--muted)',unv:'var(--muted)',warn:'var(--warn)',fail:'var(--danger)'}[st];
+  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${c.fix.a}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'?'Opens the tool for this':'One undo step; the report runs again'}">${c.fix.t}</button>`:'';
+  const src=c.src?`<span class="c-src" style="display:block;font-size:9.5px;color:var(--muted);opacity:.85">${c.unverified?'':'Source: '}${esc(c.src)}</span>`:'';
+  return `<div class="compliance-row">
+      <span class="c-icon" style="color:${color}">${icon}</span>
+      <span class="c-label">${c.label}</span>
+      <span class="c-note" style="flex:1">${c.note}${src}</span>${fixBtn}
+    </div>`;
+}
+// The fixes a journal row offers. Each is one undo step, then the report runs again.
+function _journalFix(action){
+  const J=_targetJournal(), m=document.getElementById('info-modal-bg');
+  if(action==='redmag'){
+    pushUndo();
+    _figurePanels().forEach(im=>{ if(!im) return; if(im.lut==='red') im.lut='magenta';
+      (im.channels||[]).forEach(ch=>{ if(ch.lut==='red') ch.lut='magenta'; }); });
+    renderImgList(); render(); return true;
+  }
+  if(action==='contrast'){ pushUndo(); sc('axis-auto-color',true); render(); return true; }
+  if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
+  if(action==='alttext'){ Promise.resolve(generateAltText()).then(()=>checkCompliance()); return 'done'; }
+  if(!J) return false;
+  if(action==='jwidth'){ pushUndo(); sv('export-width-mm',String(_journalWidthTarget(J,_physFacts().wMm))); _syncWidthOptions(); render(); _syncPhysReadout(); return true; }
+  if(action==='jdpi'){ const t=_journalDpiTarget(J,getExportDPI(),_figTextSizes().length>0); if(t){ pushUndo(); sv('export-dpi',String(t)); _syncPhysReadout(); } return true; }
+  if(action==='jfont'){ pushUndo(); const v=_journalFontValue(J); if(v&&!J.fonts.includes(_fontName(gv('label-font')))) sv('label-font',v);
+    if(gv('axis-font')&&!J.fonts.includes(_fontName(gv('axis-font')))) sv('axis-font',''); render(); return true; }
+  if(action==='jletters'){ pushUndo(); sv('label-font',_JFONT_VALUE[J.letters.font]); if(J.letters.bold) sc('label-bold',true);
+    if(J.letters.upper&&!['ABC','custom'].includes(gv('label-format'))) sv('label-format','ABC'); render(); return true; }
+  if(action==='jtext'){ pushUndo(); _journalClampText(J); if(typeof renderAnnotationList==='function') renderAnnotationList(); return true; }
+  if(action==='jlzw'){ _setTiffLzw(true); return true; }
+  if(action==='jname'){ pushUndo(); sv('export-name',J.naming.stem); return true; }
+  if(action==='jsbtext'){ pushUndo(); sc('sb-text',false); render(); return true; }
+  if(action==='jsbon'){ pushUndo(); _figurePanels().forEach(im=>{ if(im&&im.img&&im.umPerPx>0) im.sbOn=true; }); renderImgList(); render(); return true; }
+  if(action==='jfmt'){ if(m) m.remove(); doExportPreflight(J.formats[0]); return 'done'; }
+  if(action==='jlowppi'){
+    const low=_panelPpiList(getExportDPI()).filter(p=>p.ppi<J.dpiPhoto-0.5).sort((a,b)=>a.ppi-b.ppi)[0];
+    if(low){ if(m) m.remove();
+      if(layoutMode==='freeform'){ selectedElems.clear(); selectedElems.add(low.idx); if(typeof updateFreeformElemList==='function') updateFreeformElemList(); }
+      else selectedPanel=low.idx;
+      scheduleRender(0);
+      toast(`${low.label} prints at ${Math.round(low.ppi)} ppi — make it smaller, crop it less tightly, or pick a narrower printed width`,'warn');
+      return 'done'; }
+    return true;
+  }
+  return false;
+}
+// The Save dialog's lines for the target journal: what it accepts, and what the chosen
+// export breaks.
+function _journalPreflight(fmt, dpi, estBytes, name){
+  const J=_targetJournal(); if(!J) return null;
+  const FN={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF (lossless)',svg:'SVG'};
+  const tag=J.verified?'':' (unverified — check the journal’s page)';
+  const req=[J.formats?J.formats.map(f=>FN[f]).join(' / ')+(J.lzw?' (LZW)':''):null,
+    J.maxMB?`≤ ${J.maxMBNote||J.maxMB+' MB'}`:null, J.naming?J.naming.note:null].filter(Boolean).join(' · ')||'no format, size or naming rule stated';
+  const warns=[];
+  if(J.formats&&!J.formats.includes(fmt)){
+    const sw=`<button class="btn" style="padding:0 6px;font-size:10px;margin-left:4px" onclick="document.getElementById('pf-format').value='${J.formats[0]}';_refreshPreflight()" title="Switch this export to the format the journal accepts">Use ${FN[J.formats[0]]}</button>`;
+    warns.push({t:J.verified&&!J.formatStage?'warn':'info', m:`${esc(J.short||J.label)} accepts ${J.formats.map(f=>FN[f]).join(' or ')}${J.formatStage?` at ${J.formatStage}`:''}, not ${FN[fmt]||fmt}${tag}.${sw}`});
+  }
+  if(J.lzw&&fmt==='tiff'&&!gc('export-tiff-lzw')) warns.push({t:'warn',m:`${esc(J.short||J.label)} asks for LZW-compressed TIFF — tick Compress (LZW) above.`});
+  const lo=J.dpiLine||J.dpiPhoto;
+  if(lo&&dpi<lo) warns.push({t:J.verified?'warn':'info',m:`${esc(J.short||J.label)}: ${J.dpiNote}; ${dpi} DPI is below it${tag}.`});
+  if(J.dpiMax&&dpi>J.dpiMax) warns.push({t:J.verified?'warn':'info',m:`${esc(J.short||J.label)}: ${J.dpiNote}; ${dpi} DPI is above it${tag}.`});
+  if(J.maxMB&&estBytes>J.maxMB*1048576&&(!J.maxMBFmt||J.maxMBFmt===fmt||fmt==='tiff'))
+    warns.push({t:'warn',m:`The estimate is over ${esc(J.short||J.label)}’s ${J.maxMB} MB limit${fmt==='tiff'&&gc('export-tiff-lzw')?' uncompressed; LZW may bring it under — check the written file':''}.`});
+  if(J.naming&&!J.naming.re.test(name)) warns.push({t:'warn',m:`${esc(J.short||J.label)} names figure files ${J.naming.note}`});
+  return {req:`${esc(J.short||J.label)}: ${esc(req)}${tag}`, warns};
+}
+
 
 // Build the disclosure sentence a journal would want: tool, model, version, prompt.
 // Science asks for exactly this, so it is generated rather than left to memory.
@@ -14419,6 +15083,7 @@ async function doExport(fmt, opts){
       return;
     }
     _keyFmt=fmt; _keySyncUI();           // Download key follows the format the figure went out in
+    _lastExportFmt=fmt;                  // the journal report checks the format it went out in
     // Raster formats get a true supersampled re-render (grid and freeform alike).
     // Use the canvas's ACTUAL effective DPI (may be < requested if the 60MP cap
     // fired) so embedded physical-size metadata stays honest.
@@ -14804,7 +15469,8 @@ async function exportSubmissionPackage(){
     if(grid){
       const s1=_s1Panels().filter(_s1Selected);
       if(s1.length){
-        try{ files.push({name:S1_FILENAME+'.pdf', data:await _s1PdfBytes(s1,{})}); }
+        // PLOS asks for "S1_raw_images" (at most 20 MB), eLife for "Figure N—source data".
+        try{ const b=await _s1PdfBytes(s1,{}); files.push({name:_journalS1Name()+'.pdf', data:b}); _s1SizeWarn(b.length); }
         catch(e){ _captureSkips.push({label:'S1 uncropped originals', why:e&&e.message||String(e)}); }
       }
     }
@@ -15875,33 +16541,41 @@ function applyCalib(){
 // JOURNAL PRESETS
 // ═══════════════════════════════════════════════════════════════
 function applyPreset(name){
-  const p=PRESETS[name]; if(!p) return;
+  const p=PRESETS[name], J=JOURNALS[name]; if(!p&&!J) return;
   // A preset rewrites the panel size, the gaps, the fonts and the export width. Without
   // an undo entry none of that could be taken back, so trying a journal's house style
   // to see what it looked like was a one-way door.
   pushUndo();
   // Remembered so the export-time AI policy gate knows which journal to check against.
   _lastPresetName=name; _aiPolicyAcked=false;
-  sv('panel-w',p.panelW); sv('panel-h',p.panelH);
-  const _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`);
-  sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
-  sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
-  sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
-  sv('export-dpi',{nature:300,science:600,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
-  // the journal's double-column width, so the export lands at a real physical size
-  const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
-  sv('export-width-mm', wmm||'0');
-  // PLOS asks for LZW-compressed TIFF. Switched on for PLOS only, and never switched
-  // off by another preset: someone who ticked it wants it.
-  if(name==='plos') sc('export-tiff-lzw', true);
+  // The figure now targets this journal. Poster is a size preset, not a journal.
+  sv('target-journal', J?name:'none');
+  const nice=J?J.label:name.charAt(0).toUpperCase()+name.slice(1);
+  let _gapsCleared=false;
+  if(p){
+    sv('panel-w',p.panelW); sv('panel-h',p.panelH);
+    _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${nice} preset applied`);
+    sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
+    sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
+    sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
+    sv('export-dpi',{nature:300,science:600,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
+    // a width inside the journal's stated range, so the export lands at a real physical size
+    const wmm={nature:'183',science:'183.5',cell:'174',elife:'183',plos:'173',embo:'180',pnas:'180'}[name];
+    sv('export-width-mm', wmm||'0');
+  }
+  // Then what the journal's own page says, where it is mechanical: its width, font, type
+  // size at print size, DPI, TIFF compression (PLOS: LZW — never switched off by another
+  // journal, since someone who ticked it wants it) and file name. Same undo step.
+  const did=J?_applyJournalRules(J):[];
+  _syncWidthOptions(); _syncPhysReadout();
   scheduleRender();
-  if(!_gapsCleared) toast(`${name.charAt(0).toUpperCase()+name.slice(1)} preset applied`,'ok');
+  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
 // CAPTION GENERATOR
 // ═══════════════════════════════════════════════════════════════
-const LUT_NAMES={fire:'Fire LUT',green:'GFP (green)',cyan:'Cyan',magenta:'Magenta',yellow:'Yellow',blue:'DAPI (blue)',none:null};
+const LUT_NAMES={fire:'Fire LUT',green:'GFP (green)',cyan:'Cyan',magenta:'Magenta',red:'Red',yellow:'Yellow',blue:'DAPI (blue)',none:null};
 
 // Every adjustment that actually reached the displayed pixels, phrased for a figure
 // legend. Nature, JCB and Cell all require NON-LINEAR adjustments — gamma above all —
@@ -16306,6 +16980,7 @@ const _FIG_CONTROLS=[
   ['style.insetFrames','inset-frames','c'],['style.insetConnectors','inset-connectors','c'],
   ['exportDpi','export-dpi'],['exportWidthMm','export-width-mm'],['exportName','export-name'],
   ['exportTiffLzw','export-tiff-lzw','c'],
+  ['targetJournal','target-journal'],     // the journal the figure is checked against
   ['panelBorder.w','panel-border-w'],['panelBorder.c','panel-border-c'],['panelBorder.inset','panel-border-inset'],
   ['labelFormat','label-format'],
   ['fmCanvasW','fm-canvas-w'],['fmCanvasH','fm-canvas-h'],
@@ -16339,6 +17014,7 @@ function _applyFigControls(s){
     if(k==='c') sc(id,!!v); else sv(id,v);
   });
   const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw');
+  _syncJournalFromControl();
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();
 }
 
@@ -17095,6 +17771,7 @@ LUTS = {  # the pseudocolour tables FigureLab uses, on an 8-bit grey value i
     "green":   lambda i: (i * 0, i, i * 0),
     "cyan":    lambda i: (i * 0, i, i),
     "magenta": lambda i: (i, i * 0, i),
+    "red":     lambda i: (i, i * 0, i * 0),
     "yellow":  lambda i: (i, i, i * 0),
     "blue":    lambda i: (np.round(i * .28), np.round(i * .53), np.minimum(255, i)),
 }
@@ -17279,6 +17956,7 @@ LUT_FX <- list(
   green   = c(R = "0", G = "u", B = "0"),
   cyan    = c(R = "0", G = "u", B = "u"),
   magenta = c(R = "u", G = "0", B = "u"),
+  red     = c(R = "u", G = "0", B = "0"),
   yellow  = c(R = "u", G = "u", B = "0"),
   blue    = c(R = "u*0.28", G = "u*0.53", B = "u")
 )
@@ -18984,7 +19662,7 @@ function openFFAdjust(){
   set('ffa-gray', !!el.grayscale); set('ffa-inv', !!el.invert);
   // LUT buttons.
   const wrap=document.getElementById('ffa-luts'); wrap.innerHTML='';
-  const luts=['none','fire','green','cyan','magenta','yellow','blue'];
+  const luts=['none','fire','green','cyan','magenta','red','yellow','blue'];
   luts.forEach(l=>{ const btn=document.createElement('button'); btn.className='btn'; btn.style.cssText='padding:2px 9px;font-size:10px';
     btn.textContent=l; if((el.lut||'none')===l){ btn.style.borderColor='var(--accent)'; btn.style.color='var(--accent)'; }
     btn.onclick=()=>_ffAdjLut(l); wrap.appendChild(btn); });
@@ -21441,6 +22119,7 @@ function saveTemplate(){
     advancedSpacing, colGaps:colGaps?colGaps.slice():null, rowGaps:rowGaps?rowGaps.slice():null,
     autoRowH:gc('auto-row-h'),   // row heights are geometry too; a template without it loaded taller
     hiddenGap:gv('hidden-gap')||'auto',
+    targetJournal:gv('target-journal')||'none',   // a journal template is for that journal
     fmW:parseInt(document.getElementById('fm-canvas-w')?.value)||1200,
     fmH:parseInt(document.getElementById('fm-canvas-h')?.value)||900,
     // Strip transient render caches (live canvases, adjust/chart caches) before cloning.
@@ -21496,6 +22175,8 @@ function loadTemplate(t){
     _normalizeElemIds(freeformElements);   // fresh ids per instance; remap groups/connectors
     updateFreeformElemList();
   }
+  // Templates saved before the journal existed leave the figure's journal as it was.
+  if(t.targetJournal!==undefined){ sv('target-journal',JOURNALS[t.targetJournal]?t.targetJournal:'none'); _syncJournalFromControl(); }
   scheduleRender(0); toast(`Template "${t.name}" loaded`,'ok');
 }
 
@@ -23314,6 +23995,11 @@ function exportRulerCSV(){
 // and stated on the page, when chosen.
 // ═══════════════════════════════════════════════════════════════
 const S1_FILENAME='S1_uncropped_originals';
+// PLOS takes the uncropped originals as one PDF of at most 20 MB.
+function _s1SizeWarn(n){
+  const J=_targetJournal(), lim=J&&J.blots&&J.blots.s1MaxMB;
+  if(lim&&n>lim*1048576) toast(`The uncropped-originals PDF is ${(n/1048576).toFixed(1)} MB — ${J.label} takes at most ${lim} MB; untick panels in the S1 dialog or deposit the originals in a repository`,'warn');
+}
 const _S1_MAXPX=4000;             // longest side drawn; above it the ratio is printed
 function _s1Cropped(im){
   return !!(im.cropT||im.cropL||im.cropB||im.cropR||Math.abs(+im.cropAngle||0)>1e-9||(im.cropShape&&im.cropShape!=='rect'));
@@ -23488,11 +24174,12 @@ async function exportS1(ims, fmt, opts){
   if(fmt==='png'){
     const c=_s1SheetCanvas(ims, opts);
     const blob=await new Promise(r=>c.toBlob(r,'image/png'));
-    dl(URL.createObjectURL(blob), S1_FILENAME+'.png');
+    dl(URL.createObjectURL(blob), _journalS1Name()+'.png');
     toast(c._s1.scale<1?`S1 sheet PNG saved at ${Math.round(c._s1.scale*100)}% to stay under 60 MP — the PDF keeps full size`:`S1 sheet saved: ${ims.length} panel${ims.length>1?'s':''}`, c._s1.scale<1?'warn':'ok');
   } else {
     const bytes=await _s1PdfBytes(ims, opts);
-    dl(URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})), S1_FILENAME+'.pdf');
+    _s1SizeWarn(bytes.length);
+    dl(URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})), _journalS1Name()+'.pdf');
     toast(`S1 sheet saved: ${ims.length} page${ims.length>1?'s':''}, one per panel`,'ok');
   }
   logAction('exportS1',{panels:ims.map(im=>im.label), fmt, applyDisplay:!!(opts&&opts.applyDisplay)});
