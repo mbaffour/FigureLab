@@ -286,15 +286,18 @@ test('the submission package, multi-page PDF, PowerPoint and batch export carry 
 test('colour words: every LUT, tag swatch and chart palette colour has its name', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => ({
-    luts: Object.keys(LUTS).filter(k => k !== 'fire').map(k => _colourName(_rgbHex(LUTS[k](255)))),
+    luts: Object.keys(LUTS).filter(k => !LUT_INFO[k].ramp).map(k => _colourName(_rgbHex(LUTS[k](255)))),
+    // a ramp has no one hue: its key row names the ramp itself
+    ramps: Object.keys(LUTS).filter(k => LUT_INFO[k].ramp).map(k => _keyChannelRow('x', k).words.split(',')[0]),
     swatch: Object.values(_LUT_SWATCH).map(_colourName),
     okabe: CB_PALETTES.okabeIto.map(_colourName),
     rgb: _colourName('rgb(68,1,84)'),
     none: _colourName(null),
   }));
   // red joined the lookup tables with the journal checks (journals.spec.js), and has its word
-  expect(r.luts).toEqual(['green', 'cyan', 'magenta', 'red', 'yellow', 'blue']);
-  expect(r.swatch).toEqual(['blue', 'green', 'magenta', 'red', 'cyan', 'yellow', 'orange']);
+  expect(r.luts).toEqual(['green', 'cyan', 'magenta', 'red', 'yellow', 'blue', 'orange']);
+  expect(r.ramps).toEqual(['fire LUT', 'viridis colour map', 'magma colour map', 'inferno colour map', 'cividis colour map']);
+  expect(r.swatch).toEqual(['blue', 'green', 'magenta', 'red', 'cyan', 'yellow', 'orange', 'orange', 'green', 'orange', 'orange', 'yellow']);
   expect(r.okabe).toEqual(['black', 'orange', 'sky blue', 'bluish green', 'yellow', 'blue', 'vermilion', 'reddish purple']);
   expect(r.rgb).toBe('dark purple');
   expect(r.none).toBe('');

@@ -522,6 +522,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div style="margin-top:2px;font-size:10px">…or paste one with Ctrl/⌘+V</div>
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg,.csv,.tsv" style="display:none">
+    <input type="file" id="replace-input" accept="image/*,.tif,.tiff,.svg" style="display:none">
+    <input type="file" id="replace-all-input" multiple accept="image/*,.tif,.tiff,.svg" style="display:none">
     <button class="btn" id="load-example-btn" onclick="loadExampleFigure()" style="width:100%;justify-content:center;margin-top:6px" title="No image handy? Load a ready-made demo figure to explore FigureLab">✨ Load example figure</button>
     <!-- Handoff to SiliCoDraw (silicodraw.com, MIT, by Alex-D-C): a complementary
          free/offline vector editor for pathways, graphical abstracts, chemical
@@ -540,6 +542,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="sortImagesByName()" title="Sort panels by filename in natural order (file2 before file10), then relabel A, B, C…">↕ Sort by name</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="autoDetectChannels()" title="Detect DAPI / GFP / RFP / Cy5 / phase from filenames and assign colourblind-safe LUTs">🎨 Auto-channels</button>
     </div>
+    <button class="btn" id="replace-all-btn" style="width:100%;font-size:10px;justify-content:center;margin-top:4px" onclick="openReplaceAll()" title="Use this figure as a template for the next experiment: pick the new files and each goes to the panel whose file has the same name, the rest to the remaining panels in order. Every panel keeps its crop, labels, adjustments, annotations and layout; you see the list before anything changes.">⇄ Replace all images…</button>
     <div class="adv" style="display:flex;gap:4px;margin-top:4px">
       <input type="text" id="fname-pattern" placeholder="condition_time_channel_rep" style="flex:1;font-size:10px" title="Name your filename fields separated by _ (e.g. condition_time_channel_rep). Leave blank to just clean the name and detect the channel.">
       <button class="btn" style="font-size:10px;justify-content:center" onclick="parseFilenames()" title="Split each filename into the named fields, fill captions, and assign channel LUTs">⤷ Parse names</button>
@@ -1029,6 +1032,18 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="saveHouseStyle()" style="justify-content:center" title="Save the current figure's look as a reusable house style">💾 Save</button>
     </div>
     <div id="house-style-list" style="margin-top:3px"></div>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <button class="btn" onclick="exportHouseStyles()" style="flex:1;justify-content:center;font-size:10px" title="Save every house style in this browser to a JSON file — to keep, to share with the lab, or to bring into another browser or computer">⬇ Export styles</button>
+      <label class="btn" style="flex:1;justify-content:center;font-size:10px;cursor:pointer" title="Add the house styles from a FigureLab house-styles JSON file; a style with the same name is replaced">⬆ Import styles<input type="file" id="house-style-input" accept=".json,application/json" style="display:none"></label>
+    </div>
+    <label class="btn" style="width:100%;justify-content:center;margin-top:4px;cursor:pointer" title="Read paper_style.json — the style file CFU Plot Studio writes and your other figure apps read — so this figure gets the same font, type sizes, axis colour and strain colours as the rest of the paper. Only the keys that mean something here are used; the summary lists the rest. One undo step; saved with the figure.">📄 Load lab style (paper_style.json)…<input type="file" id="lab-style-input" accept=".json,application/json" style="display:none"></label>
+    <div id="lab-style-status" style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4"></div>
+    <!-- What a lab style puts in the figure that has no control of its own: the sample
+         colours charts use by name, and the chart axis line width. Hidden inputs, so
+         they are saved, undone and reset with every other figure control (_FIG_CONTROLS). -->
+    <input type="hidden" id="sample-colours" value="">
+    <input type="hidden" id="chart-axis-w" value="">
+    <input type="hidden" id="lab-style-src" value="">
     </div>
 
   </div>
@@ -1208,6 +1223,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <textarea id="key-text" rows="2" readonly placeholder="The legend key in words appears here…" style="margin-top:2px"></textarea>
     <textarea id="methods-out" rows="5" placeholder="Methods paragraph will appear here…" style="margin-top:4px"></textarea>
+    <div id="alt-text-wrap" style="margin-top:6px">
+      <div class="sec-lbl" style="margin:0 0 2px">Alt text <span class="help-chip" tabindex="0" role="button" aria-label="About alt text" data-tip="A description of the figure for readers who cannot see it. Springer Nature asks for it and AIP requires it. Embedded in the PNG (metadata), the SVG (its title and description) and the PDF (the document's Subject — document metadata, not a tagged-PDF figure alternative), and shipped in the submission package as -alt.txt.">?</span></div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span id="alt-text-count" style="font-size:10px;color:var(--muted);flex:1" title="Characters in the alt text">0 characters</span>
+        <button class="btn" onclick="draftAltText()" style="padding:2px 8px" title="Write a draft from the figure's structure — how many panels, the layout, scale bars, charts and the caption. It describes structure, not findings: add what the figure shows.">✦ Draft from figure</button>
+      </div>
+      <textarea id="alt-text" rows="3" oninput="_altTextInput()" placeholder="What the figure shows, for a reader who cannot see it…" style="margin-top:2px" title="Saved with the figure; embedded in PNG, SVG and PDF exports"></textarea>
+      <div style="font-size:9.5px;color:var(--muted);line-height:1.4">The draft describes the figure’s structure, not its findings. PDF carries it as document metadata (Subject), not as a tagged-PDF figure alternative.</div>
+    </div>
 
     <div class="sec-lbl" style="margin-top:6px">Figure notes (not exported)</div>
     <textarea id="fig-notes" rows="3" placeholder="Antibody dilutions, conditions, reviewer comments…" style="width:100%;resize:vertical;padding:5px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:11px;font-family:var(--mono)"></textarea>
@@ -1504,8 +1528,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="tritan">Tritanopia (blue-yellow)</option>
       </select>
     </label>
-    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Mark pixels at the display maximum (red — any channel at 255) and at zero (blue — every channel at 0) on every panel, ImageJ's HiLo view. A saturated pixel carries no measurable intensity, and reviewers look for them. Display only — never changes your exported pixels.">
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Mark pixels at the display maximum (red — any channel at 255) and at zero (blue — every channel at 0) on every panel, over the figure in its own colours (◐ HiLo shows the same ends over greys). A saturated pixel carries no measurable intensity, and reviewers look for them. Display only — never changes your exported pixels.">
       <input type="checkbox" id="clip-preview" onchange="setClipPreview(this.checked)" style="margin:0"> ▨ Clipped
+    </label>
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="HiLo range indicator: every panel shown in greys, with pixels under the display range (black after levels) in blue and over it (any channel at 255) in red — the view for setting black and white points. A display aid like the CVD preview: it is drawn over the figure on screen and never reaches an export.">
+      <input type="checkbox" id="hilo-preview" onchange="setHiLoPreview(this.checked)" style="margin:0"> ◐ HiLo
     </label>
     <div class="toolbar-sep"></div>
     <span id="canvas-info" style="font-size:10px;color:var(--muted)">No figure rendered</span>
@@ -2480,7 +2507,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <label for="be-lut">LUT</label>
           <select id="be-lut" onchange="setBatchEdit('lut',this.value)" style="font-size:10px;padding:1px 3px;grid-column:span 2">
             <option value="none">none</option><option value="green">green</option><option value="magenta">magenta</option><option value="red">red</option>
-            <option value="cyan">cyan</option><option value="yellow">yellow</option><option value="blue">blue</option><option value="fire">fire</option>
+            <option value="cyan">cyan</option><option value="yellow">yellow</option><option value="orange">orange</option><option value="blue">blue</option><option value="fire">fire</option>
+            <option value="viridis">viridis</option><option value="magma">magma</option><option value="inferno">inferno</option><option value="cividis">cividis</option>
           </select>
           <div style="grid-column:1 / -1;display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">
             <button class="btn" id="be-gray" onclick="setBatchEdit('grayscale',!cropEdState.batchEdit.grayscale)" style="padding:1px 6px;font-size:10px">Grayscale</button>
@@ -2935,6 +2963,7 @@ let _lastCells = null;      // idx → cell rect of the most recent render
 let _skipFrameDraw = false; // set by the SVG export: record the frames, do not paint them into the raster
 let _insetConnectors = [];  // per-render connector lines {insetIdx, from:[x,y], to:[x,y]} (on-screen only)
 let clipPreview = false;    // ▨ Clipped: mark saturated / zero pixels on the overlay (display only)
+let hiloPreview = false;    // ◐ HiLo: the same marks over greys, for setting levels (display only)
 let _renderStamp = 0;       // bumps on every on-screen render; caches keyed on it go stale with the picture
 let _sbResizeState = null;  // {idx, right, scale, preSnap} active scale-bar resize
 let _insetDragState = null; // {insetIdx, startX, startY, r0, dw, dh, preSnap, moved} dragging an inset's outline on its parent
@@ -3944,6 +3973,195 @@ function _flushGridGrowNote(){
   if(n.out>0) toast(`${n.out} panel${n.out>1?'s':''} ${n.out>1?'fall':'falls'} outside the grid${n.to>n.from?` even at ${n.cols} × ${n.to}`:` (${n.cols} × ${n.to})`} — listed but not drawn; add columns or use Fit grid`,'warn');
   else if(n.to>n.from) toast(`Grid grown to ${n.cols} × ${n.to} so every panel is drawn`,'ok');
 }
+// ── Replace an image, keep everything ─────────────────────────
+// A panel is the work done on it — crop, tilt, levels, LUT, label, tags, annotations,
+// span, insets — and the file is only its pixels. Swapping the file used to mean
+// deleting the panel and doing all of that again. Now one panel, or every panel at
+// once, takes a new file and keeps the rest, so last week's figure is the template
+// for this week's experiment.
+//
+// One file decoded into what _commitImage takes, without committing it. A TIFF goes
+// through the app's own decoder — `page` (1-based) of a stack when it has that page,
+// else the first — and an SVG keeps its vector source. Resolves null if unreadable.
+function _decodeImageFile(f, page){
+  const nameL=(f.name||'').toLowerCase();
+  const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
+  const isTIFF=f.type==='image/tiff'||/\.tiff?$/.test(nameL);
+  if(isTIFF) return (async()=>{
+    try{
+      const buf=new Uint8Array(await f.arrayBuffer());
+      const first=await decodeTIFF(buf,0), total=first.pages||1;
+      const p=(page>0&&page<=total)?page:1;
+      const res=p===1?first:await decodeTIFF(buf,p-1);
+      const it=await _tiffResToImg(res,f.name); if(!it) return null;
+      return {img:it.img, src:it.src, name:f.name, svgSource:null, raw:res.raw||null, page:p, pages:total,
+        calib:{umPerPx:res.umPerPx||0, source:res.calibSource||'', deltaT:res.deltaT==null?null:res.deltaT,
+          acqTime:res.acqTime==null?null:res.acqTime, timeSource:res.timeSource||'',
+          page:total>1?p:0, pages:total>1?total:undefined}};
+    }catch(e){ return null; }
+  })();
+  return new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onerror=reader.onabort=()=>resolve(null);
+    if(isSVG){
+      reader.onload=ev=>{ const svg=ev.target.result;
+        _rasterizeSVG('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg),
+          (img,png)=>resolve({img, src:png, name:f.name, svgSource:svg, raw:null, calib:null, page:1, pages:1}), ()=>resolve(null)); };
+      reader.readAsText(f);
+    } else {
+      reader.onload=ev=>{ const img=new Image();
+        img.onload=()=>resolve({img, src:ev.target.result, name:f.name, svgSource:null, raw:null, calib:null, page:1, pages:1});
+        img.onerror=()=>resolve(null); img.src=ev.target.result; };
+      reader.readAsDataURL(f);
+    }
+  });
+}
+// What a replacement does to a panel's calibration and crop, in words — the same list
+// the Replace-all summary shows before anything changes and the toast after. A
+// calibration is never kept when it may be wrong: the new file's metadata wins; with
+// none, the old µm/px stays only on identical pixel dimensions (same camera, same
+// binning); otherwise it is cleared and the panel asks for a new one.
+function _replacePlan(im, d){
+  const o=im.img||im._imgEl, ow=o?(o.naturalWidth||o.width||0):0, oh=o?(o.naturalHeight||o.height||0):0;
+  const nw=d.img.naturalWidth||d.img.width||0, nh=d.img.naturalHeight||d.img.height||0;
+  const c=d.calib||{}, notes=[];
+  let um=im.umPerPx||0, warn=false;
+  if(c.umPerPx>0){
+    if(Math.abs(um-c.umPerPx)>1e-9) notes.push(`calibration ${(+c.umPerPx).toPrecision(4)} µm/px from the new file’s ${c.source||'metadata'}`);
+    um=c.umPerPx;
+  } else if(um>0 && !(ow===nw&&oh===nh)){
+    notes.push(`calibration cleared: the new file is ${nw}×${nh} px and the old one ${ow}×${oh}, so ${(+um).toPrecision(4)} µm/px may be wrong — calibrate it again`);
+    um=0; warn=true;
+  }
+  if(ow&&oh&&nw&&nh){
+    const a=ow/oh, b=nw/nh;
+    if(Math.abs(b/a-1)>0.01){ notes.push(`aspect ratio ${a.toFixed(2)} → ${b.toFixed(2)}: the crop is kept as percentages, so check it`); warn=true; }
+  }
+  const lostCh=(im.channels||[]).length;
+  if(lostCh) notes.push(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — replace ${lostCh>1?'them':'it'} too if ${lostCh>1?'they':'it'} belonged to it`);
+  return {um, notes, warn, dims:`${nw}×${nh}`};
+}
+// Swap the pixels in, keep the panel. The gel analysis is left as it is: its bitmap
+// fingerprint no longer matches, so it reads "image replaced" and asks to re-detect.
+function _replaceInto(im, d){
+  const plan=_replacePlan(im, d), was=_sourceName(im)||'(unnamed)', c=d.calib||{};
+  const nw=d.img.naturalWidth, nh=d.img.naturalHeight;
+  im.img=d.img; im.src=d.src; im.name=d.name;
+  im.svgSource=d.svgSource||null; im.isVector=!!d.svgSource;
+  im.raw=(d.raw&&d.raw.w===nw&&d.raw.h===nh)?d.raw:null;   // native samples only when they match the pixels
+  if(c.page>0){ im.srcPage=c.page; im.srcPages=c.pages||undefined; } else { delete im.srcPage; delete im.srcPages; }
+  im._metaUmPerPx=c.umPerPx>0?c.umPerPx:0; im._metaCalibSource=c.source||'';
+  im._metaDeltaT=c.deltaT!=null?c.deltaT:null; im._metaAcqTime=c.acqTime!=null?c.acqTime:null; im._metaTimeSource=c.timeSource||'';
+  im.umPerPx=plan.um;
+  // A projection's record names the panels it was computed from; this file is not that.
+  im._projection=undefined; im._importCrop=undefined; im._sbSkip=undefined;
+  im._adjCache=undefined; im._adjKey=undefined; im._cropCache=undefined; im._cropKey=undefined;
+  // A new array, never a push: undo snapshots share the old one by reference.
+  im._replaced=[...(im._replaced||[]), {from:was, to:_sourceName(im)||d.name, at:new Date().toISOString()}];
+  return plan;
+}
+let _replaceTarget=null;
+function openReplaceImage(idx){
+  if(layoutMode==='freeform'){ toast('Replace image works on grid panels — switch to a grid layout','warn'); return; }
+  const im=images[idx];
+  if(!im){ toast('Select a panel first (click it in the figure or the list)','warn'); return; }
+  if(im.insetOf){ toast('A linked inset shows its parent panel — replace the parent’s image instead','warn'); return; }
+  _replaceTarget=im.id;
+  const inp=document.getElementById('replace-input'); if(inp){ inp.value=''; inp.click(); }
+}
+async function replacePanelImage(pid, f){
+  if(!f) return false;
+  if(_pidx(pid)<0){ toast(_PANEL_GONE,'warn'); return false; }
+  const d=await _decodeImageFile(f, images[_pidx(pid)].srcPage||0);
+  if(!d){ toast(`Couldn't open "${f.name}" — unsupported or corrupt`,'err'); return false; }
+  const i=_pidx(pid); if(i<0){ toast(_PANEL_GONE,'warn'); return false; }   // removed while the file decoded
+  const im=images[i], was=_sourceName(im)||'(unnamed)';
+  pushUndo();
+  const plan=_replaceInto(im, d);
+  syncLinkedInsets();
+  logAction('replaceImage',{label:im.label, from:was, to:_sourceName(im)});
+  renderImgList(); renderMiniGrid(); scheduleRender(0);
+  const pg=d.pages>1?` (page ${d.page} of ${d.pages})`:'';
+  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg}${plan.notes.length?' — '+plan.notes.join('; '):' — crop, labels and settings kept'}`, plan.warn?'warn':'ok');
+  return true;
+}
+// Which file goes to which panel. By file name first — the rule a figure opened without
+// its pixels uses to take re-dropped files (_fillPendingPanel): same name, and for a
+// stack the same page, so every panel cut from one TIFF takes its page of the new one.
+// The files no panel names fill the remaining panels in list order. Linked insets are
+// not targets; they follow their parent.
+function _replaceMatch(panels, names){
+  const used=new Set(), out=[], byFile=new Set();
+  names.forEach((n,fi)=>{
+    panels.forEach(im=>{ if(!used.has(im) && im.name===n){ used.add(im); byFile.add(fi);
+      out.push({im, fi, page:im.srcPage||0, how:'name'}); } });
+  });
+  const free=panels.filter(im=>!used.has(im));
+  const rest=names.map((n,fi)=>fi).filter(fi=>!byFile.has(fi));
+  rest.forEach(fi=>{ const im=free.shift(); if(im){ used.add(im); out.push({im, fi, page:0, how:'order'}); } });
+  return {pairs:out, unchanged:panels.filter(im=>!used.has(im)),
+    unused:rest.filter(fi=>!out.some(p=>p.fi===fi))};
+}
+function openReplaceAll(){
+  if(layoutMode==='freeform'){ toast('Replace all works on grid panels — switch to a grid layout','warn'); return; }
+  if(!images.some(im=>im&&!im.insetOf)){ toast('Add images first — this swaps new files into an existing figure','warn'); return; }
+  const inp=document.getElementById('replace-all-input'); if(inp){ inp.value=''; inp.click(); }
+}
+// Decode first, show old → new for every panel, apply on Replace as one undo step.
+async function replaceAllImages(fileList){
+  const files=[...(fileList||[])].filter(f=>_fileKind(f)==='image');
+  if(!files.length){ toast('No image files picked','warn'); return null; }
+  const panels=images.filter(im=>im&&!im.insetOf);
+  const m=_replaceMatch(panels, files.map(f=>f.name));
+  const cache=new Map();
+  for(const p of m.pairs){
+    const key=p.fi+'|'+p.page;
+    if(!cache.has(key)) cache.set(key, await _decodeImageFile(files[p.fi], p.page));
+    p.d=cache.get(key);
+  }
+  const bad=m.pairs.filter(p=>!p.d);
+  const ok=m.pairs.filter(p=>p.d);
+  ok.forEach(p=>{ p.plan=_replacePlan(p.im, p.d); p.ids=p.im.id; });
+  document.getElementById('replace-all-modal-bg')?.remove();
+  const bg=document.createElement('div'); bg.id='replace-all-modal-bg'; bg.className='modal-bg open';
+  const L=im=>esc(_rtPlain(formatLabel(im.label)||'?'));
+  const pg=p=>p.d&&p.d.pages>1?` (page ${p.d.page} of ${p.d.pages})`:'';
+  bg.innerHTML=`<div class="modal" style="max-width:600px;padding:22px">
+    <div style="font-weight:600;font-size:14px;margin-bottom:6px">Replace all images</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Each panel keeps its label, crop, tilt, adjustments, LUT, scale bar, tags, annotations, span and insets; only its file changes. Files go to the panel whose file has the same name, the rest to the remaining panels in order.</div>
+    <div id="ra-list" style="max-height:300px;overflow:auto;font-size:11px;line-height:1.55">
+      ${ok.map(p=>`<div class="ra-row" data-id="${p.im.id}"><b>${L(p.im)}</b> ${esc(_sourceName(p.im)||'(unnamed)')} → <b>${esc(p.d.name)}${esc(pg(p))}</b> <span style="color:var(--muted)">(${p.how==='name'?'same name':'in order'})</span>${p.plan.notes.length?`<div style="color:${p.plan.warn?'var(--warn)':'var(--muted)'};padding-left:14px">${p.plan.notes.map(esc).join('<br>')}</div>`:''}</div>`).join('')}
+      ${m.unchanged.length?`<div style="margin-top:6px" id="ra-unchanged"><b>Left unchanged:</b> ${m.unchanged.map(im=>`${L(im)} (${esc(_sourceName(im)||'')})`).join(', ')}</div>`:''}
+      ${m.unused.length?`<div style="margin-top:6px;color:var(--warn)" id="ra-unused"><b>Not used</b> (more files than panels): ${m.unused.map(fi=>esc(files[fi].name)).join(', ')}</div>`:''}
+      ${bad.length?`<div style="margin-top:6px;color:var(--danger)"><b>Could not be read</b>, so those panels stay as they are: ${bad.map(p=>esc(files[p.fi].name)).join(', ')}</div>`:''}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:14px">
+      <button class="btn btn-primary" id="ra-apply" style="flex:1;justify-content:center"${ok.length?'':' disabled'}>⇄ Replace ${ok.length} panel${ok.length===1?'':'s'}</button>
+      <button class="btn" id="ra-cancel" style="justify-content:center">Cancel</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  bg.querySelector('#ra-cancel').onclick=()=>bg.remove();
+  bg.querySelector('#ra-apply').onclick=()=>{
+    bg.remove();
+    // The panels are found again by id: an undo while the dialog was open may have
+    // replaced the objects it listed.
+    const live=ok.map(p=>({p, i:_pidx(p.ids)})).filter(o=>o.i>=0);
+    if(!live.length){ toast(_PANEL_GONE,'warn'); return; }
+    pushUndo();
+    let warns=0;
+    live.forEach(({p,i})=>{ const plan=_replaceInto(images[i], p.d); if(plan.warn) warns++; });
+    syncLinkedInsets();
+    logAction('replaceAll',{n:live.length, unchanged:m.unchanged.length});
+    renderImgList(); renderMiniGrid(); scheduleRender(0);
+    toast(`${live.length} panel${live.length===1?'':'s'} took new files${m.unchanged.length?`, ${m.unchanged.length} left unchanged`:''}${warns?` — ${warns} need a look (calibration or crop), see each panel`:''}`, warns?'warn':'ok');
+  };
+  return bg;
+}
+(function bindReplacePickers(){
+  const one=document.getElementById('replace-input'), all=document.getElementById('replace-all-input');
+  if(one) one.addEventListener('change',()=>{ const f=one.files[0], pid=_replaceTarget; _replaceTarget=null; if(f&&pid!=null) replacePanelImage(pid,f); one.value=''; });
+  if(all) all.addEventListener('change',()=>{ const fs=[...all.files]; all.value=''; if(fs.length) replaceAllImages(fs); });
+})();
 // The source a panel cites: the file's own name, and for a page of a multi-page TIFF
 // the page and the page count — "stack.tif (page 3 of 70)".
 function _sourceName(im){
@@ -4285,7 +4503,10 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
-  {label:'Generate alt-text (accessibility)', keys:'alt text accessibility screen reader a11y', run:()=>generateAltText()},
+  {label:'Replace image… (keep crop, labels and settings)', keys:'replace image swap file relink new picture keep crop settings update', run:()=>openReplaceImage(selectedPanel)},
+  {label:'Replace all images… (figure as a template)', keys:'replace all images template next experiment relink swap files batch reuse', run:()=>openReplaceAll()},
+  {label:'Alt text: draft from the figure (accessibility)', keys:'alt text alt-text accessibility screen reader a11y description springer aip', run:()=>draftAltText()},
+  {label:'Alt text: go to the box', keys:'alt text alt-text write edit accessibility description', run:()=>focusAltText()},
   {label:'Group selection',          keys:'group combine objects together', run:()=>groupSelectedElems()},
   {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
   {label:'Connect two objects',      keys:'connect connector arrow link line flow', run:()=>connectSelected()},
@@ -4304,6 +4525,9 @@ const CMD_REGISTRY=[
   {label:'Add gene map (linear)',    keys:'gene map dna construct sbol plasmid cassette genetic circuit feature', run:()=>addGenemapElement('linear')},
   {label:'Add plasmid map (circular)', keys:'plasmid circular gene map dna vector sbol ori', run:()=>addGenemapElement('circular')},
   {label:'Edit chart data…',         keys:'chart edit data csv',           run:()=>openChartModal()},
+  {label:'Load lab style (paper_style.json)…', keys:'lab style paper style paper_style json cfu plot studio font strain sample colours colors palette consistent', run:()=>document.getElementById('lab-style-input').click()},
+  {label:'Export house styles to a file', keys:'house styles export save file json share backup lab style', run:()=>exportHouseStyles()},
+  {label:'Import house styles from a file', keys:'house styles import load file json share lab style', run:()=>document.getElementById('house-style-input').click()},
   {label:'Theme: Grayscale for print', keys:'theme grayscale greyscale print mono black white', run:()=>applyBuiltinTheme('grayscale-print')},
   {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
   {label:'Theme: High contrast',       keys:'theme contrast bold talk slide',                    run:()=>applyBuiltinTheme('high-contrast')},
@@ -4356,6 +4580,7 @@ const CMD_REGISTRY=[
   {label:'Show credits & attribution', keys:'credits attribution licence license icons cite', run:()=>showCredits()},
   {label:'Homogenize text & stroke styles', keys:'homogenize consistent font size stroke tidy uniform', run:()=>auditConsistency()},
   {label:'Add linked inset… (draw the region)', keys:'inset magnify zoom daughter linked region detail pick draw', run:()=>pickInsetRegion()},
+  {label:'HiLo range indicator (toggle, display only)', keys:'hilo hi lo range indicator under over levels black white point blue red preview', run:()=>setHiLoPreview(!hiloPreview)},
   {label:'Clipped-pixel preview (toggle)', keys:'clipped saturated saturation hilo zero pixels preview exposure', run:()=>setClipPreview(!clipPreview)},
   {label:'Add linked inset of the middle third', keys:'inset magnify zoom daughter linked quick centre', run:()=>addLinkedInset()},
   {label:'Label panels from filename fields', keys:'label template tokens filename fields rename', run:()=>applyLabelTemplate()},
@@ -4474,7 +4699,7 @@ function _cmdpAddChannel(){
   if(!btn){ toast('Open the panel’s ⚙ and use “+ Add channel”','warn'); return; }
   try{ btn.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ btn.scrollIntoView(); }catch(e2){} }
   btn.classList.add('cmdp-flash'); setTimeout(()=>btn.classList.remove('cmdp-flash'),1400);
-  toast(`Pick the second channel for panel ${formatLabel(images[i].label)||''} — it overlays with its own colour`,'ok');
+  toast(`Pick the second channel for panel ${_rtText(formatLabel(images[i].label))||''} — it overlays with its own colour`,'ok');
 }
 
 function openCmdPalette(){
@@ -4591,9 +4816,18 @@ function setClipPreview(on){
   if(clipPreview) toast('Clipped-pixel preview on — red at maximum, blue at zero; display only','ok');
   drawAnnOverlay();
 }
-function _clipMask(){
+// HiLo is a look-up table in ImageJ, which is how it ends up in exported figures there.
+// Here it is a view, never a panel's LUT: drawn on the overlay canvas from the composed
+// figure, like the clipped preview, so no export path can see it.
+function setHiLoPreview(on){
+  hiloPreview=!!on;
+  const cb=document.getElementById('hilo-preview'); if(cb&&cb.checked!==hiloPreview) cb.checked=hiloPreview;
+  if(hiloPreview) toast('HiLo on — greys, blue under the range, red over it; display only, never exported','ok');
+  drawAnnOverlay();
+}
+function _clipMask(hilo){
   const fc=document.getElementById('fig-canvas'); if(!fc||!fc.width) return null;
-  const key=`${_renderStamp}|${fc.width}x${fc.height}`;
+  const key=`${_renderStamp}|${fc.width}x${fc.height}|${hilo?'hilo':'clip'}`;
   if(_clipCache&&_clipCache.key===key) return _clipCache;
   const src=fc.getContext('2d');
   const out=document.createElement('canvas'); out.width=fc.width; out.height=fc.height;
@@ -4617,12 +4851,14 @@ function _clipMask(){
         const r=px[i],g=px[i+1],b=px[i+2];
         let mark=0;
         if(r>=255||g>=255||b>=255) mark=1; else if(r===0&&g===0&&b===0) mark=2;
-        if(!mark) { total++; continue; }
+        if(!mark&&!hilo) { total++; continue; }
         const ax=X+x, ay=Y+y;
         let skipped=false;
         for(const s of local){ if(ax>=s.x&&ax<s.x+s.w&&ay>=s.y&&ay<s.y+s.h){ skipped=true; break; } }
         total++;
         if(skipped) continue;
+        if(!mark){ const v=Math.round(r*0.299+g*0.587+b*0.114); mp[i]=mp[i+1]=mp[i+2]=v; mp[i+3]=255; continue; }
+        if(hilo){ if(mark===1){ mp[i]=255; mp[i+1]=0; mp[i+2]=0; hi++; } else { mp[i]=0; mp[i+1]=0; mp[i+2]=255; lo++; } mp[i+3]=255; continue; }
         if(mark===1){ mp[i]=255; mp[i+1]=40; mp[i+2]=40; hi++; } else { mp[i]=40; mp[i+1]=120; mp[i+2]=255; lo++; }
         mp[i+3]=230;
       }
@@ -4633,10 +4869,11 @@ function _clipMask(){
   return _clipCache;
 }
 function _drawClipOverlay(ctx){
-  const m=_clipMask(); if(!m) return;
+  const m=_clipMask(hiloPreview); if(!m) return;
   ctx.drawImage(m.canvas,0,0);
   const pct=v=>m.total?`${(100*v/m.total).toFixed(v&&100*v/m.total<0.1?2:1)} %`:'0 %';
-  const txt=`▨ clipped — red at maximum ${pct(m.hi)} · blue at zero ${pct(m.lo)} · preview only`;
+  const txt=hiloPreview?`◐ HiLo — red over the range ${pct(m.hi)} · blue under it ${pct(m.lo)} · preview only, never exported`
+    :`▨ clipped — red at maximum ${pct(m.hi)} · blue at zero ${pct(m.lo)} · preview only`;
   ctx.save(); ctx.font='11px system-ui,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='top';
   const w=ctx.measureText(txt).width+12;
   ctx.fillStyle='rgba(0,0,0,.72)'; ctx.fillRect(6,6,w,18);
@@ -4810,7 +5047,10 @@ function _setTiffLzw(on, fromSidebar){
 }
 function closePreflight(){ document.getElementById('preflight-modal').classList.remove('open'); _preflightFmt=null; }
 // map an export format to the file extension it produces
-function _pfExt(fmt){ return {png:'png',jpeg:'jpg',webp:'webp',tiff:'tiff',pdf:'pdf','pdf-lossless':'pdf',svg:'svg'}[fmt]||fmt; }
+function _pfExt(fmt){ return {png:'png',jpeg:'jpg',webp:'webp',tiff:_tiffExt(),pdf:'pdf','pdf-lossless':'pdf',svg:'svg'}[fmt]||fmt; }
+// A journal that names its files Fig1.tif gets .tif — PLOS's submission system checks
+// the name it asked for. Everywhere else the TIFF is written as .tiff, as it always was.
+function _tiffExt(){ const J=(typeof _targetJournal==='function')?_targetJournal():null; return J&&J.tifExt?'tif':'tiff'; }
 // Open the Save dialog: seed the name/format/DPI controls, then let the user tweak before downloading.
 function doExportPreflight(fmt){
   const hasFF=(typeof freeformElements!=='undefined')&&freeformElements.length;
@@ -4854,8 +5094,8 @@ function _refreshPreflight(){
   const _vp=fmt==='svg'?_svgVectorPlan():null;
   const vectorNote = fmt==='svg'
     ? 'Labels, scale bars & annotations export as <b>vector</b> — sharp at any zoom.'
-      +(_vp.vector.length?` Imported SVG panel${_vp.vector.length>1?'s':''} ${_vp.vector.map(v=>esc(formatLabel(v.im.label)||'?')).join(', ')} stay <b>vector</b>.`:'')
-      +_vp.raster.map(r=>` Panel ${esc(formatLabel(r.im.label)||'?')} was imported as SVG but is written as <b>pixels</b>: ${esc(r.why.join('; '))}.`).join('')
+      +(_vp.vector.length?` Imported SVG panel${_vp.vector.length>1?'s':''} ${_vp.vector.map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} stay <b>vector</b>.`:'')
+      +_vp.raster.map(r=>` Panel ${esc(_rtText(formatLabel(r.im.label))||'?')} was imported as SVG but is written as <b>pixels</b>: ${esc(r.why.join('; '))}.`).join('')
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
@@ -4912,7 +5152,7 @@ async function _saveFromDialog(){
   const nEl=document.getElementById('export-name'); if(nEl) nEl.value=nm;
   const dEl=document.getElementById('export-dpi'); if(dEl) dEl.value=dpi;
   const ext=_pfExt(fmt);
-  const MIME={png:'image/png',jpg:'image/jpeg',webp:'image/webp',tiff:'image/tiff',pdf:'application/pdf',svg:'image/svg+xml'};
+  const MIME={png:'image/png',jpg:'image/jpeg',webp:'image/webp',tiff:'image/tiff',tif:'image/tiff',pdf:'application/pdf',svg:'image/svg+xml'};
   const mime=MIME[ext]||'application/octet-stream';
   // Native OS Save dialog — ask FIRST (while the click's user-activation is still fresh), then render.
   if(window.showSaveFilePicker){
@@ -5124,6 +5364,7 @@ function renderImgList(){
         <span class="f-span-note" data-span="${idx}" style="color:var(--warn)"></span>
       </div>
       <div class="img-settings" id="settings-${idx}">
+        <button class="btn" onclick="openReplaceImage(${idx})" style="width:100%;justify-content:center;margin-bottom:4px" title="Swap in another file and keep everything else: label, crop, tilt, rotation, adjustments, LUT, scale-bar settings, tags, annotations, span and insets. Calibration comes from the new file's metadata, or is kept only when the pixel dimensions are identical.">⇄ Replace image…</button>
         <div class="sec-lbl">Scale bar</div>
         <div class="field"><label>Enable</label>
           <input type="checkbox" class="f-sb-on" ${im.sbOn?'checked':''}></div>
@@ -5231,14 +5472,7 @@ function renderImgList(){
         <div class="divider"></div>
         <div class="sec-lbl">Fluorescence LUT <span class="help-chip" tabindex="0" role="button" aria-label="About LUTs" data-tip="Recolors a grayscale channel (e.g. green for GFP, blue for DAPI) for display only — the underlying intensities are unchanged. Prefer magenta+green over red+green for colourblind readers.">?</span></div>
         <div class="lut-row">
-          <button class="f-lut ${im.lut==='none'?'lut-active':''}" data-lut="none"  style="background:#555">Off</button>
-          <button class="f-lut ${im.lut==='fire'?'lut-active':''}" data-lut="fire"   style="background:linear-gradient(to right,#000,#f00,#ff0,#fff);color:#fff">Fire</button>
-          <button class="f-lut ${im.lut==='green'?'lut-active':''}" data-lut="green" style="background:linear-gradient(to right,#000,#0f0);color:#0f0">GFP</button>
-          <button class="f-lut ${im.lut==='cyan'?'lut-active':''}" data-lut="cyan"   style="background:linear-gradient(to right,#000,#0ff);color:#0ff">Cyan</button>
-          <button class="f-lut ${im.lut==='magenta'?'lut-active':''}" data-lut="magenta" style="background:linear-gradient(to right,#000,#f0f);color:#f0f">Mag</button>
-          <button class="f-lut ${im.lut==='red'?'lut-active':''}" data-lut="red" style="background:linear-gradient(to right,#000,#f00);color:#f55" title="Red reads as green's twin to about 1 in 12 men; magenta is the safer partner for green">Red</button>
-          <button class="f-lut ${im.lut==='yellow'?'lut-active':''}" data-lut="yellow"   style="background:linear-gradient(to right,#000,#ff0);color:#ff0">Yel</button>
-          <button class="f-lut ${im.lut==='blue'?'lut-active':''}"   data-lut="blue"     style="background:linear-gradient(to right,#000,#48f);color:#48f">DAPI</button>
+          ${Object.entries(LUT_INFO).map(([k,L])=>`${k==='viridis'?'<span style="flex-basis:100%;height:0"></span>':''}<button class="f-lut ${(im.lut||'none')===k?'lut-active':''}" data-lut="${k}" style="background:${k==='none'?'#555':_lutCss(k)};color:${L.ramp||k==='none'?'#fff':_rgbHex(LUTS[k](255))};${L.ramp?'text-shadow:0 0 2px #000':''}"${k==='red'?' title="Red reads as green’s twin to about 1 in 12 men; magenta is the safer partner for green"':L.table?` title="${L.name}: perceptually uniform — equal steps in the data look like equal steps in colour, and it reads in greyscale and to colour-blind readers"`:''}>${L.btn}</button>`).join('')}
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Channels (screen blend) <span class="ch-count"></span></div>
@@ -5431,7 +5665,7 @@ function renderImgList(){
       chCount.textContent=im2.channels.length?`(${im2.channels.length})`:'';
       chList.innerHTML='';
       im2.channels.forEach((ch,ci)=>{
-        const lutNames={none:'Off',fire:'Fire',green:'GFP',cyan:'Cyan',magenta:'Mag',red:'Red',yellow:'Yel',blue:'DAPI'};
+        const lutNames=Object.fromEntries(Object.entries(LUT_INFO).map(([k,L])=>[k,L.btn]));
         const row=document.createElement('div');
         row.style.cssText='display:flex;align-items:center;gap:4px;font-size:10px';
         row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${esc(ch.name||'ch'+(ci+1))}</span>
@@ -5765,7 +5999,7 @@ function uniformScaleBars(){
   cal.forEach(im=>{ im.sbUm=um; im.sbOn=true; if(sel&&sel.sbUnit) im.sbUnit=sel.sbUnit; });
   renderImgList(); scheduleRender(0);
   logAction('uniformScaleBars',{panels:cal.length,um,from:sel?formatLabel(sel.label):'median'});
-  toast(`Scale bar ${_sbLabel(cal[0])} on ${cal.length} calibrated panel${cal.length>1?'s':''}${sel?` (from ${formatLabel(sel.label)})`:''}`,'ok');
+  toast(`Scale bar ${_sbLabel(cal[0])} on ${cal.length} calibrated panel${cal.length>1?'s':''}${sel?` (from ${_rtText(formatLabel(sel.label))})`:''}`,'ok');
 }
 
 function matchScalePixels(){
@@ -5919,7 +6153,7 @@ function rotateSelectedPanel(delta){
   if(idx<0){ toast('Click a panel first, then rotate it','warn'); return; }
   pushUndo();
   setPanelAngle(idx, _panelAngle(idx)+delta);
-  toast(`${formatLabel(images[idx].label)||'Panel'} at ${_panelAngle(idx)}\u00b0`,'ok');
+  toast(`${_rtText(formatLabel(images[idx].label))||'Panel'} at ${_panelAngle(idx)}\u00b0`,'ok');
 }
 // Turn every panel that is in the figure. Importing a folder of microscope captures
 // that are all lying on their side is the ordinary case, and turning them one at a time
@@ -5945,7 +6179,7 @@ function straightenFromToolbar(){
   if(layoutMode==='freeform'){ toast('In freeform, use the rotate handle on the selected object','warn'); return; }
   if(selectedPanel>=0&&images[selectedPanel]){
     if(!_panelAngle(selectedPanel)){ toast('That photo is already upright','ok'); return; }
-    pushUndo(); setPanelAngle(selectedPanel,0); toast(`${formatLabel(images[selectedPanel].label)||'Panel'} upright`,'ok'); return;
+    pushUndo(); setPanelAngle(selectedPanel,0); toast(`${_rtText(formatLabel(images[selectedPanel].label))||'Panel'} upright`,'ok'); return;
   }
   const idx=images.map((im,i)=>({im,i})).filter(o=>o.im&&o.im.img&&!o.im.excluded&&_panelAngle(o.i)).map(o=>o.i);
   if(!idx.length){ toast('Every photo is already upright','ok'); return; }
@@ -5997,7 +6231,7 @@ function applySettingsToAll(srcIdx){
   const n=images.filter((im,i)=>im&&i!==srcIdx).length;
   if(!n){ toast('No other panels to apply to','warn'); return; }
   showConfirmModal('Apply to all panels?',
-    `Brightness, contrast, gamma, LUT, and levels from panel ${formatLabel(src.label)} will overwrite ${n} other panel(s). One undo step.`,
+    `Brightness, contrast, gamma, LUT, and levels from panel ${_rtText(formatLabel(src.label))} will overwrite ${n} other panel(s). One undo step.`,
     ()=>{
       pushUndo();
       images.forEach((im,i)=>{
@@ -6045,7 +6279,7 @@ function syncLevelsByChannel(srcIdx){
   const keys=[...ref.keys()].join(', ');
   logAction('syncLevelsByChannel',{src:formatLabel(src.label), channels:keys, panels, extraChannels:chans});
   if(!panels&&!chans) toast(`No other panel shows ${keys} — nothing to sync`,'warn');
-  else toast(`${keys} levels from ${formatLabel(src.label)} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})`,'ok');
+  else toast(`${keys} levels from ${_rtText(formatLabel(src.label))} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})`,'ok');
 }
 
 // Linked / "matched" panels: sync adjustments across a named comparison group,
@@ -6076,7 +6310,7 @@ function syncGroupToPanel(srcIdx){
 // Split-channel row: explode a multi-channel composite into separate
 // single-channel panels plus a merge — the classic split-channel figure.
 function _lutChannelName(lut){
-  return {blue:'DAPI',green:'GFP',magenta:'RFP',red:'Red',cyan:'Cyan',yellow:'Yellow',fire:'Cy5',none:'Gray'}[lut||'none']||'Channel';
+  const L=LUT_INFO[lut||'none']; return L?L.chan:'Channel';
 }
 // Auto-contrast ink: read what is already painted under a rectangle (logical units;
 // the context is scaled by S) and answer white or black. Used for the panel letter, a
@@ -6101,7 +6335,10 @@ function _autoInk(ctx,S,x,y,w,h,fallback){
 // ── Panel tags and intensity bars ─────────────────────────────
 // Swatches for naming a channel in its own colour: the LUT at full intensity, lifted
 // so it reads on a dark micrograph (pure blue text on black is unreadable).
-const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',red:'#ff5a5a',cyan:'#4fe3e3',yellow:'#f0e050',fire:'#ff9a3c'};
+const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',red:'#ff5a5a',cyan:'#4fe3e3',yellow:'#f0e050',fire:'#ff9a3c',
+  orange:'#ffa040',
+  // a colour map's tag is written in its bright end, which is readable on a dark image
+  viridis:'#70cf57', magma:'#fd9869', inferno:'#fb9d07', cividis:'#c4b468'};
 function _channelName(name, lut){
   const d=_detectChannel(name||'');
   return (d&&d.label&&d.label!=='Merge')?d.label:_lutChannelName(lut);
@@ -7202,7 +7439,7 @@ function _gelLoadStamp(la,mode){
 function _gelLoadingFrom(lcIdx,nLanes,mode){
   mode=mode==='total'?'total':'bands';
   const lc=images[lcIdx]; if(!lc) return {error:'No such panel'};
-  const lab=formatLabel(lc.label)||String(lcIdx+1);
+  const lab=_rtText(formatLabel(lc.label))||String(lcIdx+1);
   let la=null, from='detected for this pairing';
   if(_gelFresh(lc)&&lc.gelAnalysis.lanes.length){ la=lc.gelAnalysis; from='its own analysis'; }
   else { la=_gelAnalyse(lc); if(la.error) return la; }
@@ -7332,7 +7569,7 @@ function runGelAnalysis(idx,opts){
   pushUndo();
   im.gelAnalysis=a;
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
-  if(!a.lanes.length) toast(`No lanes found in panel ${formatLabel(im.label)||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
+  if(!a.lanes.length) toast(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
   else if(dropped) toast(dropped,'warn');
   // A lane table is never re-mapped onto a different number of lanes behind your back:
   // which lane gained or lost a column is not something to guess.
@@ -7518,7 +7755,7 @@ function _gelClipText(a){
 }
 function gelCSV(idx){
   const im=images[idx], a=im&&im.gelAnalysis; if(!a) return '';
-  const nm=formatLabel(im.label)||String(idx+1), rows=_gelRows(a), sat=_gelSatCount(a);
+  const nm=_rtText(formatLabel(im.label))||String(idx+1), rows=_gelRows(a), sat=_gelSatCount(a);
   const f=a.frame, fit=a.ladder&&a.ladder.fit;
   const lcStale=_gelLoadingStale(a,im), lcLab=a.loading?_gelLoadingLabel(a):'';
   const part=_gelFlagCount(a,'partial'), note=_gelLaneNote(a);
@@ -7585,7 +7822,7 @@ function gelPlaceLaneNumbers(idx){
   scheduleRender(0);
   // An inferred lane shifts the numbers after it: say so where the numbers are placed.
   const inf=a.lanes.map((L,i)=>L.inferred?i+1:0).filter(Boolean);
-  toast(`Placed ${a.lanes.length} lane numbers on the lanes of panel ${formatLabel(im.label)}`+(inf.length?` — lane${inf.length>1?'s':''} ${_listAnd(inf.map(String))} inferred from the lane pitch, with no signal; check ${inf.length>1?'they are lanes':'it is a lane'}, not margin`:''),inf.length?'warn':'ok');
+  toast(`Placed ${a.lanes.length} lane numbers on the lanes of panel ${_rtText(formatLabel(im.label))}`+(inf.length?` — lane${inf.length>1?'s':''} ${_listAnd(inf.map(String))} inferred from the lane pitch, with no signal; check ${inf.length>1?'they are lanes':'it is a lane'}, not margin`:''),inf.length?'warn':'ok');
   return true;
 }
 function gelPlaceMWLabels(idx){
@@ -7609,7 +7846,7 @@ function gelPlaceMWLabels(idx){
     annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, mw:true}); }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
-  toast(`Placed ${n} MW labels on the ladder bands of panel ${formatLabel(im.label)}`,'ok');
+  toast(`Placed ${n} MW labels on the ladder bands of panel ${_rtText(formatLabel(im.label))}`,'ok');
   return true;
 }
 
@@ -7621,7 +7858,7 @@ function _gelMethodsSentences(P){
     const a=im.gelAnalysis;
     // No lanes, nothing measured: no sentence claims densitometry was done.
     if(!a.lanes.length) return;
-    const nm=formatLabel(im.label)||'(unlabelled)', sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
+    const nm=_rtText(formatLabel(im.label))||'(unlabelled)', sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     const inf=a.lanes.map((L,i)=>L.inferred?String(i+1):null).filter(Boolean);
     const lanes=a.laneInfo&&a.laneInfo.whole?'the whole crop width was measured as one lane (the lane count set by hand)'
       :a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the background-flattened column intensity profile (the lane count set by hand)`
@@ -7660,7 +7897,7 @@ function _gelComplianceRow(shown){
   if(!P.length) return null;
   const notes=[]; let warn=false;
   P.forEach(im=>{
-    const a=im.gelAnalysis, nm=esc(formatLabel(im.label)||'?'), sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
+    const a=im.gelAnalysis, nm=esc(_rtText(formatLabel(im.label))||'?'), sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting`); return; }
     if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
@@ -7707,8 +7944,8 @@ function openGelAnalysis(idx){
   closeGelAnalysis();
   _gelUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, k:1, sel:null, drag:null, lane:0, pdrag:null, prof:null};
   const m=document.createElement('div'); m.id='gel-modal-bg'; m.className='modal-bg open';
-  const lab=formatLabel(im.label)||String(idx+1);
-  const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">panel ${esc(formatLabel(p.label)||String(i+1))}</option>`:'').join('');
+  const lab=_rtText(formatLabel(im.label))||String(idx+1);
+  const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">panel ${esc(_rtText(formatLabel(p.label))||String(i+1))}</option>`:'').join('');
   m.innerHTML=`<div class="modal" style="max-width:1000px;width:96vw">
     <button class="modal-close" onclick="closeGelAnalysis()" aria-label="Close" title="Close (Esc)">×</button>
     <h3>⫼ Lanes &amp; bands — panel ${esc(lab)}</h3>
@@ -8319,6 +8556,7 @@ function _collectHouseStyle(){
   };
 }
 function _applyHouseStyle(s){
+  _ensureFontOption(s.labelFont); _ensureFontOption(s.axisFont);
   const set=(id,v)=>{ if(v!==undefined&&v!==null) sv(id,v); };
   const chk=(id,v)=>{ if(v!==undefined&&v!==null) sc(id,v); };
   set('bg-color',s.bgColor); chk('show-labels',s.showLabels); set('label-size',s.labelSize);
@@ -8412,6 +8650,163 @@ function renderHouseStyles(){
     el.appendChild(row);
   });
 }
+// House styles live in one browser's storage; a file takes them to another browser, a
+// colleague, or a backup. Import reads only the house-style keys (_collectHouseStyle),
+// so a file cannot set anything a house style does not.
+function exportHouseStyles(){
+  const arr=getHouseStyles();
+  if(!arr.length){ toast('No house styles saved yet — save one first','warn'); return; }
+  dl(blobUrl(JSON.stringify({app:'FigureLab', kind:'house_styles', version:1, exported:new Date().toISOString(), styles:arr},null,2)), 'figurelab-house-styles.json');
+  toast(`${arr.length} house style${arr.length>1?'s':''} saved to figurelab-house-styles.json`,'ok');
+}
+function importHouseStyles(obj){
+  const list=Array.isArray(obj)?obj:(obj&&Array.isArray(obj.styles)?obj.styles:null);
+  if(!list){ toast('That file is not a FigureLab house-styles file','err'); return 0; }
+  const keys=new Set(Object.keys(_collectHouseStyle()));
+  const arr=getHouseStyles(); let added=0, replaced=0;
+  list.forEach(s=>{
+    const name=String((s&&s.name)||'').trim().slice(0,24);
+    if(!name||!s.style||typeof s.style!=='object') return;
+    const style={}; Object.entries(s.style).forEach(([k,v])=>{ if(keys.has(k)&&(typeof v==='string'||typeof v==='boolean'||typeof v==='number')) style[k]=v; });
+    const at=arr.findIndex(x=>x.name===name);
+    if(at>=0){ arr[at]={name, style}; replaced++; } else { arr.push({name, style}); added++; }
+  });
+  if(!added&&!replaced){ toast('No house styles found in that file','warn'); return 0; }
+  try{ localStorage.setItem('figurelab_housestyles',JSON.stringify(arr)); }catch(e){ toast('Could not save (storage full)','err'); return 0; }
+  renderHouseStyles();
+  toast(`${added+replaced} house style${added+replaced>1?'s':''} imported${replaced?` (${replaced} replaced one of the same name)`:''}`,'ok');
+  return added+replaced;
+}
+
+// ── Lab style: paper_style.json ─────────────────────────────────
+// The author's other figure apps share one paper_style.json (written by CFU Plot
+// Studio, read by the lysis-curve and plaque apps) so every figure of a paper has the
+// same font and strain colours. FigureLab reads it through an ALLOWLIST: each key below
+// is mapped by hand to the control that means the same thing here, and every other key
+// in the file is listed as not used — never looped over, so a key meant for a ggplot
+// theme can never land on a FigureLab control by accident.
+//
+// Sizes: the file's sizes are ggplot points; FigureLab's are layout pixels, which print
+// at _physFacts().ptPerPx points each at the figure's export width and DPI. They are
+// converted at the print size the figure has when the style is loaded, and the summary
+// says which factor was used.
+const _LAB_FONT={sans:'Arial,Helvetica,sans-serif', serif:"'Times New Roman',serif", mono:"'Courier New',monospace",
+  'Arial':'Arial,Helvetica,sans-serif', 'Helvetica':"'Helvetica Neue',Arial,sans-serif", 'Times New Roman':"'Times New Roman',serif"};
+const _LAB_KEYS=['font_family','font_family_custom','font_size','title_size','axis_color','axis_line_width','sample_palette'];
+// ggplot2 draws linewidth L at L × .pt (72.27/25.4) lwd, and R draws one lwd as 1/96 in = 0.75 pt.
+const _GG_LW_PT=72.27/25.4*0.75;
+function _ensureFontOption(v){
+  if(!v) return;
+  ['label-font','axis-font'].forEach(id=>{
+    const sel=document.getElementById(id); if(!sel||[...sel.options].some(o=>o.value===v)) return;
+    const o=document.createElement('option'); o.value=v; o.textContent=String(v).split(',')[0].replace(/['"]/g,'').trim()+' (lab style)';
+    sel.appendChild(o);
+  });
+}
+function _sampleColours(){
+  const s=gv('sample-colours')||'';
+  if(_sampleColours._s===s) return _sampleColours._m;
+  let m={}; try{ const o=s?JSON.parse(s):{}; if(o&&typeof o==='object') m=o; }catch(e){}
+  _sampleColours._s=s; _sampleColours._m=m; return m;
+}
+// A chart series or category takes its lab colour only on an exact name match.
+function _sampleColour(name){ const m=_sampleColours(); return Object.prototype.hasOwnProperty.call(m,String(name))?m[String(name)]:null; }
+function _chartAxisW(){ const v=parseFloat(gv('chart-axis-w')); return v>0?v:1; }
+function _labStylePlan(settings){
+  settings=(settings&&typeof settings==='object')?settings:{};
+  const used=new Set(), rows=[], skipped=[], set={}, check={};
+  render();
+  const k=_physFacts().ptPerPx||0.75, px=pt=>pt/k, f=v=>+(+v).toFixed(2);
+  const num=v=>{ v=Array.isArray(v)?v[0]:v; v=parseFloat(v); return isFinite(v)&&v>0?v:null; };
+  const str=v=>{ v=Array.isArray(v)?v[0]:v; return typeof v==='string'?v.trim():''; };
+  // font_family (+ font_family_custom) → the panel letters' font; headings follow it
+  let ff=str(settings.font_family);
+  if(ff==='custom'){ ff=str(settings.font_family_custom); used.add('font_family_custom'); }
+  if('font_family' in settings) used.add('font_family');
+  if(ff){
+    const v=_LAB_FONT[ff]||_LAB_FONT[ff.toLowerCase()]||`'${ff.replace(/['"\\]/g,'')}',sans-serif`;
+    set['label-font']=v; set['axis-font']='';
+    rows.push(['font_family', ff, `panel letters, row/column headings and title in ${_fontName(v)==='System Sans'?ff:String(v).split(',')[0].replace(/['"]/g,'')}`]);
+  }
+  if('font_family_custom' in settings) used.add('font_family_custom');
+  const fs=num(settings.font_size);
+  if('font_size' in settings){ used.add('font_size');
+    if(fs){ const p=Math.max(6,Math.min(36,Math.round(px(fs)))); set['axis-fs']=String(p);
+      rows.push(['font_size', `${fs} pt`, `row/column headings ${p} px (${f(p*k)} pt at print size); the title follows at ${p+4} px (${f((p+4)*k)} pt)`]); } }
+  const ts=num(settings.title_size);
+  if('title_size' in settings){ used.add('title_size');
+    const head=set['axis-fs']?+set['axis-fs']:gi('axis-fs');
+    if(ts&&!fs){ const p=Math.max(6,Math.min(36,Math.round(px(ts))-4)); set['axis-fs']=String(p);
+      rows.push(['title_size', `${ts} pt`, `title ${p+4} px (${f((p+4)*k)} pt); headings ${p} px, since FigureLab sets the title 4 px above the headings`]); }
+    else if(ts) skipped.push(['title_size', `${ts} pt`, `not applied: FigureLab sets the title 4 px above the headings, so it prints at ${f((head+4)*k)} pt here`]); }
+  const ac=str(settings.axis_color);
+  if('axis_color' in settings){ used.add('axis_color');
+    if(/^#[0-9a-f]{6}$/i.test(ac)){ set['axis-color']=ac.toLowerCase(); check['axis-auto-color']=false;
+      rows.push(['axis_color', ac, 'row/column heading and title colour (Auto colour switched off)']); }
+    else skipped.push(['axis_color', String(settings.axis_color), 'not applied: not a #rrggbb colour']); }
+  const lw=num(settings.axis_line_width);
+  if('axis_line_width' in settings){ used.add('axis_line_width');
+    if(lw){ const pt=lw*_GG_LW_PT, p=f(px(pt)); set['chart-axis-w']=String(p);
+      rows.push(['axis_line_width', `${lw} (ggplot2 linewidth)`, `chart axis lines ${p} px (${f(pt)} pt: ggplot2 draws linewidth × 2.13 pt)`]); } }
+  let pal=null;
+  if('sample_palette' in settings){ used.add('sample_palette');
+    const sp=settings.sample_palette, out={}, bad=[];
+    if(sp&&typeof sp==='object'&&!Array.isArray(sp)) Object.entries(sp).forEach(([n,c])=>{ c=Array.isArray(c)?c[0]:c;
+      if(n&&typeof c==='string'&&/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(c.trim())) out[n]=c.trim().slice(0,7).toLowerCase(); else bad.push(n); });
+    pal=out;
+    const n=Object.keys(out).length;
+    rows.push(['sample_palette', `${n} sample${n===1?'':'s'}`, `sample colours: a chart series or category with exactly that name is drawn in it, and the key and its text follow — ${Object.entries(out).map(([a,b])=>`${a} ${b}`).join(', ')||'none'}`]);
+    if(bad.length) skipped.push(['sample_palette', bad.join(', '), 'not applied for these names: not #rrggbb colours']); }
+  const ignored=Object.keys(settings).filter(x=>!used.has(x));
+  return {set, check, pal, rows, skipped, ignored, ptPerPx:k};
+}
+// obj: the parsed file. One undo step; nothing changes if the file holds nothing usable.
+function loadLabStyle(obj, fileName){
+  if(!obj||typeof obj!=='object'){ toast('That file is not a paper style (JSON object expected)','err'); return null; }
+  const settings=(obj.settings&&typeof obj.settings==='object')?obj.settings:obj;
+  const P=_labStylePlan(settings);
+  if(!P.rows.length){ toast(`Nothing in ${fileName||'that file'} is used by FigureLab — no font, sizes, axis colour, line width or sample colours`,'warn'); return P; }
+  pushUndo();
+  Object.entries(P.set).forEach(([id,v])=>{ if(id==='label-font') _ensureFontOption(v); sv(id,v); });
+  Object.entries(P.check).forEach(([id,v])=>sc(id,v));
+  if(P.pal) sv('sample-colours', Object.keys(P.pal).length?JSON.stringify(P.pal):'');
+  const app=typeof obj.app==='string'?obj.app:'', when=typeof obj.created_at==='string'?obj.created_at:'';
+  sv('lab-style-src', [fileName||'paper_style.json', app, when?'saved '+when:''].filter(Boolean).join(' · '));
+  logAction('labStyle',{file:fileName||'', used:P.rows.map(r=>r[0]), ignored:P.ignored.length});
+  if(typeof onLayoutChange==='function') onLayoutChange();
+  _labStyleSync(); scheduleRender(0);
+  const tr=r=>`<tr><td style="padding:2px 8px 2px 0;vertical-align:top"><code>${esc(r[0])}</code></td><td style="padding:2px 8px 2px 0;vertical-align:top;white-space:nowrap">${esc(r[1])}</td><td style="padding:2px 0">${esc(r[2])}</td></tr>`;
+  showInfoModal('Lab style applied',
+    `<div id="lab-style-summary" style="font-size:11px;line-height:1.5">
+      <div style="color:var(--muted);margin-bottom:6px">${esc(fileName||'paper_style.json')}${app?` · ${esc(app)}`:''}${when?` · saved ${esc(when)}`:''}. One undo step; saved with the figure.</div>
+      <div style="margin-bottom:4px"><b>Applied</b></div>
+      <table id="lab-style-applied" style="border-collapse:collapse;font-size:11px">${P.rows.map(tr).join('')}</table>
+      ${P.skipped.length?`<div style="margin:8px 0 4px"><b>Read but not applied</b></div><table style="border-collapse:collapse;font-size:11px">${P.skipped.map(tr).join('')}</table>`:''}
+      <div style="color:var(--muted);margin-top:8px">Sizes: the file's sizes are points; FigureLab's are layout pixels, and at this figure's export width and DPI 1 px prints at ${(+P.ptPerPx).toFixed(3)} pt, so pt ÷ ${(+P.ptPerPx).toFixed(3)} = px. Change the export width or DPI later and the printed sizes move with it.</div>
+      ${P.ignored.length?`<div style="margin-top:8px"><b>Not used by FigureLab</b> (${P.ignored.length}) — settings for CFU Plot Studio's own plots: <span id="lab-style-ignored">${P.ignored.map(esc).join(', ')}</span></div>`:''}
+    </div>`);
+  return P;
+}
+function clearLabStyle(){
+  if(!gv('sample-colours')&&!gv('chart-axis-w')&&!gv('lab-style-src')) return;
+  pushUndo();
+  sv('sample-colours',''); sv('chart-axis-w',''); sv('lab-style-src','');
+  _labStyleSync(); scheduleRender(0);
+  toast('Lab sample colours and chart axis width cleared — fonts and sizes stay as they are','ok');
+}
+function _labStyleSync(){
+  const el=document.getElementById('lab-style-status'); if(!el) return;
+  const src=gv('lab-style-src'), n=Object.keys(_sampleColours()).length, aw=gv('chart-axis-w');
+  if(!src&&!n&&!aw){ el.innerHTML=''; return; }
+  el.innerHTML=`Lab style: ${esc(src||'loaded')}${n?` · ${n} sample colour${n>1?'s':''}`:''}${aw?` · chart axes ${esc(aw)} px`:''} <a href="#" onclick="event.preventDefault();clearLabStyle()" style="color:var(--accent)" title="Forget the sample colours and chart axis width (one undo step)">clear</a>`;
+}
+(function bindStyleFiles(){
+  const read=(inp,fn)=>{ if(!inp) return; inp.addEventListener('change',()=>{ const f=inp.files[0]; inp.value=''; if(!f) return;
+    const r=new FileReader(); r.onload=e=>{ let o=null; try{ o=JSON.parse(e.target.result); }catch(err){ toast(`Could not read ${f.name}: ${err.message}`,'err'); return; } fn(o,f.name); };
+    r.readAsText(f); }); };
+  read(document.getElementById('lab-style-input'), (o,n)=>loadLabStyle(o,n));
+  read(document.getElementById('house-style-input'), o=>importHouseStyles(o));
+})();
 (function initHouseStyles(){
   if(typeof renderHouseStyles==='function') renderHouseStyles();
   if(typeof renderThemePresets==='function') renderThemePresets();
@@ -9640,6 +10035,20 @@ function updateHD(){
   hd.style.display='block';
 }
 
+// Perceptually uniform colour maps: matplotlib's own 256-entry tables (viridis, magma,
+// inferno: van der Walt & Smith; cividis: Nuñez et al. 2018), byte for byte, as hex —
+// every step looks equally far from the last, so a gradient is read as the data's and
+// not as the map's. A fitted curve drifts at the ends, where the brightest and dimmest
+// pixels are, so the tables themselves are carried. Entry i is grey value i.
+const _LUT_HEX={
+  viridis:'44015444025645045745055946075a46085c460a5d460b5e470d60470e6147106347116447136548146748166848176948186a481a6c481b6d481c6e481d6f481f70482071482173482374482475482576482677482878482979472a7a472c7a472d7b472e7c472f7d46307e46327e46337f463480453581453781453882443983443a83443b84433d84433e85423f854240864241864142874144874045884046883f47883f48893e49893e4a893e4c8a3d4d8a3d4e8a3c4f8a3c508b3b518b3b528b3a538b3a548c39558c39568c38588c38598c375a8c375b8d365c8d365d8d355e8d355f8d34608d34618d33628d33638d32648e32658e31668e31678e31688e30698e306a8e2f6b8e2f6c8e2e6d8e2e6e8e2e6f8e2d708e2d718e2c718e2c728e2c738e2b748e2b758e2a768e2a778e2a788e29798e297a8e297b8e287c8e287d8e277e8e277f8e27808e26818e26828e26828e25838e25848e25858e24868e24878e23888e23898e238a8d228b8d228c8d228d8d218e8d218f8d21908d21918c20928c20928c20938c1f948c1f958b1f968b1f978b1f988b1f998a1f9a8a1e9b8a1e9c891e9d891f9e891f9f881fa0881fa1881fa1871fa28720a38620a48621a58521a68522a78522a88423a98324aa8325ab8225ac8226ad8127ad8128ae8029af7f2ab07f2cb17e2db27d2eb37c2fb47c31b57b32b67a34b67935b77937b87838b9773aba763bbb753dbc743fbc7340bd7242be7144bf7046c06f48c16e4ac16d4cc26c4ec36b50c46a52c56954c56856c66758c7655ac8645cc8635ec96260ca6063cb5f65cb5e67cc5c69cd5b6ccd5a6ece5870cf5773d05675d05477d1537ad1517cd2507fd34e81d34d84d44b86d54989d5488bd6468ed64590d74393d74195d84098d83e9bd93c9dd93ba0da39a2da37a5db36a8db34aadc32addc30b0dd2fb2dd2db5de2bb8de29bade28bddf26c0df25c2df23c5e021c8e020cae11fcde11dd0e11cd2e21bd5e21ad8e219dae319dde318dfe318e2e418e5e419e7e419eae51aece51befe51cf1e51df4e61ef6e620f8e621fbe723fde725',
+  magma:'00000401000501010601010802010902020b02020d03030f03031204041405041606051806051a07061c08071e0907200a08220b09240c09260d0a290e0b2b100b2d110c2f120d31130d34140e36150e38160f3b180f3d19103f1a10421c10441d11471e114920114b21114e22115024125325125527125829115a2a115c2c115f2d11612f116331116533106734106936106b38106c390f6e3b0f703d0f713f0f72400f74420f75440f764510774710784910784a10794c117a4e117b4f127b51127c52137c54137d56147d57157e59157e5a167e5c167f5d177f5f187f601880621980641a80651a80671b80681c816a1c816b1d816d1d816e1e81701f81721f817320817521817621817822817922827b23827c23827e24828025828125818326818426818627818827818928818b29818c29818e2a81902a81912b81932b80942c80962c80982d80992d809b2e7f9c2e7f9e2f7fa02f7fa1307ea3307ea5317ea6317da8327daa337dab337cad347cae347bb0357bb2357bb3367ab5367ab73779b83779ba3878bc3978bd3977bf3a77c03a76c23b75c43c75c53c74c73d73c83e73ca3e72cc3f71cd4071cf4070d0416fd2426fd3436ed5446dd6456cd8456cd9466bdb476adc4869de4968df4a68e04c67e24d66e34e65e44f64e55064e75263e85362e95462ea5661eb5760ec5860ed5a5fee5b5eef5d5ef05f5ef1605df2625df2645cf3655cf4675cf4695cf56b5cf66c5cf66e5cf7705cf7725cf8745cf8765cf9785df9795df97b5dfa7d5efa7f5efa815ffb835ffb8560fb8761fc8961fc8a62fc8c63fc8e64fc9065fd9266fd9467fd9668fd9869fd9a6afd9b6bfe9d6cfe9f6dfea16efea36ffea571fea772fea973feaa74feac76feae77feb078feb27afeb47bfeb67cfeb77efeb97ffebb81febd82febf84fec185fec287fec488fec68afec88cfeca8dfecc8ffecd90fecf92fed194fed395fed597fed799fed89afdda9cfddc9efddea0fde0a1fde2a3fde3a5fde5a7fde7a9fde9aafdebacfcecaefceeb0fcf0b2fcf2b4fcf4b6fcf6b8fcf7b9fcf9bbfcfbbdfcfdbf',
+  inferno:'00000401000501010601010802010a02020c02020e03021004031204031405041706041907051b08051d09061f0a07220b07240c08260d08290e092b10092d110a30120a32140b34150b37160b39180c3c190c3e1b0c411c0c431e0c451f0c48210c4a230c4c240c4f260c51280b53290b552b0b572d0b592f0a5b310a5c320a5e340a5f3609613809623909633b09643d09653e0966400a67420a68440a68450a69470b6a490b6a4a0c6b4c0c6b4d0d6c4f0d6c510e6c520e6d540f6d550f6d57106e59106e5a116e5c126e5d126e5f136e61136e62146e64156e65156e67166e69166e6a176e6c186e6d186e6f196e71196e721a6e741a6e751b6e771c6d781c6d7a1d6d7c1d6d7d1e6d7f1e6c801f6c82206c84206b85216b87216b88226a8a226a8c23698d23698f24699025689225689326679526679727669827669a28659b29649d29649f2a63a02a63a22b62a32c61a52c60a62d60a82e5fa92e5eab2f5ead305dae305cb0315bb1325ab3325ab43359b63458b73557b93556ba3655bc3754bd3853bf3952c03a51c13a50c33b4fc43c4ec63d4dc73e4cc83f4bca404acb4149cc4248ce4347cf4446d04545d24644d34743d44842d54a41d74b3fd84c3ed94d3dda4e3cdb503bdd513ade5238df5337e05536e15635e25734e35933e45a31e55c30e65d2fe75e2ee8602de9612bea632aeb6429eb6628ec6726ed6925ee6a24ef6c23ef6e21f06f20f1711ff1731df2741cf3761bf37819f47918f57b17f57d15f67e14f68013f78212f78410f8850ff8870ef8890cf98b0bf98c0af98e09fa9008fa9207fa9407fb9606fb9706fb9906fb9b06fb9d07fc9f07fca108fca309fca50afca60cfca80dfcaa0ffcac11fcae12fcb014fcb216fcb418fbb61afbb81dfbba1ffbbc21fbbe23fac026fac228fac42afac62df9c72ff9c932f9cb35f8cd37f8cf3af7d13df7d340f6d543f6d746f5d949f5db4cf4dd4ff4df53f4e156f3e35af3e55df2e661f2e865f2ea69f1ec6df1ed71f1ef75f1f179f2f27df2f482f3f586f3f68af4f88ef5f992f6fa96f8fb9af9fc9dfafda1fcffa4',
+  cividis:'00224e00234f00245100255300255400265600275800285900285b00295d002a5f002a61002b62002c64002c66002d68002e6a002e6c002f6d00306f0030700031700031710132710533710833700c34700f357012357014367016377018376f1a386f1c396f1e3a6f203a6f213b6e233c6e243c6e263d6e273e6e293f6e2a3f6d2b406d2d416d2e416d2f426d31436d32436d33446d34456c35456c36466c38476c39486c3a486c3b496c3c4a6c3d4a6c3e4b6c3f4c6c404c6c414d6c424e6c434e6c444f6c45506c46516c47516c48526c49536c4a536c4b546c4c556c4d556c4e566c4f576c50576c51586d52596d535a6d545a6d555b6d555c6d565c6d575d6d585e6d595e6e5a5f6e5b606e5c616e5d616e5e626e5e636f5f636f60646f61656f62656f636670646770656870656870666970676a71686a71696b716a6c716b6d726c6d726c6e726d6f726e6f736f70737071737172747272747273747374757474757575757676767777767777777878777979777a7a787b7a787c7b787d7c787e7c787e7d787f7e78807f78817f788280798381798482798582798683798784788885788985788a86788b87788c88788d88788e89788f8a78908b78918b78928c78928d78938e78948e77958f779690779791779892779992779a93769b94769c95769d95769e96769f9775a09875a19975a29975a39a74a49b74a59c74a69c74a79d73a89e73a99f73aaa073aba072aca172ada272aea371afa471b0a571b1a570b3a670b4a76fb5a86fb6a96fb7a96eb8aa6eb9ab6dbaac6dbbad6dbcae6cbdae6cbeaf6bbfb06bc0b16ac1b26ac2b369c3b369c4b468c5b568c6b667c7b767c8b866c9b965cbb965ccba64cdbb63cebc63cfbd62d0be62d1bf61d2c060d3c05fd4c15fd5c25ed6c35dd7c45cd9c55cdac65bdbc75adcc859ddc858dec958dfca57e0cb56e1cc55e2cd54e4ce53e5cf52e6d051e7d150e8d24fe9d34eead34cebd44bedd54aeed649efd748f0d846f1d945f2da44f3db42f5dc41f6dd3ff7de3ef8df3cf9e03afbe138fce236fde334fee434fee535fee636fee838',
+};
+const _LUT_TAB={};
+Object.entries(_LUT_HEX).forEach(([k,h])=>{ const t=new Uint8Array(768); for(let i=0;i<768;i++) t[i]=parseInt(h.substr(i*2,2),16); _LUT_TAB[k]=t; });
+const _tabLut=k=>{ const t=_LUT_TAB[k]; return i=>{ const j=Math.max(0,Math.min(255,Math.round(i)))*3; return [t[j],t[j+1],t[j+2]]; }; };
 // Fluorescence LUT table: maps intensity 0-255 → [r,g,b]
 const LUTS={
   fire:    i=>[Math.min(255,i*3), Math.min(255,Math.max(0,(i-85)*3)),  Math.min(255,Math.max(0,(i-170)*3))],
@@ -9649,7 +10058,33 @@ const LUTS={
   red:     i=>[i,0,0],      // offered because people use it; the compliance check flags it beside green
   yellow:  i=>[i,i,0],
   blue:    i=>[Math.round(i*.28),Math.round(i*.53),Math.min(255,i)],
+  orange:  i=>[i,Math.round(i*.5),0],
+  viridis: _tabLut('viridis'), magma: _tabLut('magma'), inferno: _tabLut('inferno'), cividis: _tabLut('cividis'),
 };
+// Every LUT by key, in the order the pickers show them, with each name a place needs:
+// btn (the drawer button), chan (a channel named for its LUT when the file name says
+// nothing), name (caption and Methods), ramp (a map has no one hue: its key swatch is
+// the ramp and its colour words name the ramp). The pickers, the channel list, the
+// batch editor, the freeform adjust dialog, the caption, Methods and the key all read
+// this list, so a new LUT is added here once.
+const LUT_INFO={
+  none:   {btn:'Off',  chan:'Gray',   name:null},
+  fire:   {btn:'Fire', chan:'Cy5',    name:'Fire LUT', ramp:true, words:'fire LUT, black through red and yellow to white'},
+  green:  {btn:'GFP',  chan:'GFP',    name:'GFP (green)'},
+  cyan:   {btn:'Cyan', chan:'Cyan',   name:'Cyan'},
+  magenta:{btn:'Mag',  chan:'RFP',    name:'Magenta'},
+  red:    {btn:'Red',  chan:'Red',    name:'Red'},
+  yellow: {btn:'Yel',  chan:'Yellow', name:'Yellow'},
+  orange: {btn:'Org',  chan:'Orange', name:'Orange'},
+  blue:   {btn:'DAPI', chan:'DAPI',   name:'DAPI (blue)'},
+  viridis:{btn:'Viridis', chan:'Viridis', name:'viridis colour map', ramp:true, table:true, words:'viridis colour map, dark purple through teal to yellow'},
+  magma:  {btn:'Magma',   chan:'Magma',   name:'magma colour map',   ramp:true, table:true, words:'magma colour map, black through purple and pink to pale yellow'},
+  inferno:{btn:'Inferno', chan:'Inferno', name:'inferno colour map', ramp:true, table:true, words:'inferno colour map, black through purple and red to pale yellow'},
+  cividis:{btn:'Cividis', chan:'Cividis', name:'cividis colour map', ramp:true, table:true, words:'cividis colour map, dark blue through grey to yellow'},
+};
+// A CSS gradient of a LUT, for its button.
+function _lutCss(k){ const f=LUTS[k]; if(!f) return '#555';
+  return 'linear-gradient(to right,'+[0,64,128,192,255].map(i=>{ const c=f(i); return `rgb(${c[0]},${c[1]},${c[2]})`; }).join(',')+')'; }
 
 // ═══════════════════════════════════════════════════════════════
 // TILTED CROPS
@@ -11970,7 +12405,7 @@ function checkCompliance(){
   const _ranges=new Map();
   _figurePanels().forEach(im=>{
     if(!im.img) return;
-    const lbl=formatLabel(im.label)||'?';
+    const lbl=_rtText(formatLabel(im.label))||'?';
     const add=(key,bp,wp,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=`${bp||0}–${wp==null?255:wp}`; if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
     if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)) add(_levelKey(im.name,im.lut), im.blackPt, im.whitePt, lbl);
     (im.channels||[]).forEach(ch=>add(_levelKey(ch.name,ch.lut), ch.blackPt, ch.whitePt, lbl));
@@ -12068,7 +12503,7 @@ function checkCompliance(){
     `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against <b>${esc(J.name)}</b>${J.verified
       ? ` — each journal row comes from its own figure guide (${esc(J.src)}), read ${JOURNAL_RULES_READ}. Guides change, so check its own spec too before you submit.`
       : ` — its own page could not be read and the secondary sources disagree, so its rows are <b>unverified</b> (?) and never fail. Check its own spec on <a href="${J.url}" target="_blank" rel="noopener" style="color:var(--accent)">the journal's page</a>.`
-    } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Write the figure's alt text (embedded in the PNG export)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
+    } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Go to the figure's alt text box (embedded in PNG, SVG and PDF exports)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
 }
 function _auditFix(action){
   // The journal rows' fixes, and the colour-accessibility ones: each its own undo step.
@@ -12446,6 +12881,7 @@ function captureLayout(){
 }
 function applyLayoutSnapshot(o){
   if(!o) return;
+  ['label-font','axis-font'].forEach(id=>{ if(o.text&&o.text[id]) _ensureFontOption(o.text[id]); });
   _FIG_CONTROLS.forEach(([,id,k])=>{
     if(k==='c'){ if(o.check[id]!==undefined) sc(id,o.check[id]); }
     else if(o.text[id]!==undefined) sv(id,o.text[id]);
@@ -12461,6 +12897,7 @@ function applyLayoutSnapshot(o){
   // onLayoutChange above — and would reappear the next time the grid grew.
   if(Array.isArray(o.colLabels)) _colLabelText.length=o.colLabels.length;
   if(Array.isArray(o.rowLabels)) _rowLabelText.length=o.rowLabels.length;
+  _labStyleSync();
 }
 function snapshotState(opts){
   const snap={
@@ -12502,7 +12939,7 @@ function restoreState(s){
     _applyFigControls(s.fig.controls);
     measurements=JSON.parse(JSON.stringify(s.fig.measurements||[]));
     sv('fig-notes',s.fig.notes||''); sv('caption-out',s.fig.caption||''); sv('methods-out',s.fig.methods||'');
-    _figAltText=s.fig.altText||'';
+    _setAltText(s.fig.altText||'');
     if(Array.isArray(s.fig.reproLog)) reproLog=s.fig.reproLog.map(e=>({...e}));
     _syncFigureLists();
   }
@@ -12615,7 +13052,7 @@ const _UNDO_OUTSIDE=[
   '#tpl-name-input','#house-style-name','#pdf-rows-per-page','#pdf-multi-lossless','#ann-float-repeat',
   '#ai-prompt','#ai-style','#ai-remove-bg','#gemini-api-key','#ai-key-session-only','#ai-model','#ai-aspect','#ai-size','#sd-endpoint',
   // writing boxes (and the read-only legend text starter, which the figure writes)
-  '#caption-out','#methods-out','#fig-notes','#key-text',
+  '#caption-out','#methods-out','#fig-notes','#key-text','#alt-text',
   // records its own step, and none for a name that did not change
   '.ruler-name',
   'input[type=file]','input[type=button]','input[type=submit]','input[type=reset]',
@@ -12726,7 +13163,8 @@ function _hex2(v){ return Math.max(0,Math.min(255,Math.round(+v||0))).toString(1
 function _rgbHex(c){ return '#'+_hex2(c[0])+_hex2(c[1])+_hex2(c[2]); }
 function _lutStops(lut){ const f=LUTS[lut]; return f?[0,64,128,192,255].map(i=>_rgbHex(f(i))):null; }
 function _keyChannelRow(name, lut){
-  if(lut==='fire') return {name, kind:'channel', lut, color:_rgbHex(LUTS.fire(128)), marker:'gradient', stops:_lutStops('fire'), words:'fire LUT, black through red and yellow to white'};
+  const L=LUT_INFO[lut];
+  if(L&&L.ramp) return {name, kind:'channel', lut, color:_rgbHex(LUTS[lut](128)), marker:'gradient', stops:_lutStops(lut), words:L.words};
   return {name, kind:'channel', lut, color:_rgbHex(LUTS[lut](255)), marker:'square', fill:'filled'};
 }
 // One panel or freeform image: its own LUT, then each merged channel the compositor draws
@@ -12784,7 +13222,7 @@ function _keyChartRows(el, add){
     });
     return;
   }
-  (stat.seriesNames||[]).forEach(s=>add({name:String(s.name), kind:'series', color:s.color, marker:'square', fill:'filled', stroke:ink, strokeW:0.5, desc:'filled bars'}));
+  (stat.catColours||stat.seriesNames||[]).forEach(s=>add({name:String(s.name), kind:'series', color:s.color, marker:'square', fill:'filled', stroke:ink, strokeW:0.5, desc:'filled bars'}));
 }
 // One gene map's feature types, as its glyphs are drawn. A type keyed once when all its
 // features share a colour (the SBOL palette); otherwise (the colour-blind palette, or a
@@ -13238,7 +13676,7 @@ function drawAnnOverlay(){
   ctx.clearRect(0,0,annCanvas.width,annCanvas.height);
   const W=annCanvas.width, H=annCanvas.height;
   gutterChips=[]; labelToggleHit=null;
-  if(clipPreview) _drawClipOverlay(ctx);   // under every interaction mark
+  if(clipPreview||hiloPreview) _drawClipOverlay(ctx);   // under every interaction mark
 
   // Panel drag: source dimmed, drop target highlighted
   if(panelDragState && panelDragState.moved){
@@ -14231,6 +14669,7 @@ function showPanelMenu(idx, cx, cy){
         panelAnns:(im.panelAnns||[]).map(a=>({...a})),_adjCache:undefined,_adjKey:undefined};
       _withWaiting(()=>images.splice(idx+1,0,clone)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
+    row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
     row('⚙  Open settings', ()=>{
       const idx=here(); if(idx<0) return;
       renderImgList();
@@ -14887,10 +15326,10 @@ function _panelPpiList(dpi){
   const out=[];
   if(layoutMode==='freeform'){
     freeformElements.forEach((el,i)=>{ const r=_panelEffPpi(i,dpi);
-      if(r) out.push({idx:i, label:formatLabel(el.label)||`object ${i+1}`, ...r}); });
+      if(r) out.push({idx:i, label:_rtText(formatLabel(el.label))||`object ${i+1}`, ...r}); });
   } else {
     _figurePanels().forEach(im=>{ const i=images.indexOf(im), r=_panelEffPpi(i,dpi);
-      if(r) out.push({idx:i, label:formatLabel(im.label)||`panel ${i+1}`, ...r}); });
+      if(r) out.push({idx:i, label:_rtText(formatLabel(im.label))||`panel ${i+1}`, ...r}); });
   }
   return out;
 }
@@ -15030,7 +15469,7 @@ const JOURNALS={
     colour:'RGB', colourNote:'RGB 8-bit or greyscale',
     formats:['tiff'], formatNote:'TIFF or EPS only; TIFF with LZW compression, flattened, no alpha channel',
     lzw:true, maxMB:10, maxMBFmt:'tiff',
-    naming:{re:/^Fig\d+$/, stem:'Fig1', note:'Fig1.tif, Fig2.tif…'},
+    naming:{re:/^Fig\d+$/, stem:'Fig1', note:'Fig1.tif, Fig2.tif…'}, tifExt:true,
     extraNote:'a 2-pt white border is recommended',
     blots:{uncropped:'uncropped originals as one “S1_raw_images” PDF of at most 20 MB (or a repository); unused lanes marked “X”',
       s1Name:'S1_raw_images', s1MaxMB:20, splice:'a thin line at splices'}},
@@ -15303,13 +15742,13 @@ function _accessRows(J){
   const all=new Set(shown.flatMap(lutsOf)), rg=merges.length>0||(all.has('red')&&all.has('green'));
   const rgRule=J&&J.access&&J.access.rg?`${J.short||J.label}: ${J.access.rg}`:'QUAREP-LiMi checklist: magenta/green, not red/green';
   rows.push({label:'Red/green', ok:!rg, warn:rg, src:J&&J.access&&J.access.rg?_JSRC(J):'',
-    note:rg ? `${merges.length?`${merges.map(im=>esc(formatLabel(im.label)||'?')).join(', ')} merge${merges.length===1?'s':''} a red channel with a green one`:'red and green channels sit in panels compared side by side'} — about 1 in 12 men cannot tell them apart; ${rgRule}. The fix recolours the red lookup tables magenta (pseudocoloured channels only, never an imported RGB picture)`
+    note:rg ? `${merges.length?`${merges.map(im=>esc(_rtText(formatLabel(im.label))||'?')).join(', ')} merge${merges.length===1?'s':''} a red channel with a green one`:'red and green channels sit in panels compared side by side'} — about 1 in 12 men cannot tell them apart; ${rgRule}. The fix recolours the red lookup tables magenta (pseudocoloured channels only, never an imported RGB picture)`
       : `No red lookup table beside a green one ✓ (${rgRule})`,
     fix:rg?{a:'redmag',t:'Red → magenta'}:null});
   // (b) merges of more than three channels
   const many=shown.filter(im=>(im.channels||[]).length>=3);
   rows.push({label:'Channels per merge', ok:!many.length, warn:many.length>0,
-    note:many.length ? `${many.map(im=>`${esc(formatLabel(im.label)||'?')} (${1+im.channels.length})`).join(', ')} — QUAREP-LiMi checklist: at most 3 channels in a merge, preferably 2; show the rest as separate greyscale panels`
+    note:many.length ? `${many.map(im=>`${esc(_rtText(formatLabel(im.label))||'?')} (${1+im.channels.length})`).join(', ')} — QUAREP-LiMi checklist: at most 3 channels in a merge, preferably 2; show the rest as separate greyscale panels`
       : 'Every merge has at most 3 channels ✓ (QUAREP-LiMi checklist)'});
   // (c) text contrast, where the text sits on a flat colour: the headings, title and group
   // bands on the figure background. Letters and tags sit on the picture (a chip is
@@ -15355,7 +15794,7 @@ function _gelMarkerSpan(im){
 }
 function _blotRows(J, shown){
   const B=_blotPanels(shown), rows=[]; if(!B.length||!J.blots) return rows;
-  const bl=J.blots, src=_JSRC(J), nm=im=>esc(formatLabel(im.label)||'?'), jn=J.short||J.label;
+  const bl=J.blots, src=_JSRC(J), nm=im=>esc(_rtText(formatLabel(im.label))||'?'), jn=J.short||J.label;
   if(bl.mw){
     const notes=[]; let warn=false;
     B.forEach(im=>{
@@ -15489,7 +15928,7 @@ function _journalRows(J, g){
   if(J.naming){
     const n=gv('export-name').trim(), ok=J.naming.re.test(n);
     rows.push({label:'File name', ok, src,
-      note:`“${esc(n)}”${ok?' ✓':''} · ${nm}: ${J.naming.note} — FigureLab writes the TIFF as .tiff; rename it to .tif if the submission system insists`,
+      note:`“${esc(n)}”${ok?' ✓':''} · ${nm}: ${J.naming.note}${J.tifExt?' — FigureLab writes the TIFF as .tif for this journal':' — FigureLab writes the TIFF as .tiff; rename it to .tif if the submission system insists'}`,
       fix:ok?null:{a:'jname',t:`Name ${J.naming.stem}`}});
   }
   if(J.extraNote) rows.push({label:'Border', ok:true, info:true, src, note:`${nm}: ${J.extraNote}`});
@@ -15500,7 +15939,7 @@ function _journalRows(J, g){
   if(J.scaleBar==='required'){
     const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip));
     rows.push({label:'Scale bars', ok:!miss.length, src,
-      note:(miss.length?`${miss.map(im=>esc(formatLabel(im.label)||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
+      note:(miss.length?`${miss.map(im=>esc(_rtText(formatLabel(im.label))||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
         +` — ${nm}: scale bars on micrographs. Panels without a calibration are not checked: FigureLab cannot tell a micrograph from a photograph`,
       fix:miss.length?{a:'jsbon',t:'Show bars'}:null});
   }
@@ -15523,7 +15962,7 @@ function _journalRows(J, g){
   if(J.altText){
     const has=!!(typeof _figAltText==='string'&&_figAltText.trim());
     rows.push({label:'Alt text', ok:has, warn:!has, src,
-      note:(has?`${_figAltText.trim().length} characters ✓`:'none yet — embedded in the PNG export once written')+` · ${esc(J.altText)}`,
+      note:(has?`${_figAltText.trim().length} characters ✓`:'none yet — written under the caption, embedded in PNG, SVG and PDF')+` · ${esc(J.altText)}`,
       fix:has?null:{a:'alttext',t:'Alt text'}});
   }
   // AI policy: what the table says, and the report's existing wording
@@ -15559,7 +15998,7 @@ function _journalFix(action){
   }
   if(action==='contrast'){ pushUndo(); sc('axis-auto-color',true); render(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
-  if(action==='alttext'){ Promise.resolve(generateAltText()).then(()=>checkCompliance()); return 'done'; }
+  if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
   if(!J) return false;
   if(action==='jwidth'){ pushUndo(); sv('export-width-mm',String(_journalWidthTarget(J,_physFacts().wMm))); _syncWidthOptions(); render(); _syncPhysReadout(); return true; }
   if(action==='jdpi'){ const t=_journalDpiTarget(J,getExportDPI(),_figTextSizes().length>0); if(t){ pushUndo(); sv('export-dpi',String(t)); _syncPhysReadout(); } return true; }
@@ -16003,6 +16442,9 @@ function _panelHistory(im){
   const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
   ops.push({op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims,
     nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:'not retained (8-bit display)'});
+  // A panel whose file was swapped kept every setting below from the file before it.
+  (im._replaced||[]).forEach(r=>ops.push({op:'replaceImage', from:r.from, to:r.to, at:r.at,
+    note:`image replaced: ${r.from} → ${r.to}`}));
   const cropped=(im.cropT||im.cropL||im.cropB||im.cropR);
   if(cropped||im.cropAngle){
     ops.push({op:'crop', topPct:im.cropT||0, leftPct:im.cropL||0, bottomPct:im.cropB||0, rightPct:im.cropR||0,
@@ -16129,6 +16571,9 @@ async function exportSubmissionPackage(){
     }
     const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
     if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
+    // The alt text, for the submission system's own alt-text field.
+    const alt=(_figAltText||'').trim();
+    if(alt) files.push({name:name+'-alt.txt', data:alt+'\n'});
     // Attribution obligations ship with the figure, so a co-author assembling the
     // submission doesn't have to reconstruct which icons needed a credit line.
     const credits=(typeof _creditsText==='function')?_creditsText():'';
@@ -16514,6 +16959,13 @@ function _svgVectorPlan(){
   });
   return out;
 }
+// The figure's title and alt text as the SVG's own <title> and <desc>, which screen
+// readers announce for an SVG; nothing when neither is written.
+function _svgAltTags(){
+  const x=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const t=_rtText((gv('fig-title')||'').trim()), d=(_figAltText||'').trim();
+  return (t?`<title>${x(t)}</title>\n  `:'')+(d?`<desc>${x(d)}</desc>\n  `:'');
+}
 function exportSVG(name, dpi, canvas){
   // Logical figure dimensions (coordinate space for the vector layer).
   const Lw=canvasLogicalW||canvas.width, Lh=canvasLogicalH||canvas.height;
@@ -16730,9 +17182,9 @@ function exportSVG(name, dpi, canvas){
   // A panel imported as SVG but written as pixels says why, in the file itself.
   const rasterNote=plan.raster.map(({im,why})=>
     `<!-- Panel ${esc(im.label||'?')} (${esc(_sourceName(im)||'SVG')}) was imported as SVG but is written as pixels in the raster below: ${esc(why.join('; '))}. -->`).join('\n  ');
-  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  ${gridVec}\n  ${rasterNote}\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
+  const svg=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${wIn}in" height="${hIn}in" viewBox="0 0 ${W} ${H}">\n  ${_svgAltTags()}${gridVec}\n  ${rasterNote}\n  <image x="0" y="0" width="${W}" height="${H}" xlink:href="${pngBg}"/>\n  ${frameSVG}\n  ${vecSVG}\n  ${annSVG}\n  ${txtSVG}\n</svg>`;
   dl(blobUrl(svg), name+'.svg');
-  if(plan.raster.length) toast(`SVG saved — ${plan.raster.length} SVG panel${plan.raster.length>1?'s are':' is'} written as pixels (${plan.raster.map(r=>formatLabel(r.im.label)||'?').join(', ')}): ${plan.raster[0].why[0]}${plan.raster.length>1?' …':''}`,'warn');
+  if(plan.raster.length) toast(`SVG saved — ${plan.raster.length} SVG panel${plan.raster.length>1?'s are':' is'} written as pixels (${plan.raster.map(r=>_rtText(formatLabel(r.im.label))||'?').join(', ')}): ${plan.raster[0].why[0]}${plan.raster.length>1?' …':''}`,'warn');
 }
 
 function exportTIFF(name, dpi, canvas, preScaled, opts){
@@ -16755,7 +17207,7 @@ function exportTIFF(name, dpi, canvas, preScaled, opts){
   // Always 8 bits per sample: the export is read back from a canvas, so there is no
   // 16-bit path whose byte order the predictor would have to respect.
   const bytes=_tiffBytes(rgb, W, H, dpi, opts);
-  dl(URL.createObjectURL(new Blob([bytes],{type:'image/tiff'})), name+'.tiff');
+  dl(URL.createObjectURL(new Blob([bytes],{type:'image/tiff'})), name+'.'+_tiffExt());
 }
 // Minimal TIFF (little-endian, RGB, 8 bits per sample, custom DPI, one strip).
 // Uncompressed by default, byte for byte what it always was. With opts.lzw the strip is
@@ -16979,12 +17431,17 @@ async function _exportPDFWithText(name, dpi, opts){
   // points per logical unit: page width in points / figure width in logical units
   const ptPerUnit=(pc.width*72/eff)/(canvasLogicalW||pc.width);
   try{
-    await exportPDF(name, eff, pc, {...opts, textItems:items, ptPerUnit});
+    await exportPDF(name, eff, pc, {...opts, textItems:items, ptPerUnit, info:_pdfFigureInfo()});
   } finally {
     scheduleRender(0);   // restore the on-screen canvas + figTextItems
   }
 }
 
+// The figure's PDF Info: its title (or file name) and its alt text.
+function _pdfFigureInfo(){
+  const t=_rtText((gv('fig-title')||'').trim())||(gv('export-name')||'').trim();
+  return {Title:t, Subject:(_figAltText||'').trim()};
+}
 // ── The PDF byte-writer, shared by the single-page and multi-page exports ──────
 // There used to be two of these, thirty lines apart: exportPDF grew the lossless
 // Flate branch and the vector text layer, exportMultiPagePDF kept its original
@@ -17032,7 +17489,21 @@ async function _pdfPageFor(canvas, dpi, opts){
 // anywhere in the document (shared across pages, referenced from each page's own
 // /Font dictionary under that page's resource keys — _pdfTextOps numbers its keys
 // per call, so 'F1' can be a different face on different pages).
-function _pdfAssemble(pages){
+// A PDF text string: literal with escapes when every character is Latin-1, else UTF-16BE
+// with a byte-order mark, which every reader decodes.
+function _pdfInfoStr(s){
+  s=String(s||'');
+  if(/^[\x20-\x7e]*$/.test(s)) return '('+s.replace(/[\\()]/g,c=>'\\'+c)+')';
+  let h='FEFF';
+  for(const ch of s){ const cp=ch.codePointAt(0);
+    if(cp>0xffff){ const v=cp-0x10000; h+=(0xd800+(v>>10)).toString(16).padStart(4,'0')+(0xdc00+(v&0x3ff)).toString(16).padStart(4,'0'); }
+    else h+=cp.toString(16).padStart(4,'0'); }
+  return '<'+h.toUpperCase()+'>';
+}
+// info: {Title, Subject} for the document Info dictionary. The alt text goes in Subject:
+// document metadata a reader can see in the file's properties — not the /Alt of a
+// tagged-PDF figure, which needs a structure tree this writer does not build.
+function _pdfAssemble(pages, info){
   const enc=s=>new TextEncoder().encode(s);
   const chunks=[]; const offs={};
   const push=d=>chunks.push(typeof d==='string'?enc(d):d);
@@ -17041,6 +17512,8 @@ function _pdfAssemble(pages){
   const pageId=p=>3+p*3, imId=p=>4+p*3, csId=p=>5+p*3;
   const fontIdByBase=new Map(); let nextObj=3+n*3;
   for(const pg of pages) pg.text.fonts.forEach((key,base)=>{ if(!fontIdByBase.has(base)) fontIdByBase.set(base, nextObj++); });
+  const infoEntries=Object.entries(info||{}).filter(([,v])=>String(v||'').trim());
+  const infoId=infoEntries.length?nextObj++:0;
   const lastObj=nextObj-1;
 
   push('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
@@ -17066,10 +17539,14 @@ function _pdfAssemble(pages){
     offs[id]=sz();
     push(`${id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
   });
+  if(infoId){
+    offs[infoId]=sz();
+    push(`${infoId} 0 obj\n<< ${infoEntries.map(([k,v])=>`/${k} ${_pdfInfoStr(String(v).trim())}`).join(' ')} /Producer ${_pdfInfoStr('FigureLab '+APP_VERSION)} >>\nendobj\n`);
+  }
   const xp=sz();
   push(`xref\n0 ${lastObj+1}\n0000000000 65535 f\r\n`);
   for(let i=1;i<=lastObj;i++) push(`${String(offs[i]).padStart(10,'0')} 00000 n\r\n`);
-  push(`trailer\n<< /Size ${lastObj+1} /Root 1 0 R >>\nstartxref\n${xp}\n%%EOF\n`);
+  push(`trailer\n<< /Size ${lastObj+1} /Root 1 0 R${infoId?` /Info ${infoId} 0 R`:''} >>\nstartxref\n${xp}\n%%EOF\n`);
 
   const total=sz(); const out=new Uint8Array(total); let pos=0;
   for(const c of chunks){ out.set(c,pos); pos+=c.length; }
@@ -17077,7 +17554,7 @@ function _pdfAssemble(pages){
 }
 
 async function exportPDF(name, dpi, canvas, opts){
-  const out=_pdfAssemble([await _pdfPageFor(canvas, dpi, opts||{})]);
+  const out=_pdfAssemble([await _pdfPageFor(canvas, dpi, opts||{})], (opts&&opts.info)||null);
   dl(URL.createObjectURL(new Blob([out],{type:'application/pdf'})), name+'.pdf');
 }
 
@@ -17198,7 +17675,7 @@ function applyPreset(name){
 // ═══════════════════════════════════════════════════════════════
 // CAPTION GENERATOR
 // ═══════════════════════════════════════════════════════════════
-const LUT_NAMES={fire:'Fire LUT',green:'GFP (green)',cyan:'Cyan',magenta:'Magenta',red:'Red',yellow:'Yellow',blue:'DAPI (blue)',none:null};
+const LUT_NAMES=Object.fromEntries(Object.entries(LUT_INFO).map(([k,L])=>[k,L.name]));
 
 // Every adjustment that actually reached the displayed pixels, phrased for a figure
 // legend. Nature, JCB and Cell all require NON-LINEAR adjustments — gamma above all —
@@ -17519,6 +17996,30 @@ async function aiPolishCaption(){
 // journal accessibility requirements. The rule-based version needs no network; an
 // optional on-device (Chrome Prompt API) polish keeps everything on the machine.
 let _figAltText='';
+// The box is the alt text; the variable is what the exports and reports read. Every
+// write goes through here so the two cannot disagree.
+function _setAltText(s){
+  _figAltText=String(s||'');
+  const ta=document.getElementById('alt-text'); if(ta&&ta.value!==_figAltText) ta.value=_figAltText;
+  _altTextCount();
+}
+function _altTextCount(){
+  const c=document.getElementById('alt-text-count'); if(!c) return;
+  const n=_figAltText.trim().length;
+  c.textContent=`${n} character${n===1?'':'s'}`;
+}
+function _altTextInput(){
+  const ta=document.getElementById('alt-text'); if(!ta) return;
+  _figAltText=ta.value; _altTextCount();
+  if(typeof scheduleAutosave==='function') scheduleAutosave();
+}
+// The compliance report's "Alt text" link: open the caption helper and put the cursor in
+// the box, rather than writing a draft over whatever the author had.
+function focusAltText(){
+  const ta=document.getElementById('alt-text'); if(!ta) return;
+  const d=ta.closest('details'); if(d) d.open=true;
+  ta.scrollIntoView({block:'center'}); ta.focus();
+}
 function _buildStructuralAltText(){
   const parts=[];
   const title=(gv('fig-title')||'').trim();
@@ -17546,9 +18047,14 @@ function _buildStructuralAltText(){
   if(cap) parts.push('Caption: '+cap);
   return parts.join(' ') || 'A scientific figure.';
 }
+// The button: a draft replaces the box, so text the author wrote is asked about first.
+function draftAltText(){
+  if((_figAltText||'').trim()) showConfirmModal('Replace your alt text?','The draft from the figure’s structure replaces what is in the box now.',()=>generateAltText());
+  else generateAltText();
+}
 async function generateAltText(){
   const draft=_buildStructuralAltText();
-  _figAltText=draft;
+  let text=draft;
   // Optional on-device polish — never leaves the machine, no key.
   if(typeof LanguageModel!=='undefined'){
     try{
@@ -17559,12 +18065,13 @@ async function generateAltText(){
         const out=(await session.prompt('Write alt-text for a figure with this structure:\n\n'+draft)||'').trim();
         if(session.destroy) session.destroy();
         const echoed=/alt-text|screen reader|never invent/i.test(out);
-        if(out && !echoed && out.length<1200) _figAltText=out;
+        if(out && !echoed && out.length<1200) text=out;
       }
     }catch(e){ /* keep the rule-based draft */ }
   }
-  try{ await navigator.clipboard.writeText(_figAltText); toast('Alt-text generated & copied — embedded in PNG export metadata','ok'); }
-  catch(e){ toast('Alt-text generated — embedded in PNG export metadata','ok'); }
+  _setAltText(text);
+  focusAltText();
+  toast('Alt text drafted from the figure’s structure — it says what is where, not what it shows; add the findings','ok');
   logAction('altText',{chars:_figAltText.length, onDevice:typeof LanguageModel!=='undefined'});
   return _figAltText;
 }
@@ -17607,6 +18114,8 @@ const _FIG_CONTROLS=[
   ['panelBorder.w','panel-border-w'],['panelBorder.c','panel-border-c'],['panelBorder.inset','panel-border-inset'],
   ['labelFormat','label-format'],
   ['fmCanvasW','fm-canvas-w'],['fmCanvasH','fm-canvas-h'],
+  // a loaded lab style (paper_style.json): sample name → colour, chart axis width (px)
+  ['labStyle.sampleColours','sample-colours'],['labStyle.chartAxisW','chart-axis-w'],['labStyle.source','lab-style-src'],
 ];
 // The undo snapshot's two lists, by name: views of the one list above, so they cannot drift.
 const _layoutTextIds=_FIG_CONTROLS.filter(c=>c[2]!=='c').map(c=>c[1]);
@@ -17634,11 +18143,13 @@ function _applyFigControls(s){
     let v=s?_pathGet(s,p):undefined;
     if(id==='hidden-gap') v=_hiddenGapFrom(v, s&&s.images);
     if(v===undefined||v===null) v=_ctlDefault(id);
+    if(id==='label-font'||id==='axis-font') _ensureFontOption(v);
     if(k==='c') sc(id,!!v); else sv(id,v);
   });
   const pf=document.getElementById('pf-lzw'); if(pf) pf.checked=gc('export-tiff-lzw');
   _syncJournalFromControl();
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();
+  _labStyleSync();
 }
 
 // What a panel carries in a saved figure: every field on it except the live pixels and
@@ -17846,7 +18357,7 @@ function _resetFigureState(opts){
   // is compared with the PREVIOUS figure's generated text and the package calls it
   // "your edited caption" when it is simply a caption that was not written here.
   if(typeof _genText!=='undefined'){ _genText.caption=null; _genText.methods=null; }
-  _figAltText='';
+  _setAltText('');
   _pendingPanels=[];
   // A style file applied to the panels on screen is not a new figure; its log goes on.
   if(!opts.keepImages) reproLog=[];
@@ -17897,6 +18408,7 @@ function serializeSession(bundleImages, mode){
     // The caption and Methods boxes as written for this figure. Absent on load means
     // another figure's text, so the boxes are cleared instead.
     captionText:gv('caption-out'), methodsText:gv('methods-out'),
+    altText:_figAltText,
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
@@ -17959,6 +18471,7 @@ function applySession(s,_opts){
       if(Array.isArray(s.annotations)) annotations=s.annotations;
       { const nt=document.getElementById('fig-notes'); if(nt) nt.value=s.notes||''; }
       sv('caption-out', s.captionText||''); sv('methods-out', s.methodsText||'');
+      _setAltText(s.altText||'');
       // The loaded figure's headings REPLACE the store. setAxisLabels only writes the
       // indices it is given, so the previous figure's headings used to survive past
       // the end of the loaded array and reappear in any column the grid later grew
@@ -18034,12 +18547,23 @@ function _errNote(err){
   if(err==='column') return 'Error bars: taken directly from a data column (as provided).';
   return 'No error bars.';
 }
+// The colours a chart's series (or categories) are drawn in, in order — what a script
+// needs to reproduce lab sample colours. null when none comes from the lab style, so a
+// script without one is written exactly as before.
+function _chartLabColours(el){
+  if(!Object.keys(_sampleColours()).length) return null;
+  const s=_chartStatsCached(el);
+  const list=s.catColours||s.seriesNames||s.series||s.boxes||s.curves;
+  if(!list||!list.some(x=>_sampleColour(x.name))) return null;
+  return list.map(x=>({name:String(x.name), color:x.color}));
+}
 function _chartPythonSnippet(el, idx){
   const ch=el.chart, D=ch.data;
   const pyv=v=>typeof v==='number'?String(v):`"${String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}"`;
   const rows=D.rows.map(r=>'    ['+r.map(pyv).join(', ')+'],').join('\n');
   const cols='['+D.columns.map(c=>pyv(String(c))).join(', ')+']';   // escape headers too (quotes/backslashes)
-  const pal='['+_chartColors(ch).map(c=>`"${c}"`).join(', ')+']';
+  const lab=_chartLabColours(el);
+  const pal='['+(lab?lab.map(x=>x.color):_chartColors(ch)).map(c=>`"${c}"`).join(', ')+']'+(lab?'  # the lab style\'s sample colours, in series order':'');
   const xc=ch.mapping.xCol??0, yc=JSON.stringify(ch.mapping.yCols||[1]);
   return `# ── Chart ${idx+1}: ${ch.kind} ${ch.data.sourceName?`(${ch.data.sourceName})`:''} ──
 # ${_errNote(ch.error)}
@@ -18134,7 +18658,9 @@ function _chartRSnippet(el, idx){
   const colVecs=D.columns.map((c,ci)=>`  \`${c.replace(/`/g,'')}\` = c(${D.rows.map(r=>rv(r[ci])).join(', ')})`).join(',\n');
   const xname=D.columns[ch.mapping.xCol??0]||'x';
   const yname=D.columns[(ch.mapping.yCols||[1])[0]]||'y';
-  const pal='c('+_chartColors(ch).map(c=>`"${c}"`).join(', ')+')';
+  const lab=_chartLabColours(el);
+  const pal=lab?'c('+lab.map(x=>`${JSON.stringify(x.name)} = "${x.color}"`).join(', ')+')'
+               :'c('+_chartColors(ch).map(c=>`"${c}"`).join(', ')+')';
   const dfBlock=`df_${idx} <- data.frame(\n${colVecs},\n  check.names = FALSE\n)`;
   // Heatmap and survival don't fit the ggplot(aes(x,y)) + geom scaffold — emit
   // correct, self-contained recipes for them instead of a wrong bar chart.
@@ -18311,9 +18837,13 @@ function _scriptHeader(F, lang){
     +(p.col_span>1?`, ${p.col_span} columns wide`:'')+(p.row_span>1?`, ${p.row_span} rows tall`:'')));
   if(F.hidden.length) L.push('  Hidden, so not drawn: '+_scriptCmt(F.hidden.join('; ')));
   if(F.blanks.length) L.push('  Blank cells: '+F.blanks.join('; '));
-  if(F.notReproduced.length){
+  // A colour map is a 256-entry table, which ImageMagick's fx expressions cannot
+  // index; the R script says so rather than drawing a different colour. Python draws it.
+  const nr=F.notReproduced.slice();
+  if(lang==='R') F.panels.forEach(p=>{ const L=LUT_INFO[p.lut]; if(L&&L.table) nr.push(`panel ${p.label}: its ${L.name} (this R script draws the panel without it; the Python script draws it)`); });
+  if(nr.length){
     L.push('Not drawn by this script (see the exported figure):');
-    F.notReproduced.forEach(n=>L.push('  - '+_scriptCmt(n)));
+    nr.forEach(n=>L.push('  - '+_scriptCmt(n)));
   }
   L.push('The exported PNG/TIFF/PDF is the figure of record; this script documents how each panel');
   L.push('was processed and rebuilds it from the original files. Typefaces depend on this machine.');
@@ -18330,7 +18860,7 @@ function exportR(){
 
 args <- commandArgs(trailingOnly = TRUE)
 input_dir   <- if (length(args) > 0) args[1] else "path/to/your/images"   # <- or set it here
-output_file <- ${_scriptStr(F.name+'.tiff','R')}
+output_file <- ${_scriptStr(F.name+'.'+_tiffExt(),'R')}
 FIG_W <- ${F.W}; FIG_H <- ${F.H}     # the figure in FigureLab's layout units
 SCALE <- ${F.scale}                 # output pixels per layout unit: ${F.dpi} dpi${F.mm>0?`, ${F.mm} mm wide`:', no printed width set'}
 DPI   <- ${F.dpi}
@@ -18364,7 +18894,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 input_dir   = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("path/to/your/images")  # <- or set it here
-output_file = Path(${_scriptStr(F.name+'.tiff','Python')})
+output_file = Path(${_scriptStr(F.name+'.'+_tiffExt(),'Python')})
 FIG_W, FIG_H = ${F.W}, ${F.H}  # the figure in FigureLab's layout units
 SCALE        = ${F.scale}  # output pixels per layout unit: ${F.dpi} dpi${F.mm>0?`, ${F.mm} mm wide`:', no printed width set'}
 DPI          = ${F.dpi}
@@ -18397,7 +18927,21 @@ LUTS = {  # the pseudocolour tables FigureLab uses, on an 8-bit grey value i
     "red":     lambda i: (i, i * 0, i * 0),
     "yellow":  lambda i: (i, i, i * 0),
     "blue":    lambda i: (np.round(i * .28), np.round(i * .53), np.minimum(255, i)),
+    "orange":  lambda i: (i, np.round(i * .5), i * 0),
 }
+
+
+def _table_lut(hexes):
+    # A colour map as FigureLab carries it: 256 entries, entry i for grey value i.
+    t = np.array([[int(hexes[k + j:k + j + 2], 16) for j in (0, 2, 4)] for k in range(0, 1536, 6)])
+    return lambda i: tuple(t[np.clip(np.asarray(i).astype(np.int64), 0, 255), c] for c in range(3))
+
+
+LUT_TABLES = {  # matplotlib's viridis, magma, inferno and cividis, byte for byte
+${Object.entries(_LUT_HEX).map(([k,h])=>`    "${k}": "${h}",`).join('\n')}
+}
+for _name, _hex in LUT_TABLES.items():
+    LUTS[_name] = _table_lut(_hex)
 
 
 def fail(msg):
@@ -18581,7 +19125,8 @@ LUT_FX <- list(
   magenta = c(R = "u", G = "0", B = "u"),
   red     = c(R = "u", G = "0", B = "0"),
   yellow  = c(R = "u", G = "u", B = "0"),
-  blue    = c(R = "u*0.28", G = "u*0.53", B = "u")
+  blue    = c(R = "u*0.28", G = "u*0.53", B = "u"),
+  orange  = c(R = "u", G = "u*0.5", B = "0")
 )
 
 # The order FigureLab applies them: brightness, contrast, grey, invert, then
@@ -18696,6 +19241,7 @@ const _DIALOGS = {
   'gel-modal-bg': { close:()=>closeGelAnalysis() },   // built by openGelAnalysis; resets _gelUI as it closes
   'lt-modal-bg': { close:()=>closeLaneTable() },      // the lane condition table editor; every edit is already committed
   's1-modal-bg': {},                                   // the uncropped-originals sheet
+  'replace-all-modal-bg': {},                          // old → new per panel; nothing changes until Replace
 };
 // The compliance report and the confirm box are styled inline rather than with
 // .modal-bg, and exist only while open, so they are found by id.
@@ -19126,7 +19672,7 @@ function projectTickedPanels(mode){
     _withWaiting(()=>images.splice(sel[sel.length-1]+1,0,p));
     renderImgList(); renderMiniGrid(); scheduleRender(0);
     logAction('projectPanels',{mode,panels:sel.length,from:labels});
-    toast(`${mode==='max'?'Max':'Mean'} projection of ${sel.length} panels added as ${formatLabel(p.label)}`,'ok');
+    toast(`${mode==='max'?'Max':'Mean'} projection of ${sel.length} panels added as ${_rtText(formatLabel(p.label))}`,'ok');
   };
   img.src=src;
 }
@@ -19140,7 +19686,7 @@ function mergeTickedPanels(){
   const sel=_listSelection().filter(i=>images[i]&&images[i].img&&!images[i].isVector).sort((a,b)=>a-b);
   if(sel.length<2){ toast('Tick two or more single-channel panels (for example C1-DAPI.tif and C2-GFP.tif) first','warn'); return; }
   const already=sel.find(i=>(images[i].channels||[]).length);
-  if(already!==undefined){ toast(`${formatLabel(images[already].label)||'A ticked panel'} is already a merge — untick it`,'warn'); return; }
+  if(already!==undefined){ toast(`${_rtText(formatLabel(images[already].label))||'A ticked panel'} is already a merge — untick it`,'warn'); return; }
   // Channels of one field share a frame; a merge of mismatched frames is a misregistration.
   const dims=i=>{ const g=images[i].img; return [g.naturalWidth||g.width, g.naturalHeight||g.height]; };
   const [W,H]=dims(sel[0]);
@@ -19182,7 +19728,7 @@ function mergeTickedPanels(){
   document.querySelectorAll('#img-list .panel-pick:checked').forEach(cb=>{ cb.checked=false; });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('mergeTicked',{from:labels, into:formatLabel(p.label)});
-  toast(`${labels} merged into ${formatLabel(p.label)} (${luts.join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
+  toast(`${labels} merged into ${_rtText(formatLabel(p.label))} (${luts.join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
     + (mixedFrame?' — the base panel’s crop applies to every channel':''),'ok');
 }
 
@@ -20286,7 +20832,7 @@ function openFFAdjust(){
   set('ffa-gray', !!el.grayscale); set('ffa-inv', !!el.invert);
   // LUT buttons.
   const wrap=document.getElementById('ffa-luts'); wrap.innerHTML='';
-  const luts=['none','fire','green','cyan','magenta','red','yellow','blue'];
+  const luts=Object.keys(LUT_INFO);
   luts.forEach(l=>{ const btn=document.createElement('button'); btn.className='btn'; btn.style.cssText='padding:2px 9px;font-size:10px';
     btn.textContent=l; if((el.lut||'none')===l){ btn.style.borderColor='var(--accent)'; btn.style.color='var(--accent)'; }
     btn.onclick=()=>_ffAdjLut(l); wrap.appendChild(btn); });
@@ -21088,7 +21634,7 @@ function _chartStats(el){
       const g=(gc!=null)?String(r[gc]??''):'All';
       (groups[g]=groups[g]||[]).push({time:t, event:num(r[ec])?1:0}); });
     const gnames=Object.keys(groups);
-    const curves=gnames.map((g,i)=>{ const km=_kmEstimate(groups[g]); return {name:g, color:colours[i%colours.length], ...km}; });
+    const curves=gnames.map((g,i)=>{ const km=_kmEstimate(groups[g]); return {name:g, color:_sampleColour(g)||colours[i%colours.length], ...km}; });
     let tmax=0; curves.forEach(c=>c.steps.forEach(s=>{ tmax=Math.max(tmax,s.t); }));
     return {kind, curves, tmax:tmax||1, singleGroup:(gc==null), warn};
   }
@@ -21102,7 +21648,8 @@ function _chartStats(el){
         // A log axis has no place for ≤0 values — drop them honestly (never clamp) and count it.
         if((xLog&&x<=0)||(yLog&&y<=0)){ warn.dropped++; return; }
         pts.push({x,y}); });
-      return {name:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], points:pts};
+      const nm=cols[yc]||('Series '+(si+1));
+      return {name:nm, color:_sampleColour(nm)||colours[si%colours.length], points:pts};
     });
     let xs=[],ys=[]; series.forEach(s=>s.points.forEach(p=>{ xs.push(p.x); ys.push(p.y); }));
     return {kind, series, categories:null,
@@ -21118,7 +21665,7 @@ function _chartStats(el){
       const vals=[]; rows.filter(r=>catOf(r)===c).forEach(r=>yCols.forEach(yc=>{ const v=num(r[yc]); if(isFinite(v)) vals.push(v); }));
       vals.sort((a,b)=>a-b);
       const q=p=>{ if(!vals.length) return 0; const idx=(vals.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx); return vals[lo]+(vals[hi]-vals[lo])*(idx-lo); };
-      return {name:c, color:colours[ci%colours.length], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
+      return {name:c, color:_sampleColour(c)||colours[ci%colours.length], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
     });
     const all=boxes.flatMap(b=>b.raw);
     let yd=[_arrMin(all,0),_arrMax(all,1)];
@@ -21129,6 +21676,9 @@ function _chartStats(el){
   // bar / groupedBar / stackedBar: categories on x, one bar per y column per category.
   const cats=[...new Set(rows.map(catOf))];
   const errCol=ch.mapping.errCol;
+  // A one-series bar chart of samples (strains on the x axis) takes the lab colours by
+  // category, since there is no series to name; the key then lists the categories.
+  const byCat=yCols.length===1 && cats.some(c=>_sampleColour(c));
   const groups=cats.map((c,ci)=>{
     const crows=rows.filter(r=>catOf(r)===c);
     const bars=yCols.map((yc,si)=>{
@@ -21139,7 +21689,8 @@ function _chartStats(el){
       } else { value=vals.length?vals[0]:0; }
       if(ch.error==='column' && errCol!=null){ const e=num((crows[0]||[])[errCol]); if(isFinite(e)) err=e; }
       // Keep the raw replicate values so "show points" can overlay them (exposes n + spread).
-      return {series:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length], value, err, n:vals.length, vals};
+      const nm=cols[yc]||('Series '+(si+1));
+      return {series:nm, color:(byCat?_sampleColour(c):_sampleColour(nm))||colours[si%colours.length], value, err, n:vals.length, vals};
     });
     return {cat:c, bars};
   });
@@ -21154,14 +21705,15 @@ function _chartStats(el){
   // Only synthesise a [0,1] axis when there is NO finite data — an all-negative
   // dataset has a legitimate ymax of 0 and must not gain a spurious band above zero.
   if(!anyData){ ymin=0; ymax=1; } else if(ymin===0&&ymax===0){ ymax=1; }
-  const seriesNames=yCols.map((yc,si)=>({name:cols[yc]||('Series '+(si+1)), color:colours[si%colours.length]}));
-  return {kind, groups, categories:cats, seriesNames, series:null, yDomain:[ymin,ymax], warn};
+  const seriesNames=yCols.map((yc,si)=>{ const nm=cols[yc]||('Series '+(si+1)); return {name:nm, color:_sampleColour(nm)||colours[si%colours.length]}; });
+  const catColours=byCat?groups.map(g=>({name:g.cat, color:g.bars[0].color})):null;
+  return {kind, groups, categories:cats, seriesNames, catColours, series:null, yDomain:[ymin,ymax], warn};
 }
 
 // Cache wrapper — recompute only when the dataset/mapping/agg/error change.
 function _chartStatsCached(el){
   const ch=el.chart;
-  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error]);
+  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error, gv('sample-colours')]);
   if(el._chartKey===key && el._chartStat) return el._chartStat;
   el._chartStat=_chartStats(el); el._chartKey=key;
   return el._chartStat;
@@ -21224,9 +21776,10 @@ function _chartDraw(el, emit){
 
   // Background + frame.
   emit.rect(0,0,W,H,'#ffffff',null,0);
+  const axW=_chartAxisW();                                // 1, or a lab style's axis_line_width
   if(st.frame!=='none'){
-    emit.line(px0,py1,px1,py1,ink,1);                     // x axis
-    emit.line(px0,py0,px0,py1,ink,1);                     // y axis
+    emit.line(px0,py1,px1,py1,ink,axW);                   // x axis
+    emit.line(px0,py0,px0,py1,ink,axW);                   // y axis
   }
 
   const yD=stat.yDomain||[0,1];
@@ -21244,7 +21797,7 @@ function _chartDraw(el, emit){
     if(t<ymin-1e-9||t>ymax+1e-9) return;
     const y=yScale(t);
     if(st.showGrid) emit.line(px0,y,px1,y,grid,1);
-    emit.line(px0-3,y,px0,y,ink,1);
+    emit.line(px0-3,y,px0,y,ink,axW);
     emit.text(_fmtTick(t),px0-6,y,font(fs-1),ink,'right','middle');
   });
   // Axis titles.
@@ -21453,7 +22006,8 @@ function _chartDrawSurvival(el, emit, stat, font, fs, ink){
   const padL=48, padR=(st.showLegend&&!stat.singleGroup?96:16), padT=14, padB=ch.axes.x.title?40:28;
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
   const px1=px0+pw, py1=py0+ph;
-  emit.line(px0,py1,px1,py1,ink,1); emit.line(px0,py0,px0,py1,ink,1);
+  const axW=_chartAxisW();
+  emit.line(px0,py1,px1,py1,ink,axW); emit.line(px0,py0,px0,py1,ink,axW);
   const tmax=stat.tmax||1;
   const xS=t=>px0+(t/tmax)*pw, yS=s=>py1-s*ph;           // survival 0..1
   // Y ticks 0..1.
@@ -24756,8 +25310,8 @@ function _s1PageCanvas(im, opts){
     // the panel letter at the outline's top-left corner, inside the region
     x.font=`bold ${Math.round(fs*1.4)}px ${fam}`; x.textBaseline='top'; x.textAlign='left';
     x.lineWidth=Math.max(2,Math.round(fs*0.2)); x.strokeStyle='rgba(255,255,255,.9)';
-    x.strokeText(formatLabel(im.label), P[0][0]+lw+3, P[0][1]+lw+3);
-    x.fillStyle=S1_OUTLINE; x.fillText(formatLabel(im.label), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.strokeText(_rtText(formatLabel(im.label)), P[0][0]+lw+3, P[0][1]+lw+3);
+    x.fillStyle=S1_OUTLINE; x.fillText(_rtText(formatLabel(im.label)), P[0][0]+lw+3, P[0][1]+lw+3);
     x.restore();
   }
   G.splices.filter(s=>s.mapped).forEach(s=>{
@@ -24819,7 +25373,7 @@ function openS1Dialog(){
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">One page per ticked panel: the whole source image with the region used in the figure outlined, the file name, the crop in source pixels, any tilt and splice markers. Journals ask for this for every blot and gel. Ticked to begin with: panels that are cropped or carry a splice marker or lane labels.</div>
     <div id="s1-list" style="max-height:240px;overflow:auto;font-size:11px">${P.map(im=>{ const r=_s1Reasons(im);
       return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${im.id}" ${_s1Selected(im)?'checked':''}>
-        <b>${esc(formatLabel(im.label)||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
+        <b>${esc(_rtText(formatLabel(im.label))||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
     <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px" title="Off: the file's own pixels, which is what journals ask for. On: as the figure shows them. Either way the page says which."><input type="checkbox" id="s1-display"> Show with the figure's display adjustments</label>
     <div style="display:flex;gap:6px;margin-top:14px">
       <button class="btn btn-primary" id="s1-pdf" style="flex:1;justify-content:center">⬇ PDF (one page per panel)</button>
@@ -25809,7 +26363,7 @@ async function exportMultiPagePDF(opts){
     const kc = _keyCanvas(dpi, _pdfCanTypeset);
     pages.push(await _pdfPageFor(kc, kc._effDpi, { lossless, textItems: kc._keyItems, ptPerUnit: (kc.width*72/kc._effDpi)/kc._keyW }));
   }
-  const out = _pdfAssemble(pages);
+  const out = _pdfAssemble(pages, _pdfFigureInfo());
   dl(URL.createObjectURL(new Blob([out], {type:'application/pdf'})), name + '-multipage.pdf');
   toast(`Exported ${pages.length}-page PDF${lossless ? ' (lossless)' : ''}${pages.length>figPages ? ' — the last page is the legend key' : ''}`, 'ok');
   logAction('exportMultiPagePDF', { pages: figPages, rowsPerPage: rpp, dpi, lossless, keyPage: pages.length>figPages });
@@ -25847,7 +26401,7 @@ function shareSession(){
   // measurements, the files' own calibration and times — and the generated text.
   const state = serializeSession(false, 'share');
   delete state.measurements; delete state.freeformElements;
-  delete state.captionText; delete state.methodsText;
+  delete state.captionText; delete state.methodsText; delete state.altText;
   state._shared = true;
   const ids=new Set(state.images.filter(Boolean).map(d=>d.id));
   state._imageCount = state.images.filter(d=>d&&!(d.insetOf!=null&&ids.has(d.insetOf))).length;
@@ -25913,7 +26467,7 @@ function openPanelComparison(){
   render();
 
   // Build selector options
-  const opt = (o,sel)=>`<option value="${o.i}"${sel?' selected':''}>Panel ${esc(formatLabel(o.im.label))} — ${esc(o.im.name)}</option>`;
+  const opt = (o,sel)=>`<option value="${o.i}"${sel?' selected':''}>Panel ${esc(_rtText(formatLabel(o.im.label)))} — ${esc(o.im.name)}</option>`;
   const opts = filled.map(o=>opt(o,false)).join('');
   const optsRight = filled.map((o,k)=>opt(o,k===1)).join('');
 

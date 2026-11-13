@@ -365,7 +365,7 @@ test('lzw: the PLOS preset switches it on, and the package carries the LZW TIFF 
     const zipCap = await _captureDownload(() => exportSubmissionPackage());
     const files = _zipRead(zipCap.data);
     const names = Object.keys(files);
-    const tiffName = names.find(n => /\.tiff$/.test(n) && !n.includes('/'));
+    const tiffName = names.find(n => /\.tif$/.test(n) && !n.includes('/'));   // PLOS: Fig1.tif, its own naming
     const methodsName = names.find(n => /-methods\.txt$/.test(n));
     return { onAfterPlos, keptAfterNature, names,
              tiff259: tiffName ? _tiffTags(files[tiffName])[259] : null,
