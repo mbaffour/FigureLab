@@ -648,12 +648,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="divider"></div>
     <div class="sec-lbl">Margins (px)</div>
     <div class="inline-row">
-      <span>Top</span><input type="number" id="m-top"   value="40" min="0" max="200" oninput="scheduleRender()">
-      <span>Left</span><input type="number" id="m-left"  value="60" min="0" max="200" oninput="scheduleRender()">
+      <span>Top</span><input type="number" id="m-top" aria-label="Top margin (px)"   value="40" min="0" max="200" oninput="scheduleRender()">
+      <span>Left</span><input type="number" id="m-left" aria-label="Left margin (px)"  value="60" min="0" max="200" oninput="scheduleRender()">
     </div>
     <div class="inline-row">
-      <span>Bottom</span><input type="number" id="m-btm"   value="16" min="0" max="200" oninput="scheduleRender()">
-      <span>Right</span><input type="number" id="m-right" value="16" min="0" max="200" oninput="scheduleRender()">
+      <span>Bottom</span><input type="number" id="m-btm" aria-label="Bottom margin (px)"   value="16" min="0" max="200" oninput="scheduleRender()">
+      <span>Right</span><input type="number" id="m-right" aria-label="Right margin (px)" value="16" min="0" max="200" oninput="scheduleRender()">
     </div>
 
     <div class="divider"></div>
@@ -1236,12 +1236,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" onclick="writeMethodsParagraph()" style="width:100%;justify-content:center;margin-top:4px" title="Write the image-processing paragraph for your Methods from what FigureLab knows: software and version, whether adjustments were uniform, gamma, pseudocolour, resampling, projections, calibration sources, splices and insets. The submission package includes it as -methods.txt.">✎ Write Methods paragraph</button>
     <button class="btn" id="ai-caption-btn" onclick="aiPolishCaption()" style="width:100%;justify-content:center;margin-top:4px" title="Polish the caption with Chrome's built-in on-device AI (Gemini Nano). 100% local — nothing is uploaded. Falls back to the built-in caption if unavailable.">🤖 Polish with on-device AI</button>
     <textarea id="caption-out" rows="4" placeholder="Caption will appear here…" style="margin-top:4px"></textarea>
+    <div id="caption-stale" class="gen-stale" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this caption was generated. <a href="#" onclick="generateCaption();return false">✦ Regenerate</a> (replaces your edits)</div>
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
       <span style="font-size:10px;color:var(--muted);flex:1" title="The legend key in words — every channel, series or feature with its colour (and marker) — kept in step with the figure. Copy it into your figure legend and edit it there.">Legend text starter</span>
       <button class="btn" onclick="copyKeyText()" style="padding:2px 8px" title="Copy the key in words, to paste into your figure legend">Copy</button>
     </div>
     <textarea id="key-text" rows="2" readonly placeholder="The legend key in words appears here…" style="margin-top:2px"></textarea>
     <textarea id="methods-out" rows="5" placeholder="Methods paragraph will appear here…" style="margin-top:4px"></textarea>
+    <div id="methods-stale" class="gen-stale" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this paragraph was written. <a href="#" onclick="writeMethodsParagraph();return false">✎ Rewrite</a> (replaces your edits)</div>
     <div id="alt-text-wrap" style="margin-top:6px">
       <div class="sec-lbl" style="margin:0 0 2px">Alt text <span class="help-chip" tabindex="0" role="button" aria-label="About alt text" data-tip="A description of the figure for readers who cannot see it. Springer Nature asks for it and AIP requires it. Embedded in the PNG (metadata), the SVG (its title and description) and the PDF (the document's Subject — document metadata, not a tagged-PDF figure alternative), and shipped in the submission package as -alt.txt.">?</span></div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -4561,7 +4563,7 @@ const CMD_REGISTRY=[
   {label:'Printed width (journal column width)', keys:'width mm column single double journal printed physical size 183 89 page', run:()=>_cmdpGoto('export-width-mm','Pick your journal column width')},
   // Scale bar — the palette had no way to add or calibrate one.
   {label:'Calibrate a panel (µm per pixel)', keys:'calibrate scale bar micron um µm microns per pixel calibration size real world', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean); if(i>=0) openCalib(i); else toast('Add an image first','warn'); }},
-  {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
+  {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar text label font thickness', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
   // Panel letters — every obvious phrasing returned nothing.
   {label:'Labels: panel letters A, B, C', keys:'label labels letter a b c panel letters lettering caption tag name abc numbering', run:()=>_cmdpGoto('show-labels','Show, then size, colour and position below')},
   {label:'Letter position on the panel', keys:'label position corner top left right bottom letter placement', run:()=>_cmdpGoto('label-pos','Which corner the letter sits in')},
@@ -4582,24 +4584,24 @@ const CMD_REGISTRY=[
   {label:'Write the Methods paragraph (image processing)', keys:'methods paragraph image processing statement disclosure software citation methods section write describe adjustments', run:()=>writeMethodsParagraph()},
   {label:'Check it against journal requirements', keys:'journal check compliance submit submission requirements ready publish validate before sending', run:()=>checkCompliance()},
   {label:'Render figure',            keys:'render preview refresh',        run:()=>render(),                    hint:'R'},
-  {label:'Export PNG',               keys:'export png image save',         run:()=>doExport('png'),             hint:'Ctrl+E'},
-  {label:'Export PDF',               keys:'export pdf document',           run:()=>doExport('pdf')},
-  {label:'Export PDF (lossless)',    keys:'export pdf lossless line art',  run:()=>doExport('pdf-lossless')},
-  {label:'Export TIFF',              keys:'export tiff journal print',     run:()=>doExport('tiff')},
-  {label:'Export SVG',               keys:'export svg vector',             run:()=>doExport('svg')},
+  {label:'Export PNG',               keys:'export png image save',         run:()=>doExportPreflight('png'),    hint:'Ctrl+E'},
+  {label:'Export PDF',               keys:'export pdf document',           run:()=>doExportPreflight('pdf')},
+  {label:'Export PDF (lossless)',    keys:'export pdf lossless line art',  run:()=>doExportPreflight('pdf-lossless')},
+  {label:'Export TIFF',              keys:'export tiff journal print',     run:()=>doExportPreflight('tiff')},
+  {label:'Export SVG',               keys:'export svg vector',             run:()=>doExportPreflight('svg')},
   {label:'Export layered SVG for Illustrator / Inkscape / Affinity', keys:'layered svg layers illustrator inkscape affinity vector editor editable panels one image per panel',
     run:()=>{ sv('export-svg-mode','layered'); doExport('svg'); }},
   {label:'Export flat SVG (one image)', keys:'flat svg single image vector', run:()=>{ sv('export-svg-mode','flat'); doExport('svg'); }},
   {label:'Batch export panels (one ZIP at the export DPI)', keys:'batch export panels separate files zip each panel individually tiff png jpeg', run:()=>batchExportPanels()},
-  {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExport('jpeg')},
-  {label:'Export WebP',              keys:'export webp',                   run:()=>doExport('webp')},
+  {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExportPreflight('jpeg')},
+  {label:'Export WebP',              keys:'export webp',                   run:()=>doExportPreflight('webp')},
   {label:'Download legend key',      keys:'legend key download swatch colours export', run:()=>downloadKey()},
   {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
   {label:'Save to session library',  keys:'library session save named multiple figures', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
-  {label:'Export submission package (ZIP)', keys:'submission package zip bundle everything', run:()=>exportSubmissionPackage()},
+  {label:'Export submission package (ZIP)', keys:'journal submission package zip bundle everything for journal submit send all files', run:()=>exportSubmissionPackage()},
   {label:'Export editable PowerPoint (.pptx)', keys:'powerpoint pptx slides editable ppt keynote slide deck text boxes', run:()=>exportPPTX()},
   {label:'Export uncropped originals (S1) — blots and gels', keys:'uncropped original originals blot gel western full scan supplement supplementary s1 raw unprocessed crop region journal', run:()=>openS1Dialog()},
   {label:'Export ruler lengths (CSV)', keys:'ruler length measure measurement nm tem capsid tail size csv mean sd', run:()=>exportRulerCSV()},
@@ -4611,7 +4613,7 @@ const CMD_REGISTRY=[
   {label:'Check against other figures (image reuse)', keys:'duplicate duplication reuse reused image integrity proofig imagetwin across figures other figures same image paper manuscript compare figures copied micrograph blot', run:()=>openCrossFigureCheck()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
-  {label:'Generate caption',         keys:'caption legend figure',         run:()=>generateCaption()},
+  {label:'Generate caption',         keys:'caption legend figure text write describe',         run:()=>generateCaption()},
   {label:'Replace image… (keep crop, labels and settings)', keys:'replace image swap file relink new picture keep crop settings update', run:()=>openReplaceImage(selectedPanel)},
   {label:'Replace all images… (figure as a template)', keys:'replace all images template next experiment relink swap files batch reuse', run:()=>openReplaceAll()},
   {label:'Alt text: draft from the figure (accessibility)', keys:'alt text alt-text accessibility screen reader a11y description springer aip', run:()=>draftAltText()},
@@ -4641,24 +4643,17 @@ const CMD_REGISTRY=[
   {label:'Theme: Fluorescence (dark)', keys:'theme dark fluorescence black microscopy',          run:()=>applyBuiltinTheme('fluorescence')},
   {label:'Theme: High contrast',       keys:'theme contrast bold talk slide',                    run:()=>applyBuiltinTheme('high-contrast')},
   {label:'Theme: Poster (large type)', keys:'theme poster large a0 type',                        run:()=>applyBuiltinTheme('poster')},
-  {label:'Preset: Nature',           keys:'preset journal nature',         run:()=>applyPreset('nature')},
-  {label:'Preset: Science',          keys:'preset journal science',        run:()=>applyPreset('science')},
-  {label:'Preset: Cell',             keys:'preset journal cell',           run:()=>applyPreset('cell')},
   {label:'Preset: Poster',           keys:'preset poster',                 run:()=>applyPreset('poster')},
-  {label:'Preset: eLife',            keys:'preset journal elife',          run:()=>applyPreset('elife')},
-  {label:'Preset: PLOS',             keys:'preset journal plos',           run:()=>applyPreset('plos')},
-  {label:'Preset: EMBO',             keys:'preset journal embo',           run:()=>applyPreset('embo')},
-  {label:'Preset: PNAS',             keys:'preset journal pnas',           run:()=>applyPreset('pnas')},
-  {label:'Journal: Nature',          keys:'journal nature springer requirements figure guidelines column width 89 183 mm', run:()=>applyPreset('nature')},
-  {label:'Journal: PLOS ONE',        keys:'journal plos one plosone requirements figure guidelines tiff lzw fig1 column width', run:()=>applyPreset('plos')},
-  {label:'Journal: eLife',           keys:'journal elife requirements figure guidelines source data column width', run:()=>applyPreset('elife')},
-  {label:'Journal: EMBO J',          keys:'journal embo emboj embo journal requirements figure guidelines column width', run:()=>applyPreset('embo')},
-  {label:'Journal: ASM (mBio, J Bacteriol, J Virol…)', keys:'journal asm mbio jvi jb jbact j bacteriol j virol aem microbiology spectrum requirements figure guidelines column width', run:()=>applyPreset('asm')},
-  {label:'Journal: JBC (data presentation)', keys:'journal jbc asbmb biological chemistry western blot requirements figure guidelines', run:()=>applyPreset('jbc')},
-  {label:'Journal: Science (unverified)', keys:'journal science aaas requirements figure guidelines column width', run:()=>applyPreset('science')},
-  {label:'Journal: Cell (unverified)',    keys:'journal cell press requirements figure guidelines column width', run:()=>applyPreset('cell')},
-  {label:'Journal: PNAS (unverified)',    keys:'journal pnas requirements figure guidelines column width', run:()=>applyPreset('pnas')},
-  {label:'Check against Nature',     keys:'check compliance journal requirements figure guidelines nature', run:()=>checkAgainstJournal('nature')},
+  {label:'Journal: Nature',          keys:'preset style house journal nature springer requirements figure guidelines column width 89 183 mm', hint:'width, font, DPI + its rules', run:()=>applyPreset('nature')},
+  {label:'Journal: PLOS ONE',        keys:'preset style house journal plos one plosone requirements figure guidelines tiff lzw fig1 column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('plos')},
+  {label:'Journal: eLife',           keys:'preset style house journal elife requirements figure guidelines source data column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('elife')},
+  {label:'Journal: EMBO J',          keys:'preset style house journal embo emboj embo journal requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('embo')},
+  {label:'Journal: ASM (mBio, J Bacteriol, J Virol…)', keys:'preset style house journal asm mbio jvi jb jbact j bacteriol j virol aem microbiology spectrum requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('asm')},
+  {label:'Journal: JBC (data presentation)', keys:'preset style house journal jbc asbmb biological chemistry western blot requirements figure guidelines', hint:'width, font, DPI + its rules', run:()=>applyPreset('jbc')},
+  {label:'Journal: Science (unverified)', keys:'preset style house journal science aaas requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('science')},
+  {label:'Journal: Cell (unverified)',    keys:'preset style house journal cell press requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('cell')},
+  {label:'Journal: PNAS (unverified)',    keys:'preset style house journal pnas requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('pnas')},
+  {label:'Check against Nature',     hint:'report only, changes nothing', keys:'check compliance journal requirements figure guidelines nature', run:()=>checkAgainstJournal('nature')},
   {label:'Check against PLOS ONE',   keys:'check compliance journal requirements figure guidelines plos one', run:()=>checkAgainstJournal('plos')},
   {label:'Check against eLife',      keys:'check compliance journal requirements figure guidelines elife', run:()=>checkAgainstJournal('elife')},
   {label:'Check against EMBO J',     keys:'check compliance journal requirements figure guidelines embo', run:()=>checkAgainstJournal('embo')},
@@ -4710,9 +4705,9 @@ const CMD_REGISTRY=[
   {label:'Insert blank cell',        keys:'blank empty cell spacer gap placeholder grid', run:()=>insertBlankCell()},
   {label:'Show all panels',          keys:'show all unhide restore panels subset',      run:()=>showAllPanels()},
   {label:'Delete hidden panels…',    keys:'delete hidden excluded panels remove',       run:()=>deleteHiddenPanels()},
-  {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape', run:()=>fitPanelsToContent()},
+  {label:'Fit panels to images (remove white bars)', keys:'fit panels aspect white space bars letterbox gap tight shape align aligned line up tidy ragged uneven', run:()=>fitPanelsToContent()},
   {label:'Tighten spacing',          keys:'tight spacing gaps margins white space close', run:()=>tightenSpacing()},
-  {label:'Crop a panel…',            keys:'crop trim cut panel image editor tighter zoom in region',   run:()=>cropSelectedPanel()},
+  {label:'Crop a panel…',            keys:'crop trim cut panel image editor tighter zoom in region white border edge margin',   run:()=>cropSelectedPanel()},
   {label:'Multi-crop into panels…',  keys:'multi crop regions several panels split tile', run:()=>startMultiCrop()},
   {label:'Batch crop all images',    keys:'batch crop images all same box',     run:()=>startBatchCrop()},
   {label:'Fit grid to panels',       keys:'fit grid rows columns auto layout count arrange', run:()=>fitGridToPanels()},
@@ -4752,6 +4747,21 @@ const CMD_REGISTRY=[
   {label:'Toggle row/column labels', keys:'labels toggle rows columns',         run:()=>toggleAllLabels()},
   {label:'Italic, bold, superscript and subscript in labels (how to)', keys:'italic italics species gene name superscript subscript exponent power 10^8 10^{8} format text bold formatting markup mixed', run:()=>_rtHowTo()},
   {label:'CVD: deuteranopia preview',keys:'colourblind cvd vision deuteranopia',run:()=>setCvdMode('deuter')},
+  // Words a newcomer types that had no row, or reached the wrong one.
+  {label:'Font (typeface) of letters and labels', keys:'font typeface family arial helvetica times change font text style', run:()=>_cmdpGoto('label-font','Pick the typeface — headings follow it unless you set their own')},
+  {label:'Size of the panel letters', keys:'letter size font size label size bigger letters larger text smaller letters', run:()=>_cmdpGoto('label-size')},
+  {label:'Letter style: A B C, a b c, 1 2 3, i ii iii', keys:'lowercase uppercase capital small letters case label format abc numbers roman numerals', run:()=>_cmdpGoto('label-format')},
+  {label:'Make a panel span two columns or rows (big panel)', keys:'span col span row span merge cells big large larger panel two rows two columns 2x2 double wide tall bigger one panel', run:()=>_cmdpPanelControl('.f-colspan','Set Col span and Row span for this panel — 2 and 2 makes it four cells big')},
+  {label:'Copy one panel’s look to every panel (Apply to all)', keys:'copy style apply to all same settings brightness contrast lut levels match panels uniform paste style', run:()=>_cmdpPanelControl('[data-applyall]','“↔ Apply to all” copies this panel’s brightness, contrast, gamma, LUT and levels to every panel')},
+  {label:'Margins around the figure', keys:'margin margins edge border around outside top left bottom right padding space room for labels', run:()=>_cmdpGoto('m-left','Margins in px: Left makes room for row headings, Top for column headings')},
+  {label:'Swap or reorder panels', keys:'reorder swap order move panels rearrange drag sort sequence position', run:()=>toast('Drag a panel on the canvas onto another to swap them, or drag a row’s ⠿ handle in the image list; ⌘K “Sort panels by filename” sorts them all','ok')},
+  {label:'Align selected objects: left edges (freeform)', keys:'align left edges line up objects freeform', run:()=>_cmdpFree(()=>alignElems('left'))},
+  {label:'Align selected objects: top edges (freeform)', keys:'align top edges line up objects freeform', run:()=>_cmdpFree(()=>alignElems('top'))},
+  {label:'Align selected objects: centres (freeform)', keys:'align centre center middle objects freeform', run:()=>_cmdpFree(()=>alignElems('centerH'))},
+  {label:'Distribute selected objects evenly (freeform)', keys:'distribute evenly spread equal spacing objects freeform', run:()=>_cmdpFree(()=>distributeElems('h'))},
+  {label:'Bring selected object to front (freeform)', keys:'front bring to front layer order top above raise freeform', run:()=>_cmdpFree(()=>changeZOrder('front'))},
+  {label:'Send selected object to back (freeform)', keys:'back send to back layer order bottom behind lower freeform', run:()=>_cmdpFree(()=>changeZOrder('back'))},
+  {label:'Lock / unlock selected object (freeform)', keys:'lock unlock pin fix freeze object freeform', run:()=>_cmdpFree(()=>toggleLockSelected())},
 ];
 let _cmdpSel=0, _cmdpFiltered=[];
 // Take the user to a control instead of running something: open every section it is
@@ -4845,7 +4855,7 @@ function _cmdpAddChannel(){
 
 function openCmdPalette(){
   const el=document.getElementById('cmd-palette'); el.classList.add('open');
-  const inp=document.getElementById('cmdp-input'); inp.value=''; _cmdpRender('');
+  const inp=document.getElementById('cmdp-input'); inp.value=''; _cmdpCtlCache=null; _cmdpRender('');
   requestAnimationFrame(()=>inp.focus());
 }
 function closeCmdPalette(){ document.getElementById('cmd-palette').classList.remove('open'); }
@@ -4856,27 +4866,91 @@ function closeCmdPalette(){ document.getElementById('cmd-palette').classList.rem
 // keyword hit, and an earlier hit outranks a later one.
 function _cmdpScore(item,q){
   if(!q) return 1;
-  const label=(item.label||'').toLowerCase(), keys=(item.keys||'').toLowerCase();
-  const toks=q.split(/\s+/).filter(Boolean);
+  const sp=x=>x.replace(/colour/g,'color').replace(/grey/g,'gray');
+  const label=sp((item.label||'').toLowerCase()), keys=sp((item.keys||'').toLowerCase());
+  const toks=sp(q).split(/\s+/).filter(Boolean);
   if(!toks.length) return 1;
   // A word-boundary hit always outranks one buried inside a longer word, or "um" ranks
   // "Rows and columns" above the scale bar, matching the "um" in col-UM-ns.
   const at=(hay,t)=>{ let i=hay.indexOf(t), mid=-1;
     while(i>=0){ if(i===0||!/[a-z0-9]/.test(hay[i-1])) return {i, whole:true}; if(mid<0) mid=i; i=hay.indexOf(t,i+1); }
     return mid<0?null:{i:mid, whole:false}; };
-  let total=0;
-  for(const t of toks){
+  const hit=t=>{
     let best=0;
     const L=at(label,t), K=at(keys,t);
     if(L&&L.whole) best=L.i===0?1000:900-Math.min(L.i,200);  // the label, on a word boundary
     if(K&&K.whole) best=Math.max(best, 700-Math.min(K.i,200));// a keyword, on a word boundary
     if(!best&&L) best=400-Math.min(L.i,200);                 // buried inside a label word
     if(!best&&K) best=200-Math.min(K.i,190);                 // buried inside a keyword
-    if(!best) return 0;                                      // this word landed nowhere: not a hit
-    total+=best;
+    return best;
+  };
+  // Filler words ("add arrow", "remove white border", "change font", "how do I…") count
+  // when they land and are passed over when they do not: a leading verb used to sink a
+  // query whose real word had an answer. A query of filler alone still has to match.
+  const allFill=toks.every(t=>_CMDP_FILLER.has(t));
+  let total=0, n=0, bonus=0;
+  for(const t of toks){
+    let best=hit(t);
+    // "borders", "panels", "rows": the singular when the plural lands nowhere
+    if(!best&&t.length>3&&/s$/.test(t)) best=hit(t.replace(/(es|s)$/,''))||hit(t.slice(0,-1));
+    if(!allFill&&_CMDP_FILLER.has(t)){ if(best>=700) bonus+=2; continue; }   // a tie-break, never a reason to miss
+    if(!best) return 0;                                      // a real word that landed nowhere: not a hit
+    total+=best; n++;
   }
-  return Math.round(total/toks.length);
+  return n?Math.round(total/n)+bonus:0;
 }
+const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and']);
+// Open the selected panel's settings (else the first panel's) at one of its controls —
+// the span fields and Apply to all live at the foot of a long per-panel drawer.
+function _cmdpPanelControl(sel, note){
+  const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  if(i<0){ toast('Add an image first','warn'); return; }
+  if(layoutMode==='freeform'&&sel==='.f-colspan'){ toast('Spans are a grid layout feature — switch Canvas mode to Grid, or resize the object by its corner in freeform','warn'); return; }
+  renderImgList();
+  const d=document.getElementById('settings-'+i);
+  if(!d){ toast('Could not open that panel’s settings','warn'); return; }
+  d.classList.add('open');
+  const el=d.querySelector(sel);
+  if(!el){ toast('Open the panel’s ⚙ settings','warn'); return; }
+  try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ el.scrollIntoView(); }catch(e2){} }
+  setTimeout(()=>{ try{ el.focus({preventScroll:true}); if(el.select) el.select(); }catch(e){} }, 60);
+  el.classList.add('cmdp-flash'); setTimeout(()=>el.classList.remove('cmdp-flash'),1400);
+  toast(`Panel ${_rtText(formatLabel(images[i].label))||i+1}: ${note}`,'ok');
+}
+// A freeform arrange command, with a word when there is nothing it can act on (the
+// toolbar's own buttons return in silence then).
+function _cmdpFree(fn){
+  if(layoutMode!=='freeform'){ toast('This arranges objects on the freeform canvas — switch Canvas mode to Freeform','warn'); return; }
+  if(!selectedElems.size){ toast('Select the objects first: click one, or drag a box around several','warn'); return; }
+  fn();
+}
+// Every labelled control in the side panel, as a "go to" row, so a setting the
+// registry has no row for is still found by the words on its label. Ranked below the
+// registry's own rows (scaled by 0.3), so it fills gaps and never takes over a hit.
+function _cmdpControlRows(){
+  const out=[], seen=new Set();
+  document.querySelectorAll('.sidebar input[id], .sidebar select[id], .sidebar textarea[id]').forEach(el=>{
+    if(el.closest('#img-list')||el.type==='file'||el.type==='hidden'||seen.has(el.id)) return;
+    const clean=x=>String(x||'').replace(/[?✦]/g,'').replace(/\s+/g,' ').trim();
+    let t=clean(el.getAttribute('aria-label')||(el.labels&&el.labels[0]&&el.labels[0].textContent));
+    if(!t){ const f=el.closest('.field'); const l=f&&f.querySelector('label'); if(l) t=clean(l.textContent); }
+    if(!t){ const sp=el.previousElementSibling; if(sp&&sp.tagName==='SPAN') t=clean(sp.textContent); }
+    if(!t) t=clean(el.placeholder);
+    if(!t||t.length>60) return;
+    seen.add(el.id);
+    // "Color" and "Size" mean nothing alone: the sub-heading above the control names it
+    const box=el.closest('details')||document.body;
+    // the last heading above it, unless a divider closed that heading's group first
+    let sub=[...box.querySelectorAll('.sec-lbl, .divider')].filter(h=>h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING).pop();
+    if(sub&&!sub.classList.contains('sec-lbl')) sub=null;
+    const st=sub?clean(sub.childNodes[0]&&sub.childNodes[0].textContent||sub.textContent):'';
+    let sec=el.closest('details'); sec=sec&&sec.querySelector('summary'); sec=sec?clean(sec.textContent):'';
+    const name=st&&!t.toLowerCase().includes(st.toLowerCase())?`${st} — ${t}`:t;
+    out.push({label:`Go to: ${name}${sec?` (${sec.slice(0,24)})`:''}`, keys:(el.id.replace(/[-_]/g,' ')+' '+(el.title||'')).toLowerCase().slice(0,160), _ctl:true, run:()=>_cmdpGoto(el.id)});
+  });
+  return out;
+}
+let _cmdpCtlCache=null;
 // The old fallback, kept — but only ever shown as an explicit guess. A row that matched
 // nothing used to render identically to a real hit, so "dpi" returned 40% of the registry
 // led by "Render figure" and a miss was indistinguishable from an answer.
@@ -4888,7 +4962,10 @@ function _cmdpLooseMatch(item,q){
 }
 function _cmdpRender(q){
   q=(q||'').toLowerCase().trim();
-  let list=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)})).filter(o=>o.s>0)
+  if(!_cmdpCtlCache) _cmdpCtlCache=_cmdpControlRows();
+  let list=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)}))
+    .concat(q?_cmdpCtlCache.map(c=>({c,s:Math.round(_cmdpScore(c,q)*0.3)})):[])
+    .filter(o=>o.s>0)
     .sort((a,b)=>b.s-a.s).map(o=>o.c);
   // Nothing matched on words. Offer the letters-in-order guesses, but SAY they are
   // guesses, so a miss can no longer pass for an answer.
@@ -10633,11 +10710,14 @@ function render(targetCanvas, exportScale, opts){
   // The panels the figure DRAWS. min(images, cells) counted hidden panels and ones a
   // span pushed out of the grid, so "4 panel(s)" sat over a figure that drew one.
   const _plc=_gridPlacements(cols,rows), _drawn=_plc.filter(p=>p.im).length, _out=_plc.unplaced;
-  if(_out>0&&!(_lastUnplaced>0)){
+  // Said once, when panels first lose their cell — unless the change that did it has
+  // just said so itself (a starter layout, an import past the last row).
+  if(_out>0&&!(_lastUnplaced>0)&&!(document.getElementById('toast').className.includes('show'))){
     const placed=new Set(_plc.map(p=>p.imgIdx)), lost=_gridOrder().filter(i=>!placed.has(i)&&images[i]).map(i=>_rtText(formatLabel(images[i].label))||_sourceName(images[i])||'?');
     toast(`${_out} panel${_out>1?'s':''} (${lost.join(', ')}) ${_out>1?'have':'has'} no cell in the ${cols} × ${rows} grid and ${_out>1?'are':'is'} not drawn — add rows or columns, or press ⊞ Fit grid to panels`,'warn');
   }
   _lastUnplaced=_out;
+  if(typeof _scheduleGenSync==='function') _scheduleGenSync();
   setStatus(`${_drawn} panel(s)${_out?` · ${_out} not drawn (no cell)`:''} · ${totalW}×${totalH}px`,
     new Set(_rowHs).size>1 ? `gap ${gH}h ${gV}v · panel ${pw}px wide · rows ${_rowHs.join(' / ')} px tall`
                            : `gap ${gH}h ${gV}v · panel ${pw}×${_rowHs[0]}px`);
@@ -19439,13 +19519,33 @@ const _genText={caption:null, methods:null};
 function _setGeneratedText(kind, text){
   _genText[kind]=text;
   document.getElementById(kind==='caption'?'caption-out':'methods-out').value=text;
+  const n=document.getElementById(kind+'-stale'); if(n) n.style.display='none';
+}
+// The caption and Methods boxes follow the figure. Text the app wrote and nobody has
+// touched is rewritten when panels are swapped, replaced or recalibrated — it used to
+// keep describing the old figure ("(b) Plaque assay" after a swap) until the package
+// was built. Text the author edited is kept, with a note that it may be out of date.
+let _genSyncT=null;
+function _scheduleGenSync(){ clearTimeout(_genSyncT); _genSyncT=setTimeout(_syncGeneratedText,600); }
+function _syncGeneratedText(){
+  const jobs=[['caption','caption-out',()=>_captionText()],
+              ['methods','methods-out',()=>_methodsPanels().length?generateMethodsParagraph():'']];
+  for(const [kind,id,fn] of jobs){
+    const note=document.getElementById(kind+'-stale'), box=gv(id).trim(), gen=_genText[kind];
+    if(!box||gen==null){ if(note) note.style.display='none'; continue; }
+    let fresh; try{ fresh=String(fn()||'').trim(); }catch(e){ continue; }
+    if(box===String(gen).trim()){
+      if(fresh&&fresh!==box) _setGeneratedText(kind,fresh);
+      if(note) note.style.display='none';
+    } else if(note) note.style.display=(fresh&&fresh!==String(gen).trim())?'':'none';
+  }
 }
 function generateCaption(){
   // Guard and log on the panels the caption describes. The old count was
   // min(images, cols*rows), which logged 4 for a figure whose spanning panel
   // leaves 3 drawn, and let a figure with every panel hidden through the guard.
-  const n=_figurePanels().length;
-  if(!n){ toast('No images to caption','warn'); return; }
+  const n=_figurePanels().length+_captionObjects().length;
+  if(!n){ toast('No images, charts or gene maps to caption','warn'); return; }
   render();                     // _sbSkip is set by the render: whether each bar was drawn
   _setGeneratedText('caption', _captionText());
   logAction('generateCaption',{panels:n});
@@ -19453,14 +19553,71 @@ function generateCaption(){
 }
 // The caption for the figure as last rendered. No DOM, no toast: the submission
 // package calls it to compare against what the box holds.
+// The row and column headings the figure shows over each grid panel. A heading still at
+// its "Col 2" / "Row 1" placeholder names nothing and is skipped.
+function _captionHeadings(){
+  const H=new Map();
+  if(layoutMode==='freeform') return H;
+  const on=id=>{ const e=document.getElementById(id); return !!(e&&e.checked); };
+  const col=on('show-col-labels')?axisLabelValues('col'):[], row=on('show-row-labels')?axisLabelValues('row'):[];
+  const real=(v,ph)=>{ const t=_rtText(String(v||'').trim()); return t&&t!==ph?t:''; };
+  _gridPlacements().forEach(p=>{ if(p.im) H.set(p.im, {r:p.r, c:p.c, row:real(row[p.r],`Row ${p.r+1}`), col:real(col[p.c],`Col ${p.c+1}`)}); });
+  return H;
+}
+// A tag that only repeats a channel's stock name (the "RFP" a split gives a magenta
+// channel) says less than the column heading over it (the dye the author typed).
+const _stockChanTag=t=>Object.values(LUT_INFO).some(L=>L.chan&&L.chan.toLowerCase()===String(t||'').trim().toLowerCase());
+// Charts and gene maps on the freeform canvas: in the caption with the letter written
+// beside them (a text label at the object's top-left corner), in reading order. They
+// used to be left out, so a figure's chart and gene map had no legend text at all.
+function _captionObjects(){
+  if(layoutMode!=='freeform') return [];
+  const els=freeformElements.filter(e=>e&&!e.excluded&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
+  if(!els.length) return [];
+  const W=canvasLogicalW||1, H=canvasLogicalH||1, letters=[];
+  (annotations||[]).forEach(a=>{ if(a&&a.type==='text'&&a.text!=null) letters.push({t:_rtText(String(a.text)).trim(), x:a.xf*W, y:a.yf*H}); });
+  freeformElements.forEach(e=>{ if(e&&(e.type==='text'||e.type==='textbox')&&e.text!=null) letters.push({t:_rtText(String(e.text)).trim(), x:e.x, y:e.y}); });
+  const isLetter=t=>/^\(?[A-Za-z]{1,2}\)?$/.test(t)||/^\(?(i|ii|iii|iv|v|vi|vii|viii|ix|x)\)?$/i.test(t);
+  const letterFor=el=>{
+    const reach=Math.max(60, 0.25*Math.max(el.w||0, el.h||0));
+    const near=letters.filter(l=>isLetter(l.t)&&l.x>=el.x-reach&&l.x<=el.x+0.35*(el.w||0)&&l.y>=el.y-reach&&l.y<=el.y+0.35*(el.h||0))
+      .sort((a,b)=>Math.hypot(a.x-el.x,a.y-el.y)-Math.hypot(b.x-el.x,b.y-el.y));
+    return near.length?near[0].t.replace(/[()]/g,''):'';
+  };
+  const KIND={bar:'Bar chart', groupedBar:'Grouped bar chart', stackedBar:'Stacked bar chart', line:'Line chart', scatter:'Scatter plot',
+    box:'Box plot', violin:'Violin plot', beeswarm:'Dot plot', heatmap:'Heatmap', survival:'Survival curve'};
+  return els.slice().sort((a,b)=>(a.y-b.y)||(a.x-b.x)).map(el=>{
+    const L=letterFor(el), bits=[];
+    if(el.type==='chart'){
+      const ch=el.chart, cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
+      const ys=(m.yCols||[]).map(i=>_rtText(String(cols[i]==null?'':cols[i]))).filter(Boolean);
+      const yt=_rtText((ch.axes&&ch.axes.y&&ch.axes.y.title)||''), xt=_rtText((ch.axes&&ch.axes.x&&ch.axes.x.title)||'');
+      let d=(KIND[ch.kind]||'Chart');
+      if(yt||xt) d+=` of ${yt||'the values'}${xt?` against ${xt}`:''}`;
+      if(ys.length) d+=` (${ys.length>1?'series':'values'}: ${_listAnd(ys.slice(0,8))}${ys.length>8?', …':''})`;
+      bits.push(d+'.');
+      const src=ch.data&&ch.data.sourceName; if(src) bits.push(`Data from ${src}.`);
+      const note=String(ch.caption||'').trim(); if(note) bits.push(note.replace(/\.?$/,'.'));
+    } else {
+      const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
+      const t=_rtText((mp.style&&mp.style.title)||'');
+      bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${mp.length?` (${Math.round(mp.length).toLocaleString('en-US')} bp)`:''}${f.length?`, showing ${_listAnd(f.slice(0,10))}${f.length>10?' and others':''}`:''}.`);
+    }
+    return {letter:L, text:(L?`(${L}) `:'')+bits.join(' ')};
+  });
+}
 function _captionText(){
-  if(!_figurePanels().length) return '';
+  const objs=_captionObjects();
+  if(!_figurePanels().length&&!objs.length) return '';
+  const heads=_captionHeadings();
   const parts=_figurePanels().map(im=>{
     const note=im.captionNote?.trim();
     const meta=im.metaNote?.trim();
-    // Build description: the caption note, else the tag the panel wears on the figure
-    // (a condition, a time point), so "(B) 10 min." rather than "(B) Panel B."
-    let desc=note||_rtText((im.tag||'').trim())||'';
+    // Build description: the caption note, else what the figure prints over the panel —
+    // its column heading and its tag (a condition, a time point) — so "(B) GFP-LC3."
+    // or "(B) 10 min." rather than "(B) Panel B."
+    const hd=heads.get(im)||{}, tag=_rtText((im.tag||'').trim());
+    let desc=note||[hd.col, (hd.col&&_stockChanTag(tag))||(hd.col&&hd.col.toLowerCase().includes(tag.toLowerCase()))?'':tag].filter(Boolean).join(', ')||'';
     // LUT → channel hint
     const lutLabel=LUT_NAMES[im.lut||'none'];
     let lutInDesc=false, grayInDesc=false;
@@ -19485,8 +19642,14 @@ function _captionText(){
       insetSentence=`Magnified view of the ${_insetFramesOn()?'boxed ':''}region in (${pl})`
         +(mag?`, ${(+mag).toFixed(1)}× relative to (${pl})`:'');
     }
+    // A panel with no letter is named, not printed as "() Panel ." — by its row
+    // heading or its file, so the author can see which strip it is.
+    if(!shown){
+      const who=`Unlettered panel${hd.row?` in the ${hd.row} row`:''}${_sourceName(im)?` (${_sourceName(im)})`:''}`;
+      desc=desc?`${who}, ${desc[0].toLowerCase()+desc.slice(1)}`:who;
+    }
     if(!desc) desc=insetSentence||`Panel ${shown}`;
-    let s=`(${shown}) ${desc}.`;
+    let s=shown?`(${shown}) ${desc}.`:`${desc}.`;
     if(parent&&desc!==insetSentence) s+=` ${insetSentence}.`;
     // Scale bar. FigureLab knows the sampling density (µm per pixel) and nothing about
     // the objective, so it reports exactly that. The old "(15×)" here was 1/(µm/px)
@@ -19510,8 +19673,15 @@ function _captionText(){
     if(parent){ if(adj.length) s+=` Displayed with the same settings as (${pl}).`; }
     else if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
       +` applied uniformly across the whole panel.)`;
-    return s;
+    return {s, row:hd.row||'', r:hd.r};
   });
+  // Row headings group the panels: "DMSO: (A) DAPI. (B) GFP-LC3. … BafA1: (F) …".
+  const grouped=[]; let lastRow=null;
+  parts.forEach(p=>{
+    if(p.row&&p.r!==lastRow){ grouped.push(`${p.row}: ${p.s}`); lastRow=p.r; }
+    else grouped.push(p.s);
+  });
+  objs.forEach(o=>grouped.push(o.text));
   // Detect if fluorescence figure
   const hasLut=_figurePanels().some(im=>im.lut&&im.lut!=='none');
   const hasGray=_figurePanels().every(im=>im.grayscale);
@@ -19531,7 +19701,7 @@ function _captionText(){
   const title=gv('fig-title').trim();
   // Reuse the author marked intentional, stated as the journals require.
   const reuse=_reuseSentences().map(t=>' '+t).join('');
-  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+parts.join(' ')+uniformity+reuse;
+  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+grouped.join(' ')+uniformity+reuse;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -19553,7 +19723,9 @@ function _panelsPhrase(names){ return (names.length===1?'panel ':'panels ')+_lis
 function _ucFirst(t){ return t ? t[0].toUpperCase()+t.slice(1) : t; }
 function generateMethodsParagraph(){
   const P=_methodsPanels();
-  const nm=im=>_rtText(formatLabel(im.label))||'(unlabelled)';
+  // A panel with no letter is named by its file, not "(unlabelled)", so a reader can
+  // tell five unlettered blot strips apart.
+  const nm=im=>_rtText(formatLabel(im.label))||(_sourceName(im)?`“${_sourceName(im)}”`:'(unlabelled)');
   const was=a=>a.length===1?'was':'were';
   const S=[];
   S.push(`Figures were assembled in FigureLab v${APP_VERSION} (Awuah 2026; https://doi.org/10.5281/zenodo.21269456).`);
@@ -19583,6 +19755,11 @@ function generateMethodsParagraph(){
     // The base image plus each channel that has pixels; a channel without them is not drawn.
     const n=1+im.channels.filter(c=>c.img).length;
     S.push(`Panel ${nm(im)} is a composite of ${n} channels combined by screen blending, each cropped to the same field of view.`);
+    // A merged channel's own display range is an adjustment too; it used to be left out,
+    // so a merge whose GFP channel was stretched read as unadjusted.
+    const cl=im.channels.filter(c=>c.img&&((c.blackPt||0)>0||(c.whitePt??255)<255))
+      .map(c=>`${(typeof _lutChannelName==='function'&&_lutChannelName(c.lut))||c.name||'channel'} ${c.blackPt||0}–${c.whitePt??255}`);
+    if(cl.length) S.push(`In panel ${nm(im)} the merged channel${cl.length>1?'s were':' was'} displayed with ${cl.length>1?'their own linear display ranges':'its own linear display range'} (${_listAnd(cl)}, on the 0–255 display scale).`);
   });
   const gs=P.filter(im=>im.grayscale), inv=P.filter(im=>im.invert), key=P.filter(im=>im.bgKey&&im.bgKey.on);
   if(gs.length) S.push(`${_ucFirst(_panelsPhrase(gs.map(nm)))} ${was(gs)} converted to grayscale.`);
@@ -21135,9 +21312,11 @@ document.addEventListener('keydown', e=>{
     selectedElems.clear(); hideAnnFloat(); drawAnnOverlay();
   }
   if(e.key==='?'||e.key==='/'&&e.shiftKey){ document.getElementById('kb-modal').classList.add('open'); return; }
-  if((e.ctrlKey||e.metaKey)&&e.key==='z'){ e.preventDefault(); undo(); }
+  // Shift decides, not the letter's case: a browser can report Ctrl/⌘+Shift+Z as a
+  // lowercase "z" with shiftKey (it was then an undo, walking history backwards), and
+  // Caps Lock turns a plain Ctrl+Z into "Z".
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&(e.key==='z'||e.key==='Z')){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y')){ e.preventDefault(); redo(); }
-  if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key==='Z'){ e.preventDefault(); redo(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='s'){ e.preventDefault(); saveJSON(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='e'){ e.preventDefault(); doExportPreflight('png'); }
   if((e.ctrlKey||e.metaKey)&&e.key==='0'){ e.preventDefault(); zoomToFit(); }
