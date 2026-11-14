@@ -163,12 +163,26 @@ test('a figure saved before points existed opens with its letters at the same px
     applySession(s, { noUndo: true }); render();
     const k = _physFacts().ptPerPx;
     const lp = figTextItems.find(t => t.kind === 'panel');
-    return { px: gf('label-size'), drawn: lp && lp.fs, pt: +gv('label-pt'), k };
+    return { px: gf('label-size'), drawn: lp && lp.fs, pt: +gv('label-pt'), k, session: s };
   });
   expect(r.px).toBe(30);
   expect(r.drawn).toBe(30);
   expect(r.pt).toBeCloseTo(30 * r.k, 1);
+  // …and opened into a fresh tab, where no layout has been drawn yet to measure from
+  await page.goto('about:blank');
+  const errors2 = await loadApp(page);
+  const r2 = await page.evaluate(async (s) => {
+    await applySession(s, { noUndo: true });
+    await new Promise(res => { const t0 = Date.now(); (function w() { if (images.length && images.every(im => !im || im.img) || Date.now() - t0 > 5000) res(); else setTimeout(w, 30); })(); });
+    render(); render();
+    const lp = figTextItems.find(t => t.kind === 'panel');
+    return { px: gf('label-size'), drawn: lp && lp.fs, pt: +gv('label-pt'), k: _physFacts().ptPerPx };
+  }, r.session);
+  expect(r2.px).toBe(30);
+  expect(r2.drawn).toBe(30);
+  expect(r2.pt).toBeCloseTo(30 * r2.k, 1);
   expect(errors).toEqual([]);
+  expect(errors2).toEqual([]);
 });
 
 // ── charts-32, phage-30: the text-size rows measure all text and name the smallest ──
@@ -392,5 +406,29 @@ test('freeform-31: Download key on a figure with nothing to key says why, instea
   // blot-14: a chart that came in as an SVG picture is named as the reason
   const why = await page.evaluate(() => { freeformElements[0].isVector = true; render(); return _keyEmptyWhy(); });
   expect(why).toMatch(/SVG picture/);
+  // the ▤ Key tool does not drop an empty key either
+  const click = () => page.evaluate(() => { setTool('legend');
+    const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+    const at = { clientX: r.left + r.width * 0.8, clientY: r.top + r.height * 0.8, button: 0, bubbles: true };
+    c.dispatchEvent(new MouseEvent('mousedown', { ...at, buttons: 1 })); c.dispatchEvent(new MouseEvent('mouseup', at));
+    setTool('none'); return annotations.filter(a => a.type === 'legend').length; });
+  expect(await click()).toBe(0);
+  await page.evaluate(() => { freeformElements[0].isVector = false; freeformElements[0].lut = 'green'; render(); });
+  expect(await click()).toBe(1);                         // with something to key, the same click places it
+  expect(errors).toEqual([]);
+});
+
+// ── freeform-26: ⌘K finds the type sizes ─────────────────────────────────────────────
+// Before: "font size" and "letter size" found nothing in the command palette.
+test('freeform-26: ⌘K "font size" and "letter size" reach the point-size fields', async ({ page }) => {
+  const errors = await loadApp(page);
+  await freeformFigure(page);
+  for (const [q, id] of [['font size', 'text-pt'], ['letter size', 'label-pt']]) {
+    await page.evaluate(() => openCmdPalette());
+    await page.locator('#cmdp-input').fill(q);
+    await page.locator('#cmdp-input').press('Enter');
+    await expect(page.locator('#' + id)).toBeFocused();
+    await expect(page.locator('#' + id)).toBeVisible();
+  }
   expect(errors).toEqual([]);
 });

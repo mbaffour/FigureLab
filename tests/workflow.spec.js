@@ -515,7 +515,9 @@ test('in panel mode the channel key belongs to its panel, like every other tool'
   const errors = await loadApp(page);
   await seedPanels(page, 4);
   const r = await page.evaluate(async () => {
-    sv('cols', 2); sv('rows', 2); sv('gap-h', 6); onLayoutChange(); render();
+    sv('cols', 2); sv('rows', 2); sv('gap-h', 6); onLayoutChange();
+    images[0].lut = 'green';     // something to key: the ▤ Key tool no longer places an empty key
+    render();
     panelAnnMode = true;
     const target = panelBounds.find(p => p.idx === 3);
     const c = document.getElementById('ann-canvas'), rect = c.getBoundingClientRect();

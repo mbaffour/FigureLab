@@ -15054,10 +15054,12 @@ annCanvas.addEventListener('mousedown', e=>{
           inp.style.top=Math.max(4,screenY-14)+'px';
           inp.style.display='block'; inp.value=''; inp.focus();
         } else if(activeTool==='legend'){
+          // An empty key is not placed: the switch in Export says why, and so does this.
+          if(!_figureKey().length){ toast(_keyEmptyWhy(),'warn'); return; }
           pushUndo();
           const im=images[pb.idx]; if(!im.panelAnns) im.panelAnns=[];
-          im.panelAnns.push({type:'legend', xf:(x-pb.x)/pb.w, yf:(y-pb.y)/pb.h,
-            color:gv('ann-color'), width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+          // drawn in the figure's own colours and text size (_keyAutoStyle, _keyFs)
+          im.panelAnns.push({type:'legend', xf:(x-pb.x)/pb.w, yf:(y-pb.y)/pb.h, width:1});
           renderAnnotationList(); scheduleRender(0);
         } else if(activeTool==='axes'){
           pushUndo();
@@ -15116,8 +15118,9 @@ annCanvas.addEventListener('mousedown', e=>{
     }
     // Counter tool: place a numbered dot on click
     if(activeTool==='legend'){
+      if(!_figureKey().length){ toast(_keyEmptyWhy(),'warn'); return; }
       pushUndo();
-      annotations.push({type:'legend', xf:x/W, yf:y/H, color:gv('ann-color'), width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+      annotations.push({type:'legend', xf:x/W, yf:y/H, width:1});
       renderAnnotationList(); scheduleRender(0);
       return;
     }
@@ -16460,6 +16463,10 @@ function _typeLogicalW(axisPx){
 }
 function _typeSync(){
   const num=id=>{ const v=parseFloat(gv(id)); return isFinite(v)&&v>0?v:null; };
+  // An empty grid has no layout to measure a canvas width from (canvasLogicalW is the
+  // last figure's, or 1 in a fresh tab): convert nothing until there is one, or a figure
+  // opening with a printed width would take its points from a 1 px canvas.
+  if(layoutMode!=='freeform'&&!images.length) return _ty;
   const r2=v=>Math.round(v*100)/100;
   const pair=(slot, ptId, pxId, dflt, kOf)=>{
     const pt=num(ptId), px=num(pxId)||dflt, last=_ty[slot];
