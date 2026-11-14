@@ -25922,8 +25922,11 @@ function _regionDupScan(){
       const [pa,pb,k]=key.split('|').map(Number);
       regions.push({a:panels[pa].label, b:panels[pb].label, same:pa===pb,
                     rectA:box('A'), rectB:box('B'),
-                    panelA:pa, panelB:pb,
-                    tf:_DUP_TF[k], score:top, patches:cluster.length});
+                    panelA:pa, panelB:pb, k,
+                    tf:_DUP_TF[k], score:top, patches:cluster.length,
+                    // patch centres, A then B, as fractions of each panel: what aligns the
+                    // region for verification (_dupVerified)
+                    pairs:cluster.map(c=>[c.A.fx+c.A.fw/2, c.A.fy+c.A.fh/2, c.B.fx+c.B.fw/2, c.B.fy+c.B.fh/2])});
     }
   }
   regions.sort((x,y)=>(y.patches-x.patches)||(y.score-x.score));
@@ -25931,6 +25934,182 @@ function _regionDupScan(){
           kpCapped:patchesPer.filter(p=>p.capped).length,
           panels:panels.length, patches:all.length, verified,
           rawHits:hits.length};   // pre-clustering, for the report footer and tests
+}
+
+// ── Verifying the within-figure hits ──────────────────────────
+// The whole-panel and region scans measure how alike two pictures LOOK, and that is
+// layout as much as pixels: two different blots of one lane layout scored 94–97% as whole
+// panels and their lanes 93–98% as "repeated regions", lane against lane inside ONE blot
+// 93%, two plaque plates 96% (the dish), two dim fields behind one letterbox, label and
+// scale bar 97%. So every hit is a candidate, verified exactly as a cross-figure candidate
+// is — aligned by _xdConfirm, decided by _xdVerify (fine detail cell by cell, and what the
+// coarse picture leaves unexplained under any brightness mapping). The same pixels are a
+// finding; alike in layout only, or a periodic pattern, is listed apart, neutral, with no
+// decision to make, and never reaches the caption, the Methods or the audit as a failure.
+//  Whole panels: the whole frame on the whole frame in each orientation the frames'
+//    shapes allow — the cross-figure engine's whole-picture candidate — and the best
+//    alignment is verified. A pair that is then only alike (or does not align at all) is
+//    compared by the cross-figure engine itself (_xdComparePair: every flip and rotation,
+//    0.45–2.2×, partial overlaps) — in the report's scale-tolerant pass, or below for the
+//    deep audit — exactly as the cross-figure check would compare it.
+//  Regions: keypoints can miss a cloned lane, so the scan's own patch correspondences
+//    seed the alignment, and only the matched region has to match — the rest of the two
+//    frames need not. Regions of one pair that agree on one transform and offset are one
+//    correspondence and are verified once, over their union.
+const _XD_INVK=k=>k<4?(4-k)&3:k;      // the inverse of a dihedral transform (a mirror is its own)
+// The scans' transform (B turned by k matches A) as cross-figure candidates (A's points
+// mapped into B: Q = s·T_k(P) + t, in each panel's source pixels). The region scan works
+// at one size per panel, so the scale it implies is only one guess; the scale the patch
+// centres themselves fit, and the same pixel pitch (1×, a re-crop), are the others.
+function _dupRegionSeeds(A,B,pairs){
+  const k=_XD_INVK(pairs.k), pts=pairs.map(([ax,ay,bx,by])=>{ const [u,v]=_xdMap(ax*A.W,ay*A.H,A.W,A.H,k); return [u,v,bx*B.W,by*B.H]; });
+  let mu=0,mv=0,mx=0,my=0; pts.forEach(p=>{ mu+=p[0]; mv+=p[1]; mx+=p[2]; my+=p[3]; });
+  mu/=pts.length; mv/=pts.length; mx/=pts.length; my/=pts.length;
+  // First the scan's own scale (it also groups the regions of a pair), then 1×, then the fit.
+  const ss=[Math.max(B.W,B.H)/Math.max(A.W,A.H), 1];
+  let num=0, den=0; pts.forEach(p=>{ num+=(p[0]-mu)*(p[2]-mx)+(p[1]-mv)*(p[3]-my); den+=(p[0]-mu)**2+(p[1]-mv)**2; });
+  if(pts.length>=3 && den>0) ss.push(num/den);
+  const seeds=[];
+  for(const s of ss){
+    if(!(s>=_XD_SMIN&&s<=_XD_SMAX)||seeds.some(q=>Math.abs(Math.log(q.s/s))<0.03)) continue;
+    seeds.push({k, s, tx:mx-s*mu, ty:my-s*mv, sg:1});
+  }
+  return seeds;
+}
+// A region carries less evidence than a whole picture, and what its coarse picture shares
+// can be the layout itself (a dish rim, a lane, the edge of a letterbox). The cross-figure
+// classes stand for a region between two panels that carries enough fine detail (at least
+// 24 textured 16 px cells): a pasted patch re-saved as JPEG 50 or 20, blurred σ 2 or with
+// noise σ 10 added read "same" or "nearly identical" with 56–81 such cells. A smaller one,
+// and any repeat inside one panel, counts only on positive evidence: fine detail that
+// agrees ("identical"), or fine detail visibly lost on one side ("same", with 30% of its
+// cells unbalanced). Measured on different acquisitions: two plaque plates (12 plaques)
+// gave cross-panel regions read "same" with 9 textured cells; regions of one plate matched
+// to their mirror image across the dish (the rim) read "same" with 9–49 cells and 0–6
+// unbalanced; lanes of one blot matched to each other read "near".
+function _dupRegionClass(v, within){
+  if(v.cls!=='same'&&v.cls!=='near') return v.cls;
+  const fi=v.fine;
+  if(!within && fi && fi.tex>=24) return v.cls;
+  return v.cls==='same'&&fi&&fi.tex>=8&&fi.unbal>=0.3*fi.tex?'same':'layout';
+}
+function _dupVerified(opt){
+  opt=opt||{};
+  const t0=performance.now();
+  const panels=_dupPanels(), w=_panelSimilarityScan(), rr=_regionDupScan();
+  const prep=new Map();
+  const P=i=>{ if(!prep.has(i)){ const p=panels[i]; let o; try{ o=_xdPrepare(p.img,p.src,'this'); }catch(e){ o={bad:'could not be read'}; } prep.set(i,o); } return prep.get(i); };
+  // A panel the cross-figure engine cannot read keeps its hit, said to be unverified:
+  // the hit is not dropped on the strength of a check that was not made.
+  const badWhy=(i,j)=>{ const A=P(i), B=P(j); return A.bad?`${panels[i].label}: ${A.bad}`:B.bad?`${panels[j].label}: ${B.bad}`:''; };
+  // The best-aligned of several candidate transforms; one that aligns all but perfectly
+  // ends the search.
+  const best=(A,B,seeds,rect)=>{ let f=null; for(const c of seeds){ const g=_xdConfirm(A,B,c,rect); if(g&&(!f||g.score>f.score)) f=g; if(f&&f.score>=0.985) break; } return f; };
+  // Similar layout or a periodic pattern: settled from the verification when it already
+  // tested periodicity, so the pair is not resampled a second time.
+  const alikeKind=(A,B,f)=>{ const v=f.verify; if(v&&v.periodic!=null){ f.cls=v.periodic?'periodic':'layout'; return; } if(v) v.kindLater=true; _xdAlikeKind(A,B,f); };
+  const out={panels, whole:w, rr, wFound:[], wAlike:[], rFound:[], rAlike:[], pFound:[], examined:new Set(), verified:0, ms:0};
+  for(const h of w.hits){
+    const bad=badWhy(h.ia,h.ib);
+    if(bad){ out.wFound.push({...h, cls:null, why:bad}); continue; }
+    out.verified++;
+    // Every orientation the frames' shapes allow, not only the scan's best: a near-
+    // symmetric picture (a dish, an evenly spaced blot) scores almost as well mirrored as
+    // as-is in a 32 px thumbnail, and only the full-resolution alignment tells them apart.
+    // Tried best thumbnail first; those far below the best are not worth aligning.
+    const A=P(h.ia), B=P(h.ib), seeds=[];
+    for(let k=0;k<8;k++){
+      const Wk=(k&1)?A.H:A.W, Hk=(k&1)?A.W:A.H, s=Math.sqrt(B.W/Wk*B.H/Hk), c=_xdCorr(_dihedral(A.thumb,32,k),B.thumb);
+      if(s<_XD_SMIN||s>_XD_SMAX||Math.abs(Math.log((Wk/Hk)/(B.W/B.H)))>0.08||c<0.5) continue;
+      seeds.push({k, s, tx:(B.W-s*Wk)/2, ty:(B.H-s*Hk)/2, sg:1, c});
+    }
+    seeds.sort((x,y)=>y.c-x.c);
+    const f=best(A,B,seeds.filter(q=>q.c>=seeds[0].c-0.15));
+    if(f){ const v=_xdVerify(A,B,f); f.cls=v.cls; f.verify=v; if(!_xdIsFinding(f)) alikeKind(A,B,f); }
+    if(f&&_xdIsFinding(f)) out.wFound.push({...h, cls:f.cls, f});
+    else out.wAlike.push({...h, cls:f?f.cls:seeds.length?'unaligned':'unframed', f});
+  }
+  const groups=[];
+  for(const g of rr.regions){
+    const bad=badWhy(g.panelA,g.panelB);
+    if(bad){ groups.push({regs:[g], bad}); continue; }
+    const A=P(g.panelA), B=P(g.panelB), pr=Object.assign([...g.pairs],{k:g.k}), c=_dupRegionSeeds(A,B,pr)[0], tol=0.03*Math.max(B.W,B.H);
+    // The region verified is the patch centres' box plus a quarter patch, not the matched
+    // windows' box: a window that straddles the edge of a cloned patch still matches, so
+    // the windows' box takes in pixels that were never copied (a 128 px clone gave a box
+    // 150 px wide, and the copy then failed to align).
+    const q=_RDUP_P/_RDUP_RES*Math.max(A.W,A.H)/4, xs=g.pairs.map(p=>p[0]*A.W), ys=g.pairs.map(p=>p[1]*A.H);
+    const rx0=Math.max(0,Math.min(...xs)-q), ry0=Math.max(0,Math.min(...ys)-q);
+    const r={x:rx0, y:ry0, w:Math.min(A.W,Math.max(...xs)+q)-rx0, h:Math.min(A.H,Math.max(...ys)+q)-ry0};
+    const G=c&&groups.find(q=>!q.bad&&q.pa===g.panelA&&q.pb===g.panelB&&q.k===g.k&&Math.abs(q.c.tx-c.tx)<=tol&&Math.abs(q.c.ty-c.ty)<=tol);
+    if(!G){ groups.push({pa:g.panelA, pb:g.panelB, k:g.k, c, rect:r, pairs:pr, regs:[g]}); continue; }
+    const x0=Math.min(G.rect.x,r.x), y0=Math.min(G.rect.y,r.y);
+    G.rect={x:x0, y:y0, w:Math.max(G.rect.x+G.rect.w,r.x+r.w)-x0, h:Math.max(G.rect.y+G.rect.h,r.y+r.h)-y0};
+    G.pairs.push(...g.pairs); G.regs.push(g);
+  }
+  for(const G of groups){
+    if(G.bad){ G.regs.forEach(g=>out.rFound.push({...g, cls:null, why:G.bad})); continue; }
+    out.verified++;
+    const A=P(G.pa), B=P(G.pb), f=best(A,B,_dupRegionSeeds(A,B,G.pairs),G.rect);
+    if(f){
+      // Within one panel, a region mapped largely onto itself (a refinement that slid back
+      // to the original, or a symmetric object under its own mirror) is not a repeat.
+      const a=f.rectApx, b=f.rectBpx, ix=Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)), iy=Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
+      if(G.pa===G.pb && ix*iy>0.2*Math.min(a.w*a.h,b.w*b.h)) f.cls='layout';
+      else { const v=_xdVerify(A,B,f); f.verify=v; f.cls=_dupRegionClass(v, G.pa===G.pb); }
+    }
+    G.f=f;
+    if(f&&_xdIsFinding(f)) G.regs.forEach(g=>out.rFound.push({...g, cls:f.cls, f}));
+  }
+  // Alike regions are listed one line per pair (or per panel), so which "alike" word fits
+  // is asked once per pair, as across figures: any of its three largest correspondences
+  // that shows a lattice makes it a periodic pattern.
+  const byPair=new Map();
+  for(const G of groups){ if(G.bad||(G.f&&_xdIsFinding(G.f))) continue; const k=G.pa+'|'+G.pb; if(!byPair.has(k)) byPair.set(k,[]); byPair.get(k).push(G); }
+  for(const gs of byPair.values()){
+    gs.sort((x,y)=>y.regs.reduce((t,g)=>t+g.patches,0)-x.regs.reduce((t,g)=>t+g.patches,0));
+    let cls=gs.some(G=>G.f)?'layout':'unaligned';
+    for(const G of gs.slice(0,3)){ if(!G.f||G.f.cls==='layout'&&G.pa===G.pb&&!G.f.verify) continue; alikeKind(P(G.pa),P(G.pb),G.f); if(G.f.cls==='periodic'){ cls='periodic'; break; } }
+    gs.forEach(G=>G.regs.forEach(g=>out.rAlike.push({...g, cls, f:G.f})));
+  }
+  // A pair of panels whose candidates did not verify at their own geometry is compared
+  // once by the cross-figure engine itself (every flip and rotation, 0.45–2.2×, partial
+  // overlaps): the region scan pairs look-alike lanes of two blots, so the real overlap
+  // of a re-cropped blot can lie elsewhere. The deep audit asks for this here
+  // (opt.pairs); the report leaves it to its scale-tolerant pass, which compares those
+  // pairs in the background instead of before the dialog opens.
+  const lbl=(i,j)=>panels[i].label+'|'+panels[j].label, hasFinding=new Set();
+  [...out.wFound.map(h=>[h.ia,h.ib]), ...out.rFound.filter(g=>!g.same).map(g=>[g.panelA,g.panelB])].forEach(([i,j])=>{ hasFinding.add(lbl(Math.min(i,j),Math.max(i,j))); });
+  const todo=new Map();
+  [...out.wAlike.map(h=>[h.ia,h.ib]), ...out.rAlike.filter(g=>!g.same).map(g=>[g.panelA,g.panelB])].forEach(([i,j])=>{ const a=Math.min(i,j), b=Math.max(i,j); if(!hasFinding.has(lbl(a,b))) todo.set(lbl(a,b),[a,b]); });
+  hasFinding.forEach(k=>out.examined.add(k));
+  out.alikePairs=new Set(todo.keys());
+  if(!opt.pairs) todo.clear();
+  const who=i=>({label:panels[i].label, id:panels[i].src&&panels[i].src.id, key:_xdPanelKey(panels[i])});
+  const inset=(i,j)=>{ const a=panels[i].src||{}, b=panels[j].src||{}; return (a.insetOf!=null&&a.insetOf===b.id)||(b.insetOf!=null&&b.insetOf===a.id); };
+  for(const [k,[i,j]] of todo){
+    if(inset(i,j)) continue;      // a linked inset is a declared magnified crop (the scale-tolerant pass counts it)
+    out.examined.add(k);
+    const fs=_xdComparePair(P(i),P(j));
+    if(fs.length&&_xdIsFinding(fs[0])){ hasFinding.add(k); fs.filter(_xdIsFinding).forEach(f=>out.pFound.push({...f, a:who(i), b:who(j), ia:i, ib:j, aSrc:panels[i].img, aCrop:panels[i].src, bSrc:panels[j].img, bCrop:panels[j].src})); }
+    // A whole-panel hit no orientation aligned, which the engine did align: its words.
+    else if(fs.length) out.wAlike.forEach(h=>{ if((h.cls==='unaligned'||h.cls==='unframed')&&lbl(Math.min(h.ia,h.ib),Math.max(h.ia,h.ib))===k){ h.cls=fs[0].cls; h.f=fs[0]; } });
+  }
+  // A pair with a finding is not also listed as alike (as across figures).
+  out.wAlike=out.wAlike.filter(h=>!hasFinding.has(lbl(Math.min(h.ia,h.ib),Math.max(h.ia,h.ib))));
+  out.rAlike=out.rAlike.filter(g=>g.same||!hasFinding.has(lbl(Math.min(g.panelA,g.panelB),Math.max(g.panelA,g.panelB))));
+  out.ms=Math.round(performance.now()-t0);
+  return out;
+}
+// What a verified within-figure finding is, in words — never asserting more than the
+// class does ("nearly identical" pairs may be two near-twin acquisitions).
+const _DUP_CLS_TXT={identical:'the fine detail matches', same:'the same image, with its finest detail lost in one copy',
+  near:'nearly identical — alike in coarse detail; finest detail differs'};
+// Pairs hidden by a decision, by verdict: "different images" and "same field, different
+// acquisitions" are different statements and are counted and named apart.
+function _reuseHiddenText(nDiff, nAcq, tail){
+  const one=(n,what)=>`${n} pair${n>1?'s':''} you marked “${what}” ${n>1?'are':'is'} not listed`;
+  return [nDiff?one(nDiff,'different images'):'', nAcq?one(nAcq,'same field, different acquisitions'):''].filter(Boolean).join('; ')+(tail||'');
 }
 
 // Side-by-side evidence: the two panels at thumbnail size with the matched regions
@@ -25956,61 +26135,83 @@ function _rdupEvidence(panels,r){
 
 // Standalone report, also surfaced as a row inside the Deep Figure Audit.
 function runDuplicateScan(){
-  const r=_panelSimilarityScan();
+  const V=_dupVerified(), r=V.whole, rr=V.rr, panels=V.panels;
   // Decisions are per pair of panels (an internal repeat: the panel with itself).
-  const _dp=_dupPanels(), _pk=_dp.map(p=>_xdPanelKey(p));
+  const _pk=panels.map(p=>_xdPanelKey(p));
   const _wkey=(i,j)=>`w|${[_pk[i],_pk[j]].sort().join('|')}`;
-  const _isDiff=k=>{ const d=_reuseLive(k); return !!(d&&d.verdict!=='intentional'); };
+  // A finding the author decided is not listed again; the two "not reuse" verdicts are
+  // counted apart.
+  const hidden={different:0, acquisition:0};
+  const _shown=x=>{ const d=_reuseLive(_wkey(x.ia!=null?x.ia:x.panelA, x.ib!=null?x.ib:x.panelB)); if(d&&d.verdict!=='intentional'){ hidden[d.verdict==='acquisition'?'acquisition':'different']++; return false; } return true; };
   // The decision names its panels by id and key; its sentence is written with their
   // letters at caption time.
-  const _wInfo=(i,j)=>({aId:_dp[i].src&&_dp[i].src.id, aKey:_pk[i], bId:_dp[j].src&&_dp[j].src.id, bKey:_pk[j], letterA:_dp[i].label, letterB:_dp[j].label});
-  let _hiddenN=0;
-  const _reported=new Set();
-  r.hits.forEach(h=>_reported.add(h.a+'|'+h.b));
-  const _hits=r.hits.filter(h=>{ if(_isDiff(_wkey(h.ia,h.ib))){ _hiddenN++; return false; } return true; });
+  const _wInfo=(i,j)=>({aId:panels[i].src&&panels[i].src.id, aKey:_pk[i], bId:panels[j].src&&panels[j].src.id, bKey:_pk[j], letterA:panels[i].label, letterB:panels[j].label});
+  // Pairs with a finding here are not compared again by the scale-tolerant pass. Pairs
+  // listed here as alike are (their real overlap can lie where the scans did not look);
+  // if it finds one of them reused, their "alike" line here points to it.
+  const _reported=V.examined;
+  const _pairAttr=(i,j)=>esc(panels[Math.min(i,j)].label+'|'+panels[Math.max(i,j)].label);
+  const clsLine=x=>x.cls?` — ${_DUP_CLS_TXT[x.cls]}`:` — <i>not verified on its fine detail</i> (${esc(x.why)})`;
+  const alikeWhy=c=>_XD_ALIKE_WHY[c]||'';
+  const alikeName=c=>_XD_CLASS[c==='unaligned'||c==='unframed'?'layout':c];
+  const _hits=V.wFound.filter(_shown);
   // "We could not check this" has to be as visible as "all clear" — a toast that
   // fades away would let a user believe the figure had been screened when it hadn't.
+  const wAlikeRows=V.wAlike.map(h=>`<div class="cc-row" data-xd-alike data-xd-pair="${_pairAttr(h.ia,h.ib)}" style="align-items:flex-start"><span class="cc-icon">ℹ</span><span>
+        <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> — ${esc(alikeName(h.cls))} (${(h.score*100).toFixed(1)}% alike at a glance${h.tf==='as-is'?'':`, ${h.tf}`})<br>
+        <span style="font-size:10px;color:var(--muted)">${esc(alikeWhy(h.cls))}</span></span></div>`).join('');
   const rows = r.compared<2
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>
         <b>Nothing was checked.</b> ${r.compared?'Only one panel has':'No panel has'} enough image detail
         to compare${r.skipped.length?` — ${r.compared?'the others are':'they are'} too uniform (blank, saturated, or a smooth gradient) for a pixel comparison to carry any information`:''}.
         This is <b>not</b> a clean result: no duplicate check has been performed on this figure.</span></div>`
-    : _hits.length
+    : (_hits.length
     ? _hits.map(h=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
-        <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}
-        — confirm these are different acquisitions<br>${_reuseButtonsHtml(_wkey(h.ia,h.ib),{scope:'within', a:h.a, b:h.b, what:'whole panel'+(h.tf==='as-is'?'':', '+h.tf), ..._wInfo(h.ia,h.ib), tpl:'The image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
-    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`;
+        <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}${clsLine(h)}
+        — confirm these are different acquisitions<br>${_reuseButtonsHtml(_wkey(h.ia,h.ib),{scope:'within', cls:h.cls, a:h.a, b:h.b, what:'whole panel'+(h.tf==='as-is'?'':', '+h.tf), ..._wInfo(h.ia,h.ib), tpl:'The image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
+    : V.wAlike.length
+    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No duplicated panels among the ${r.compared} compared; ${V.wAlike.length} pair${V.wAlike.length>1?'s':''} alike at a glance only, below — not counted as reuse</span></div>`
+    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`)
+    + wAlikeRows;
   const skip = r.skipped.length
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>Not compared (too uniform to judge): ${esc(r.skipped.join(', '))}</span></div>` : '';
 
   // Region level: the reuse a whole-panel comparison structurally cannot see — a lane
   // cloned inside one blot, a patch of one micrograph living in another.
-  const panels=_dupPanels();
-  const rr=_regionDupScan();
-  rr.regions.forEach(g=>{ if(!g.same) _reported.add(g.a+'|'+g.b); });
-  const _regs=rr.regions.filter(g=>{ if(_isDiff(_wkey(g.panelA,g.panelB))){ _hiddenN++; return false; } return true; });
-  const regionRows = _regs.length
+  const _regs=V.rFound.filter(_shown);
+  // Alike regions: one neutral line per pair (or per panel, for repeats inside it).
+  const rAl=new Map();
+  V.rAlike.forEach(g=>{ const k=g.panelA+'|'+g.panelB; if(!rAl.has(k)) rAl.set(k,[]); rAl.get(k).push(g); });
+  const rAlikeRows=[...rAl.values()].map(gs=>{ const g=gs[0], n=gs.length;
+    return `<div class="cc-row" data-xd-alike${g.same?'':` data-xd-pair="${_pairAttr(g.panelA,g.panelB)}"`} style="align-items:flex-start"><span class="cc-icon">ℹ</span><span>
+        ${g.same?`<b>${esc(g.a)}</b>: ${n} region${n>1?'s':''} within the panel alike at a glance`:`<b>${esc(g.a)}</b> and <b>${esc(g.b)}</b>: ${n} region${n>1?'s':''} alike at a glance`} — ${esc(alikeName(g.cls))}<br>
+        <span style="display:inline-flex;gap:6px;margin-top:4px">${_rdupEvidence(panels,g)}</span><br>
+        <span style="font-size:10px;color:var(--muted)">${esc(alikeWhy(g.same&&g.cls!=='periodic'?'within':g.cls))}</span></span></div>`; }).join('');
+  const regionRows = (_regs.length
     ? _regs.slice(0,12).map(g=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
         ${g.same?`<b>${esc(g.a)}</b> contains an internal repeat`:`A region of <b>${esc(g.a)}</b> reappears in <b>${esc(g.b)}</b>`}${g.tf==='as-is'?'':` (${g.tf})`}
-        — ${g.patches>1?`${g.patches} adjoining patches`:'one patch'} at ${(g.score*100).toFixed(1)}% correlation<br>
+        — ${g.patches>1?`${g.patches} adjoining patches`:'one patch'} at ${(g.score*100).toFixed(1)}% correlation${clsLine(g)}<br>
         <span style="display:inline-flex;gap:6px;margin-top:4px">${_rdupEvidence(panels,g)}</span><br>
-        <span style="font-size:10px;color:var(--muted)">Boxed regions match. Repeated texture, an inset you placed on purpose, or shared background can also trigger this — the check finds candidates, it does not judge them.</span><br>
-        ${_reuseButtonsHtml(_wkey(g.panelA,g.panelB),{scope:'within', a:g.a, b:g.b, what:g.same?'repeated region within the panel':'region', ..._wInfo(g.panelA,g.panelB), tpl:g.same?'A region of panel {A} is repeated within the panel.':'Part of the image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
+        <span style="font-size:10px;color:var(--muted)">Boxed regions match${g.cls?(g.cls==='identical'?', down to their fine detail':' in their coarse detail'):''}. An inset you placed on purpose or a shared control can be the reason — the check finds candidates, it does not judge them.</span><br>
+        ${_reuseButtonsHtml(_wkey(g.panelA,g.panelB),{scope:'within', cls:g.cls, a:g.a, b:g.b, what:g.same?'repeated region within the panel':'region', ..._wInfo(g.panelA,g.panelB), tpl:g.same?'A region of panel {A} is repeated within the panel.':'Part of the image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
       + (_regs.length>12?`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${_regs.length-12} more region matches not shown</span></div>`:'')
     : rr.patches<2
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>No regions were checked</b> — not enough textured image area to tile.</span></div>`
-    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No repeated regions found (${rr.patches} textured patches compared across ${rr.panels} panels, all rotations and mirrors)</span></div>`;
+    : rAl.size
+    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No repeated regions found (${rr.patches} textured patches compared across ${rr.panels} panels, all rotations and mirrors); ${V.rAlike.length} region${V.rAlike.length>1?'s':''} alike at a glance only, below — not counted as reuse</span></div>`
+    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No repeated regions found (${rr.patches} textured patches compared across ${rr.panels} panels, all rotations and mirrors)</span></div>`)
+    + rAlikeRows;
   const cappedRow = (rr.capped
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>The region scan hit its work cap</b> before finishing — this figure has unusually repetitive texture. ${rr.verified} candidate patch pairs were verified and <b>${rr.unverified} were not</b>. Matches above are real, but the scan is not exhaustive.</span></div>` : '')
     + (rr.kpCapped
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${rr.kpCapped} panel${rr.kpCapped>1?'s were':' was'} sampled at ${rr.kpCapped>1?'their':'its'} ${_RDUP_KP} most textured points (more were available), so a small repeat in ${rr.kpCapped>1?'them':'it'} can be missed.</span></div>` : '')
-    + (_hiddenN ? `<div class="cc-row cc-warn"><span class="cc-icon">ℹ</span><span>${_hiddenN} pair${_hiddenN>1?'s':''} you marked “different images” ${_hiddenN>1?'are':'is'} not listed.</span></div>` : '');
+    + (hidden.different||hidden.acquisition ? `<div class="cc-row cc-warn"><span class="cc-icon">ℹ</span><span>${_reuseHiddenText(hidden.different,hidden.acquisition,'.')}</span></div>` : '');
 
   const modal=document.createElement('div');
   modal.className='modal-bg open';
   modal.innerHTML=`<div class="modal" style="max-width:560px;padding:24px;max-height:80vh;overflow-y:auto">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px">🧬 Duplication self-check</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Whole panels first, then regions <i>within and across</i> panels — the reuse journal screens (Proofig, ImageTwin) actually flag. All rotations and mirrors.</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Whole panels first, then regions <i>within and across</i> panels — the reuse journal screens (Proofig, ImageTwin) actually flag. All rotations and mirrors. Every match is verified on its <b>fine detail</b>, as in the cross-figure check: pictures alike only in layout (one lane layout, one dish, one letterbox) are listed apart and not counted.</div>
     <div style="font-size:11px;font-weight:600;margin:6px 0 4px">Whole panels</div>
     ${rows}${skip}
     <div style="font-size:11px;font-weight:600;margin:12px 0 4px">Regions</div>
@@ -26018,14 +26219,14 @@ function runDuplicateScan(){
     <div style="font-size:11px;font-weight:600;margin:12px 0 4px">Re-scaled or partly overlapping copies</div>
     <div data-xd-scale><div class="cc-row cc-warn"><span class="cc-icon">…</span><span>Comparing panel pairs at 0.45–2.2× scale…</span></div></div>
     <div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-      Flat, featureless areas are excluded — correlation on smooth content is meaningless, so a duplicate hiding in blank background is not findable this way. A reuse rescaled far from the original size (outside 0.45–2.2×) or rotated by other than a right angle is not searched. This looks inside this figure only — <a href="#" onclick="event.preventDefault();openCrossFigureCheck()" style="color:var(--accent)">🧬 Check against other figures…</a> compares it with the rest of the paper. Not a substitute for a journal's screening — a chance to catch an accidental reuse before a reviewer does.</div>
+      Flat, featureless areas are excluded — correlation on smooth content is meaningless, so a duplicate hiding in blank background is not findable this way. A reuse rescaled far from the original size (outside 0.45–2.2×) or rotated by other than a right angle is not searched. A copy whose fine detail is destroyed (heavy noise or compression) can only be listed as alike at a glance, and a lattice or counting grid as a periodic pattern. This looks inside this figure only — <a href="#" onclick="event.preventDefault();openCrossFigureCheck()" style="color:var(--accent)">🧬 Check against other figures…</a> compares it with the rest of the paper. Not a substitute for a journal's screening — a chance to catch an accidental reuse before a reviewer does.</div>
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
   </div>`;
   document.body.appendChild(modal);
   _reuseWire(modal);
-  _dupScaleSection(modal, _reported);
-  logAction('duplicateScan',{compared:r.compared, matches:r.hits.length,
-                             regionMatches:rr.regions.length, patches:rr.patches});
+  _dupScaleSection(modal, _reported, V.pFound, V.alikePairs);
+  logAction('duplicateScan',{compared:r.compared, matches:V.wFound.length, regionMatches:V.rFound.length, pairMatches:V.pFound.length,
+    alike:V.wAlike.length+V.rAlike.length, candidates:r.hits.length+rr.regions.length, patches:rr.patches, verifyMs:V.ms});
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -26350,12 +26551,16 @@ function _xdCorr(a,b){
   return (sa>0&&sb>0)?s/Math.sqrt(sa*sb):0;
 }
 // NCC over the region the two images share, under one transform, at matched resolution.
-function _xdEval(A,B,oA,oB,c,step){
+// `rect` (this image's source pixels, optional) limits it to one region: a region the
+// within-figure scan matched, which the rest of the frame need not share.
+function _xdEval(A,B,oA,oB,c,step,rect){
   const a=A.oct[oA], b=B.oct[oB], Lb=b.L, bw=b.w, bh=b.h;
+  const x0r=rect?Math.max(0,Math.floor(rect.x*a.gx)):0, x1r=rect?Math.min(a.w,Math.ceil((rect.x+rect.w)*a.gx)):a.w;
+  const y0r=rect?Math.max(0,Math.floor(rect.y*a.gy)):0, y1r=rect?Math.min(a.h,Math.ceil((rect.y+rect.h)*a.gy)):a.h;
   let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0,tot=0;
-  for(let y=0;y<a.h;y+=step){
+  for(let y=y0r;y<y1r;y+=step){
     const Y=(y+0.5)/a.gy;
-    for(let x=0;x<a.w;x+=step){
+    for(let x=x0r;x<x1r;x+=step){
       tot++;
       const X=(x+0.5)/a.gx, [u,v]=_xdMap(X,Y,A.W,A.H,c.k);
       const qx=(c.s*u+c.tx)*b.gx-0.5, qy=(c.s*v+c.ty)*b.gy-0.5;
@@ -26370,15 +26575,16 @@ function _xdEval(A,B,oA,oB,c,step){
   const va=sxx/n-(sx/n)**2, vb=syy/n-(sy/n)**2;
   return {ncc:(va>0&&vb>0)?(sxy/n-(sx/n)*(sy/n))/Math.sqrt(va*vb):0, n, tot, sdA:Math.sqrt(Math.max(0,va))};
 }
-// Refine a candidate and decide. Returns a finding or null.
-function _xdConfirm(A,B,c0){
+// Refine a candidate and decide. Returns a finding or null. With `rect` (this image's
+// source pixels) only that region is aligned and has to match.
+function _xdConfirm(A,B,c0,rect){
   let oA=0,oB=0, r=c0.s*B.oct[0].gx/A.oct[0].gx;
   while(r>1.45&&oB<2&&B.oct[oB+1]){ oB++; r/=2; }
   while(r<0.69&&oA<2&&A.oct[oA+1]){ oA++; r*=2; }
   const a=A.oct[oA], b=B.oct[oB];
-  const coarse=Math.max(1,Math.round(Math.sqrt(a.w*a.h/6000)));
+  const coarse=Math.max(1,Math.round(Math.sqrt((rect?rect.w*rect.h*a.gx*a.gy:a.w*a.h)/6000)));
   const c={...c0};
-  const f=p=>c.sg*_xdEval(A,B,oA,oB,p,coarse).ncc;
+  const f=p=>c.sg*_xdEval(A,B,oA,oB,p,coarse,rect).ncc;
   let cur=f(c), ds=0.03, dt=1.5/b.gx;
   for(let round=0;round<5;round++){
     let moved=true, guard=0;
@@ -26394,12 +26600,13 @@ function _xdConfirm(A,B,c0){
     }
     ds/=2; dt/=2;
   }
-  const fin=_xdEval(A,B,oA,oB,c,1), score=c.sg*fin.ncc;
+  const fin=_xdEval(A,B,oA,oB,c,1,rect), score=c.sg*fin.ncc;
   // The shared region, exactly: this panel's frame intersected with the other image's
   // frame mapped back. Right-angle transforms keep rectangles rectangles.
   const corners=[[0,0],[B.W,B.H]].map(([x,y])=>_xdUnmap((x-c.tx)/c.s,(y-c.ty)/c.s,A.W,A.H,c.k));
-  const rx0=Math.max(0,Math.min(corners[0][0],corners[1][0])), rx1=Math.min(A.W,Math.max(corners[0][0],corners[1][0]));
-  const ry0=Math.max(0,Math.min(corners[0][1],corners[1][1])), ry1=Math.min(A.H,Math.max(corners[0][1],corners[1][1]));
+  const R=rect||{x:0,y:0,w:A.W,h:A.H};
+  const rx0=Math.max(R.x,Math.min(corners[0][0],corners[1][0])), rx1=Math.min(R.x+R.w,Math.max(corners[0][0],corners[1][0]));
+  const ry0=Math.max(R.y,Math.min(corners[0][1],corners[1][1])), ry1=Math.min(R.y+R.h,Math.max(corners[0][1],corners[1][1]));
   if(rx1<=rx0||ry1<=ry0) return null;
   const qc=[[rx0,ry0],[rx1,ry1]].map(([x,y])=>{ const [u,v]=_xdMap(x,y,A.W,A.H,c.k); return [c.s*u+c.tx,c.s*v+c.ty]; });
   const rectA={x:rx0/A.W, y:ry0/A.H, w:(rx1-rx0)/A.W, h:(ry1-ry0)/A.H};
@@ -26626,7 +26833,11 @@ function _xdPeriodic(L,w,h,bad){
     for(let yy=0;yy<g;yy++) for(let xx=0;xx<g;xx++){ const i=(y*g+yy)*w+x*g+xx; t+=L[i]; b0|=bad[i]; }
     D[y*sw+x]=t/(g*g); okD[y*sw+x]=b0?0:1; }
   const a=_xdGauss(D,sw,sh,0.8), b=_xdGauss(D,sw,sh,4);
-  const N=256, re=new Float64Array(N*N), im=new Float64Array(N*N), mr=new Float64Array(N*N), mi=new Float64Array(N*N);
+  // Zero-padded to at least twice the picture, so the circular autocorrelation is the
+  // linear one: 256 for the full 96 px, less for a small region (the within-figure check
+  // verifies regions of a few dozen pixels, and the transform is most of its cost).
+  let N=64; while(N<2*Math.max(sw,sh)) N*=2;
+  const re=new Float64Array(N*N), im=new Float64Array(N*N), mr=new Float64Array(N*N), mi=new Float64Array(N*N);
   let s=0, c=0;
   const v=new Float64Array(sw*sh), ok=new Uint8Array(sw*sh);
   for(let y=0;y<sh;y++) for(let x=0;x<sw;x++){ const i=y*sw+x; if(!okD[i]) continue; v[i]=a[i]-b[i]; ok[i]=1; s+=v[i]; c++; }
@@ -26735,7 +26946,9 @@ function _xdComparePair(A,B){
 // agrees; a transform (flip, scale, inversion) is named only for a verified finding.
 const _XD_CLASS={
   same:'the same image, with its finest detail lost in one copy (blurred, noisy or compressed)',
-  near:'nearly identical — the same field, but the finest detail differs (consecutive frames, a re-exposure, or a heavily compressed re-save)',
+  // Not "the same field": two different near-twin acquisitions (near-noiseless blots of
+  // one layout with equal lanes) land here too, so the words claim only what is measured.
+  near:'nearly identical — alike in coarse detail; finest detail differs (consecutive frames, a re-exposure, a heavily compressed re-save, or two near-twin images)',
   layout:'similar layout — not counted as reuse',
   periodic:'periodic pattern — cannot be told apart by this check'};
 function _xdDescribe(f, aName, bName){
@@ -26754,7 +26967,15 @@ function _xdDescribe(f, aName, bName){
 // Why a pair is listed as alike but not counted — one line, for the dialog and reports.
 const _XD_ALIKE_WHY={
   layout:'These look alike at a glance; their fine detail differs, so they are different acquisitions.',
-  periodic:'A lattice or grid matches itself when shifted by one period, so this check cannot tell two fields of it apart. Compare them by eye.'};
+  periodic:'A lattice or grid matches itself when shifted by one period, so this check cannot tell two fields of it apart. Compare them by eye.',
+  // Within one figure: alike to the coarse scans, but the match does not line up pixel
+  // for pixel (cross-figure pairs like this are never listed at all).
+  unaligned:'These look alike at a glance, but they do not line up pixel for pixel, so they are not the same image.',
+  // Frames of different shapes cannot be laid one on the other whole; the pair is then
+  // compared part by part, at other scales, by the scale-tolerant pass.
+  unframed:'These look alike in a small thumbnail, but their frames differ in shape, so they could not be laid one on the other; they are compared part by part with the re-scaled copies below.',
+  // Two regions of ONE panel are one acquisition: what differs is which part it is.
+  within:'These regions look alike at a glance; their fine detail differs, so neither is a copy of the other.'};
 
 // The run. `panels` and `others` are lists of {label, load:async()=>({src, crop}), key,
 // id?, fig?}. Panels are this figure's; with `within` the list is compared with itself.
@@ -27312,7 +27533,8 @@ function _xdRenderSummary(){
       : nAlike
       ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No reuse found among what was compared. ${nAlike} pair${nAlike>1?'s':''} look${nAlike>1?'':'s'} alike at a glance but not in the fine detail (listed below) — not counted as reuse. A clean result is not a guarantee.</span></div>`
       : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No reuse found among what was compared. A clean result is not a guarantee — see below for what this cannot see.</span></div>`);
-  el.innerHTML=head+rows+none+(hidden.length?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px">${hidden.length} pair${hidden.length>1?'s':''} you marked “different images” ${hidden.length>1?'are':'is'} not listed. ${live?`<button class="btn" style="padding:0 6px;font-size:10px" onclick="_xdUI.showHidden=true;_xdRenderSummary()">Show</button>`:''}</div>`:'')+alikeRows;
+  const nAcq=hidden.filter(f=>_reuseLive(f.key).verdict==='acquisition').length;
+  el.innerHTML=head+rows+none+(hidden.length?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px">${_reuseHiddenText(hidden.length-nAcq,nAcq,'.')} ${live?`<button class="btn" style="padding:0 6px;font-size:10px" onclick="_xdUI.showHidden=true;_xdRenderSummary()">Show</button>`:''}</div>`:'')+alikeRows;
 }
 // Side by side, larger, both regions outlined.
 function _xdView(i){
@@ -27332,9 +27554,13 @@ function _xdView(i){
 // The whole-panel and region scans compare at one scale; a panel that is a zoom of
 // another, or the same field cropped differently and resized, slips between them. This
 // runs the cross-figure engine over the figure's own panel pairs and appends what it
-// finds to the report — nothing already listed above is repeated.
+// finds to the report — nothing already listed above is repeated: the pairs the check
+// above already examined (`reported`) are skipped, and what the same engine found on them
+// there (`pre`: pairs whose candidates did not verify at their own geometry) leads the list.
+// The report runs that engine here rather than before the dialog opens (_dupVerified
+// without `pairs`), so `pre` is empty today; it is kept for a caller that has it.
 function _xdWithinKey(a,b){ return `w|${[a.key,b.key].sort().join('|')}`; }
-async function _dupScaleSection(modal, reported){
+async function _dupScaleSection(modal, reported, pre, alikeShown){
   const sec=modal.querySelector('[data-xd-scale]'); if(!sec) return;
   const panels=_xdThisPanels();
   let insetPairs=0, already=0;
@@ -27347,30 +27573,41 @@ async function _dupScaleSection(modal, reported){
   modal._xdToken=ui;
   const res=await _xdRun(panels,null,ui);
   if(!sec.isConnected) return;
-  const rows=[], hiddenN={n:0};
-  res.findings.forEach(f=>{
+  const rows=[], hiddenN={different:0, acquisition:0};
+  [...(pre||[]), ...res.findings].forEach(f=>{
     // Within one figure the two panels are the pair; the larger one's letter goes first.
     const key=_xdWithinKey(f.a,f.b), d=_reuseLive(key);
-    if(d&&(d.verdict==='different'||d.verdict==='acquisition')){ hiddenN.n++; return; }
+    if(d&&(d.verdict==='different'||d.verdict==='acquisition')){ hiddenN[d.verdict]++; return; }
     const desc=_xdDescribe(f,f.a.label,f.b.label);
+    // "Nearly identical" does not assert one field: its description says what it is.
     rows.push(`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
-      <b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> show the same field — ${esc(desc)} · correlation ${(f.score*100).toFixed(1)}%<br>
+      <b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> ${f.cls==='near'?'are':'show the same field —'} ${esc(desc)} · correlation ${(f.score*100).toFixed(1)}%<br>
       <span style="display:inline-flex;gap:6px;margin-top:4px"><img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"> <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"></span><br>
       ${_reuseButtonsHtml(key,{scope:'within', cls:f.cls, a:f.a.label, b:f.b.label, what:desc, aId:f.a.id, aKey:f.a.key, bId:f.b.id, bKey:f.b.key, letterA:f.a.label, letterB:f.b.label,
         tpl:`The image in panel {B} is reused from panel {A}${Math.abs(f.s-1)>=0.03?' at a different magnification':''}.`})}</span></div>`);
   });
-  const alikeRows=res.alike.map(f=>`<div class="cc-row" data-xd-alike><span class="cc-icon">ℹ</span><span><b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> — ${esc(_xdDescribe(f,f.a.label,f.b.label))}. ${esc(_XD_ALIKE_WHY[f.cls]||'')}</span></div>`);
+  // A pair found reused here is pointed to from its "alike" line above (alike where the
+  // scans matched it, reused elsewhere); a pair already listed above as alike is not
+  // listed again.
+  const pk=f=>[f.a.label,f.b.label].sort().join('|');
+  const foundHere=new Set([...(pre||[]), ...res.findings].map(pk));
+  modal.querySelectorAll('[data-xd-pair]').forEach(el=>{ if(!foundHere.has(el.dataset.xdPair.split('|').sort().join('|'))) return;
+    const t=el.querySelector('span:last-child'); if(t) t.insertAdjacentHTML('beforeend','<br><b style="font-size:10px">Part of one is reused in the other, though — see “Re-scaled or partly overlapping copies” below.</b>'); });
+  const above=new Set([...(alikeShown||[])].map(k=>k.split('|').sort().join('|')));
+  const alikeAbove=res.alike.filter(f=>above.has(pk(f))).length;
+  const alikeRows=res.alike.filter(f=>!above.has(pk(f))).map(f=>`<div class="cc-row" data-xd-alike><span class="cc-icon">ℹ</span><span><b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> — ${esc(_xdDescribe(f,f.a.label,f.b.label))}. ${esc(_XD_ALIKE_WHY[f.cls]||'')}</span></div>`);
   const notes=[];
   if(res.excluded.length) notes.push(`Not compared (featureless): ${res.excluded.map(x=>`${esc(x.label)} — ${esc(x.why)}`).join('; ')}`);
   if(res.pairsSkipped) notes.push(`${res.pairsSkipped} panel pairs over the ${_XDUP_CAPS.pairs}-comparison limit were not compared`);
   if(insetPairs) notes.push(`${insetPairs} linked inset${insetPairs>1?'s':''} not compared with ${insetPairs>1?'their parents':'its parent'} — an inset is a declared magnified crop`);
-  if(hiddenN.n) notes.push(`${hiddenN.n} pair${hiddenN.n>1?'s':''} you marked “different images” not listed`);
+  if(hiddenN.different||hiddenN.acquisition) notes.push(_reuseHiddenText(hiddenN.different,hiddenN.acquisition).replace(/ (is|are) not listed/g,' not listed'));
   // Zero pairs is not a pass: say why nothing was left to compare.
   const head=rows.length?rows.join('')
     : !res.pairs
     ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No pairs left to compare at other scales${already?` (all ${already} pair${already>1?'s':''} already listed above)`:''}${insetPairs?`${already?'; ':' ('}${insetPairs} inset pair${insetPairs>1?'s':''} skipped${already?'':')'}`:''}${res.excluded.length?' — featureless panels are named below':''}.</span></div>`
-    : alikeRows.length
-    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations); ${alikeRows.length} pair${alikeRows.length>1?'s':''} alike at a glance only, below.</span></div>`
+    // No green tick while something looks alike, here or above.
+    : alikeRows.length||alikeAbove
+    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations)${alikeRows.length?`; ${alikeRows.length} pair${alikeRows.length>1?'s':''} alike at a glance only, below`:''}${alikeAbove?`; ${alikeAbove} pair${alikeAbove>1?'s':''} alike at a glance ${alikeAbove>1?'are':'is'} listed above`:''}.</span></div>`
     : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations)</span></div>`;
   sec.innerHTML=head+alikeRows.join('')
     +notes.map(n=>`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${n}</span></div>`).join('');
@@ -27448,19 +27685,26 @@ function runAdvancedConsistency(){
   if(labelSz<8) results.push({status:'fail',msg:`Label font ${labelSz}px may be too small for publication (≥8px recommended)`});
   else results.push({status:'pass',msg:`Label font size ${labelSz}px`});
 
-  // 7. Duplicated panels — the only check here that compares pixels, not settings
-  // A pair the author marked "different images" in the 🧬 report is not raised again here.
-  const _dpk=_dupPanels().map(p=>_xdPanelKey(p));
-  const _diff=(i,j)=>{ const d=_reuseLive(`w|${[_dpk[i],_dpk[j]].sort().join('|')}`); return !!(d&&d.verdict!=='intentional'); };
-  let _decidedN=0;
-  const dup=_panelSimilarityScan();
-  const dupHits=dup.hits.filter(h=>_diff(h.ia,h.ib)?(_decidedN++,false):true);
+  // 7. Duplicated panels — the only check here that compares pixels, not settings.
+  // The same verified result as the 🧬 Duplication check (_dupVerified): only the same
+  // pixels fail; pairs alike in layout only are named, neutral, and fail nothing. A pair
+  // the author decided in the 🧬 report is not raised again here.
+  const V=_dupVerified({pairs:true}), dup=V.whole, rdup=V.rr;
+  const _dpk=V.panels.map(p=>_xdPanelKey(p));
+  const _decided={different:0, acquisition:0};
+  const _diff=(i,j)=>{ const d=_reuseLive(`w|${[_dpk[i],_dpk[j]].sort().join('|')}`); if(d&&d.verdict!=='intentional'){ _decided[d.verdict==='acquisition'?'acquisition':'different']++; return true; } return false; };
+  const _what=h=>h.cls==='identical'?`are ${(h.score*100).toFixed(1)}% identical`:h.cls==='same'?'are the same image, with its finest detail lost in one copy'
+    :h.cls==='near'?'are nearly identical — alike in coarse detail; finest detail differs':`are ${(h.score*100).toFixed(1)}% similar (not verified on fine detail — ${h.why})`;
+  const dupHits=V.wFound.filter(h=>!_diff(h.ia,h.ib));
   if(dup.compared<2) results.push({status:'pass',msg:'Duplicate check skipped — fewer than two comparable panels'});
   else if(dupHits.length) dupHits.forEach(h=>results.push({status:'fail',
-    msg:`${h.a} and ${h.b} are ${(h.score*100).toFixed(1)}% identical${h.tf==='as-is'?'':` (${h.tf})`} — confirm these are different acquisitions`}));
+    msg:`${h.a} and ${h.b} ${_what(h)}${h.tf==='as-is'?'':` (${h.tf})`} — confirm these are different acquisitions`}));
   else results.push({status:'pass',msg:`No duplicated panels among the ${dup.compared} compared (whole-panel, incl. rotated/mirrored)`});
-  const rdup=_regionDupScan();
-  const regs=rdup.regions.filter(g=>_diff(g.panelA,g.panelB)?(_decidedN++,false):true);
+  // Pairs whose candidates did not verify where the scans put them, but which the
+  // cross-figure engine found reused elsewhere (a re-cropped or re-scaled copy).
+  V.pFound.filter(f=>!_diff(f.ia,f.ib)).forEach(f=>results.push({status:'fail',
+    msg:`${f.a.label} and ${f.b.label} ${f.cls==='near'?'are':'show the same field —'} ${_xdDescribe(f,f.a.label,f.b.label)} — confirm these are different acquisitions`}));
+  const regs=V.rFound.filter(g=>!_diff(g.panelA,g.panelB));
   if(regs.length){
     regs.slice(0,6).forEach(g=>results.push({status:'fail',
       msg:`${g.same?`${g.a} contains an internal repeated region`:`A region of ${g.a} reappears in ${g.b}`}${g.tf==='as-is'?'':` (${g.tf})`} — open the 🧬 Duplication check to see it boxed`}));
@@ -27468,20 +27712,26 @@ function runAdvancedConsistency(){
   }
   else if(rdup.patches>=2) results.push({status:'pass',msg:`No repeated regions (${rdup.patches} textured patches compared within and across panels)`});
   if(rdup.capped) results.push({status:'warn', msg:`The region scan hit its work cap: ${rdup.unverified} candidate patch pairs were not verified`});
-  if(_decidedN) results.push({status:'pass', msg:`${_decidedN} match${_decidedN>1?'es':''} you marked “different images” in the 🧬 Duplication check not listed`});
+  // Alike in layout only: named, not counted — information, neither a pass nor a failure.
+  const _alikePairs=[...new Set([...V.wAlike.map(h=>`${h.a} ↔ ${h.b}`), ...V.rAlike.map(g=>g.same?`${g.a} (within the panel)`:`${g.a} ↔ ${g.b}`)])];
+  if(_alikePairs.length) results.push({status:'info', msg:`Alike at a glance only — not counted as reuse (their fine detail differs, or a periodic pattern): ${_alikePairs.join('; ')}`});
+  const _dm=(n,what)=>`${n} match${n>1?'es':''} you marked “${what}” in the 🧬 Duplication check not listed`;
+  if(_decided.different) results.push({status:'pass', msg:_dm(_decided.different,'different images')});
+  if(_decided.acquisition) results.push({status:'pass', msg:_dm(_decided.acquisition,'same field, different acquisitions')});
 
   // Show results in modal
   const rows=results.map(r=>`
     <div class="cc-row cc-${esc(r.status)}">
-      <span class="cc-icon">${r.status==='pass'?'✓':r.status==='warn'?'⚠':'✗'}</span>
+      <span class="cc-icon">${r.status==='pass'?'✓':r.status==='warn'?'⚠':r.status==='info'?'ℹ':'✗'}</span>
       <span>${esc(r.msg)}</span>
     </div>`).join('');
-  const pass=results.filter(r=>r.status==='pass').length;
+  // An information row is not a check: it counts neither as passed nor as failed.
+  const pass=results.filter(r=>r.status==='pass').length, nChecks=results.filter(r=>r.status!=='info').length;
   const modal=document.createElement('div');
   modal.className='modal-bg open';
   modal.innerHTML=`<div class="modal" style="max-width:520px;padding:24px">
     <div style="font-weight:600;font-size:14px;margin-bottom:12px">
-      Deep Figure Audit — ${pass}/${results.length} checks passed
+      Deep Figure Audit — ${pass}/${nChecks} checks passed
     </div>
     ${rows}
     <button class="btn btn-primary" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center;margin-top:14px">Close</button>
