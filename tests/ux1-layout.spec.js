@@ -7,7 +7,7 @@
 // phage-19, blot-04, phage-22 — rulers, MW labels and labels follow their panel / object
 // freeform-10 — a freeform crop keeps the picture's scale
 const { test, expect } = require('@playwright/test');
-const { loadApp, seedPanels, seedFreeform } = require('./helpers');
+const { loadApp, seedPanels, seedFreeform, gesture } = require('./helpers');
 
 const CSV = 'strain,OD\nWT,1.2\nKO,0.4\nRescue,1.0\n';
 
@@ -148,12 +148,18 @@ test.describe('a chart or gene map is a grid panel (blot-02, phage-03, phage-21)
       const types2 = images.map(im => im && (im.type || 'image'));
       doExportPreflight('png');
       const pf = document.body.innerText.length > 0;
-      return { types, types2, waiting: _pendingPanels.filter(p => p.rec.type).length, pf, mode: layoutMode };
+      // every format the figure exports in, with the chart and gene map panels in it
+      const files = [];
+      for (const f of ['png', 'jpeg', 'tiff', 'pdf', 'svg']) { const c = await _captureDownload(() => doExport(f)); files.push(c ? c.name.split('.').pop() : null); }
+      const pptx = await _captureDownload(() => exportPPTX()); files.push(pptx ? 'pptx' : null);
+      const key = await _captureDownload(() => doExport('png', { key: true })); files.push(key ? 'key' : null);
+      return { types, types2, waiting: _pendingPanels.filter(p => p.rec.type).length, pf, mode: layoutMode, files };
     });
     expect(r.types).toEqual(['image', 'image', 'chart', 'genemap']);
     expect(r.types2.slice(2)).toEqual(['chart', 'genemap']);   // data needs no file dropped again
     expect(r.waiting).toBe(0);
     expect(r.mode).toBe('grid');
+    expect(r.files).toEqual(['png', 'jpg', expect.stringMatching(/^tiff?$/), 'pdf', 'svg', 'pptx', 'key']);
     expect(errors).toEqual([]);
   });
 
@@ -167,4 +173,255 @@ test.describe('a chart or gene map is a grid panel (blot-02, phage-03, phage-21)
     expect(r.grid).toBe(0);
     expect(errors).toEqual([]);
   });
+});
+
+// ── marks that follow their panel ───────────────────────────────
+const SEED = `
+  window.__img = async (iw, ih, name) => {
+    const c = document.createElement('canvas'); c.width = iw; c.height = ih;
+    const x = c.getContext('2d'); x.fillStyle = '#404040'; x.fillRect(0, 0, iw, ih);
+    x.fillStyle = '#fff'; for (let k = 0; k < 12; k++) x.fillRect((k * 53) % iw, (k * 37) % ih, 6, 6);
+    const src = c.toDataURL('image/png');
+    await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, name); res(); }; img.src = src; });
+    return images.length - 1; };
+  // figure point of source pixel (u,v) of panel i
+  window.__fig = (i, u, v) => { const pb = panelBounds.find(p => p.idx === i), m = _panelSourceMap(pb, images[i]);
+    return [m.dx + (u - m.sx) / m.kx, m.dy + (v - m.sy) / m.ky]; };
+  window.__ruler = (i, u1, v1, u2, v2) => { const [a, b] = __fig(i, u1, v1), [c, d] = __fig(i, u2, v2);
+    annotations.push({ type: 'ruler', xf: a / canvasLogicalW, yf: b / canvasLogicalH, x2f: c / canvasLogicalW, y2f: d / canvasLogicalH, color: '#fff', width: 2 });
+    return annotations.length - 1; };
+  window.__rulers = () => annotations.filter(a => a.type === 'ruler').map(a => { const m = _rulerMeasure(a);
+    return { status: m.status, label: m.label, src: m.src && m.src.flat().map(v => Math.round(v)), panel: m.im && m.im.name }; });
+`;
+
+test('phage-19: rulers stay on what they measure through a span change, a reorder and a width change', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(SEED);
+  await page.evaluate(async () => {
+    for (const n of ['tem.tif', 'b.png', 'c.png', 'd.png']) await __img(400, 368, n);
+    images[0].umPerPx = 0.002; images[0].colSpan = 2; images[0].rowSpan = 2;
+    sv('cols', 3); sv('rows', 2); onLayoutChange(); render();
+    __ruler(0, 100, 100, 160, 100); __ruler(0, 200, 300, 200, 340); __ruler(0, 300, 50, 340, 80);
+    render();
+  });
+  const before = await page.evaluate(() => __rulers());
+  expect(before.every(r => r.status === 'ok')).toBe(true);
+  // Panel span back to 1 x 1 through the panel's drawer, as the tester did.
+  await page.evaluate(() => { renderImgList(); document.querySelector('[data-gear="0"]').click(); });
+  await page.locator('#settings-0 .f-colspan').fill('1');
+  await page.locator('#settings-0 .f-rowspan').fill('1');
+  const afterSpan = await page.evaluate(() => { render(); return __rulers(); });
+  expect(afterSpan).toEqual(before);                       // same pixels, same lengths, all still measuring
+  const afterMoves = await page.evaluate(() => {
+    pushUndo(); swapImages(0, 2); render();
+    const swapped = __rulers();
+    sv('panel-w', 220); onLayoutChange(); render();
+    return { swapped, narrow: __rulers() };
+  });
+  expect(afterMoves.swapped).toEqual(before);
+  expect(afterMoves.narrow).toEqual(before);
+  // Undo puts the layout back, and the rulers with it.
+  const undone = await page.evaluate(() => { undo(); render(); return __rulers(); });
+  expect(undone).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+const BLOT = `
+  window.__blot = (n, name) => {
+    const pitch = 90, W = 60 + pitch * n, H = 160;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d'), id = x.createImageData(W, H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      let s = 0;
+      for (let k = 0; k < n; k++) if (i + 0.5 >= 30 + pitch * k && i + 0.5 < 80 + pitch * k) s += 60 * Math.exp(-((j + 0.5 - H / 2) ** 2) / 18);
+      const v = Math.max(0, Math.min(255, Math.round(225 - s))), o = (j * W + i) * 4;
+      id.data[o] = id.data[o + 1] = id.data[o + 2] = v; id.data[o + 3] = 255;
+    }
+    x.putImageData(id, 0, 0);
+    const src = c.toDataURL('image/png');
+    return new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, name || 'blot.png'); render(); res(images.length - 1); }; img.src = src; });
+  };
+  // each MW label's offset from its blot's picture: the gap to the picture's left edge, and
+  // its top against the picture's top (in figure px)
+  // (and how far its middle is from the ladder band it names)
+  window.__mw = (i) => { render(); const pb = panelBounds.find(p => p.idx === i), m = _panelSourceMap(pb, images[i]);
+    const band = images[i].gelAnalysis.lanes[0].bands[0], fy = m.dy + (band.yc - m.sy) / m.ky;
+    return annotations.filter(a => a.mw && a.blotPanel === images[i].id).map(a => ({ t: a.text,
+      gap: Math.round(pb.dx - a.xf * canvasLogicalW), off: Math.round(a.yf * canvasLogicalH + a.fontSize / 2 - fy) })); };
+`;
+
+test('blot-04: MW labels follow their blot when a lane table makes its row taller; placing again replaces them', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(BLOT);
+  const r = await page.evaluate(async () => {
+    await __blot(4, 'A.png'); await __blot(4, 'B.png');
+    sv('cols', 1); sv('rows', 2); sc('auto-row-h', true); onLayoutChange(); render();   // rows hug their panels, as the tester had
+    runGelAnalysis(0); gelSetLadder(0, 0, '50'); gelPlaceMWLabels(0);
+    runGelAnalysis(1); gelSetLadder(1, 0, '37'); gelPlaceMWLabels(1);
+    const a0 = __mw(0), b0 = __mw(1), y0 = panelBounds.find(p => p.idx === 1).dy;
+    // a three-row lane table over A pushes B down
+    laneTableSetName(0, 0, 'IPTG'); ['–', '+', '–', '+'].forEach((v, c) => laneTableSetCell(0, 0, c, v));
+    laneTableAddRow(0, 'MOI'); laneTableAddRow(0, 'Time');
+    render();
+    const a1 = __mw(0), b1 = __mw(1), y1 = panelBounds.find(p => p.idx === 1).dy;
+    gelPlaceMWLabels(1);                                  // again: replaces, never doubles
+    const again = __mw(1).length;
+    const removed = gelRemoveMWLabels(0);
+    return { a0, a1, b0, b1, moved: y1 - y0, again, removed, left: annotations.filter(a => a.mw).length };
+  });
+  expect(r.moved).toBeGreaterThan(20);                    // B's row really moved
+  expect(r.a0.length).toBe(1);
+  expect(r.a1).toEqual(r.a0);
+  expect(r.b1).toEqual(r.b0);
+  expect(r.again).toBe(1);
+  expect(r.removed).toBe(1);
+  expect(r.left).toBe(1);                                 // B's label stays
+  expect(errors).toEqual([]);
+});
+
+test('phage-22: labels placed over or beside a freeform picture move with it when it is dragged', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 100, y: 100, w: 300, h: 200, iw: 300, ih: 200 }, { type: 'image', x: 600, y: 100, w: 200, h: 200 }]);
+  const before = await page.evaluate(() => {
+    const W = canvasLogicalW, H = canvasLogicalH;
+    annotations.push({ type: 'text', xf: 150 / W, yf: 80 / H, text: '10^{-1}', fontSize: 12, color: '#000' });   // just above the picture
+    annotations.push({ type: 'arrow', xf: 120 / W, yf: 330 / H, x2f: 200 / W, y2f: 200 / H, color: '#000', width: 2 }); // points into it
+    annotations.push({ type: 'text', xf: 500 / W, yf: 500 / H, text: 'free', fontSize: 12, color: '#000' });     // on nothing
+    render();
+    return annotations.map(a => [a.xf * W, a.yf * H, (a.x2f ?? a.xf) * W, (a.y2f ?? a.yf) * H]);
+  });
+  // drag the first picture with the mouse
+  await gesture(page, 'drag', [[250, 200], [280, 220], [310, 240]]);
+  const after = await page.evaluate(() => { render(); const W = canvasLogicalW, H = canvasLogicalH;
+    return { el: [freeformElements[0].x, freeformElements[0].y], a: annotations.map(a => [a.xf * W, a.yf * H, (a.x2f ?? a.xf) * W, (a.y2f ?? a.yf) * H]) }; });
+  const dx = after.el[0] - 100, dy = after.el[1] - 100;
+  expect(dx).toBeGreaterThan(30);
+  for (const k of [0, 1]) after.a[k].forEach((v, j) => expect(v).toBeCloseTo(before[k][j] + (j % 2 ? dy : dx), 3));
+  after.a[2].forEach((v, j) => expect(v).toBeCloseTo(before[2][j], 3));    // the free label stays
+  expect(errors).toEqual([]);
+});
+
+test('phage-26 / freeform-45: a freeform canvas resize moves no annotation, and names what is left off the canvas', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 100, y: 600, w: 300, h: 200 }, { type: 'image', x: 900, y: 100, w: 250, h: 200 }]);
+  const px = () => page.evaluate(() => { render(); return annotations.map(a => [a.xf * canvasLogicalW, a.yf * canvasLogicalH,
+    (a.x2f ?? a.xf) * canvasLogicalW, (a.y2f ?? a.yf) * canvasLogicalH].map(v => Math.round(v * 100) / 100)); });
+  await page.evaluate(() => {
+    const W = canvasLogicalW, H = canvasLogicalH;
+    annotations.push({ type: 'text', xf: 120 / W, yf: 820 / H, text: '10^{0}', fontSize: 12, color: '#000' });   // just under the picture
+    annotations.push({ type: 'rect', xf: 20 / W, yf: 20 / H, x2f: 700 / W, y2f: 400 / H, color: '#000', width: 2 });   // a frame on nothing
+    annotations.push({ type: 'text', xf: 1150 / W, yf: 850 / H, text: 'corner', fontSize: 12, color: '#000' });
+    render();
+    window.__toasts = []; const o = window.toast; window.toast = function (m, k) { window.__toasts.push(String(m)); return o.apply(this, arguments); };
+  });
+  const px0 = await px();
+  await page.locator('#fm-canvas-h').fill('845');
+  await page.locator('#fm-canvas-h').press('Enter');
+  await page.locator('#fm-canvas-w').fill('1100');
+  await page.locator('#fm-canvas-w').press('Enter');
+  const px1 = await px();
+  const r = await page.evaluate(() => ({ W: canvasLogicalW, H: canvasLogicalH, els: freeformElements.map(e => [e.x, e.y, e.w, e.h]), toasts: window.__toasts }));
+  expect([r.W, r.H]).toEqual([1100, 845]);
+  expect(px1).toEqual(px0);                               // nothing moved, nothing stretched
+  expect(r.els).toEqual([[100, 600, 300, 200], [900, 100, 250, 200]]);
+  expect(r.toasts.some(m => /past the edge/.test(m) && /annotation/.test(m))).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('freeform-10: a typed freeform crop keeps the picture\'s scale and leaves the kept pixels where they were', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 50, y: 100, w: 512, h: 144, iw: 2560, ih: 720 }]);
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(0); updateElemPropsBar(); });
+  await page.locator('#ep-cropL').fill('22');
+  await page.locator('#ep-cropR').fill('21');
+  await page.locator('#ep-cropL').fill('40');
+  const r = await page.evaluate(() => { const e = freeformElements[0]; render();
+    return { x: e.x, y: e.y, w: e.w, h: e.h, srcAspect: (2560 * (1 - 0.40 - 0.21)) / 720 }; });
+  expect(r.w / r.h).toBeCloseTo(r.srcAspect, 3);         // the cropped picture keeps its shape: not stretched
+  expect(r.h).toBeCloseTo(144, 6);
+  expect(r.x).toBeCloseTo(50 + 0.40 * 512, 6);            // the kept pixels did not move on the canvas
+  expect(errors).toEqual([]);
+});
+
+test('charts-20: Relabel in freeform letters charts as well as pictures, in reading order, dark on a chart', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 40, y: 40, w: 300, h: 200 }]);
+  await page.evaluate(() => {
+    addChartElement('bar'); closeChartModal(); Object.assign(freeformElements[1], { x: 400, y: 40 });
+    addChartElement('line'); closeChartModal(); Object.assign(freeformElements[2], { x: 40, y: 320 });
+    addChartElement('box'); closeChartModal(); Object.assign(freeformElements[3], { x: 400, y: 330 });
+    render();
+  });
+  await page.locator('#freeform-controls button', { hasText: 'Relabel A, B, C' }).click();
+  const r = await page.evaluate(async () => {
+    render();
+    const letters = freeformElements.map(e => e.type === 'image' ? e.label : e.letter);
+    const names = freeformElements.slice(1).map(e => e.label);
+    const chip = _ffFurniture(freeformElements[1]).label;          // the figure's letter style: a chip by default
+    sc('label-bg', false); const fu = _ffFurniture(freeformElements[1]).label; sc('label-bg', true);
+    // the letter is in the exported picture and in the SVG
+    const svg = new TextDecoder().decode((await _captureDownload(() => doExport('svg'))).data);
+    return { letters, names, fill: fu && fu.fill, chip: !!(chip && chip.bg), svgHasB: />B<\/text>|>B</.test(svg) };
+  });
+  expect(r.letters).toEqual(['A', 'B', 'C', 'D']);
+  expect(r.names).toEqual(['bar chart', 'line chart', 'box chart']);   // names kept for the element list
+  expect(r.chip).toBe(true);
+  expect(r.fill).toBe('#000000');                       // without the chip, dark on the chart's white
+  expect(r.svgHasB).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('phage-20 / freeform-11: Pop out keeps the freeform charts, scale bars, crop shape, lane table and headings; one undo', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(SEED);
+  await page.evaluate(async () => {
+    // two charts already on the freeform canvas
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform');
+    addChartElement('bar'); closeChartModal(); addChartElement('line'); closeChartModal();
+    freeformElements[1].y = 400;
+    document.getElementById('layout-mode').value = 'grid'; setLayoutMode('grid');
+    for (const n of ['tem.tif', 'plate.png', 'plate2.png', 'spot.png']) await __img(400, 368, n);
+    Object.assign(images[0], { umPerPx: 0.002, sbOn: true, sbUm: 0.2, cropB: 8 });
+    Object.assign(images[1], { cropShape: 'circle' });
+    sv('cols', 2); sv('rows', 2); sc('show-col-labels', true); onLayoutChange();
+    laneTableSetName(3, 0, 'dilution'); ['10^{0}', '10^{-1}', '10^{-2}', '10^{-3}'].forEach((v, c) => laneTableSetCell(3, 0, c, v));
+    render();
+    __ruler(0, 100, 100, 200, 100); render();
+  });
+  const before = await page.evaluate(() => ({ undo: undoStack.length, ruler: __rulers()[0], W: canvasLogicalW, H: canvasLogicalH,
+    A: (() => { const pb = panelBounds.find(p => p.idx === 0); return [pb.dx, pb.dy, pb.dw, pb.dh]; })() }));
+  await page.locator('button', { hasText: 'Pop out to free layout' }).first().click();
+  await expect(page.locator('#confirm-modal-bg')).toBeVisible();
+  await expect(page.locator('#cm-body')).toContainText('circle');     // said BEFORE anything changes
+  expect(await page.evaluate(() => layoutMode)).toBe('grid');
+  await page.locator('#cm-ok').click();
+  const r = await page.evaluate(() => {
+    render();
+    const els = freeformElements, A = els.find(e => e.type === 'image' && e.name === 'tem.tif');
+    const D = els.find(e => e.type === 'image' && e.name === 'spot.png');
+    const lane = els.filter(e => e.type === 'text' && /10\^/.test(e.text));
+    return { mode: layoutMode, charts: els.filter(e => e.type === 'chart').length, images: els.filter(e => e.type === 'image').length,
+      A: [A.x, A.y, A.w, A.h], Acal: [A.umPerPx, A.sbOn, A.sbUm, !!A._sbSkip], cropAspect: (400) / (368 * 0.92),
+      lane: lane.length, laneGrouped: lane.every(t => t.groupId && t.groupId === D.groupId),
+      heading: els.some(e => e.type === 'text' && /Col 1/.test(e.text)),
+      ruler: __rulers()[0], undo: undoStack.length };
+  });
+  expect(r.mode).toBe('freeform');
+  expect(r.charts).toBe(2);                                  // the charts already there are kept
+  expect(r.images).toBe(4);
+  r.A.forEach((v, k) => expect(v).toBeCloseTo(before.A[k], 6));   // exactly where and as big as in the grid
+  expect(r.A[2] / r.A[3]).toBeCloseTo(r.cropAspect, 2);      // the cropped TEM keeps its shape
+  expect(r.Acal).toEqual([0.002, true, 0.2, false]);         // calibration and scale bar carried, and drawn
+  expect(r.lane).toBe(4);
+  expect(r.laneGrouped).toBe(true);
+  expect(r.heading).toBe(true);
+  expect(r.ruler).toEqual(before.ruler);                     // the ruler measures the same pixels in freeform
+  expect(r.undo).toBe(before.undo + 1);
+  // One undo brings the grid back exactly.
+  const u = await page.evaluate(() => { undo(); render(); return { mode: layoutMode, ff: freeformElements.map(e => e.type), W: canvasLogicalW, H: canvasLogicalH, ruler: __rulers()[0] }; });
+  expect(u.mode).toBe('grid');
+  expect(u.ff).toEqual(['chart', 'chart']);
+  expect([u.W, u.H]).toEqual([before.W, before.H]);
+  expect(u.ruler).toEqual(before.ruler);
+  expect(errors).toEqual([]);
 });

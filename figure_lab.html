@@ -721,8 +721,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="divider"></div>
       <div class="sec-lbl">Canvas size (px)</div>
       <div class="inline-row">
-        <span>W</span><input type="number" id="fm-canvas-w" value="1200" min="200" max="4000" oninput="scheduleRender()">
-        <span>H</span><input type="number" id="fm-canvas-h" value="900"  min="200" max="4000" oninput="scheduleRender()">
+        <span>W</span><input type="number" id="fm-canvas-w" value="1200" min="200" max="4000" oninput="scheduleRender()" onchange="_ffCanvasResized()" title="Canvas width. Objects and annotations keep their place; anything left outside the canvas is named">
+        <span>H</span><input type="number" id="fm-canvas-h" value="900"  min="200" max="4000" oninput="scheduleRender()" onchange="_ffCanvasResized()" title="Canvas height. Objects and annotations keep their place; anything left outside the canvas is named">
       </div>
       <div class="field"><label>Snap to grid</label>
         <input type="checkbox" id="fm-snap" onchange="snapGrid=this.checked;drawFreeformOverlay()"></div>
@@ -730,6 +730,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <input type="number" id="fm-snap-size" value="20" min="5" max="100"></div>
       <div class="sec-lbl" style="margin-top:4px">Elements <span id="fm-elem-count" class="badge">0</span></div>
       <div id="fm-elem-list" style="display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto"></div>
+      <button class="btn" onclick="relabelPanels()" style="width:100%;justify-content:center;margin-top:4px" title="Letter the pictures, charts and gene maps A, B, C… in reading order, in the figure's letter style">🔤 Relabel A, B, C…</button>
       <button class="btn" onclick="clearFreeformElements()" style="width:100%;justify-content:center;margin-top:4px;color:var(--danger)">✕ Clear all elements</button>
     </div>
   </div>
@@ -8142,18 +8143,22 @@ function gelPlaceLaneNumbers(idx){
   const M=_gelFigMap(idx); if(!M){ toast('This panel is not on the canvas, or cannot be mapped exactly','warn'); return false; }
   if(!a.lanes.length){ toast('No lanes were found, so there is nothing to number — set the lane count and re-detect','warn'); return false; }
   pushUndo();
+  // Placing again replaces this panel's numbers (it used to add a second set over the first).
+  const _was=annotations.length;
+  annotations=annotations.filter(x=>!(x&&x.blotPanel===im.id&&x.type==='text'&&!x.mw&&(x.laneNo||/^\d+$/.test(String(x.text||'')))));
+  const _replaced=_was-annotations.length;
   // Above a lane table over the blot, not into it.
   const _lt=_ltReserveDrawn(im), fs=16, top=M.map.dy-(_lt&&_lt.draw?_lt.top:0);
   // Same rule as addLaneLabels: above the blot when the margin has room, else just inside.
   const yf=(top>=fs+4?(top-fs-4):(M.map.dy+0.04*M.map.dh))/M.H;
   a.lanes.forEach((L,i)=>{ const t=String(i+1), tw=t.length*fs*0.58, cx=M.fx((L.x0+L.x1)/2);
     // Text annotations hang from their left edge, so centre the number on the lane.
-    annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id}); });
+    annotations.push({type:'text', xf:(cx-tw/2)/M.W, yf, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, laneNo:true}); });
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   // An inferred lane shifts the numbers after it: say so where the numbers are placed.
   const inf=a.lanes.map((L,i)=>L.inferred?i+1:0).filter(Boolean);
-  toast(`Placed ${a.lanes.length} lane numbers on the lanes of panel ${_rtText(formatLabel(im.label))}`+(inf.length?` — lane${inf.length>1?'s':''} ${_listAnd(inf.map(String))} inferred from the lane pitch, with no signal; check ${inf.length>1?'they are lanes':'it is a lane'}, not margin`:''),inf.length?'warn':'ok');
+  toast(`${_replaced?'Replaced':'Placed'} ${a.lanes.length} lane numbers on the lanes of panel ${_rtText(formatLabel(im.label))}`+(inf.length?` — lane${inf.length>1?'s':''} ${_listAnd(inf.map(String))} inferred from the lane pitch, with no signal; check ${inf.length>1?'they are lanes':'it is a lane'}, not margin`:''),inf.length?'warn':'ok');
   return true;
 }
 function gelPlaceMWLabels(idx){
@@ -8169,6 +8174,11 @@ function gelPlaceMWLabels(idx){
   const n=sizes.length;
   if(!n){ toast('The ladder lane has no bands to label','warn'); return false; }
   pushUndo();
+  // Placing again replaces this panel's MW labels (it used to add a second set over the
+  // stale one, and the only way to remove a set was to clear every annotation).
+  const _was=annotations.length;
+  annotations=annotations.filter(x=>!(x&&x.mw&&x.blotPanel===im.id));
+  const _replaced=_was-annotations.length;
   const fs=13, left=M.map.dx;
   for(let i=0;i<n;i++){ const t=String(sizes[i]), tw=t.length*fs*0.58;
     const x=left>=tw+8?left-6-tw:left+0.02*M.map.dw;     // in the margin beside the blot, if there is one
@@ -8177,8 +8187,21 @@ function gelPlaceMWLabels(idx){
     annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, mw:true}); }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
-  toast(`Placed ${n} MW labels on the ladder bands of panel ${_rtText(formatLabel(im.label))}`,'ok');
+  toast(`${_replaced?'Replaced':'Placed'} ${n} MW labels on the ladder bands of panel ${_rtText(formatLabel(im.label))} — they move with the panel`,'ok');
   return true;
+}
+// Remove one panel's MW labels (and nothing else). One undo step.
+function gelRemoveMWLabels(idx){
+  idx=_gelPanelIdx(idx); const im=images[idx]; if(!im) return 0;
+  const mine=annotations.filter(x=>x&&x.mw&&x.blotPanel===im.id);
+  if(!mine.length){ toast(`Panel ${_rtText(formatLabel(im.label))} has no MW labels placed`,'warn'); return 0; }
+  pushUndo();
+  annotations=annotations.filter(x=>!mine.includes(x));
+  selectedAnnotation=-1;
+  if(typeof renderAnnotationList==='function') renderAnnotationList();
+  scheduleRender(0);
+  toast(`Removed ${mine.length} MW labels from panel ${_rtText(formatLabel(im.label))}`,'ok');
+  return mine.length;
 }
 
 // Methods: one sentence per analysed panel, only for analyses that still match their crop.
@@ -8353,6 +8376,7 @@ function openGelAnalysis(idx){
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">
           <button class="btn" style="font-size:10px" title="Add lane-number labels centred on the detected lanes (one undo step)" onclick="gelPlaceLaneNumbers(_gelUI.idx)">▦ Place lane numbers on detected lanes</button>
           <button class="btn" style="font-size:10px" title="Add the ladder sizes beside the detected ladder bands (one undo step)" onclick="gelPlaceMWLabels(_gelUI.idx)">↕ Place MW labels on the ladder bands</button>
+          <button class="btn" style="font-size:10px" title="Remove this panel's MW labels only (one undo step); placing them again also replaces the old set" onclick="gelRemoveMWLabels(_gelUI.idx)">✕ Remove MW labels</button>
           <button class="btn" style="font-size:10px" title="Download the table as CSV, with a header saying what was measured and how" onclick="exportGelCSV(_gelUI.idx)">⬇ CSV</button>
           <button class="btn" style="font-size:10px" title="Download every lane's profile as CSV: position (source px and Rf), raw signal, background and net signal per row" onclick="exportGelProfileCSV(_gelUI.idx)">⬇ Lane profiles CSV</button>
           <button class="btn" style="font-size:10px" title="The +/− condition table over or under the blot, aligned to these detected lanes" onclick="openLaneTable(_gelUI.idx)">⊞ Lane table…</button>
@@ -10115,6 +10139,7 @@ function render(targetCanvas, exportScale, opts){
   const _noBg = !!(opts && opts.noBg);
   const _omit = (opts && opts.omitPanels) || null;
   const _cellRects = new Map();   // idx → the cell drawn this render, for the connector pass
+  const _pinG = new Map(); let _pinReady = true;   // panel id → geometry, for the marks that follow it
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
@@ -10333,7 +10358,7 @@ function render(targetCanvas, exportScale, opts){
         if(_plot && !isExport) _dataPanelRefresh(im);
         const _cd=_plot ? {img:im.img, sx:0, sy:0, sw:apw, sh:aph, rotated:false} : _cropDraw(im);
         const sx=_cd.sx, sy=_cd.sy, sw=_cd.sw, sh=_cd.sh;
-        if(sw<1||sh<1){ if(!_noBg){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); } continue; }
+        if(sw<1||sh<1){ _pinReady=false; if(!_noBg){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); } continue; }
         // Contain-fit. A quarter turn swaps which way the picture lies, so the fit has
         // to be computed against the TURNED extent. It was not: a 2:1 image turned 90°
         // into a matching 1:2 cell was fitted as though it were still lying the other
@@ -10359,6 +10384,12 @@ function render(targetCanvas, exportScale, opts){
         const ow=Math.round(dw*_ca+dh*_sa), oh=Math.round(dw*_sa+dh*_ca);
         const ox=px+Math.round((apw-ow)/2), oy=py+Math.round((aph-oh)/2);
         if(!isExport){ const _pb=panelBounds[panelBounds.length-1]; if(_pb&&_pb.idx===imgIdx){ _pb.ix=ox; _pb.iy=oy; _pb.iw=ow; _pb.ih=oh; _pb.dx=dx; _pb.dy=dy; _pb.dw=dw; _pb.dh=dh; } }
+        if(im.id!=null){
+          // A turned or flipped panel, or a chart, is followed by the fraction of its box;
+          // otherwise by source pixel (frame pixel for a tilted crop), so a re-crop is followed too.
+          if(_plot||_rad||im.flipH||im.flipV) _pinG.set(im.id, _pinGeo(px,py,apw,aph, ox,oy,ow,oh, 0,0,1,1));
+          else { const _g=_cd.rotated&&_cd.geom?_cd.geom:_cd; _pinG.set(im.id, _pinGeo(px,py,apw,aph, dx,dy,dw,dh, _g.sx,_g.sy,_g.sw,_g.sh)); }
+        }
         if(!_noBg){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); }
         // An imported SVG the SVG export writes as vector: its picture is left out of the
         // raster, and the box it occupies is made transparent so the vector, placed
@@ -10447,7 +10478,8 @@ function render(targetCanvas, exportScale, opts){
             const hasBg=gc('label-bg');
             // Auto contrast: read the image under the letter and pick white or black.
             // A chip already guarantees contrast, so the setting only bites without one.
-            const inkClr=(lblAuto&&!hasBg)?_autoInk(ctx,S,bx,by,bw,bh,lblClr):lblClr;
+            // A light letter with no chip on a chart's white ground would vanish: it is dark there.
+            const inkClr=(_plot&&!hasBg&&luma(lblClr)>160)?'#000000':(lblAuto&&!hasBg)?_autoInk(ctx,S,bx,by,bw,bh,lblClr):lblClr;
             const _lblItem={kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
               fill:inkClr,align:'left',baseline:'alphabetic',rot:0,
               bbox:{x:bx,y:by,w:bw,h:bh},
@@ -10551,6 +10583,8 @@ function render(targetCanvas, exportScale, opts){
   _lastFrames=_frameSink||[]; _lastCells=_cellRects; _frameSink=null; _skipFrameDraw=false;
   _lastFurn=_furnSink||[]; _furnSink=null;
 
+  // Marks pinned to a panel follow it before they are drawn (see _annFollow).
+  if(!_pageCtx && !_omit) _annFollow('grid', _pinG, totalW, totalH, _pinReady);
   // Draw committed annotations (logical dims — ctx is scaled by S)
   _annExport=isExport; drawAnnotations(ctx, totalW, totalH); _annExport=false;
 
@@ -13547,6 +13581,7 @@ function restoreState(s){
     document.querySelectorAll('.xd-dec').forEach(el=>_reuseRepaint(el.dataset.xdKey));
   }
   if(Array.isArray(s.pending)) _pendingPanels=s.pending.map(p=>({...p}));
+  _pinPrev={grid:null, ff:null};      // the marks come back with the layout they were made on
   if(s.images) images=s.images.map(cloneImageForUndo);
   annotations=(s.annotations||[]).map(a=>({...a}));
   freeformElements=(s.freeformElements||[]).map(cloneElemForUndo);
@@ -15448,6 +15483,136 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
 
 // True while an export render draws annotations, so editing aids stay off the file.
 var _annExport=false;
+// ── Marks that follow their panel ───────────────────────────────
+// A figure mark is stored as fractions of the canvas, so when the layout changed it kept
+// its place on the canvas while the panels moved under it: nine rulers on a TEM panel
+// read "not on one image" over the empty cells after a span change, and one silently
+// measured a different part of the same panel; a blot's MW labels stayed put while the
+// lane table pushed its row down, so "75" sat beside the next blot; text over a freeform
+// photo stayed behind when the photo was dragged; and a freeform canvas resize stretched
+// every mark while the objects stayed put.
+//
+// Now each mark is pinned (a.pin) to the panel or object it sits on — or, for a blot's
+// lane numbers, MW labels and splice line, and a ruler, the panel it was made on — with
+// the geometry it was drawn against. Before the marks are drawn, a pinned mark whose
+// panel has moved, been resized, re-spanned, re-cropped or reordered is moved with it:
+// a point on the picture keeps its source pixel; a point beside it (an MW label in the
+// margin) keeps its distance from the picture's edge. A mark that was moved or drawn
+// since is re-pinned where it now is, so nothing is ever pulled back. A mark on no panel
+// keeps its old behaviour in the grid (it scales with the figure) and keeps its place on
+// a freeform canvas that is resized. Whatever is pinned to a panel that is not drawn
+// (hidden, removed, or the other layout) is left where it is.
+function _annPts(a){
+  const P=[[a.xf,a.yf]];
+  if(a.x2f!=null||a.y2f!=null) P.push([a.x2f??a.xf, a.y2f??a.yf]);
+  return P;
+}
+// The point that says which panel a mark is on: an arrow's head, a two-point mark's middle,
+// otherwise its anchor.
+function _annRefPt(a, P, W, H){
+  if(P.length>1){
+    if(a.type==='arrow') return [P[1][0]*W, P[1][1]*H];
+    return [(P[0][0]+P[1][0])/2*W, (P[0][1]+P[1][1])/2*H];
+  }
+  return [P[0][0]*W, P[0][1]*H];
+}
+// Geometry of one drawn panel / object: its cell or box (x,y,w,h), the box its picture is
+// drawn into (dx,dy,dw,dh) and the source rectangle that box shows (sx,sy,sw,sh; a unit
+// square when only the box's fraction can be followed — a turned panel, a chart).
+function _pinGeo(x,y,w,h, dx,dy,dw,dh, sx,sy,sw,sh){ return {x,y,w,h,dx,dy,dw,dh,sx,sy,sw,sh}; }
+function _geoSame(a,b){
+  if(!a||!b) return false;
+  for(const k of ['dx','dy','dw','dh','sx','sy','sw','sh']) if(Math.abs((a[k]||0)-(b[k]||0))>1e-6) return false;
+  return true;
+}
+// A figure point against geometry g → [source coord, overshoot past the picture's edge] per axis.
+function _geoTo(g, px, py){
+  const cx=Math.max(g.dx, Math.min(g.dx+g.dw, px)), cy=Math.max(g.dy, Math.min(g.dy+g.dh, py));
+  return [g.sx+(cx-g.dx)*g.sw/(g.dw||1), px-cx, g.sy+(cy-g.dy)*g.sh/(g.dh||1), py-cy];
+}
+function _geoFrom(g, t){
+  return [g.dx+(t[0]-g.sx)*g.dw/(g.sw||1)+t[1], g.dy+(t[2]-g.sy)*g.dh/(g.sh||1)+t[3]];
+}
+// Which panel / object a point is on (within `tol` of its box, the nearest).
+function _geoAt(geo, p, tol){
+  let best=null, bd=Infinity;
+  geo.forEach((g,id)=>{
+    const ddx=Math.max(g.x-p[0], 0, p[0]-(g.x+g.w)), ddy=Math.max(g.y-p[1], 0, p[1]-(g.y+g.h));
+    const d=Math.hypot(ddx,ddy);
+    if(d<=tol && d<bd){ bd=d; best=id; }
+  });
+  return best;
+}
+function _annBind(a, P, mode, geo, W, H){
+  let id=null;
+  for(const k of ['blotPanel','splicePanel','rulerPanel','pinTo']){ const v=a[k]; if(v!=null&&geo.has(v)){ id=v; break; } }
+  if(id==null) id=_geoAt(geo, _annRefPt(a,P,W,H), mode==='ff'?24:0);
+  const g=id!=null?geo.get(id):null;
+  return {m:mode, id, g:g?{...g}:null, W, H, p:P.flat()};
+}
+// The layout each mode was last drawn in. A mark made or moved since was made on THAT
+// layout, so it is pinned against it — then followed to the new one in the same pass, even
+// when the layout changed before the figure was drawn again. Cleared with the figure.
+var _pinPrev={grid:null, ff:null};
+// mode 'grid' | 'ff'; geo: Map id → geometry, from the render that is about to draw the
+// marks; ready: false while a panel is still loading (nothing is pinned then).
+function _annFollow(mode, geo, W, H, ready){
+  let moved=0;
+  // Only when the figure was last drawn in this layout: a mark first shown in this layout
+  // (after a switch, or a pop-out) belongs to the canvas it is shown on now.
+  const ref=(_pinPrev&&_pinPrev.last===mode&&_pinPrev[mode])||{geo, W, H};   // (render() can run before this script has been read to the end)
+  for(const a of annotations){
+    if(!a||typeof a.xf!=='number'||typeof a.yf!=='number') continue;
+    const P=_annPts(a), pf=P.flat();
+    let pin=a.pin;
+    const same=!!(pin&&pin.m===mode&&Array.isArray(pin.p)&&pin.p.length===pf.length&&pf.every((v,k)=>Math.abs(v-pin.p[k])<1e-9));
+    if(!same){ if(!ready) continue; pin=a.pin=_annBind(a, P, mode, ref.geo, ref.W, ref.H); }
+    const g=pin.id!=null?geo.get(pin.id):null;
+    if(pin.id!=null&&!g) continue;                       // its panel is not drawn: left where it is
+    if(pin.W===W&&pin.H===H&&(!g||_geoSame(g,pin.g))) continue;
+    let N;
+    if(!g){
+      if(mode!=='ff'){ a.pin={...pin, W, H}; continue; }  // grid: a free mark scales with the figure, as before
+      N=P.map(([x,y])=>[x*pin.W/W, y*pin.H/H]);           // freeform: it keeps its place on the canvas
+    } else {
+      N=P.map(([x,y])=>{ const q=_geoFrom(g, _geoTo(pin.g, x*pin.W, y*pin.H)); return [q[0]/W, q[1]/H]; });
+    }
+    a.xf=N[0][0]; a.yf=N[0][1];
+    if(N.length>1){ a.x2f=N[1][0]; a.y2f=N[1][1]; }
+    a.pin={m:mode, id:pin.id, g:g?{...g}:null, W, H, p:N.flat()};
+    moved++;
+  }
+  if(!_pinPrev) _pinPrev={grid:null, ff:null};
+  if(ready) _pinPrev[mode]={geo, W, H};
+  _pinPrev.last=mode;
+  return moved;
+}
+// After a canvas resize: name what now hangs off the canvas (nothing is moved for you).
+function _ffCanvasResized(){
+  if(layoutMode!=='freeform') return;
+  const W=Math.max(200,parseInt(gv('fm-canvas-w'))||1200), H=Math.max(200,parseInt(gv('fm-canvas-h'))||900);
+  const off=freeformElements.filter(el=>el&&el.type!=='connector'&&(el.x<0||el.y<0||el.x+el.w>W+0.5||el.y+el.h>H+0.5));
+  render();
+  const offA=annotations.filter(a=>a&&_annPts(a).some(([x,y])=>x<0||y<0||x>1||y>1));
+  if(off.length||offA.length){
+    const nm=off.slice(0,4).map(el=>_rtText(formatLabel(el.label)||el.text||el.type)||el.type);
+    toast(`Canvas ${W}×${H}: ${off.length?`${off.length} object${off.length>1?'s':''} (${nm.join(', ')}${off.length>4?', …':''}) ${off.length>1?'reach':'reaches'} past the edge`:''}${off.length&&offA.length?' and ':''}${offA.length?`${offA.length} annotation${offA.length>1?'s':''} ${offA.length>1?'are':'is'} outside it`:''} — nothing was moved; drag ${off.length+offA.length>1?'them':'it'} in or make the canvas larger`,'warn');
+  }
+}
+// Freeform objects a mark can be pinned to: pictures, charts and gene maps.
+function _ffPinGeo(){
+  const geo=new Map();
+  freeformElements.forEach(el=>{
+    if(!el||el.id==null||!['image','aiicon','chart','genemap'].includes(el.type)) return;
+    // A picture by its source pixels (so a crop leaves its marks on their pixels), else by its box.
+    const pic=el.type==='image'||el.type==='aiicon', img=pic&&(el._imgEl||el.img), g=img&&(img.naturalWidth||img.width)?_cropGeom({...el, img}):null;
+    if(pic&&!g){ geo.ready=false; return; }             // still loading: followed once it is drawn
+    if(g&&g.sw>=1&&g.sh>=1&&!el.rotation) geo.set(el.id, _pinGeo(el.x,el.y,el.w,el.h, el.x,el.y,el.w,el.h, g.sx,g.sy,g.sw,g.sh));
+    else geo.set(el.id, _pinGeo(el.x,el.y,el.w,el.h, el.x,el.y,el.w,el.h, 0,0,1,1));
+  });
+  return geo;
+}
+
 function drawAnnotations(ctx, W, H){
   const fam=gv('label-font')||'system-ui,sans-serif';
   const wt=gc('label-bold')?'bold':'normal';
@@ -18168,7 +18333,8 @@ function _svgFreeformVector(el){
     const buf=[];
     if(el.type==='chart') _chartDraw(el, _chartEmitSVG(buf)); else _genemapDraw(el, _chartEmitSVG(buf));
     const rot=el.rotation?` rotate(${el.rotation} ${(el.w/2).toFixed(2)} ${(el.h/2).toFixed(2)})`:'';
-    return `<g transform="translate(${(+el.x).toFixed(2)} ${(+el.y).toFixed(2)})${rot}"${op}>${buf.join('')}</g>`;
+    const L=el.letter?_ffFurniture(el).label:null;     // its panel letter, in figure space
+    return `<g transform="translate(${(+el.x).toFixed(2)} ${(+el.y).toFixed(2)})${rot}"${op}>${buf.join('')}</g>`+(L?_svgTextItem(L, _xmlEsc):'');
   }
   return '';
 }
@@ -19889,6 +20055,7 @@ function _resetFigureState(opts){
   _applyFigControls(null);
   if(!opts.keepImages) images=[];
   annotations=[]; measurements=[]; freeformElements=[]; figGroups=[];
+  _pinPrev={grid:null, ff:null};      // a loaded mark was made on the loaded layout, not this one
   colGaps=null; rowGaps=null; advancedSpacing=false;
   { const a=document.getElementById('advanced-spacing'); if(a) a.checked=false; }
   labelOffsets={ title:{dx:0,dy:0}, col:{}, row:{}, group:{} };
@@ -21373,7 +21540,12 @@ function setLayoutMode(mode){
   if(mode!==layoutMode){ const T=images.filter(im=>im&&im.laneTable&&_ltHasContent(im.laneTable)).map(im=>_rtText(formatLabel(im.label))||'?');
     if(T.length) toast(mode==='freeform'
       ?`The lane table${T.length>1?'s':''} on panel${T.length>1?'s':''} ${_listAnd(T)} ${T.length>1?'are':'is'} not drawn in freeform layout — kept, and drawn again when you switch back to Grid`
-      :`The lane table${T.length>1?'s':''} on panel${T.length>1?'s':''} ${_listAnd(T)} ${T.length>1?'are':'is'} drawn again`, mode==='freeform'?'warn':'ok'); }
+      :`The lane table${T.length>1?'s':''} on panel${T.length>1?'s':''} ${_listAnd(T)} ${T.length>1?'are':'is'} drawn again`, mode==='freeform'?'warn':'ok');
+    // Grid and Freeform are two layouts kept side by side; say so the first time the grid's
+    // panels seem to vanish (charts and gene maps can be grid panels now, so no one has to
+    // come here for them).
+    else if(mode==='freeform'&&layoutMode==='grid'&&images.some(Boolean)&&!freeformElements.length)
+      toast('Freeform is a separate canvas — your grid is kept as it is (switch Layout back to see it). To bring its panels here, use ⇱ Pop out to free layout','ok'); }
   layoutMode=mode;
   document.getElementById('grid-controls').style.display=mode==='grid'?'':'none';
   document.getElementById('freeform-controls').style.display=mode==='freeform'?'':'none';
@@ -21852,11 +22024,7 @@ function renderFreeform(canvas, ctx, S, opts){
         if(!isExport) _sbBars.push({ff:true, idx:_elIdx.get(el), left:fu.sb.x, right:fu.sb.x+fu.sb.w, top:fu.sb.y, bottom:fu.sb.y+fu.sb.h, scale:fu.sb.scale});
       }
       // Panel label for image elements
-      if(fu.label){
-        ctx.font=fu.label.font; ctx.fillStyle=fu.label.fill;
-        ctx.textBaseline='top';
-        _rtDraw(ctx, fu.label.str, fu.label.x, fu.label.y);
-      }
+      if(fu.label) _ffDrawLetter(ctx, fu.label);
       // Add to panelBounds for annotation compatibility (preview only — render()
       // clears panelBounds when !isExport, so pushing during an export duplicates).
       if(!isExport){
@@ -21924,19 +22092,22 @@ function renderFreeform(canvas, ctx, S, opts){
     } else if(el.type==='chart'){
       // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
       // SVG export skips the raster here and re-emits the chart as true vector.
-      if(!skipCharts && typeof _drawChartElement==='function') _drawChartElement(el, ctx, isExport);
+      if(!skipCharts && typeof _drawChartElement==='function'){ _drawChartElement(el, ctx, isExport); if(el.letter) _ffDrawLetter(ctx, _ffFurniture(el).label); }
       if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     } else if(el.type==='genemap'){
       // Gene map / genetic circuit — same emit backend as charts, so it is vector
       // in SVG and crisp at export scale. SVG export skips the raster and re-emits.
-      if(!skipCharts && typeof _drawGenemapElement==='function') _drawGenemapElement(el, ctx, isExport);
+      if(!skipCharts && typeof _drawGenemapElement==='function'){ _drawGenemapElement(el, ctx, isExport); if(el.letter) _ffDrawLetter(ctx, _ffFurniture(el).label); }
       if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
   });
 
-  if(!_ffOnly){ _annExport=isExport; drawAnnotations(ctx,W,H); _annExport=false; }   // annotations are baked into exports too
+  if(!_ffOnly){
+    { const g=_ffPinGeo(); _annFollow('ff', g, W, H, g.ready!==false); }   // marks on an object move with it; a resize moves none
+    _annExport=isExport; drawAnnotations(ctx,W,H); _annExport=false; }   // annotations are baked into exports too
   if(!isExport){
+    if(typeof _syncPhysReadout==='function') _syncPhysReadout();   // the printed size follows a canvas resize
     drawFreeformOverlay();
     if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
     setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
@@ -21970,13 +22141,32 @@ function _ffFurniture(el){
       }
     }
   }
-  if(el.label&&gc('show-labels')){
-    const fs=Math.max(7,gi('label-size')), str=formatLabel(el.label);
-    out.label={kind:'panel', str, x:el.x+6, y:el.y+5, fs, font:`${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`,
-      fill:gv('label-color')||'#fff', align:'left', baseline:'top', rot:0};
+  // A chart or gene map's label is its name; its panel letter (set by Relabel, or carried
+  // from the grid by Pop out) is el.letter. A letter on a chart's white ground is dark
+  // when the letter colour is set to follow the picture.
+  const _data=el.type==='chart'||el.type==='genemap', _lt=_data?el.letter:el.label;
+  if(_lt&&gc('show-labels')){
+    const fs=Math.max(7,gi('label-size')), str=formatLabel(_lt), chip=gc('label-bg');
+    const font=`${gc('label-italic')?'italic ':''}${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`;
+    const lc=gv('label-color')||'#ffffff';
+    const fill=(_data&&!chip&&(gc('label-auto-color')||luma(lc)>160))?'#000000':lc;   // never white on a white chart
+    out.label={kind:'panel', str, x:el.x+6, y:el.y+5, fs, font, fill, align:'left', baseline:'top', rot:0};
     const R=_rtDrawRuns(str); if(R) out.label.runs=R;
+    if(chip){                                          // the dark chip the grid's letters wear
+      if(!_rulerMc) _rulerMc=document.createElement('canvas').getContext('2d');
+      _rulerMc.font=font; const tw=R?_rtLayout(_rulerMc,R,font).w:_rulerMc.measureText(str).width;
+      out.label.bg={x:el.x+2, y:el.y+3, w:tw+8, h:fs+6, r:3, fill:'rgba(0,0,0,.45)'};
+    }
   }
   return out;
+}
+// Draw a freeform object's letter (with its chip) on the canvas.
+function _ffDrawLetter(ctx, L){
+  if(!L) return;
+  if(L.bg){ const g=L.bg; ctx.save(); ctx.fillStyle=g.fill; ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(g.x,g.y,g.w,g.h,g.r); else ctx.rect(g.x,g.y,g.w,g.h); ctx.fill(); ctx.restore(); }
+  ctx.font=L.font; ctx.fillStyle=L.fill; ctx.textBaseline='top';
+  _rtDraw(ctx, L.str, L.x, L.y);
 }
 
 // Build an HTMLImageElement for a freeform image element
@@ -24734,10 +24924,20 @@ function tightenSpacing(){
 
 function relabelPanels(){
   if(layoutMode==='freeform'){
-    const imgs=freeformElements.filter(e=>e.type==='image');
-    if(!imgs.length){ toast('No image panels to relabel','warn'); return; }
+    // Pictures, charts and gene maps are the panels; in reading order (rows of objects
+    // whose tops are within half the smaller one's height, then left to right). A chart's
+    // letter is drawn at its top-left in the figure's letter style; its name is kept.
+    const imgs=freeformElements.filter(e=>e&&['image','aiicon','chart','genemap'].includes(e.type));
+    if(!imgs.length){ toast('No panels (pictures, charts, gene maps) to relabel','warn'); return; }
     pushUndo();
-    imgs.slice().sort((a,b)=>(a.y-b.y)||(a.x-b.x)).forEach((e,i)=>{ e.label=_letterLabel(i); });
+    const rows=[];
+    imgs.slice().sort((a,b)=>a.y-b.y).forEach(e=>{
+      const r=rows.find(r=>Math.abs(r.y-e.y)<Math.min(r.h,e.h)/2);
+      if(r) r.els.push(e); else rows.push({y:e.y, h:e.h, els:[e]}); });
+    let n=0;
+    rows.forEach(r=>r.els.sort((a,b)=>a.x-b.x).forEach(e=>{
+      const L=_letterLabel(n++);
+      if(e.type==='chart'||e.type==='genemap') e.letter=L; else e.label=L; }));
     updateFreeformElemList(); scheduleRender(0);
   } else {
     if(!images.length){ toast('No panels to relabel','warn'); return; }
@@ -24905,34 +25105,153 @@ function applyFlowTemplate(name){
 }
 
 // ── Pop a grid out to a freely-movable (freeform) layout ────────
+// It used to replace the freeform canvas outright — two charts already there were deleted
+// without a word — and to carry only the pictures: every scale bar and µm/px was dropped,
+// the lane table and headings vanished, a cropped TEM was stretched 8.7% to its uncropped
+// shape, a circle clip came out square, and Undo took two presses. Now each panel becomes
+// an object of exactly the size and place it has in the grid (so a crop keeps its shape),
+// with its crop, tilt, adjustments, letter, µm/px and scale bar; a chart or gene map panel
+// becomes a chart or gene map object; the lane table, headings, panel tags and group names
+// become text objects grouped with their panel; panel borders become rectangles; panel
+// marks become figure marks pinned to their object. What freeform cannot draw (a clip
+// shape, a flip, merged channels, inset outlines, intensity bars, group brackets) is named
+// BEFORE anything changes. Objects already on the canvas are kept, moved below the panels.
+// One undo step brings the grid back exactly.
+function _popOutLosses(pbs){
+  const out=[], L=im=>_rtText(formatLabel(im.label))||'?';
+  const by=(what, ims)=>{ if(ims.length) out.push(`${what} on ${ims.length>1?'panels':'panel'} ${_listAnd(ims.map(L))}`); };
+  const ims=pbs.map(pb=>images[pb.idx]).filter(Boolean);
+  by('the circle or ellipse clip', ims.filter(im=>(im.cropShape||'rect')!=='rect'));
+  by('the flip', ims.filter(im=>im.flipH||im.flipV));
+  by('the merged channels (the base image comes alone)', ims.filter(im=>im.channels&&im.channels.some(c=>c&&c.img)));
+  by('the intensity bar', ims.filter(im=>im.cbar));
+  by('the spotlight', ims.filter(im=>(im.panelAnns||[]).some(a=>a&&a.type==='spotlight')));
+  if((_lastFrames||[]).length) out.push('inset outlines on their parent panels');
+  if(figGroups.some(g=>String(g.label||'').trim())&&_bracketStyle()!=='none') out.push('the group bands’ brackets (their names come as text)');
+  return out;
+}
 function convertGridToFreeform(){
   if(layoutMode!=='grid'){ toast('This pops a grid out — switch to grid mode first','warn'); return; }
-  if(!images.length){ toast('Add panels first','warn'); return; }
+  if(!images.some(Boolean)){ toast('Add panels first','warn'); return; }
   render();                                            // make sure panelBounds is current
-  const pbs=panelBounds.slice();
+  const pbs=panelBounds.filter(pb=>images[pb.idx]&&pb.dw>0);
   if(!pbs.length){ toast('Nothing to convert','warn'); return; }
+  const lost=_popOutLosses(pbs);
+  if(!lost.length){ _popOut(); return; }
+  showConfirmModal('Pop out to free layout',
+    `Freeform cannot draw ${_listAnd(lost)}. Everything else comes with the panels: their places, sizes and crops, scale bars and µm/px, letters, charts, lane tables and headings (as text), borders and marks. Undo brings the grid back exactly.`,
+    ()=>_popOut(lost));
+  const ok=document.getElementById('cm-ok'); if(ok){ ok.textContent='Pop out'; ok.classList.remove('btn-danger'); }
+}
+function _fontParts(font){
+  const m=/(\d+(?:\.\d+)?)px\s+(.*)$/.exec(font||'')||[];
+  return {size:+m[1]||12, family:(m[2]||'system-ui,sans-serif').trim(), bold:/\bbold\b|\b[6-9]00\b/.test(font||''), italic:/\bitalic\b/.test(font||'')};
+}
+// A text item the grid drew (figTextItems) as a freeform text object in the same place.
+function _textElFromItem(it, z){
+  const f=_fontParts(it.font), fs=f.size, tw=it.rot?it.bbox.h:it.bbox.w;
+  const w=Math.ceil(tw+18), h=Math.ceil(fs*1.3+12);
+  const el={id:_uidElem(), type:'text', text:it.str, fontSize:fs, bold:f.bold, italic:f.italic, fontFamily:f.family,
+    color:it.fill||'#111111', align:it.align==='center'?'center':it.align==='right'?'right':'left',
+    w, h, rotation:0, locked:false, opacity:1, zIndex:z};
+  if(it.rot){ el.align='center'; el.rotation=-90;
+    const cx=it.bbox.x+it.bbox.w/2, cy=it.bbox.y+it.bbox.h/2; el.x=cx-w/2; el.y=cy-h/2; }
+  else {
+    el.x=el.align==='center'?it.x-w/2:el.align==='right'?it.x-w+6:it.x-6;
+    el.y=it.bbox.y-6;
+  }
+  el.x=Math.round(el.x*100)/100; el.y=Math.round(el.y*100)/100;
+  return el;
+}
+function _popOut(lost){
+  if(layoutMode!=='grid') return;
+  render();
+  const pbs=panelBounds.filter(pb=>images[pb.idx]&&pb.dw>0);
+  if(!pbs.length) return;
+  const items=figTextItems.slice(), gW=canvasLogicalW||1200, gH=canvasLogicalH||900;
+  const borderW=Math.max(0,gi('panel-border-w')||0), borderC=gv('panel-border-c')||'#000000', borderIn=Math.max(0,gi('panel-border-inset')||0);
   pushUndo();
-  const W=canvasLogicalW||1200, H=canvasLogicalH||900;
-  sv('fm-canvas-w',Math.round(W)); sv('fm-canvas-h',Math.round(H));
-  const els=[];
-  pbs.forEach((pb,i)=>{
-    const im=images[pb.idx]; if(!im) return;
-    const ar=(im.img&&im.img.naturalWidth)? im.img.naturalWidth/im.img.naturalHeight : (pb.w/pb.h);
-    let fw=pb.w, fh=pb.w/ar; if(fh>pb.h){ fh=pb.h; fw=pb.h*ar; }   // keep the image's fitted aspect
-    els.push({id:_uidElem(), type:'image', src:im.src, img:im.img, _imgEl:im.img,
-      svgSource:im.svgSource||null, isVector:!!im.isVector,
-      x:Math.round(pb.x+(pb.w-fw)/2), y:Math.round(pb.y+(pb.h-fh)/2), w:Math.round(fw), h:Math.round(fh),
-      zIndex:i+1, rotation:0, locked:false, opacity:1,
-      brightness:im.brightness||1, contrast:im.contrast||1,
-      cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0, cropShape:im.cropShape||'rect',
-      cropAngle:im.cropAngle||0,
-      blackPt:im.blackPt||0, whitePt:im.whitePt||255, grayscale:!!im.grayscale, invert:!!im.invert,
-      lut:im.lut||'none', gamma:im.gamma||1, label:im.label||'', name:im.name||''});
-  });
-  freeformElements=els; _fmZCounter=els.length;
-  const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
-  selectedElems.clear(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
-  toast(els.length+' panel(s) popped out — drag them freely (originals kept in the session)','ok');
+  _undoHeld++;
+  try{
+    // What is already on the freeform canvas stays, moved below the popped-out panels.
+    const keep=freeformElements.filter(Boolean);
+    const oldW=Math.max(200,parseInt(gv('fm-canvas-w'))||1200), oldH=Math.max(200,parseInt(gv('fm-canvas-h'))||900);
+    const shift=keep.length?Math.ceil(gH+24):0;
+    keep.forEach(e=>{ e.y+=shift; if(e.type==='line'&&e.y2!=null) e.y2+=shift; if(e.type==='connector'){ if(e.fromPt) e.fromPt={...e.fromPt, y:e.fromPt.y+shift}; if(e.toPt) e.toPt={...e.toPt, y:e.toPt.y+shift}; } });
+    // The canvas holds the grid and what was kept (objects and the marks made on them).
+    const ffMarks=annotations.filter(a=>a&&a.pin&&a.pin.m==='ff'&&typeof a.xf==='number').flatMap(a=>_annPts(a).map(([x,y])=>[x*oldW, y*oldH+shift]));
+    const keepBottom=keep.length?Math.max(...keep.map(e=>e.y+(e.h||0)), ...ffMarks.map(p=>p[1]))+24:0;
+    const keepRight=keep.length?Math.max(...keep.map(e=>e.x+(e.w||0)), ...ffMarks.map(p=>p[0]))+24:0;
+    const W=Math.min(4000,Math.ceil(Math.max(gW, keepRight))), H=Math.min(4000,Math.ceil(Math.max(gH, keepBottom)));
+    // Marks: in the grid's place, or (made on the freeform canvas) in their own, moved with it.
+    annotations.forEach(a=>{
+      if(!a||typeof a.xf!=='number') return;
+      const ff=a.pin&&a.pin.m==='ff', sx=ff?oldW:gW, sy=ff?oldH:gH, dy=ff?shift:0;
+      const P=_annPts(a).map(([x,y])=>[x*sx/W, (y*sy+dy)/H]);
+      a.xf=P[0][0]; a.yf=P[0][1]; if(P[1]){ a.x2f=P[1][0]; a.y2f=P[1][1]; }
+      delete a.pin;
+    });
+    let z=Math.max(0,...keep.map(e=>e.zIndex||0));
+    const els=[], byPanel=new Map();
+    pbs.forEach(pb=>{
+      const im=images[pb.idx];
+      const gid=_uidGroup(); byPanel.set(pb.idx, gid);
+      if(_isDataPanel(im)){
+        const o={id:_uidElem(), type:im.type, x:pb.dx, y:pb.dy, w:pb.dw, h:pb.dh, zIndex:++z, rotation:0, locked:false, opacity:1,
+          label:im.name||(im.type==='chart'?'chart':'gene map'), letter:im.label||'', groupId:gid, fromPanel:im.id};
+        if(im.type==='chart') o.chart=JSON.parse(JSON.stringify(im.chart)); else o.map=JSON.parse(JSON.stringify(im.map));
+        els.push(o); return;
+      }
+      const img=im.img; if(!img) return;
+      els.push({id:_uidElem(), type:'image', src:im.src, img, _imgEl:img,
+        svgSource:im.svgSource||null, isVector:!!im.isVector, raw:im.raw||null,
+        // the box the grid draws the picture in — its crop's own shape, never the file's
+        x:pb.dx, y:pb.dy, w:pb.dw, h:pb.dh, rotation:+im.rotate||0,
+        zIndex:++z, locked:false, opacity:1, groupId:gid, fromPanel:im.id,
+        brightness:im.brightness??1, contrast:im.contrast??1,
+        cropT:im.cropT||0, cropL:im.cropL||0, cropB:im.cropB||0, cropR:im.cropR||0, cropShape:im.cropShape||'rect',
+        cropAngle:im.cropAngle||0,
+        blackPt:im.blackPt||0, whitePt:im.whitePt??255, grayscale:!!im.grayscale, invert:!!im.invert,
+        lut:im.lut||'none', gamma:im.gamma||1, label:im.label||'', name:im.name||'',
+        umPerPx:+im.umPerPx||0, sbUm:+im.sbUm||10, sbUnit:im.sbUnit||'µm', sbOn:!!im.sbOn&&+im.umPerPx>0,
+        _metaUmPerPx:im._metaUmPerPx, _metaCalibSource:im._metaCalibSource,
+        _metaDeltaT:im._metaDeltaT, _metaAcqTime:im._metaAcqTime, _metaTimeSource:im._metaTimeSource,
+        ...(im.srcPage?{srcPage:im.srcPage, srcPages:im.srcPages}:{}),
+        captionNote:im.captionNote||'', metaNote:im.metaNote||''});
+      // Its borders, as rectangles grouped with it.
+      [[borderW, borderC, borderIn],[+im.borderW||0, im.borderC||'#ffffff', +im.borderInset||0]].forEach(([bw,bc,bi])=>{
+        if(!(bw>0)) return;
+        els.push({id:_uidElem(), type:'rect', x:pb.x+bi+bw/2, y:pb.y+bi+bw/2, w:pb.w-2*bi-bw, h:pb.h-2*bi-bw,
+          color:bc, fillColor:bc, fillOpacity:0, strokeWidth:bw, zIndex:++z, rotation:0, locked:false, opacity:1, groupId:gid});
+      });
+      // Its own marks (Panel mode), as figure marks in the same place.
+      (im.panelAnns||[]).forEach(a=>{
+        if(!a||a.type==='spotlight') return;
+        const c={...a, xf:(pb.x+a.xf*pb.w)/W, yf:(pb.y+a.yf*pb.h)/H};
+        if(a.x2f!=null||a.y2f!=null){ c.x2f=(pb.x+(a.x2f??a.xf)*pb.w)/W; c.y2f=(pb.y+(a.y2f??a.yf)*pb.h)/H; }
+        annotations.push(c);
+      });
+    });
+    // The words the grid drew around the panels: headings, group names, lane tables, tags.
+    let nText=0;
+    items.forEach(it=>{
+      if(!['title','col','row','group','lanetable','tag'].includes(it.kind)||!String(it.str||'').trim()) return;
+      const t=_textElFromItem(it, ++z);
+      if((it.kind==='lanetable'||it.kind==='tag')&&byPanel.has(it.idx)) t.groupId=byPanel.get(it.idx);
+      els.push(t); nText++;
+    });
+    freeformElements=keep.concat(els); _fmZCounter=Math.max(_fmZCounter, z);
+    sv('fm-canvas-w',W); sv('fm-canvas-h',H);
+    const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform');
+    _pinPrev={grid:null, ff:null};
+    selectedElems.clear(); updateFreeformElemList(); drawFreeformOverlay(); renderAnnotationList(); scheduleRender(0);
+    const n=pbs.length;
+    toast(`${n} panel${n>1?'s':''} popped out with ${n>1?'their':'its'} crops, scale bars and letters`
+      +(nText?`; ${nText} heading${nText>1?'s':''} and table label${nText>1?'s':''} as text`:'')
+      +(keep.length?`; the ${keep.length} object${keep.length>1?'s':''} already here kept, moved below`:'')
+      +((lost&&lost.length)?` — not drawn in freeform: ${_listAnd(lost)}`:'')
+      +' — Undo brings the grid back', (lost&&lost.length)?'warn':'ok');
+  } finally { _undoHeld--; }
 }
 
 // Lock / unlock selected objects (locked = can't be moved, resized, or rotated)
@@ -28392,7 +28711,8 @@ function _rulerMeasure(a, W, H){
   // A ruler from a file saved before rulers were bound (or placed by code) is bound to the
   // image it is on the first time it is measured.
   if(a.rulerPanel==null&&h1.im.id!=null) a.rulerPanel=h1.im.id;
-  if(a.rulerPanel!=null&&h1.im.id!==a.rulerPanel){ out.status='moved'; out.note=_RULER_NOTE.moved;
+  // (an object popped out of the grid is still the panel the ruler was drawn on)
+  if(a.rulerPanel!=null&&h1.im.id!==a.rulerPanel&&h1.im.fromPanel!==a.rulerPanel){ out.status='moved'; out.note=_RULER_NOTE.moved;
     out.why='the image it was drawn on has moved, been hidden or been removed — drag the ruler onto an image to measure again'; return out; }
   if(h1.im.type&&h1.im.type!=='image'){ out.why='not an image'; return out; }
   out.im=h1.im; out.pb=h1.pb;
@@ -29366,8 +29686,26 @@ function updateElemProp(prop, val){
   if(selectedElems.size!==1) return;
   const idx=[...selectedElems][0];
   const el=freeformElements[idx]; if(!el) return;
+  if(/^crop[TLBR]$/.test(prop) && (el.type==='image'||el.type==='aiicon')){ _ffCropKeepScale(el, prop, val); scheduleRender(0); return; }
   el[prop]=val;
   scheduleRender(0);
+}
+// A freeform crop used to keep the object's box and stretch what was left of the picture
+// to fill it: at L 40 / R 21 a panorama was drawn 2.56x wider than tall, and a micrograph
+// silently distorted. Now the box loses exactly what the crop removes, at the scale the
+// picture is drawn at, and the pixels that stay do not move on the canvas (a crop from the
+// left moves the box's left edge in). Marks pinned to the picture stay on their pixels.
+function _ffCropKeepScale(el, prop, val){
+  const img=el._imgEl||el.img, iw=img&&(img.naturalWidth||img.width), ih=img&&(img.naturalHeight||img.height);
+  val=Math.max(0, Math.min(49, +val||0));
+  if(!iw||!ih){ el[prop]=val; return; }
+  const visW=f=>iw*(1-((f.cropL||0)+(f.cropR||0))/100), visH=f=>ih*(1-((f.cropT||0)+(f.cropB||0))/100);
+  const kx=el.w/(visW(el)||1), ky=el.h/(visH(el)||1);       // figure px per source px, as drawn now
+  const before={cropL:el.cropL||0, cropT:el.cropT||0};
+  el[prop]=val;
+  el.x+=((el.cropL||0)-before.cropL)/100*iw*kx;
+  el.y+=((el.cropT||0)-before.cropT)/100*ih*ky;
+  el.w=Math.max(1, visW(el)*kx); el.h=Math.max(1, visH(el)*ky);
 }
 // Connector props-bar controls.
 function _epConn(prop,val){ if(selectedElems.size!==1) return; const el=freeformElements[[...selectedElems][0]]; if(!el||el.type!=='connector') return; el[prop]=val; scheduleRender(0); }

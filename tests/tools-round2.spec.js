@@ -343,9 +343,10 @@ test('LV-01: the selection stays on its panel when an earlier panel is removed, 
   expect(errors).toEqual([]);
 });
 
-test('RUL-03: a ruler drawn on one image stops measuring when another image takes its place', async ({ page }) => {
+test('RUL-03: a ruler drawn on one image never measures the image that takes its place', async ({ page }) => {
   // At 1bfe83b, after swapping B and C the ruler read "C 800 nm" (C's pixels at C's
-  // calibration) with no notice; it was drawn on B as 200 nm.
+  // calibration) with no notice; it was drawn on B as 200 nm. It then said "moved off its
+  // panel". Since ux1 (phage-19) it moves with its panel and goes on measuring B.
   const errors = await loadApp(page);
   await seedPanels(page, 3);
   await page.evaluate(() => { images[0].umPerPx = 0.002; images[1].umPerPx = 0.001; images[2].umPerPx = 0.004;
@@ -357,8 +358,12 @@ test('RUL-03: a ruler drawn on one image stops measuring when another image take
   expect(m0[2]).toBe('panel1.png');
   expect(m0[1]).toMatch(/^6\d nm$/);
   await page.evaluate(() => { pushUndo(); swapImages(1, 2); render(); });
-  const m1 = await page.evaluate(() => { const m = _rulerMeasure(annotations.find(a => a.type === 'ruler')); return [m.status, m.label, m.note]; });
-  expect(m1).toEqual(['moved', '', 'moved off its panel']);
+  const m1 = await page.evaluate(() => { const m = _rulerMeasure(annotations.find(a => a.type === 'ruler')); return [m.status, m.label, m.im && m.im.name]; });
+  expect(m1).toEqual(['ok', m0[1], 'panel1.png']);
+  // A panel removed from under it: the ruler stays and says so, never measuring the newcomer.
+  const m3 = await page.evaluate(() => { const i = images.findIndex(im => im && im.name === 'panel1.png'); images[i].excluded = true; render();
+    const m = _rulerMeasure(annotations.find(a => a.type === 'ruler')); images[i].excluded = false; render(); return m.status; });
+  expect(m3).not.toBe('ok');
   await page.evaluate(() => { swapImages(1, 2); render(); });
   const m2 = await page.evaluate(() => _rulerMeasure(annotations.find(a => a.type === 'ruler')).label);
   expect(m2).toBe(m0[1]);

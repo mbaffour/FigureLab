@@ -181,11 +181,15 @@ test('ruler: dragging an end, recalibrating and re-cropping all update the label
     const undoAfterDrag = undoStack.length;
     images[0].umPerPx = 0.004; render();                              // recalibrate
     const recal = _rulerMeasure(annotations[0]).label, table2 = document.getElementById('ruler-results').innerHTML;
-    images[0].umPerPx = 0.002; Object.assign(images[0], { cropT: 10, cropL: 10, cropB: 10, cropR: 10 }); render();   // re-crop: same figure line, other source pixels
-    const rc = _rulerMeasure(annotations[0]), recrop = rc.srcPx, recropStatus = rc.status;
+    // re-crop: since ux1 (phage-19) the ruler follows the pixels it measures, so the same
+    // source line is re-drawn 1/0.8 as long on the figure and the length is unchanged.
+    const figLen = () => { const a = annotations[0]; return Math.hypot((a.x2f - a.xf) * canvasLogicalW, (a.y2f - a.yf) * canvasLogicalH); };
+    const fig0 = figLen();
+    images[0].umPerPx = 0.002; Object.assign(images[0], { cropT: 10, cropL: 10, cropB: 10, cropR: 10 }); render();
+    const rc = _rulerMeasure(annotations[0]), recrop = rc.srcPx, recropStatus = rc.status, figGrow = figLen() / fig0;
     Object.assign(images[0], { cropT: 0, cropL: 0, cropB: 0, cropR: 0 }); render();
     undo(); render();
-    return { srcPx: m.srcPx, label: m.label, table1, undoAfterDrag, recal, table2, recrop, recropStatus,
+    return { srcPx: m.srcPx, label: m.label, table1, undoAfterDrag, recal, table2, recrop, recropStatus, figGrow,
       afterUndo: _rulerMeasure(annotations[0]).label };
   });
   // the end moved from source (300,200) to about (200,260): 100 px across, 60 down
@@ -196,7 +200,8 @@ test('ruler: dragging an end, recalibrating and re-cropping all update the label
   expect(parseFloat(r.recal)).toBeCloseTo(parseFloat(r.label) * 2, -1);   // twice the µm/px, twice the length
   expect(r.table2).toContain(r.recal);
   expect(r.recropStatus).toBe('ok');
-  expect(r.recrop).toBeCloseTo(r.srcPx * 0.8, 0);                  // 320 source px now fill 400 figure px
+  expect(r.recrop).toBeCloseTo(r.srcPx, 0);                        // the same source pixels, measured the same
+  expect(r.figGrow).toBeCloseTo(1 / 0.8, 1);                       // 320 source px now fill 400 figure px
   expect(r.afterUndo).toBe('400 nm');                                // one undo puts the end back
   expect(errors).toEqual([]);
 });
