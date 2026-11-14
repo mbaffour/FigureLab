@@ -170,7 +170,12 @@ test('layered SVG looks like the flat SVG and the PNG export, pixel for pixel', 
     }, [dpi, mm]);
     console.log(`dpi ${dpi} width ${mm} mm: ${r.w}px  layered~flat ${r.LF.mad.toFixed(3)}  layered~png ${r.LP.mad.toFixed(3)}  flat~png ${r.FP.mad.toFixed(3)}  shifted ${r.shift.mad.toFixed(3)}`);
     expect(r.LF.mad).toBeLessThan(1.5);
-    expect(r.LP.mad).toBeLessThan(1.0);
+    // Layered against PNG is bounded by the flat SVG against PNG: both put the same text
+    // through the SVG renderer, whose anti-aliasing differs from the canvas by about a grey
+    // level at small sizes on some systems (1.08 flat~png at 150 dpi / 89 mm on Linux CI).
+    // The layered file must add nothing of its own on top of that.
+    expect(r.LP.mad).toBeLessThan(Math.max(1.0, r.FP.mad + 0.15));
+    expect(r.LP.mad).toBeLessThan(1.5);
     expect(r.LF.big).toBeLessThan(0.002);
     expect(r.shift.mad).toBeGreaterThan(r.LF.mad);   // a 1-px shift of one panel is visible to this test
   }

@@ -204,7 +204,9 @@ test('the compliance check discloses AI content, as a warning and never a failur
     const dirty = readModal();
     return { cleanRow,
       mentions: /1 AI-generated schematic/.test(dirty),
-      namesJournals: /Nature, Science and Cell/.test(dirty) };
+      // Names only journals whose own pages were read (Nature, ASM); Science and Cell
+      // are unverified and no longer stated as refusing AI figures.
+      namesJournals: /Nature and the ASM journals/.test(dirty) && !/Science and Cell/.test(dirty) };
   }, TINY_PNG);
   expect(r).toEqual({ cleanRow: true, mentions: true, namesJournals: true });
   expect(errors).toEqual([]);
