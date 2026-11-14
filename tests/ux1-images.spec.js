@@ -106,6 +106,35 @@ test.describe('fluor-01/07/08 16-bit display ranges in the file’s own values',
     expect(errors).toEqual([]);
   });
 
+  test('Match all, Apply to all and Sync group copy a 16-bit range in counts too, and skip an 8-bit panel by name', async ({ page }) => {
+    // Old build: all three copied the 8-bit black/white numbers, so two 16-bit files with
+    // different maxima got different camera ranges under matching numbers.
+    const errors = await loadApp(page);
+    const W = 64, H = 64;
+    await drop(page, [
+      [tiff16([field(W, H, 200, 6000, 20441)], { w: W, h: H }), 'a_GFP.tif'],
+      [tiff16([field(W, H, 200, 6000, 65535)], { w: W, h: H }), 'b_GFP.tif'],
+    ]);
+    await page.evaluate(SEED);
+    await page.evaluate(async () => { await _seedPic(64, 64, 'photo.png'); });
+    const r = await page.evaluate(() => {
+      _setLevelNative(images[0], 'white', 12000);
+      matchPanelToAll(0);
+      const match = [_rangeText(images[1]), images[2].whitePt, document.getElementById('toast').textContent];
+      images[1].whitePt = 255; images[0].group = images[1].group = 'g';
+      syncGroupToPanel(0);
+      const group = _rangeText(images[1]);
+      images[1].whitePt = 255;
+      applySettingsToAll(0); document.querySelector('.modal-bg.open .btn-primary, #confirm-ok')?.click();
+      return { match, group, all: _rangeText(images[1]) };
+    });
+    expect(r.match[0]).toBe('0–12000');
+    expect(r.match[1]).toBe(255);
+    expect(r.match[2]).toContain('levels not copied to C');
+    expect(r.group).toBe('0–12000');
+    expect(errors).toEqual([]);
+  });
+
   test('the intensity bar reads the native window, and says "(8-bit)" when a 16-bit file lost its samples', async ({ page }) => {
     // Old build: the bar mapped 0–255 onto the file's min…max (the decode is 0…max), and
     // a 16-bit panel without its samples printed bare 8-bit numbers.

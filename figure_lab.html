@@ -5763,6 +5763,21 @@ function _setLevelNative(o, which, n){
   return v;
 }
 
+// Copy a display range from one panel (or channel) to another the way Sync by channel
+// does: in native values when both keep their samples, as 8-bit numbers when neither
+// does. Returns false (and copies nothing) when only one side has native samples — the
+// numbers would mean different things. Match all, Apply to all and Sync group use it, so
+// none of them can give two 16-bit files the same 8-bit numbers and different ranges.
+function _copyLevels(src, dst){
+  const sr=_rawOf(src), dr=_rawOf(dst);
+  if(sr&&dr){
+    const lo=_toNative(src,src.blackPt||0), hi=_toNative(src,src.whitePt==null?255:src.whitePt);
+    _setLevelNative(dst,'white',Math.max(hi,_toNative(dst,dst.blackPt||0)+1e-6)); _setLevelNative(dst,'black',lo); _setLevelNative(dst,'white',hi);
+    return true;
+  }
+  if(!sr&&!dr){ dst.blackPt=src.blackPt; dst.whitePt=src.whitePt; return true; }
+  return false;
+}
 // The value a level control shows: native units with the samples kept, else 8-bit.
 function _levelShown(o, which){
   const v8=which==='black'?(o.blackPt||0):(o.whitePt==null?255:o.whitePt);
@@ -6930,14 +6945,16 @@ function applySettingsToAll(srcIdx){
     `Brightness, contrast, gamma, LUT, and levels from panel ${_rtText(formatLabel(src.label))} will overwrite ${n} other panel(s). One undo step.`,
     ()=>{
       pushUndo();
+      const skipped=[];
       images.forEach((im,i)=>{
         if(!im||i===srcIdx) return;
         im.brightness=src.brightness; im.contrast=src.contrast;
         im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
-        im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
+        if(!_copyLevels(src,im)) skipped.push(_rtText(formatLabel(im.label))||'?');
+        im.gamma=src.gamma; im._adjCache=undefined; im._adjKey=undefined;
       });
-      logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
-      scheduleRender(0); toast(`Settings applied to ${n} panel(s)`,'ok');
+      logAction('applyToAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast,levelsSkipped:skipped.join(', ')});
+      scheduleRender(0); toast(`Settings applied to ${n} panel(s)`+(skipped.length?` · levels not copied to ${skipped.join(', ')} (native 16-bit vs 8-bit display values)`:''),skipped.length?'warn':'ok');
     });
 }
 
@@ -7015,10 +7032,12 @@ function syncGroupToPanel(srcIdx){
   const targets=images.filter((im,i)=>im&&i!==srcIdx&&(im.group||'').trim()===g);
   if(!targets.length){ toast(`No other panels are in group "${g}"`,'warn'); return; }
   pushUndo();
+  const skippedLv=[];
   targets.forEach(im=>{
     im.brightness=src.brightness; im.contrast=src.contrast;
     im.grayscale=src.grayscale; im.invert=src.invert; im.lut=src.lut;
-    im.blackPt=src.blackPt; im.whitePt=src.whitePt; im.gamma=src.gamma;
+    if(!_copyLevels(src,im)) skippedLv.push(_rtText(formatLabel(im.label))||'?');   // in native values for 16-bit
+    im.gamma=src.gamma;
     im.sbUm=src.sbUm; im.sbUnit=src.sbUnit;            // consistent scale-bar length + unit
     im.cropT=src.cropT; im.cropL=src.cropL; im.cropB=src.cropB; im.cropR=src.cropR; // same crop
     im.cropAngle=src.cropAngle||0;                     // ...including its tilt
@@ -7028,7 +7047,7 @@ function syncGroupToPanel(srcIdx){
   });
   logAction('syncGroup',{group:g,src:src.label,n:targets.length});
   renderImgList(); scheduleRender(0);
-  toast(`Synced ${targets.length} panel(s) in group "${g}" to ${src.label}`,'ok');
+  toast(`Synced ${targets.length} panel(s) in group "${g}" to ${src.label}`+(skippedLv.length?` · levels not copied to ${skippedLv.join(', ')} (native 16-bit vs 8-bit display values)`:''),skippedLv.length?'warn':'ok');
 }
 
 // Split-channel row: explode a multi-channel composite into separate
@@ -21607,7 +21626,10 @@ function saveJSON(bundleImages){
   const state = _bundle ? _withRawSave(()=>serializeSession(bundleImages)) : serializeSession(bundleImages);
   const suffix = _bundle ? '-session.json' : '-settings.json';
   dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+suffix);
-  toast(_bundle ? 'Session saved (images bundled)' : 'Settings saved (lightweight — re-drop images on load)','ok');
+  // The native 16-bit samples make a bundled session larger (about 2.7 bytes a sample):
+  // say how much, so a 150 MB file is not a surprise.
+  let rawMB=0; if(_bundle) (state.images||[]).forEach(d=>{ if(!d) return; [d.rawRec,d.dispRawRec,...(d.channels||[]).map(c=>c&&c.rawRec)].forEach(r=>{ if(r&&r.b64) rawMB+=r.b64.length/1048576; }); });
+  toast(_bundle ? `Session saved (images bundled${rawMB>=1?`, with ${Math.round(rawMB)} MB of native 16-bit samples so levels and measurements reopen in camera counts`:''})` : 'Settings saved (lightweight — re-drop images on load)','ok');
 }
 
 // What a FigureLab JSON file is, from its shape: a session (bundled or settings only),
@@ -30959,15 +30981,19 @@ function applyQuickPreset(name){
 // ═══════════════════════════════════════════════════════════════
 function matchPanelToAll(srcIdx){
   const src=images[srcIdx]; if(!src) return;
+  pushUndo();
+  const skipped=[];
   images.forEach((im,i)=>{
     if(!im||i===srcIdx) return;
     im.brightness=src.brightness; im.contrast=src.contrast;
-    im.gamma=src.gamma; im.blackPt=src.blackPt; im.whitePt=src.whitePt;
+    im.gamma=src.gamma;
+    if(!_copyLevels(src,im)) skipped.push(_rtText(formatLabel(im.label))||'?');
     im.lut=src.lut; im.grayscale=src.grayscale; im.invert=src.invert;
+    im._adjCache=undefined; im._adjKey=undefined;
   });
-  logAction('matchAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast});
+  logAction('matchAll',{src:src.label,lut:src.lut,brightness:src.brightness,contrast:src.contrast,levelsSkipped:skipped.join(', ')});
   renderImgList(); scheduleRender(0);
-  toast(`Matched all panels to ${src.label}`,'ok');
+  toast(`Matched all panels to ${src.label}`+(skipped.length?` · levels not copied to ${skipped.join(', ')} (one side has native 16-bit samples, the other only 8-bit display values)`:''),skipped.length?'warn':'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
