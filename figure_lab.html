@@ -70,8 +70,18 @@ details>summary:hover{color:var(--text);background:var(--surf2)}
 
 /* ── Image list ─────────────────────────────────────────────── */
 .img-list{display:flex;flex-direction:column;gap:3px}
-.img-item{background:var(--surf2);border:1px solid var(--border);border-radius:6px;overflow:hidden;transition:border-color .1s}
+.img-item{background:var(--surf2);border:1px solid var(--border);border-radius:6px;overflow:hidden;overflow:clip;transition:border-color .1s;min-width:0}
+.img-item-main>*{min-width:0}
+.img-settings{min-width:0}
+.img-settings .field,.img-settings .inline-row{min-width:0;flex-wrap:wrap}
+.img-settings input[type=text],.img-settings select{max-width:100%}
 .img-item:hover{border-color:var(--border2)}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:10000;background:var(--accent);color:#fff;padding:6px 10px;border-radius:5px;font-size:12px;text-decoration:none}
+.skip-link:focus{top:8px}
+/* Keyboard focus is always visible: inputs and selects used outline:none with only a
+   border-colour change. Mouse clicks (no :focus-visible) look as before. */
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,summary:focus-visible,[role=button]:focus-visible,a:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
+.drop-zone:focus-visible,.es-drop:focus-visible{border-color:var(--accent);background:var(--surf2)}
 .img-item.drag-over{border-color:var(--accent);background:rgba(91,141,238,.06)}
 .img-item.dragging{opacity:.3}
 .img-item-main{display:flex;align-items:center;gap:5px;padding:5px 7px}
@@ -187,7 +197,7 @@ body.exporting .canvas-toolbar,body.exporting #export-acc{opacity:.6;pointer-eve
   background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
 .toolbar-sep{width:1px;height:17px;background:var(--border);margin:0 2px}
 #canvas-info{font-size:10px;color:var(--muted);margin-left:auto}
-.canvas-wrap{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:24px;position:relative}
+.canvas-wrap{flex:1;overflow:auto;display:flex;align-items:center;align-items:safe center;justify-content:center;justify-content:safe center;padding:24px;position:relative}
 .canvas-container{position:relative;display:inline-block;line-height:0}
 #fig-canvas{display:block;max-width:100%;box-shadow:0 0 0 1px var(--border),0 8px 40px rgba(0,0,0,.55)}
 #fig-canvas-hd{position:absolute;top:0;left:0;pointer-events:none;max-width:100%;display:none}
@@ -490,6 +500,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </style>
 </head>
 <body>
+<a href="#" class="skip-link" onclick="event.preventDefault();_skipToToolbar()">Skip to the figure toolbar</a>
 
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
@@ -515,7 +526,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details open>
   <summary>Images <span id="img-count" class="badge">0</span></summary>
   <div class="acc-body">
-    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-label="Add images: open the file picker (Enter or Space), or drop files here" onclick="document.getElementById('file-input').click()">
       <div class="drop-icon">⬆</div>
       <strong>Drop or click to add images</strong>
       <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
@@ -1514,19 +1525,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:2px;font-size:10px" title="How close a pixel must be to the key colour to be removed">Tol<input type="number" id="ep-bgkey-tol" min="0" max="255" value="32" style="width:42px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateBgKey('tol',+this.value)"></label>
     </div>
   </div>
-  <div class="canvas-toolbar">
+  <div class="canvas-toolbar" id="canvas-toolbar" role="toolbar" aria-label="Figure toolbar">
     <button class="btn btn-primary" id="render-btn" onclick="render()" title="Re-render the figure (R)">⟳ Render</button>
     <button class="btn btn-danger" onclick="confirmNewFigure()" title="Clear everything and start fresh">✕ New</button>
     <div class="toolbar-sep"></div>
     <span style="font-size:10px;color:var(--muted)">Save:</span>
-    <button class="btn btn-success" onclick="doExportPreflight('png')" title="Save as PNG — choose name, format & folder before it downloads">↓ PNG</button>
-    <button class="btn" onclick="doExportPreflight('pdf')" title="Save as PDF">↓ PDF</button>
-    <button class="btn" onclick="doExportPreflight('pdf-lossless')" title="Save as lossless PDF">↓ PDF±</button>
-    <button class="btn" onclick="doExportPreflight('tiff')" title="Save as TIFF">↓ TIFF</button>
-    <button class="btn" onclick="doExportPreflight('svg')" title="Save as SVG">↓ SVG</button>
+    <button class="btn btn-success" onclick="doExportPreflight('png')" title="Save as PNG — choose name, format & folder before it downloads" aria-label="Export PNG">↓ PNG</button>
+    <button class="btn" onclick="doExportPreflight('pdf')" title="Save as PDF" aria-label="Export PDF">↓ PDF</button>
+    <button class="btn" onclick="doExportPreflight('pdf-lossless')" title="Save as lossless PDF (the pictures are not JPEG-compressed)" aria-label="Export lossless PDF">↓ PDF lossless</button>
+    <button class="btn" onclick="doExportPreflight('tiff')" title="Save as TIFF" aria-label="Export TIFF">↓ TIFF</button>
+    <button class="btn" onclick="doExportPreflight('svg')" title="Save as SVG" aria-label="Export SVG">↓ SVG</button>
     <div class="toolbar-sep"></div>
-    <button class="btn" onclick="adjustZoom(0.25)" title="Zoom in">＋</button>
-    <button class="btn" onclick="adjustZoom(-0.25)" title="Zoom out">－</button>
+    <button class="btn" onclick="adjustZoom(0.25)" title="Zoom in" aria-label="Zoom in">＋</button>
+    <button class="btn" onclick="adjustZoom(-0.25)" title="Zoom out" aria-label="Zoom out">－</button>
     <button class="btn" onclick="resetZoom()" title="Reset zoom" id="zoom-btn">100%</button>
     <button class="btn" onclick="zoomToFit()" title="Zoom to fit">⊡ Fit</button>
     <button class="btn" onclick="zoomTo100()" title="Zoom to 100%">1:1</button>
@@ -1541,7 +1552,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" aria-label="Straighten to upright" onclick="straightenFromToolbar()" title="Set the selected photo back to upright — or every photo, if none is selected">⌐</button>
     </span>
     <div class="toolbar-sep"></div>
-    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 CVD
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 Colour-blind viewD
       <select id="cvd-mode" onchange="setCvdMode(this.value)" style="font-size:10px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
         <option value="none">Normal vision</option>
         <option value="deuter">Deuteranopia (red-green)</option>
@@ -1571,7 +1582,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div class="es-greeting" id="es-greeting" style="font-size:12.5px;color:var(--accent);margin-bottom:5px;font-weight:600;font-family:var(--mono)"></div>
         <div class="es-title">Build a publication-ready figure</div>
         <div class="es-sub">Assemble microscopy, blots, or histology into a clean multi-panel figure. Everything runs in your browser — nothing is uploaded.</div>
-        <div class="es-drop" onclick="document.getElementById('file-input').click()">
+        <div class="es-drop" role="button" tabindex="0" aria-label="Add images: open the file picker (Enter or Space), or drop files here" onclick="document.getElementById('file-input').click()">
           <div style="font-size:26px">⬆</div>
           <strong>Drop images here</strong>
           <div class="es-mini">or click to browse, or paste with Ctrl/⌘+V — PNG · TIFF · JPG</div>
@@ -1613,7 +1624,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <filter id="cvd-tritan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/></filter>
     </defs></svg>
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
-      <canvas id="fig-canvas"></canvas>
+      <canvas id="fig-canvas" role="img" aria-label="The figure (no alt text written yet — Export › Alt text)"></canvas>
       <canvas id="fig-canvas-hd"></canvas>
       <canvas id="ann-canvas"></canvas>
     </div>
@@ -5164,9 +5175,10 @@ function toggleUiMode(){ toast('All tools are always visible now — sections co
 
 // ── Side panel as a drawer (windows narrower than 900 px) ────
 // Below 900 px the side panel slides over the canvas instead of taking 310 px
-// beside it. It starts open while there is nothing to look at (that is where you
-// add images) and closes the moment a figure appears, so a phone opened on a
-// shared session shows the figure, fitted, not the controls.
+// beside it. It starts closed: with nothing to look at, the welcome card is the start
+// screen (add images, load a session, tutorials) and the open drawer used to cover it.
+// A figure arriving closes it too, so a phone opened on a shared session shows the
+// figure, fitted, not the controls.
 const _narrowMQ = window.matchMedia ? window.matchMedia('(max-width: 899px)') : { matches:false };
 function _isNarrow(){ return !!_narrowMQ.matches; }
 function _figureIsEmpty(){ return images.length===0 && freeformElements.length===0; }
@@ -5181,13 +5193,13 @@ let _drawerFigEmpty=null;
 function _drawerOnFigure(empty){
   const was=_drawerFigEmpty; _drawerFigEmpty=empty;
   if(!_isNarrow()) return;
-  if(was===null) toggleSidebar(empty);               // first look at the page
+  if(was===null) toggleSidebar(false);               // first look at the page: the welcome card
   else if(was && !empty) toggleSidebar(false);       // a figure just arrived
 }
 function _onNarrowChange(){
   if(!_isNarrow()) return;                           // wide: the panel is just there
   const empty=_figureIsEmpty();
-  toggleSidebar(empty);
+  toggleSidebar(false);
   if(!empty) zoomToFit();
 }
 if(_narrowMQ.addEventListener) _narrowMQ.addEventListener('change', _onNarrowChange);
@@ -5217,6 +5229,17 @@ function esOpenTemplates(){
 // The welcome card's "Load a session" used to click the first .json input in the
 // sidebar — the Templates importer — so a saved session was read as a template list
 // and nothing opened ("Import failed: Expected array", or nothing at all).
+// The drop zones act on Enter and Space, as a real button does — they could not be
+// reached or opened from the keyboard, so a keyboard user could not add an image.
+document.addEventListener('keydown',e=>{
+  const t=e.target;
+  if(!t||!t.matches||!t.matches('.drop-zone[role="button"], .es-drop[role="button"]')||e.ctrlKey||e.metaKey||e.altKey) return;
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); t.click(); }
+});
+// The skip link: past the whole side panel to the toolbar over the figure.
+function _skipToToolbar(){
+  const b=document.querySelector('#canvas-toolbar button'); if(b){ b.focus(); }
+}
 function esLoadSession(){
   const i=document.getElementById('session-load-input');
   if(i) i.click(); else toast('Open the Export panel to load a session','warn');
@@ -5566,15 +5589,12 @@ function renderImgList(){
     const _dup=nameCounts[im.name]>1;
     item.innerHTML = `
       <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
-        <input type="checkbox" class="panel-pick" data-pick="${idx}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
+        <input type="checkbox" class="panel-pick" data-pick="${idx}" aria-label="Tick panel ${esc(_rtText(formatLabel(im.label))||im.name||String(idx+1))}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
         <img class="img-thumb" src="${_safeSrc(im._thumb||im.src)}" data-thumb="${im.id}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
-        ${_placed&&!im.excluded&&!_placed.has(idx)?`<span class="f-offgrid" style="font-size:9px;color:var(--warn);flex-shrink:0" title="The grid has no cell left for this panel, so the figure does not draw it. Add rows or columns, or use Fit grid.">⚠ outside the grid</span>`:''}
-        ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
-        ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'+(layoutMode==='freeform'?'':' — '+(_hiddenLeavesGap()?'its cell stays blank':'the panels after it move up')+'; change this under Grid › Hidden panels leave a gap')}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
         <button class="icon-btn" aria-label="${im.locked?'Unlock':'Lock'} panel position" title="Pin/lock position" data-lock="${idx}">${im.locked?'🔒':'🔓'}</button>
@@ -5589,6 +5609,11 @@ function renderImgList(){
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
         ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
         <span class="f-span-note" data-span="${idx}" style="color:var(--warn)"></span>
+        <!-- The warnings sit on this wrapping line: on the button row a "⚠ calibrate" pushed
+             the lock, ⚙ and × out of the 279 px card, where nobody could see them. -->
+        ${_placed&&!im.excluded&&!_placed.has(idx)?`<span class="f-offgrid" style="font-size:9px;color:var(--warn);flex-shrink:0" title="The grid has no cell left for this panel, so the figure does not draw it. Add rows or columns, or use Fit grid.">⚠ outside the grid</span>`:''}
+        ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
+        ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
       </div>
       <div class="img-settings" id="settings-${idx}">
         <button class="btn" onclick="openReplaceImage(${idx})" style="width:100%;justify-content:center;margin-bottom:4px" title="Swap in another file and keep everything else: label, crop, tilt, rotation, adjustments, LUT, scale-bar settings, tags, annotations, span and insets. Calibration comes from the new file's metadata, or is kept only when the pixel dimensions are identical.">⇄ Replace image…</button>
@@ -10718,6 +10743,7 @@ function render(targetCanvas, exportScale, opts){
   }
   _lastUnplaced=_out;
   if(typeof _scheduleGenSync==='function') _scheduleGenSync();
+  if(zoom>1&&typeof _zoomMargins==='function') _zoomMargins();   // the figure's size may have changed
   setStatus(`${_drawn} panel(s)${_out?` · ${_out} not drawn (no cell)`:''} · ${totalW}×${totalH}px`,
     new Set(_rowHs).size>1 ? `gap ${gH}h ${gV}v · panel ${pw}px wide · rows ${_rowHs.join(' / ')} px tall`
                            : `gap ${gH}h ${gV}v · panel ${pw}×${_rowHs[0]}px`);
@@ -10748,7 +10774,9 @@ function updateHD(){
   if(layoutMode!=='grid' || !images.length || dpr<=1 || !canvasLogicalW){ hd.style.display='none'; return; }
   render(hd, dpr);                       // true high-res figure+annotations (isExport path)
   hd.style.width=canvasLogicalW+'px';    // display at logical size → crisp downscale by browser
-  hd.style.height=canvasLogicalH+'px';
+  // Height follows the width: with max-width:100% a phone narrows the layer, and a fixed
+  // height squashed the figure sideways (a round dish drawn as an ellipse).
+  hd.style.height='auto';
   hd.style.display='block';
 }
 
@@ -19900,6 +19928,9 @@ function _setAltText(s){
   _altTextCount();
 }
 function _altTextCount(){
+  // The figure on screen is an image to a screen reader, named by the alt text.
+  { const fc=document.getElementById('fig-canvas'); if(fc){ fc.setAttribute('role','img');
+    fc.setAttribute('aria-label', _figAltText.trim()||'The figure (no alt text written yet — Export › Alt text)'); } }
   const c=document.getElementById('alt-text-count'); if(!c) return;
   const n=_figAltText.trim().length;
   c.textContent=`${n} character${n===1?'':'s'}`;
@@ -21352,24 +21383,61 @@ document.addEventListener('keyup', e=>{
 // ═══════════════════════════════════════════════════════════════
 // ZOOM & PAN
 // ═══════════════════════════════════════════════════════════════
+// The zoom is a transform about the centre, which leaves the layout box at 100%: past
+// 100% the figure's left and top ran off into negative space no scrollbar could reach
+// (the top-left panel was out of reach at 376%). Margins of the overflow on each side
+// give the scroll area the zoomed size, and the wrap's "safe" centring starts it at the
+// left edge once it no longer fits.
 function applyZoom(){
-  document.getElementById('canvas-container').style.transform=`scale(${zoom})`;
-  document.getElementById('canvas-container').style.transformOrigin='center center';
+  const cc=document.getElementById('canvas-container');
+  cc.style.transform=`scale(${zoom})`;
+  cc.style.transformOrigin='center center';
+  _zoomMargins();
   document.getElementById('zoom-btn').textContent=Math.round(zoom*100)+'%';
   const fc=document.getElementById('fig-canvas');
   if(fc.width>0)
     document.getElementById('canvas-info').textContent=
       `${fc.width}×${fc.height}px · ${Math.round(zoom*100)}%`;
 }
-function adjustZoom(delta){ zoom=Math.max(0.1,Math.min(5,zoom+delta)); applyZoom(); }
+// Zoom keeping one point of the figure still: the pointer for Ctrl/⌘+scroll, the
+// middle of the view for the toolbar buttons.
+function _zoomAbout(z, cx, cy){
+  const wrap=document.getElementById('canvas-wrap'), fc=document.getElementById('fig-canvas');
+  const wr=wrap.getBoundingClientRect();
+  if(cx==null){ cx=wr.left+wr.width/2; cy=wr.top+wr.height/2; }
+  const r=fc.getBoundingClientRect();
+  const fx=r.width?(cx-r.left)/r.width:0.5, fy=r.height?(cy-r.top)/r.height:0.5;
+  zoom=Math.max(0.1,Math.min(5,z));
+  applyZoom();
+  const r2=fc.getBoundingClientRect();
+  wrap.scrollLeft+=(r2.left+fx*r2.width)-cx;
+  wrap.scrollTop+=(r2.top+fy*r2.height)-cy;
+}
+function _zoomMargins(){
+  const cc=document.getElementById('canvas-container'); if(!cc) return;
+  // The size at 100% first: the margins take room from the wrap, and the canvas's
+  // max-width:100% would shrink the figure into what is left. The width is held.
+  cc.style.margin=''; cc.style.width=''; cc.style.flexShrink='';
+  const ex=Math.max(0,zoom-1)/2;
+  if(!ex) return;
+  const w=cc.offsetWidth, h=cc.offsetHeight;
+  cc.style.width=w+'px'; cc.style.flexShrink='0';
+  cc.style.margin=`${Math.round(h*ex)}px ${Math.round(w*ex)}px`;
+}
+function adjustZoom(delta){ _zoomAbout(zoom+delta); }
 function resetZoom(){ zoom=1; applyZoom(); }
 
 document.getElementById('canvas-wrap').addEventListener('wheel', e=>{
   if(!e.ctrlKey&&!e.metaKey) return;
   e.preventDefault();
-  zoom=Math.max(0.1,Math.min(5,zoom*(1-e.deltaY*0.0015)));
-  applyZoom();
+  _zoomAbout(zoom*(1-e.deltaY*0.0015), e.clientX, e.clientY);
 },{passive:false});
+// A toolbar button clicked with the mouse gives its focus back, so the Space that
+// follows pans the figure instead of pressing the button again (＋ then Space+drag
+// zoomed in a second time and drew a ruler).
+document.getElementById('canvas-toolbar').addEventListener('click', e=>{
+  const b=e.target.closest&&e.target.closest('button'); if(b&&e.detail>0) b.blur();
+});
 
 // ═══════════════════════════════════════════════════════════════
 // UTILITIES

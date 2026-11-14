@@ -87,9 +87,11 @@ for (const [W, H] of [[768, 1024], [375, 812]]) {
     await page.setViewportSize({ width: W, height: H });
     await quiet(page);
     const errors = await loadApp(page);
-    // Nothing to look at yet, so the drawer starts open — that is where you add images.
-    expect(await page.evaluate(() => document.body.classList.contains('sb-open'))).toBe(true);
-    expect(inView(await rect(page, '.sidebar'), W, H)).toBe(true);
+    // Nothing to look at yet: the drawer starts closed so the welcome card (add images,
+    // load a session, tutorials) is the start screen — the open drawer used to cover it
+    // (usability round 1, newcomer-32).
+    expect(await page.evaluate(() => document.body.classList.contains('sb-open'))).toBe(false);
+    await expect(page.locator('#empty-state .es-drop')).toBeInViewport();
     await seed(page);
     const side = page.locator('.sidebar');
     await expect(side).not.toBeInViewport();

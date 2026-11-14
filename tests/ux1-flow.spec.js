@@ -262,3 +262,123 @@ test('newcomer-18: an untouched caption follows the figure; an edited one is mar
   await expect(page.locator('#caption-out')).toHaveValue('My own words about (B) Plaque assay.');
   expect(errors).toEqual([]);
 });
+
+// ── Panel list, keyboard, mobile, zoom ─────────────────────────────────────
+test('newcomer-06: a "⚠ calibrate" badge no longer pushes lock, ⚙ and × out of the panel card', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(async () => {
+    images.forEach(im => { im.sbOn = true; im.umPerPx = 0; im.name = 'a_rather_long_file_name_from_the_microscope_001.tif'; });
+    renderImgList(); render();
+    const item = document.querySelectorAll('#img-list .img-item')[1];
+    const card = item.getBoundingClientRect();
+    const btns = [...item.querySelectorAll('.img-item-main .icon-btn')].map(b => b.getBoundingClientRect());
+    const badge = item.querySelector('.f-calib-warn');
+    // open its settings and scroll a field into view, as Open settings does
+    document.getElementById('settings-1').classList.add('open');
+    item.querySelector('.f-colspan').scrollIntoView();
+    await new Promise(r => setTimeout(r, 50));
+    return { inside: btns.every(b => b.right <= card.right + 0.5 && b.width > 0), n: btns.length, badge: !!badge,
+      sw: item.scrollWidth - item.clientWidth, sl: item.scrollLeft };
+  });
+  expect(r.badge).toBe(true);
+  expect(r.n).toBe(5);
+  expect(r.inside).toBe(true);                 // were 152 px past the card's edge
+  expect(r.sl).toBe(0);                        // the card no longer scrolls sideways
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-10: the drop zones are buttons a keyboard can reach and open; a skip link reaches the toolbar', async ({ page }) => {
+  const errors = await loadApp(page);
+  // the first Tab lands on the skip link; Enter jumps past the side panel to the toolbar
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement.className)).toBe('skip-link');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => !!document.activeElement.closest('#canvas-toolbar'))).toBe(true);
+  // the welcome card's drop zone
+  // (the picker opening = the file input clicked; a headless filechooser wait set up
+  // on a cold browser can miss the very first one)
+  await page.evaluate(() => { window._picks = 0; document.getElementById('file-input').addEventListener('click', e => { window._picks++; e.preventDefault(); }); });
+  await page.locator('#empty-state .es-drop').focus();
+  await page.keyboard.press('Enter');
+  await page.locator('#drop-zone').focus();
+  await page.keyboard.press(' ');
+  expect(await page.evaluate(() => window._picks)).toBe(2);
+  const roles = await page.evaluate(() => [...document.querySelectorAll('#drop-zone, .es-drop')].map(e => [e.getAttribute('role'), e.tabIndex]));
+  expect(roles).toEqual([['button', 0], ['button', 0]]);
+  // a keyboard focus ring on a number input (it had outline:none)
+  await page.locator('#cols').focus();
+  await page.keyboard.press('ArrowUp');
+  const ring = await page.evaluate(() => getComputedStyle(document.getElementById('cols')).outlineStyle);
+  expect(ring).toBe('solid');
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-31: the figure, margins, tick boxes and toolbar buttons have names', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  await page.evaluate(() => _setAltText('Two panels of E. coli.'));
+  await expect(page.getByRole('img', { name: 'Two panels of E. coli.' })).toHaveCount(1);
+  await expect(page.getByRole('spinbutton', { name: 'Top margin (px)' })).toHaveCount(1);
+  await expect(page.getByRole('checkbox', { name: 'Tick panel A' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Zoom in' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Export lossless PDF' })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-11 / newcomer-32: on a phone the drawer starts closed and the figure keeps its proportions', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await ctx.newPage();
+  const errors = await loadApp(page);
+  expect(await page.evaluate(() => document.body.classList.contains('sb-open'))).toBe(false);
+  await expect(page.locator('#empty-state .es-drop')).toBeInViewport();
+  await seedPanels(page, 6);
+  await page.evaluate(() => { sv('cols', 3); sv('rows', 2); onLayoutChange(); render(); updateHD(); });
+  const r = await page.evaluate(() => {
+    const a = document.getElementById('fig-canvas').getBoundingClientRect(), b = document.getElementById('fig-canvas-hd').getBoundingClientRect(),
+      c = document.getElementById('ann-canvas').getBoundingClientRect();
+    return { shown: getComputedStyle(document.getElementById('fig-canvas-hd')).display, fig: a.width / a.height, hd: b.width / b.height,
+      hdH: b.height, annH: c.height, figH: a.height };
+  });
+  expect(r.shown).toBe('block');
+  expect(Math.abs(r.hd - r.fig)).toBeLessThan(0.02);   // was 0.56 against 1.49
+  expect(Math.abs(r.hdH - r.figH)).toBeLessThan(2);
+  expect(Math.abs(r.annH - r.figH)).toBeLessThan(2);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});
+
+test('phage-11: zoomed in, every part of the figure can be scrolled to; Ctrl+scroll zooms about the pointer', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  await page.evaluate(() => { sv('cols', 3); sv('rows', 2); sv('panel-w', 400); sv('panel-h', 400); onLayoutChange(); render(); });
+  // ＋ four times, then scroll to the top-left corner: panel A's corner must be in view
+  for (let i = 0; i < 8; i++) await page.click('button[aria-label="Zoom in"]');
+  const r = await page.evaluate(() => {
+    const wrap = document.getElementById('canvas-wrap'); wrap.scrollLeft = 0; wrap.scrollTop = 0;
+    const w = wrap.getBoundingClientRect(), f = document.getElementById('fig-canvas').getBoundingClientRect();
+    const tl = f.left >= w.left - 1 && f.top >= w.top - 1;
+    wrap.scrollLeft = wrap.scrollWidth; wrap.scrollTop = wrap.scrollHeight;
+    const f2 = document.getElementById('fig-canvas').getBoundingClientRect();
+    const br = f2.right <= w.right + 1 && f2.bottom <= w.bottom + 1;
+    return { zoom, tl, br, focusOnButton: document.activeElement && document.activeElement.tagName === 'BUTTON' };
+  });
+  expect(r.zoom).toBe(3);
+  expect(r.tl).toBe(true);                    // the top-left corner was at −982 px, out of reach
+  expect(r.br).toBe(true);
+  expect(r.focusOnButton).toBe(false);        // Space after ＋ pans instead of pressing ＋ again
+  // Ctrl+scroll over a point keeps that point under the pointer
+  const p = await page.evaluate(() => {
+    const wrap = document.getElementById('canvas-wrap'); wrap.scrollLeft = 200; wrap.scrollTop = 150;
+    const f = document.getElementById('fig-canvas').getBoundingClientRect();
+    const cx = 500, cy = 400, fx = (cx - f.left) / f.width, fy = (cy - f.top) / f.height;
+    wrap.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, ctrlKey: true, clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+    const g = document.getElementById('fig-canvas').getBoundingClientRect();
+    return { dx: g.left + fx * g.width - cx, dy: g.top + fy * g.height - cy, z: zoom };
+  });
+  expect(p.z).toBeGreaterThan(3);
+  expect(Math.abs(p.dx)).toBeLessThan(2);
+  expect(Math.abs(p.dy)).toBeLessThan(2);
+  expect(errors).toEqual([]);
+});
