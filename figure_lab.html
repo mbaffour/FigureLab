@@ -1045,6 +1045,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <span class="help-chip rt-chip" tabindex="0" role="button" aria-label="Format marks in labels" data-tip="Format marks: *E. coli* → italic · **WT** → bold · 10^{8} or Ca^{2+} → superscript · H_{2}O → subscript. Marks nest: **E. coli *fliC*** is bold with an italic gene. Ctrl/⌘+I or Ctrl/⌘+B wraps the selected text. The field keeps the marks; the figure shows the result. Stars beside a space or punctuation (*, **, * p &lt; 0.05, WT*) stay stars; type \* for a star that would pair. Turn marks off under Look → Typography.">Format marks</span>
     </div>
 
+    <div class="divider"></div>
+    <div class="sec-lbl">Sample colours <span class="help-chip" tabindex="0" role="button" aria-label="About sample colours" data-tip="One colour per sample (strain, treatment, series) for the whole figure: every chart series or category with exactly that name is drawn in it, and the legend key and its text follow. Every name in your charts is listed; change a swatch and all of them change. Set one from a chart too (Edit chart › Names &amp; colours). Saved with the figure; a lab style file (paper_style.json) loads them, and Save writes them as one.">?</span></div>
+    <div id="sample-colours-list" style="font-size:11px;max-height:180px;overflow:auto"></div>
+    <div style="display:flex;gap:4px;margin-top:3px">
+      <button class="btn" style="flex:1;justify-content:center;font-size:10px" onclick="_sampleColoursAdd()" title="Give a sample a colour before any chart uses its name">＋ Name</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:10px" onclick="saveSampleColoursStyle()" title="Download the sample colours as paper_style.json (sample_palette), the file CFU Plot Studio and the lab's other figure apps read">⬇ Save as paper_style.json</button>
+    </div>
+
     <div class="adv">
     <div class="divider"></div>
     <div class="sec-lbl">Figure themes <span class="help-chip" tabindex="0" role="button" aria-label="About themes" data-tip="One-click looks for the figure's chrome — background, labels, scale bars, axes and borders. Themes never recolour your own drawn objects, and each is a single undo step.">?</span></div>
@@ -1481,6 +1489,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="ep-chart-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openChartModal()" title="Edit chart data, type and options">⚙ Edit chart…</button>
+      <span id="ep-chart-link" style="display:none;font-size:10px"></span>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Type
         <select id="ep-chart-kind" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epChartKind(this.value)">
           <option value="bar">Bar</option><option value="groupedBar">Grouped</option><option value="stackedBar">Stacked</option>
@@ -1689,18 +1698,24 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 <!-- ── Chart editor modal ───────────────────────────────────── -->
 <div class="modal-bg" id="chart-modal">
-  <div class="modal" style="max-width:640px">
-    <button class="modal-close" onclick="closeChartModal()">×</button>
+  <div class="modal" style="max-width:860px">
+    <button class="modal-close" onclick="cancelChartModal()" aria-label="Close" title="Close without applying (Esc)">×</button>
     <h3>📊 Chart</h3>
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1;min-width:280px">
         <div class="sec-lbl">Data <span style="font-weight:normal;color:var(--muted)">— paste from Excel or edit here (tab/comma/semicolon)</span></div>
-        <textarea id="chart-data-ta" spellcheck="false" style="width:100%;height:150px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;white-space:pre;overflow:auto"></textarea>
+        <textarea id="chart-data-ta" spellcheck="false" style="width:100%;height:140px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;white-space:pre;overflow:auto" title="The chart's data, re-read as you type: the column lists, the status line and the preview follow at once. A second header row of units (CFU/mL, µg/mL) is read as units, and a semicolon or tab file may use decimal commas (0,25)."></textarea>
         <div id="chart-delim-info" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+          <span id="chart-kind-hint" style="font-size:10px;color:var(--muted);flex:1;min-width:180px"></span>
+          <button class="btn" style="padding:1px 8px;font-size:10px" onclick="_chartLoadExample()" title="Replace the data with a small example laid out the way this chart type reads it">Load example</button>
+        </div>
+        <div class="sec-lbl" style="margin-top:6px">Preview</div>
+        <canvas id="chart-preview" style="width:100%;max-width:400px;height:230px;border:1px solid var(--border);border-radius:5px;background:#fff;display:block" title="What Apply will draw, with every setting in this dialog"></canvas>
       </div>
-      <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:6px">
+      <div style="flex:1;min-width:280px;display:flex;flex-direction:column;gap:6px">
         <label style="font-size:11px">Chart type
-          <select id="chart-kind" onchange="_chartModalKindChange()" style="width:100%">
+          <select id="chart-kind" style="width:100%">
             <option value="bar">Bar</option><option value="groupedBar">Grouped bar</option>
             <option value="stackedBar">Stacked bar</option><option value="line">Line</option>
             <option value="scatter">Scatter</option><option value="box">Box &amp; whisker</option>
@@ -1717,7 +1732,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         </div>
         <div id="chart-heat-wrap" style="display:none;gap:6px;flex-direction:column">
           <label style="font-size:11px">Colour scale
-            <select id="chart-colorscale" onchange="_chartModalKindChange()" style="width:100%">
+            <select id="chart-colorscale" style="width:100%">
               <option value="viridis">Viridis (sequential)</option><option value="magma">Magma (sequential)</option>
               <option value="blues">Blues (sequential)</option><option value="diverging">Diverging (blue–white–red)</option>
             </select></label>
@@ -1726,30 +1741,42 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
             <label id="chart-heat-mid-wrap" style="display:none">midpoint <input type="number" id="chart-heat-mid" value="0" style="width:60px"></label>
           </div>
         </div>
-        <label style="font-size:11px">X / category column
+        <label id="chart-layout-wrap" style="font-size:11px">Data layout
+          <select id="chart-layout" style="width:100%" title="Rows: one observation per row, the X column names its group (long / tidy data). Columns: each ticked column is one group and its rows are the replicates (wide data, as in Prism's column tables).">
+            <option value="xcol">Rows — the X column holds the groups</option>
+            <option value="columns">Columns — each ticked column is a group</option>
+          </select></label>
+        <label id="chart-xcol-wrap" style="font-size:11px">X / category column
           <select id="chart-xcol" style="width:100%"></select></label>
-        <div style="font-size:11px">Y columns
+        <label id="chart-series-wrap" style="font-size:11px">Series (group) column
+          <select id="chart-seriescol" style="width:100%" title="Tidy data: one line (or bar colour) per value of this column — strain, MOI, treatment. Rows that share a series and an x are averaged."></select></label>
+        <div style="font-size:11px"><span id="chart-ycols-lbl">Y columns</span>
           <div id="chart-ycols" style="margin-top:2px"></div></div>
+        <label id="chart-rep-wrap" style="font-size:11px;display:none" title="Columns named WT_r1, WT_r2 … or MOI_0_rep1 … are the replicates of one series: plot their mean at each x, with the error bars below"><input type="checkbox" id="chart-repcols"> Average replicate columns into one series each <span id="chart-rep-note" style="color:var(--muted)"></span></label>
         <div style="display:flex;gap:6px;align-items:flex-end">
           <label style="font-size:11px;flex:1">Error bars
-            <select id="chart-err" onchange="_chartModalErrChange()" style="width:100%">
+            <select id="chart-err" style="width:100%" title="SD and SEM are computed from the replicates sharing a category (or an x) within a series; 'from a column' draws the value of each series' own error column">
               <option value="none">none</option><option value="sd">SD (n−1)</option>
               <option value="sem">SEM (SD/√n)</option><option value="column">from a column</option>
             </select></label>
-          <label id="chart-errcol-wrap" style="font-size:11px;display:none">col
-            <select id="chart-errcol" style="width:90px"></select></label>
         </div>
+        <div id="chart-errcols" style="display:none;font-size:11px"></div>
         <div style="display:flex;gap:8px">
           <label style="font-size:11px;flex:1">X title<input type="text" id="chart-xtitle" style="width:100%"></label>
           <label style="font-size:11px;flex:1">Y title<input type="text" id="chart-ytitle" style="width:100%"></label>
         </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;align-items:center" title="Leave empty to fit the data. Values outside the limits are not drawn, and the chart says how many.">
+          <span id="chart-xlim-wrap" style="display:inline-flex;gap:3px;align-items:center">X min <input type="number" step="any" id="chart-xmin" style="width:62px"> max <input type="number" step="any" id="chart-xmax" style="width:62px"></span>
+          <span style="display:inline-flex;gap:3px;align-items:center">Y min <input type="number" step="any" id="chart-ymin" style="width:62px"> max <input type="number" step="any" id="chart-ymax" style="width:62px"></span>
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
-          <label><input type="checkbox" id="chart-xlog"> log X</label>
-          <label><input type="checkbox" id="chart-ylog"> log Y</label>
+          <label id="chart-xlog-lbl"><input type="checkbox" id="chart-xlog"> log X</label>
+          <label id="chart-ylog-lbl"><input type="checkbox" id="chart-ylog"> log Y</label>
           <label><input type="checkbox" id="chart-legend"> legend</label>
           <label><input type="checkbox" id="chart-grid"> grid</label>
           <label><input type="checkbox" id="chart-points"> points</label>
         </div>
+        <div id="chart-log-why" style="font-size:10px;color:var(--muted);display:none"></div>
         <label style="font-size:11px">Palette
           <select id="chart-palette" style="width:100%">
             <option value="okabeIto">Okabe–Ito (colourblind-safe)</option>
@@ -1763,9 +1790,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         </div>
       </div>
     </div>
+    <div id="chart-names-sec" style="margin-top:8px">
+      <div class="sec-lbl">Names &amp; colours
+        <span class="help-chip" tabindex="0" role="button" aria-label="About names and colours" data-tip="Show a group or series under another name (ΔfliC for dfliC; *fliC* for italics) without editing the data: the data name stays, so its colour, the source data and the lab style still match. A colour set here is that sample's colour in every chart and in the legend key, saved with the figure — Look › Sample colours lists them all.">?</span></div>
+      <div id="chart-names" style="font-size:11px"></div>
+    </div>
     <div style="margin-top:8px">
       <div class="sec-lbl">Significance brackets
-        <span class="help-chip" tabindex="0" role="button" aria-label="About significance marks" data-tip="FigureLab does not compute p-values. Enter the symbol from your own statistical test (e.g. *, **, n.s.) and name the test in your figure legend.">?</span>
+        <span class="help-chip" tabindex="0" role="button" aria-label="About significance marks" data-tip="FigureLab does not compute p-values. Enter the symbol or p value from your own statistical test (e.g. *, **, n.s., p = 0.0008) and name the test in your figure legend. Drawn on bar, box, violin and beeswarm charts, above the highest point, whisker or bar of the two groups.">?</span>
         <button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_chartAddSig()">+ Add</button></div>
       <div style="font-size:10px;color:var(--muted);margin:2px 0">FigureLab does not compute p-values — enter the symbol from your own test and name the test in your legend.</div>
       <div id="chart-sig-list"></div>
@@ -1777,8 +1809,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div id="chart-ref-list"></div>
     </div>
     <label style="font-size:11px;display:block;margin-top:8px">Caption note<input type="text" id="chart-caption" style="width:100%" placeholder="e.g. Mean ± SEM, n = 3, two-tailed t-test"></label>
+    <div id="chart-link-note" style="font-size:10px;margin-top:6px;display:none"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
-      <button class="btn" onclick="closeChartModal()">Cancel</button>
+      <button class="btn" onclick="cancelChartModal()">Cancel</button>
       <button class="btn btn-primary" onclick="applyChartModal()">Apply</button>
     </div>
   </div>
@@ -4819,7 +4852,8 @@ const CMD_REGISTRY=[
   {label:'Add survival curve',       keys:'chart survival kaplan meier km curve clinical', run:()=>addChartElement('survival')},
   {label:'Add gene map (linear)',    keys:'gene map dna construct sbol plasmid cassette genetic circuit feature', run:()=>addGenemapElement('linear')},
   {label:'Add plasmid map (circular)', keys:'plasmid circular gene map dna vector sbol ori', run:()=>addGenemapElement('circular')},
-  {label:'Edit chart data…',         keys:'chart edit data csv',           run:()=>openChartModal()},
+  {label:'Edit chart data…',         keys:'chart edit data csv axis axes limit limits range min max log error bars sd sem series group column rename names significance bracket',           run:()=>openChartModal()},
+  {label:'Sample colours (one colour per strain in every chart)…', keys:'sample colour color colours colors strain series group legend palette rename lab style paper_style', run:()=>{ _openLookFor('sample-colours-list'); }},
   {label:'Load lab style (paper_style.json)…', keys:'lab style paper style paper_style json cfu plot studio font strain sample colours colors palette consistent', run:()=>document.getElementById('lab-style-input').click()},
   {label:'Export house styles to a file', keys:'house styles export save file json share backup lab style', run:()=>exportHouseStyles()},
   {label:'Import house styles from a file', keys:'house styles import load file json share lab style', run:()=>document.getElementById('house-style-input').click()},
@@ -8933,7 +8967,7 @@ function _gelComplianceRow(shown){
 
 // ── The analysis dialog ────────────────────────────────────────
 let _gelUI=null;    // {id, idx (found from id), k, sel:{li,bi}|null, drag}
-function _gelRefresh(){ if(_gelUI&&document.getElementById('gel-modal-bg')) _gelRenderModal(); if(typeof _ltRefresh==='function') _ltRefresh(); }
+function _gelRefresh(){ if(_gelUI&&document.getElementById('gel-modal-bg')) _gelRenderModal(); if(typeof _ltRefresh==='function') _ltRefresh(); if(typeof _chartLinksSync==='function') _chartLinksSync(); }
 // The dialog holds its panel by id: an undo can remove the panel or move it to another
 // slot under the open dialog. Gone, the dialog closes rather than act on another panel.
 function _gelGone(){
@@ -9006,6 +9040,7 @@ function openGelAnalysis(idx){
           <button class="btn" style="font-size:10px" title="Add lane-number labels centred on the detected lanes (one undo step)" onclick="gelPlaceLaneNumbers(_gelUI.idx)">▦ Place lane numbers on detected lanes</button>
           <button class="btn" style="font-size:10px" title="Add the ladder sizes beside the detected ladder bands (one undo step)" onclick="gelPlaceMWLabels(_gelUI.idx)">↕ Place MW labels on the ladder bands</button>
           <button class="btn" style="font-size:10px" title="Remove this panel's MW labels only (one undo step); placing them again also replaces the old set" onclick="gelRemoveMWLabels(_gelUI.idx)">✕ Remove MW labels</button>
+          <button class="btn" style="font-size:10px" title="Draw these values as a bar chart: lanes as categories, one series per analysed panel, in the normalisation every panel has (stated on the axis). The chart stays linked: a re-analysis updates it." onclick="chartFromDensitometry(_gelUI.idx)">📊 Chart these values</button>
           <button class="btn" style="font-size:10px" title="Download the table as CSV, with a header saying what was measured and how" onclick="exportGelCSV(_gelUI.idx)">⬇ CSV</button>
           <button class="btn" style="font-size:10px" title="Download every lane's profile as CSV: position (source px and Rf), raw signal, background and net signal per row" onclick="exportGelProfileCSV(_gelUI.idx)">⬇ Lane profiles CSV</button>
           <button class="btn" style="font-size:10px" title="The +/− condition table over or under the blot, aligned to these detected lanes" onclick="openLaneTable(_gelUI.idx)">⊞ Lane table…</button>
@@ -9913,8 +9948,10 @@ function _sampleColours(){
 // it), when it takes the next default colour that is free. Without this ΔfliC kept
 // palette orange beside a lab ΔmotA in orange and the chart, its key and the legend text
 // could not tell the two strains apart.
-function _seriesColours(names, colours){
-  const n=colours.length, lab=names.map(nm=>_sampleColour(nm));
+function _seriesColours(names, colours, alt){
+  // alt: the display names (a renamed group keeps the colour of its data name, and a
+  // colour set on the new name is found too).
+  const n=colours.length, lab=names.map((nm,i)=>_sampleColour(nm)||(alt&&alt[i]!=null?_sampleColour(alt[i]):null));
   const used=new Set(lab.filter(Boolean).map(c=>String(c).toLowerCase()));
   return names.map((nm,i)=>{
     if(lab[i]) return lab[i];
@@ -10055,6 +10092,7 @@ function clearLabStyle(){
   toast('Lab sample colours and chart axis width cleared — fonts and sizes stay as they are','ok');
 }
 function _labStyleSync(){
+  if(typeof _sampleColoursRender==='function') _sampleColoursRender();
   const el=document.getElementById('lab-style-status'); if(!el) return;
   const src=gv('lab-style-src'), n=Object.keys(_sampleColours()).length, aw=gv('chart-axis-w');
   if(!src&&!n&&!aw){ el.innerHTML=''; return; }
@@ -10063,6 +10101,70 @@ function _labStyleSync(){
     +(ov.length?` · <span id="lab-style-overridden" style="color:var(--warn)">overridden${J?` by ${esc(J.label)}`:''}, applied after it: ${esc(ov.join(', '))}</span>`:'')
     +` <a href="#" onclick="event.preventDefault();clearLabStyle()" style="color:var(--accent)" title="Forget the sample colours and chart axis width (one undo step)">clear</a>`;
 }
+// ── Sample colours: the figure's one colour per sample, edited in the app ──
+// The same registry a lab style loads (the hidden sample-colours control: saved with the
+// figure, undone, reset). Lists every name the charts draw, so one swatch recolours a
+// strain in every chart, the legend key and its text.
+function _sampleColourNames(){
+  const out=[], seen=new Set(), add=(k,c)=>{ k=String(k); if(!k||seen.has(k)) return; seen.add(k); out.push({name:k, color:c}); };
+  const reg=_sampleColours();
+  _allCharts().forEach(el=>{
+    let st=null; try{ st=_chartStatsCached(el); }catch(e){ return; }
+    if(st.series) st.series.forEach(x=>add(x.key??x.name, x.color));
+    else if(st.boxes) st.boxes.forEach(x=>add(x.key??x.name, x.color));
+    else if(st.catColours) st.catColours.forEach(x=>add(x.key??x.name, x.color));
+    else if(st.seriesNames) st.seriesNames.forEach(x=>add(x.key??x.name, x.color));
+    else if(st.curves&&!st.singleGroup) st.curves.forEach(x=>add(x.name, x.color));
+  });
+  Object.keys(reg).forEach(k=>add(k, reg[k]));
+  return out.map(o=>({name:o.name, color:reg[o.name]||o.color, set:Object.prototype.hasOwnProperty.call(reg,o.name)}));
+}
+function _sampleColoursRender(){
+  const w=document.getElementById('sample-colours-list'); if(!w) return;
+  if(document.activeElement&&w.contains(document.activeElement)) return;
+  const L=_sampleColourNames();
+  w.innerHTML=L.length?L.map(o=>`<div style="display:flex;gap:5px;align-items:center;margin-top:2px" data-name="${esc(o.name)}">
+      <input type="color" value="${esc(_hex6(o.color||'#000000'))}" style="width:26px;height:20px;padding:0" title="${esc(o.name)}: its colour in every chart and the legend key" onchange="setSampleColour(this.closest('[data-name]').dataset.name,this.value)">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.name)}</span>
+      ${o.set?`<button class="icon-btn" title="Back to the chart's own palette colour" onclick="setSampleColour(this.closest('[data-name]').dataset.name,null)">×</button>`:'<span style="color:var(--muted);font-size:10px" title="Drawn in the chart palette until you pick a colour">palette</span>'}</div>`).join('')
+    :'<span style="color:var(--muted);font-size:10px">No charts yet — their series and groups are listed here.</span>';
+}
+// One undo step. color null: the name goes back to its chart's palette colour.
+function setSampleColour(name, color){
+  name=String(name??'').trim(); if(!name) return false;
+  const m=Object.assign({}, _sampleColours());
+  if(color==null){ if(!(name in m)) return false; delete m[name]; }
+  else { if(!/^#[0-9a-f]{6}$/i.test(color)) return false; if(m[name]===color.toLowerCase()) return false; m[name]=color.toLowerCase(); }
+  pushUndo();
+  sv('sample-colours', Object.keys(m).length?JSON.stringify(m):'');
+  logAction('sampleColours',{set:[name]});
+  _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; });
+  { const w=document.getElementById('sample-colours-list'); if(w&&document.activeElement&&w.contains(document.activeElement)) document.activeElement.blur(); }
+  _labStyleSync(); scheduleRender(0);
+  return true;
+}
+function _sampleColoursAdd(){
+  const n=prompt('Sample name, exactly as in your data (e.g. WT, dfliC):'); if(!n||!n.trim()) return;
+  setSampleColour(n.trim(), '#0072b2');
+}
+function saveSampleColoursStyle(){
+  const m=_sampleColours();
+  if(!Object.keys(m).length){ toast('No sample colours set yet — pick one in the list first','warn'); return; }
+  const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:{sample_palette:m}};
+  dl(URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:'application/json'})), 'paper_style.json');
+  toast(`paper_style.json saved with ${Object.keys(m).length} sample colour${Object.keys(m).length>1?'s':''} (sample_palette only)`,'ok');
+}
+// Open the Look panel and bring one of its controls into view (command palette).
+function _openLookFor(id){
+  const t=document.getElementById(id); if(!t) return;
+  const d=t.closest('details'); if(d) d.open=true;
+  _sampleColoursRender();
+  try{ t.scrollIntoView({block:'center'}); }catch(e){}
+}
+(function watchSampleColours(){
+  const w=document.getElementById('sample-colours-list'), d=w&&w.closest('details');
+  if(d) d.addEventListener('toggle', ()=>{ if(d.open) _sampleColoursRender(); });
+})();
 (function bindStyleFiles(){
   const read=(inp,fn)=>{ if(!inp) return; inp.addEventListener('change',()=>{ const f=inp.files[0]; inp.value=''; if(!f) return;
     const r=new FileReader(); r.onload=e=>{ let o=null; try{ o=JSON.parse(e.target.result); }catch(err){ toast(`Could not read ${f.name}: ${err.message}`,'err'); return; } fn(o,f.name); };
@@ -18799,8 +18901,15 @@ async function exportSubmissionPackage(){
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
       (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between groups ${(+a.a)+1} and ${(+a.b)+1} — author-supplied from their own test, NOT computed by FigureLab`));
-      const csv=head.join('\n')+'\n'+D.columns.map(q).join(',')+'\n'+D.rows.map(r=>r.map(q).join(',')).join('\n')+'\n';
-      const safe=(el.label||('chart_'+(ci+1))).replace(/[^\w.-]+/g,'_');
+      let csv=head.join('\n')+'\n'+D.columns.map(q).join(',')+'\n'+D.rows.map(r=>r.map(q).join(',')).join('\n')+'\n';
+      // What is plotted, after averaging: one row per point or bar, with n and the error.
+      try{ const P=_chartPlotted(el);
+        if(P.rows.length){
+          csv+='\n# Plotted values (what the chart draws): rows sharing a series and '+(P.numericX?'an x':'a category')+' are averaged'+(P.ylog?'; Y axis log10':'')+(P.xlog?'; X axis log10':'')+'\n';
+          csv+=(P.boxes?'group,n,mean,sd,median,q1,q3,min,max':'series,'+(P.numericX?'x':'category')+',n,mean,error,error_type')+'\n';
+          csv+=P.rows.map(r=>(P.boxes?[r.x,r.n,r.mean,r.err,r.med,r.q1,r.q3,r.min,r.max]:[r.series,r.x,r.n,r.mean==null?'':r.mean,r.err||'',r.kind]).map(q).join(',')).join('\n')+'\n';
+        } }catch(e){}
+      const safe=(el.label||('chart_'+(ci+1))).replace(/\.(csv|tsv|txt)$/i,'').replace(/[^\w.-]+/g,'_');
       files.push({name:`source-data/${safe}.csv`, data:csv});
     });
     // The densitometry behind every analysed blot or gel in the figure — the numbers a
@@ -21779,8 +21888,20 @@ function _chartLabColours(el){
   if(!Object.keys(_sampleColours()).length) return null;
   const s=_chartStatsCached(el);
   const list=s.catColours||s.seriesNames||s.series||s.boxes||s.curves;
-  if(!list||!list.some(x=>_sampleColour(x.name))) return null;
+  if(!list||!list.some(x=>_sampleColour(x.name)||(x.key!=null&&_sampleColour(x.key)))) return null;
   return list.map(x=>({name:String(x.name), color:x.color}));
+}
+// What a chart plots, as a table: one row per drawn point or bar — the series, the
+// category or x, n, the mean (or the single value), the error and what it is. The
+// scripts plot from it and the source data carry it, so both match the figure even
+// where FigureLab averaged replicates, grouped by a series column or read error columns.
+function _chartPlotted(el){
+  const ch=el.chart, st=_chartStatsCached(el), out=[];
+  const ek=ch.error==='sd'?'SD (n-1)':ch.error==='sem'?'SEM = SD/sqrt(n)':ch.error==='column'?'from a column':'';
+  if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, x:p.x, n:p.n, mean:p.y, err:p.err, kind:p.err>0?ek:''})));
+  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, x:g.cat, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.err>0?ek:''})));
+  else if(st.boxes) st.boxes.forEach(b=>out.push({series:'', x:b.name, n:b.n, mean:b.mean, err:b.sd, kind:'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
+  return {rows:out, numericX:!!st.series, boxes:!!st.boxes, ylog:!!(ch.axes&&ch.axes.y&&ch.axes.y.log&&!_chartLogWhy(ch.kind,'y')), xlog:!!(st.series&&ch.axes&&ch.axes.x&&ch.axes.x.log)};
 }
 function _chartPythonSnippet(el, idx){
   const ch=el.chart, D=ch.data;
@@ -21801,12 +21922,24 @@ ${rows}
 ]
 xcol_${idx}, ycols_${idx} = ${xc}, ${yc}
 palette_${idx} = ${pal}
+${_chartPyPlotted(el, idx)}
 cats_${idx} = [str(r[xcol_${idx}]) for r in data_${idx}]
 fig${idx}, ax${idx} = plt.subplots(figsize=(${(el.w/96).toFixed(2)}, ${(el.h/96).toFixed(2)}))
 ${_chartPyBody(ch, idx)}
 ax${idx}.set_xlabel(${JSON.stringify(ch.axes.x.title||'')}); ax${idx}.set_ylabel(${JSON.stringify(ch.axes.y.title||'')})
 ${ch.axes.y.log?`ax${idx}.set_yscale("log")\n`:''}${ch.axes.x.log?`ax${idx}.set_xscale("log")\n`:''}${ch.style.showLegend?`ax${idx}.legend()\n`:''}fig${idx}.tight_layout(); fig${idx}.savefig("chart_${idx+1}.svg")
 `;
+}
+// The plotted summary as a Python list: [series, x or category, n, mean, error].
+function _chartPyPlotted(el, idx){
+  if(!['line','scatter','bar','groupedBar','stackedBar'].includes(el.chart.kind)) return '';
+  const P=_chartPlotted(el), pyv=v=>v==null?'None':typeof v==='number'?(isFinite(v)?String(v):'None'):JSON.stringify(String(v));
+  return `# What the figure plots: FigureLab's summary of data_${idx} — rows sharing a series and an x (or category)
+# averaged; error = ${_errNote(el.chart.error).replace(/^Error bars: /,'')}${P.ylog?' Y axis: log10.':''}
+# [series, x or category, n, mean, error]
+plotted_${idx} = [
+${P.rows.map(r=>`    [${pyv(r.series)}, ${pyv(r.x)}, ${r.n}, ${pyv(r.mean)}, ${pyv(r.err||0)}],`).join('\n')}
+]`;
 }
 function _chartPyBody(ch, i){
   const k=ch.kind;
@@ -21843,14 +21976,22 @@ for j, (g, rr) in enumerate(groups_${i}.items()):
     ax${i}.step(xs, ys, where="post", color=palette_${i}[j%len(palette_${i})], label=g)
 ax${i}.set_ylim(0, 1)`;
   }
-  if(k==='scatter'||k==='line'){
-    const plot=k==='line'?'ax'+i+'.plot(xs, ys, marker="o" if '+(ch.style.showPoints?'True':'False')+' else None, color=palette_'+i+'[j%len(palette_'+i+')], label=cols_'+i+'[yc])':'ax'+i+'.scatter(xs, ys, s=20, color=palette_'+i+'[j%len(palette_'+i+')], label=cols_'+i+'[yc])';
-    const fit=ch.fit&&ch.fit.on?`\n    if len(xs) >= 2:\n        m, b = np.polyfit(xs, ys, 1)  # OLS linear fit\n        xr = np.array([min(xs), max(xs)]); ax${i}.plot(xr, m*xr+b, "--", color=palette_${i}[j%len(palette_${i})])`:'';
-    return `for j, yc in enumerate(ycols_${i}):
-    pts = [(float(r[xcol_${i}]), float(r[yc])) for r in data_${i}
-           if isinstance(r[xcol_${i}], (int, float)) and isinstance(r[yc], (int, float))]
-    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-    ${plot}${fit}`;
+  if(k==='scatter'||k==='line'||k==='bar'||k==='groupedBar'||k==='stackedBar'){
+    // Plot what FigureLab draws: its own summary of data_N (see the comment above it).
+    return `for j, s in enumerate(dict.fromkeys(r[0] for r in plotted_${i})):
+    pts = [r for r in plotted_${i} if r[0] == s and r[3] is not None]
+    xs = [r[1] for r in pts]; ys = [r[3] for r in pts]; es = [r[4] for r in pts]
+    col = palette_${i}[j % len(palette_${i})]
+${k==='line'?`    ax${i}.errorbar(xs, ys, yerr=es if any(es) else None, color=col, marker="o" if ${ch.style.showPoints?'True':'False'} else None, capsize=3, label=s)`
+ :k==='scatter'?`    ax${i}.errorbar(xs, ys, yerr=es if any(es) else None, fmt="o", color=col, capsize=3, label=s)`
+ :`    labels = list(dict.fromkeys(r[1] for r in plotted_${i}))
+    n_s = len(dict.fromkeys(r[0] for r in plotted_${i})); width = 0.8 / max(1, n_s)
+    x = np.array([labels.index(v) for v in xs], dtype=float)
+    ax${i}.bar(x + (j - (n_s - 1) / 2) * width, ys, width${ch.error!=='none'?', yerr=es, capsize=3':''}, color=col, label=s)
+    ax${i}.set_xticks(range(len(labels))); ax${i}.set_xticklabels(labels)`}${(k==='line'||k==='scatter')&&ch.fit&&ch.fit.on?`
+    if len(xs) >= 2:
+        m, b = np.polyfit(xs, ys, 1)  # OLS linear fit
+        xr = np.array([min(xs), max(xs)]); ax${i}.plot(xr, m*xr+b, "--", color=col)`:''}`;
   }
   if(k==='box'){
     return `groups_${i} = {}
@@ -21910,6 +22051,27 @@ fit_${idx} <- survfit(Surv(\`${tname}\`, \`${ename}\`) ~ ${gname?'`'+gname.repla
 svg("chart_${idx+1}.svg", width = ${(el.w/96).toFixed(2)}, height = ${(el.h/96).toFixed(2)})
 plot(fit_${idx}, col = ${pal}, xlab = ${JSON.stringify(ch.axes.x.title||'Time')}, ylab = ${JSON.stringify(ch.axes.y.title||'Survival probability')}, mark.time = TRUE)
 dev.off()
+`;
+  }
+  if(['line','scatter','bar','groupedBar','stackedBar'].includes(ch.kind)){
+    const P=_chartPlotted(el), rv2=v=>v==null||(typeof v==='number'&&!isFinite(v))?'NA':typeof v==='number'?String(v):_scriptStr(String(v),'R');
+    const pdf=`plotted_${idx} <- data.frame(\n  series = c(${P.rows.map(r=>rv2(r.series)).join(', ')}),\n  x = c(${P.rows.map(r=>rv2(r.x)).join(', ')}),\n  n = c(${P.rows.map(r=>r.n).join(', ')}),\n  mean = c(${P.rows.map(r=>rv2(r.mean)).join(', ')}),\n  err = c(${P.rows.map(r=>rv2(r.err||0)).join(', ')}),\n  check.names = FALSE\n)`;
+    const eb=ch.error!=='none'?' +\n  geom_errorbar(aes(ymin = mean - err, ymax = mean + err), width = 0.2'+(ch.kind==='groupedBar'||ch.kind==='bar'?', position = position_dodge(0.9)':'')+')':'';
+    const g=ch.kind==='line'?`geom_line()${ch.style.showPoints?' + geom_point()':''}`:ch.kind==='scatter'?'geom_point()':`geom_col(position = ${ch.kind==='stackedBar'?'"stack"':'position_dodge(0.9)'})`;
+    const aesx=P.numericX?'x':'factor(x, levels = unique(x))';
+    return `# ── Chart ${idx+1}: ${ch.kind} ${ch.data.sourceName?`(${ch.data.sourceName})`:''} ──
+# ${_errNote(ch.error)}
+# Significance brackets, if any, were entered by the figure author.
+# FigureLab does not compute p-values; report the statistical test in your legend.
+library(ggplot2)
+${dfBlock}
+# What the figure plots: FigureLab's summary of df_${idx} (rows sharing a series and an x averaged).
+${pdf}
+p_${idx} <- ggplot(plotted_${idx}, aes(x = ${aesx}, y = mean, ${ch.kind==='line'||ch.kind==='scatter'?'colour':'fill'} = series${ch.kind==='line'?', group = series':''})) +
+  ${g}${eb} +
+  labs(x = ${JSON.stringify(ch.axes.x.title||xname)}, y = ${JSON.stringify(ch.axes.y.title||yname)}) +
+  theme_classic()${P.ylog?' +\n  scale_y_log10()':''}${P.xlog?' +\n  scale_x_log10()':''}
+ggsave("chart_${idx+1}.svg", p_${idx}, width = ${(el.w/96).toFixed(2)}, height = ${(el.h/96).toFixed(2)})
 `;
   }
   let geom;
@@ -22455,7 +22617,7 @@ const _DIALOGS = {
   'crop-modal':      { close:()=>{ if(cropEdState.leveling) toggleCropLevel(false); else closeCropModal(); },
                        backdrop:false },   // the box, a tilt, pending multi-crop regions — Apply commits them
   'calib-modal':     { close:()=>closeCalib(), backdrop:false },        // two clicked points + a typed length
-  'chart-modal':     { close:()=>closeChartModal(), backdrop:false },   // pasted data, committed by Insert
+  'chart-modal':     { close:()=>cancelChartModal(), backdrop:false },  // pasted data, committed by Apply; a menu chart never applied goes
   'genemap-modal':   { close:()=>closeGenemapModal(), backdrop:false }, // a feature table, committed by Apply
   'cmd-palette':     { close:()=>closeCmdPalette() },
   'preflight-modal': { close:()=>closePreflight() },   // only a file name to lose; it always closed on the backdrop
@@ -24845,9 +25007,25 @@ function _parseDelimited(text){
   if(!rows.length) return {columns:[],rows:[],delim};
   const columns=rows.shift().map(h=>String(h).trim());
   const numRe=/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
-  const coerce=v=>{ const t=String(v).trim(); return numRe.test(t)?parseFloat(t):t; };
+  // A semicolon or tab file is how Excel writes CSV where the comma is the decimal mark
+  // (0,25 for 0.25; 1.234,5 for 1234.5). A comma-delimited file cannot hold one unquoted.
+  const dcRe=/^[+-]?(\d+,\d*|,\d+)([eE][+-]?\d+)?$/, dcThRe=/^[+-]?\d{1,3}(\.\d{3})+,\d+$/;
+  let decimalComma=0;
+  const coerce=v=>{ const t=String(v).trim(); if(numRe.test(t)) return parseFloat(t);
+    if(delim!==','&&(dcRe.test(t)||dcThRe.test(t))){ decimalComma++; return parseFloat(t.replace(/\./g,'').replace(',','.')); }
+    return t; };
   const body=rows.map(r=>columns.map((_,ci)=>coerce(r[ci]!=null?r[ci]:'')));
-  return {columns, rows:body, delim};
+  // A units row under the header (";µg/mL;AU", ",,CFU/mL"): no number in it, while a
+  // column of numbers below has text in it. It is lifted out as units, not plotted as a
+  // category with no value.
+  let units=null;
+  if(body.length>=2){
+    const r0=body[0], na=/^(na|nan|n\/a|nd|n\.d\.|-|—|–|null|none|\?)$/i;
+    const numCol=columns.map((_,ci)=>{ let n=0; for(let k=1;k<body.length;k++){ const v=body[k][ci]; if(v==='') continue; if(typeof v!=='number') return false; n++; } return n>0; });
+    if(!r0.some(v=>typeof v==='number') && numCol.some((isN,ci)=>isN&&typeof r0[ci]==='string'&&r0[ci].trim()!==''&&!na.test(r0[ci].trim()))){
+      units=r0.map(v=>String(v??'').trim()); body.shift(); }
+  }
+  return {columns, rows:body, delim, units, decimalComma};
 }
 
 // Min/max via reduce — spreading a big array into Math.min(...) throws RangeError
@@ -24966,6 +25144,185 @@ function _defaultChart(kind){
 // Resolve palette colours (array of hex) for a chart.
 function _chartColors(ch){ return (CB_PALETTES[ch.style.palette]||CB_PALETTES.okabeIto); }
 
+// ── Shaping the table into what is plotted ─────────────────────
+// Every chart kind reads the same long list of observations {cat, s, x, y, e}: the
+// category (or x), the series, the value and an error read from a column. It comes
+// from the mapping: an X column with value columns, or each value column as a group
+// (wide), an optional series column (tidy data), and replicate columns averaged into
+// one series. Rows sharing a category (or an x) within a series are then averaged
+// into mean ± error, so a line goes through the means instead of zig-zagging through
+// every replicate.
+function _chartColName(cols, i){ return String((cols&&cols[i])!=null&&cols[i]!==''?cols[i]:'Col '+(i+1)); }
+// "WT_r1", "MOI_0_rep1", "rep1_PFU_per_mL": a replicate column of a base name. A bare
+// trailing number ("MOI_10") is never read as a replicate.
+const _CH_REP_SUF=/^(.+?)(?:[\s_.\-]*(?:replicate|rep)|[\s_.\-]+r)[\s_.\-]?(\d+)$/i;
+const _CH_REP_PRE=/^(?:replicate|rep|r)[\s_.\-]?(\d+)[\s_.\-]+(.+)$/i;
+function _chartRepBase(name){
+  const s=String(name??'').trim(); let m=_CH_REP_SUF.exec(s); if(m) return m[1];
+  m=_CH_REP_PRE.exec(s); return m?m[2]:null;
+}
+// The value columns grouped by replicate base: [{key, cols:[...]}]. A base needs two
+// columns or more; a column without one stays a series of its own.
+function _chartRepGroups(cols, yCols){
+  const out=[], byBase=new Map();
+  yCols.forEach(yc=>{ const b=_chartRepBase(_chartColName(cols,yc)); if(b!=null){ if(!byBase.has(b)) byBase.set(b,[]); byBase.get(b).push(yc); } });
+  const done=new Set();
+  yCols.forEach(yc=>{ const b=_chartRepBase(_chartColName(cols,yc));
+    if(b!=null&&byBase.get(b).length>1){ if(done.has(b)) return; done.add(b); out.push({key:b, cols:byBase.get(b)}); }
+    else out.push({key:_chartColName(cols,yc), cols:[yc]}); });
+  return out;
+}
+function _chartHasRepGroups(cols, yCols){ return _chartRepGroups(cols, yCols).some(g=>g.cols.length>1); }
+// "WT_SD", "MOI 0 SD", "dfliC.sem": an error column and the series it belongs to.
+const _CH_ERR_RE=/^(.+?)[\s_.\-]+(sd|s\.d\.|stdev|std|stddev|sem|s\.e\.m\.|se|err|error|ci|ci95)$/i;
+const _CH_MEAN_RE=/^(.+?)[\s_.\-]+(mean|avg|average)$/i;
+function _chartErrBase(name){ const m=_CH_ERR_RE.exec(String(name??'').trim()); return m&&m[1]?m[1]:null; }
+function _chartMeanBase(name){ const s=String(name??'').trim(), m=_CH_MEAN_RE.exec(s); return m&&m[1]?m[1]:s; }
+// Pair each value column with its own error column by name: {valueCol: errorCol}.
+function _chartAutoErrCols(cols, yCols){
+  const out={}, low=s=>String(s).trim().toLowerCase();
+  yCols.forEach(yc=>{ const base=low(_chartMeanBase(_chartColName(cols,yc)));
+    const ec=cols.findIndex((c,i)=>i!==yc&&_chartErrBase(c)!=null&&low(_chartErrBase(c))===base);
+    if(ec>=0) out[yc]=ec; });
+  return out;
+}
+// The error column of each value column when the error bars come from columns: the
+// one picked per series, else the single legacy column for all of them.
+function _chartErrMap(ch){
+  const m=ch.mapping||{}, out={}, ycs=m.yCols||[];
+  const per=m.errCols&&typeof m.errCols==='object'?m.errCols:null;
+  ycs.forEach(yc=>{ const v=per&&per[yc]!=null&&per[yc]!==''?+per[yc]:(m.errCol!=null&&m.errCol!==''?+m.errCol:null); if(v!=null&&isFinite(v)) out[yc]=v; });
+  return out;
+}
+// Column ids that are never a plotted value: replicate number, sample id, well.
+const _CH_ID_RE=/^(rep|reps|replicate|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|well|#|index|row|run|tube)$/i;
+// Which kinds plot a numeric x, and which read categories.
+function _chartNumericX(kind){ return kind==='line'||kind==='scatter'; }
+function _chartCategorical(kind){ return ['bar','groupedBar','stackedBar','box','violin','beeswarm'].includes(kind); }
+// Why a log axis is not offered for this kind, or '' when it is.
+function _chartLogWhy(kind, axis){
+  if(axis==='x'){ if(_chartNumericX(kind)) return ''; return kind==='heatmap'||kind==='survival'?'Not for this chart type':'The x axis holds categories here — log X needs a numeric x (Line or Scatter)'; }
+  if(kind==='stackedBar') return 'Stacked bars cannot be read on a log axis (the segments would not add up) — use Grouped bar';
+  if(kind==='heatmap') return 'A heatmap has no value axis — its colour scale shows the values';
+  if(kind==='survival') return 'Survival is a probability from 0 to 1 — it is drawn on a linear axis';
+  return '';
+}
+function _chartDisp(ch, key){ const d=ch.names&&ch.names[key]; return (d!=null&&String(d).trim()!=='')?String(d):String(key); }
+function _chartOrdered(ch, keys){
+  const ord=Array.isArray(ch.order)?ch.order.map(String):null; if(!ord||!ord.length) return keys;
+  return keys.map((k,i)=>({k,i,o:ord.indexOf(String(k))})).sort((a,b)=>(a.o<0?1e9+a.i:a.o)-(b.o<0?1e9+b.i:b.o)).map(q=>q.k);
+}
+function _chartShape(ch, warn){
+  const D=ch.data||{}, cols=D.columns||[], rows=D.rows||[], m=ch.mapping||{}, kind=ch.kind;
+  const num=v=>typeof v==='number'&&isFinite(v)?v:NaN;
+  const xc=m.xCol??0, yCols=(m.yCols&&m.yCols.length?m.yCols:[1]);
+  const numericX=_chartNumericX(kind), wide=!numericX&&m.layout==='columns';
+  const sc=(!wide&&m.seriesCol!=null&&m.seriesCol!==''&&+m.seriesCol!==xc&&+m.seriesCol<cols.length)?+m.seriesCol:null;
+  const ecMap=ch.error==='column'?_chartErrMap(ch):{};
+  const sdefs=(!wide&&m.repCols)?_chartRepGroups(cols,yCols):yCols.map(yc=>({key:_chartColName(cols,yc), cols:[yc]}));
+  const ax=ch.axes||{}, xLog=numericX&&!!(ax.x&&ax.x.log), yLog=!!(ax.y&&ax.y.log)&&!_chartLogWhy(kind,'y');
+  const obs=[], cats=[], catSeen=new Set();
+  const addCat=c=>{ if(!catSeen.has(c)){ catSeen.add(c); cats.push(c); } };
+  const sLabel=(r,sd)=>{ if(sc==null) return sd.key; const v=r[sc]; const g=typeof v==='number'?`${_chartColName(cols,sc)} ${v}`:String(v??''); return sdefs.length>1?`${g} · ${sd.key}`:g; };
+  if(wide) yCols.forEach(yc=>addCat(_chartColName(cols,yc)));
+  rows.forEach(r=>{
+    if(wide){ yCols.forEach(yc=>{ const y=num(r[yc]); if(!isFinite(y)) return; if(yLog&&y<=0){ warn.dropped++; return; }
+      obs.push({cat:_chartColName(cols,yc), s:'', x:NaN, y, e:NaN}); }); return; }
+    const cat=String(r[xc]??''), xv=num(r[xc]);
+    if(numericX&&!isFinite(xv)) return;
+    let any=false;
+    sdefs.forEach(sd=>sd.cols.forEach(yc=>{
+      const y=num(r[yc]); if(!isFinite(y)) return;
+      any=true;
+      if((yLog&&y<=0)||(xLog&&xv<=0)){ warn.dropped++; return; }
+      const ec=ecMap[yc]; obs.push({cat, s:sLabel(r,sd), x:xv, y, e:ec!=null?num(r[ec]):NaN});
+    }));
+    if(!numericX&&(any||cat!=='')) addCat(cat);
+  });
+  // Series in order: the value columns' own order, or first appearance of a group.
+  const skeys=[];
+  if(wide) skeys.push(yCols.length===1?_chartColName(cols,yCols[0]):'Value');
+  else { if(sc==null) sdefs.forEach(sd=>skeys.push(sd.key));
+    const seen=new Set(skeys); obs.forEach(o=>{ if(!seen.has(o.s)){ seen.add(o.s); skeys.push(o.s); } }); }
+  if(wide) obs.forEach(o=>{ o.s=skeys[0]; });
+  return {obs, cats:_chartOrdered(ch,cats), skeys, wide, sc, yLog, xLog};
+}
+// Mean, error and n of the replicates at one point. SD is the sample SD (n−1); SEM =
+// SD/√n; from a column, the value given (the first, if rows repeat).
+function _chartAgg(vals, es, mode){
+  const n=vals.length, mean=n?_mean(vals):0; let err=0;
+  if(mode==='sd') err=_sd(vals); else if(mode==='sem') err=_sem(vals);
+  else if(mode==='column'){ const e=es.find(v=>isFinite(v)); err=e!=null?Math.abs(e):0; }
+  return {mean, err, n};
+}
+// A first guess at how a table is meant to be plotted, from its shape: which column is
+// X, which are values, which pair as error columns, the layout, a series column, and
+// the chart type. The dialog shows every one of these as a control to change.
+function _chartGuess(parsed){
+  const cols=parsed.columns||[], rows=parsed.rows||[], nc=cols.length, units=parsed.units||null;
+  const isNum=cols.map((_,i)=>{ let n=0,t=0; rows.forEach(r=>{ const v=r[i]; if(v===''||v==null) return; if(typeof v==='number') n++; else t++; }); return n>0&&t===0; });
+  const isText=cols.map((_,i)=>rows.some(r=>typeof r[i]==='string'&&r[i].trim()!==''));
+  const idLike=cols.map(c=>_CH_ID_RE.test(String(c).trim()));
+  const errLike=cols.map(c=>_chartErrBase(c)!=null);
+  const distinct=i=>new Set(rows.map(r=>r[i])).size;
+  const nondecr=i=>{ for(let k=1;k<rows.length;k++){ if(!(rows[k][i]>=rows[k-1][i])) return false; } return rows.length>1; };
+  const textCols=cols.map((_,i)=>i).filter(i=>isText[i]);
+  const numCols=cols.map((_,i)=>i).filter(i=>isNum[i]&&!idLike[i]);
+  const g={kind:'bar', mapping:{xCol:0, yCols:[], seriesCol:null, errCol:null, errCols:{}, layout:'xcol', repCols:false}, error:'none', showPoints:false, xTitle:'', yTitle:''};
+  const M=g.mapping;
+  const valueCols=x=>numCols.filter(i=>i!==x&&!errLike[i]);
+  const repeats=(keyFn)=>{ const s=new Set(); for(const r of rows){ const k=keyFn(r); if(s.has(k)) return true; s.add(k); } return false; };
+  if(textCols.length){
+    M.xCol=textCols[0];
+    const vals=valueCols(M.xCol);
+    // Tidy data: a text column of groups and two numeric columns or more (x and a value)
+    // where the first takes several values inside a group — a time course or a dose series.
+    const xi=vals.length>=2?vals[0]:-1;
+    const byGroup=xi>=0&&(()=>{ const m=new Map(); rows.forEach(r=>{ const k=String(r[M.xCol]); if(!m.has(k)) m.set(k,new Set()); m.get(k).add(r[xi]); }); return [...m.values()].some(s=>s.size>1); })();
+    if(byGroup){ M.seriesCol=M.xCol; M.xCol=xi; M.yCols=[vals[vals.length-1]]; g.kind='line'; }
+    else { M.yCols=vals.length?vals:[cols.findIndex((_,i)=>i!==M.xCol)].filter(i=>i>=0); g.kind=M.yCols.length>1?'groupedBar':'bar'; }
+  } else if(nc>=2&&nondecr(0)){
+    // All numbers, the first column running upward (time, dose): x = that column.
+    M.xCol=0; g.kind='line';
+    const vals=valueCols(0);
+    // A low-cardinality column before the last value column is a group (MOI 0, 0.1, 1 …).
+    const sIdx=vals.slice(0,-1).find(i=>{ const d=distinct(i); return d>=2&&d<=12&&d<=rows.length/3; });
+    if(sIdx!=null){ M.seriesCol=sIdx; M.yCols=[vals[vals.length-1]]; }
+    else M.yCols=vals;
+  } else if(nc>=3){
+    // All numbers in no order: each column is a group of replicates (wide).
+    M.layout='columns'; M.xCol=0; M.yCols=numCols.filter(i=>!errLike[i]); g.kind='bar';
+  } else { M.xCol=0; M.yCols=nc>1?[1]:[0]; g.kind='scatter'; }
+  if(!M.yCols.length) M.yCols=[Math.min(1,nc-1)];
+  // Error bars: from paired columns when they exist, else SD wherever a point has replicates.
+  const pairs=_chartAutoErrCols(cols, M.yCols);
+  if(Object.keys(pairs).length){ M.errCols=pairs; g.error='column'; }
+  if(_chartHasRepGroups(cols, M.yCols)&&_chartNumericX(g.kind)) M.repCols=true;
+  if(g.error==='none'){
+    const sc=M.seriesCol;
+    const rep=M.repCols||(M.layout==='columns'?rows.length>1:repeats(r=>(sc!=null?String(r[sc])+'\u0001':'')+String(r[M.xCol])));
+    if(rep){ g.error='sd'; if(_chartCategorical(g.kind)) g.showPoints=true; }
+  }
+  // Units under the header go into the axis titles.
+  const ut=i=>units&&units[i]?`${_chartColName(cols,i)} (${units[i]})`:'';
+  if(units){ if(M.layout!=='columns') g.xTitle=ut(M.xCol); if(M.yCols.length===1) g.yTitle=ut(M.yCols[0]); }
+  return g;
+}
+// Put a guess onto a chart (the data are already there).
+function _chartApplyGuess(ch, g, keepKind){
+  ch.mapping=Object.assign({}, ch.mapping||{}, g.mapping);
+  if(!keepKind) ch.kind=g.kind;
+  ch.error=g.error; ch.agg='none';
+  ch.style=ch.style||{}; ch.style.showPoints=!!g.showPoints;
+  ch.axes=ch.axes||{x:{},y:{}};
+  if(g.xTitle&&!ch.axes.x.title) ch.axes.x.title=g.xTitle;
+  if(g.yTitle&&!ch.axes.y.title) ch.axes.y.title=g.yTitle;
+  ch.names={}; ch.order=[];
+  // "MOI 0 mean" beside "MOI 0 SD" is shown as MOI 0; the data keep their own name.
+  const cols=(ch.data&&ch.data.columns)||[];
+  (ch.mapping.yCols||[]).forEach(yc=>{ const c=_chartColName(cols,yc), b=_chartMeanBase(c); if(b!==c) ch.names[c]=b; });
+}
+
 // Compute plotted series + domains from the raw dataset. O(rows); cached on the
 // element via _chartKey so it never re-runs during a drag.
 let _chartStatsCalls=0;   // test hook: proves caching works
@@ -25006,87 +25363,108 @@ function _chartStats(el){
     return {kind, curves, tmax:tmax||1, singleGroup:(gc==null), warn};
   }
 
+  const style=ch.style||{};
+  const S=_chartShape(ch, warn), obs=S.obs;
+  const disp=k=>_chartDisp(ch,k);
+  // Lab colour by the data's own name first, so renaming a group keeps its colour.
+  const labOf=k=>_sampleColour(k)||_sampleColour(disp(k));
+
   if(kind==='scatter'||kind==='line'){
-    // Each y column is a series of (x,y) points against a numeric x.
-    const xLog=!!ch.axes.x.log, yLog=!!ch.axes.y.log;
-    const scol=_seriesColours(yCols.map((yc,si)=>cols[yc]||('Series '+(si+1))), colours);
-    const series=yCols.map((yc,si)=>{
-      const pts=[]; rows.forEach(r=>{ const x=num(r[xc]), y=num(r[yc]);
-        if(!isFinite(x)||!isFinite(y)) return;
-        // A log axis has no place for ≤0 values — drop them honestly (never clamp) and count it.
-        if((xLog&&x<=0)||(yLog&&y<=0)){ warn.dropped++; return; }
-        pts.push({x,y}); });
-      const nm=cols[yc]||('Series '+(si+1));
-      return {name:nm, color:scol[si], points:pts};
+    // Points sharing an x within a series are averaged (always on a line; on a scatter
+    // when error bars are asked for), with the error and n of each point kept.
+    const aggOn=kind==='line'||(ch.error&&ch.error!=='none')||ch.agg==='mean';
+    const byS=new Map(); S.skeys.forEach(k=>byS.set(k,[])); obs.forEach(o=>byS.get(o.s).push(o));
+    const keys=S.skeys, scol=_seriesColours(keys, colours, keys.map(disp));
+    const series=keys.map((k,si)=>{
+      const list=byS.get(k)||[]; let points;
+      if(aggOn){
+        const g=new Map(); list.forEach(o=>{ let q=g.get(o.x); if(!q){ q={x:o.x, vals:[], es:[]}; g.set(o.x,q); } q.vals.push(o.y); q.es.push(o.e); });
+        points=[...g.values()].map(q=>{ const a=_chartAgg(q.vals,q.es,ch.error); return {x:q.x, y:a.mean, err:a.err, n:a.n, vals:q.vals}; });
+        if(kind==='line') points.sort((p,q)=>p.x-q.x);
+      } else points=list.map(o=>({x:o.x, y:o.y, err:(ch.error==='column'&&isFinite(o.e))?Math.abs(o.e):0, n:1, vals:[o.y]}));
+      return {name:disp(k), key:k, color:scol[si], points};
     });
-    let xs=[],ys=[]; series.forEach(s=>s.points.forEach(p=>{ xs.push(p.x); ys.push(p.y); }));
-    return {kind, series, categories:null,
+    const xs=[], ys=[];
+    series.forEach(s=>s.points.forEach(p=>{ xs.push(p.x); ys.push(p.y);
+      if(p.err>0){ ys.push(p.y+p.err); if(!(S.yLog&&p.y-p.err<=0)) ys.push(p.y-p.err); }
+      if(kind==='scatter'&&aggOn&&style.showPoints&&p.n>1) p.vals.forEach(v=>ys.push(v)); }));
+    return {kind, series, categories:null, aggregated:aggOn,
       xDomain:[_arrMin(xs,0),_arrMax(xs,1)],
       yDomain:[_arrMin(ys,0),_arrMax(ys,1)], warn};
   }
 
+  const catKeys=S.cats, cats=catKeys.map(disp);
+
   if(kind==='box'||kind==='violin'||kind==='beeswarm'){
-    // Each category = the pooled numeric values across the y columns; box/violin/
+    // Each category = the pooled numeric values across the value columns; box/violin/
     // beeswarm all summarise or display this same distribution.
-    const cats=[...new Set(rows.map(catOf))], ccol=_seriesColours(cats, colours);
-    const boxes=cats.map((c,ci)=>{
-      const vals=[]; rows.filter(r=>catOf(r)===c).forEach(r=>yCols.forEach(yc=>{ const v=num(r[yc]); if(isFinite(v)) vals.push(v); }));
-      vals.sort((a,b)=>a-b);
+    const ccol=_seriesColours(catKeys, colours, cats);
+    const byC=new Map(); catKeys.forEach(c=>byC.set(c,[])); obs.forEach(o=>{ const l=byC.get(o.cat); if(l) l.push(o.y); });
+    const boxes=catKeys.map((c,ci)=>{
+      const vals=byC.get(c).slice().sort((a,b)=>a-b);
       const q=p=>{ if(!vals.length) return 0; const idx=(vals.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx); return vals[lo]+(vals[hi]-vals[lo])*(idx-lo); };
-      return {name:c, color:ccol[ci], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
+      return {name:cats[ci], key:c, color:ccol[ci], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
     });
     const all=boxes.flatMap(b=>b.raw);
+    if(kind==='beeswarm') boxes.forEach(b=>{ if(b.sd>0){ all.push(b.mean+b.sd); if(!(S.yLog&&b.mean-b.sd<=0)) all.push(b.mean-b.sd); } });
     let yd=[_arrMin(all,0),_arrMax(all,1)];
-    if(kind==='violin'){ const pad=((yd[1]-yd[0])*0.14)||1; yd=[yd[0]-pad, yd[1]+pad]; }  // headroom for KDE tails
-    return {kind, boxes, categories:cats, series:null, yDomain:yd, warn};
+    if(kind==='violin'&&!S.yLog){ const pad=((yd[1]-yd[0])*0.14)||1; yd=[yd[0]-pad, yd[1]+pad]; }  // headroom for KDE tails
+    return {kind, boxes, categories:cats, catKeys, series:null, yDomain:yd, warn};
   }
 
-  // bar / groupedBar / stackedBar: categories on x, one bar per y column per category.
-  const cats=[...new Set(rows.map(catOf))];
-  const errCol=ch.mapping.errCol;
-  // A one-series bar chart of samples (strains on the x axis) takes the lab colours by
-  // category, since there is no series to name; the key then lists the categories.
-  const byCat=yCols.length===1 && cats.some(c=>_sampleColour(c));
-  const snames=yCols.map((yc,si)=>cols[yc]||('Series '+(si+1))), scol=_seriesColours(snames, colours);
+  // bar / groupedBar / stackedBar: categories on x, one bar per series per category.
+  const skeys=S.skeys, snames=skeys.map(disp), scol=_seriesColours(skeys, colours, snames);
+  // A one-series bar chart of samples (strains on the x axis, or one column per strain)
+  // takes the colours by category, since there is no series to name; the key then lists
+  // the categories.
+  const byCat=skeys.length===1 && (S.wide || catKeys.some(c=>labOf(c)));
   // By category, a category off the palette takes the series colour, as before, or the
   // first default colour no lab category on this chart holds.
-  const labCat=new Set(cats.map(c=>_sampleColour(c)).filter(Boolean).map(c=>String(c).toLowerCase()));
+  const labCat=new Set(catKeys.map(labOf).filter(Boolean).map(c=>String(c).toLowerCase()));
   const offCat=labCat.has(String(scol[0]).toLowerCase())?(colours.find(c=>!labCat.has(String(c).toLowerCase()))||scol[0]):scol[0];
-  const groups=cats.map((c,ci)=>{
-    const crows=rows.filter(r=>catOf(r)===c);
-    const bars=yCols.map((yc,si)=>{
-      const vals=crows.map(r=>num(r[yc])).filter(isFinite);
-      let value, err=0;
-      if(ch.agg==='mean' || vals.length>1){ value=_mean(vals);
-        if(ch.error==='sd') err=_sd(vals); else if(ch.error==='sem') err=_sem(vals);
-      } else { value=vals.length?vals[0]:0; }
-      if(ch.error==='column' && errCol!=null){ const e=num((crows[0]||[])[errCol]); if(isFinite(e)) err=e; }
+  const wideCol=S.wide?_seriesColours(catKeys, colours, cats):null;
+  const cell=new Map(); obs.forEach(o=>{ const k=o.cat+'\u0001'+o.s; let q=cell.get(k); if(!q){ q={vals:[],es:[]}; cell.set(k,q); } q.vals.push(o.y); q.es.push(o.e); });
+  const groups=catKeys.map((c,ci)=>{
+    const bars=skeys.map((sk,si)=>{
+      const q=cell.get(c+'\u0001'+sk)||{vals:[],es:[]};
+      const a=_chartAgg(q.vals,q.es,(ch.agg==='mean'||q.vals.length>1||ch.error==='column')?ch.error:'none');
       // Keep the raw replicate values so "show points" can overlay them (exposes n + spread).
-      const nm=cols[yc]||('Series '+(si+1));
-      return {series:nm, color:byCat?(_sampleColour(c)||offCat):scol[si], value, err, n:vals.length, vals};
+      const color=S.wide?wideCol[ci]:byCat?(labOf(c)||offCat):scol[si];
+      return {series:snames[si], key:sk, color, value:a.mean, err:a.err, n:q.vals.length, vals:q.vals, missing:!q.vals.length};
     });
-    return {cat:c, bars};
+    return {cat:cats[ci], key:c, bars};
   });
-  // y domain: include error bars and, for stacked, the RUNNING cumulative extent
-  // (not just the net total) so a mixed-sign stack never draws outside the plot.
+  // y domain: include error bars, the overlaid points and, for stacked, the RUNNING
+  // cumulative extent (not just the net total) so a mixed-sign stack never draws outside the plot.
   let ymin=0,ymax=0, anyData=false;
-  groups.forEach(g=>{
-    if(kind==='stackedBar'){ let cum=0; g.bars.forEach(b=>{ cum+=b.value; ymax=Math.max(ymax,cum); ymin=Math.min(ymin,cum); anyData=true; }); }
-    else g.bars.forEach(b=>{ ymax=Math.max(ymax,b.value+b.err); ymin=Math.min(ymin,b.value-b.err); anyData=true; });
-  });
-  if(ymin>0) ymin=0;                    // bars read from a zero baseline
-  // Only synthesise a [0,1] axis when there is NO finite data — an all-negative
-  // dataset has a legitimate ymax of 0 and must not gain a spurious band above zero.
-  if(!anyData){ ymin=0; ymax=1; } else if(ymin===0&&ymax===0){ ymax=1; }
-  const seriesNames=snames.map((nm,si)=>({name:nm, color:scol[si]}));
-  const catColours=byCat?groups.map(g=>({name:g.cat, color:g.bars[0].color})):null;
-  return {kind, groups, categories:cats, seriesNames, catColours, series:null, yDomain:[ymin,ymax], warn};
+  const pts=!!style.showPoints;
+  if(S.yLog){
+    const v=[];
+    groups.forEach(g=>g.bars.forEach(b=>{ if(b.missing) return; v.push(b.value+b.err); v.push(b.value-b.err>0?b.value-b.err:b.value); if(pts) b.vals.forEach(x=>v.push(x)); }));
+    const pos=v.filter(x=>x>0);
+    ymin=_arrMin(pos,1); ymax=_arrMax(pos,10);
+  } else {
+    groups.forEach(g=>{
+      if(kind==='stackedBar'){ let cum=0; g.bars.forEach(b=>{ if(b.missing) return; cum+=b.value; ymax=Math.max(ymax,cum); ymin=Math.min(ymin,cum); anyData=true; }); }
+      else g.bars.forEach(b=>{ if(b.missing) return; ymax=Math.max(ymax,b.value+b.err); ymin=Math.min(ymin,b.value-b.err); anyData=true;
+        if(pts&&b.vals.length>1) b.vals.forEach(x=>{ ymax=Math.max(ymax,x); ymin=Math.min(ymin,x); }); });
+    });
+    if(ymin>0) ymin=0;                    // bars read from a zero baseline
+    // Only synthesise a [0,1] axis when there is NO finite data — an all-negative
+    // dataset has a legitimate ymax of 0 and must not gain a spurious band above zero.
+    if(!anyData){ ymin=0; ymax=1; } else if(ymin===0&&ymax===0){ ymax=1; }
+  }
+  const seriesNames=snames.map((nm,si)=>({name:nm, key:skeys[si], color:scol[si]}));
+  const catColours=byCat?groups.map(g=>({name:g.cat, key:g.key, color:g.bars[0].color})):null;
+  return {kind, groups, categories:cats, catKeys, seriesNames, catColours, series:null, yDomain:[ymin,ymax], logBars:S.yLog, warn};
 }
 
 // Cache wrapper — recompute only when the dataset/mapping/agg/error change.
 function _chartStatsCached(el){
   const ch=el.chart;
-  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error, gv('sample-colours')]);
+  const ax=ch.axes||{};
+  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error, gv('sample-colours'),
+    ch.names||null, ch.order||null, !!(ax.x&&ax.x.log), !!(ax.y&&ax.y.log), !!(ch.style&&ch.style.showPoints), ch.style&&ch.style.palette]);
   if(el._chartKey===key && el._chartStat) return el._chartStat;
   el._chartStat=_chartStats(el); el._chartKey=key;
   return el._chartStat;
@@ -25101,6 +25479,9 @@ function _chartEmitCanvas(ctx){
     poly(pts,stroke,fill,sw){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     circle(cx,cy,r,fill,stroke,sw){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); _rtDraw(ctx,str,0,0); } else _rtDraw(ctx,str,x,y); ctx.restore(); },
+    // Everything drawn between clipStart and clipEnd stays inside the plot rectangle.
+    clipStart(x,y,w,h){ ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip(); },
+    clipEnd(){ ctx.restore(); },
   };
 }
 // SVG backend — appends element strings to `out`. Same vocabulary as the canvas
@@ -25115,14 +25496,84 @@ function _chartEmitSVG(out){
     line(x1,y1,x2,y2,stroke,sw,dash){ out.push(`<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${stroke||'#000'}" stroke-width="${sw||1}"${dash?` stroke-dasharray="${dash.join(' ')}"`:''}/>`); },
     poly(pts,stroke,fill,sw){ const p=pts.map(q=>`${n(q[0])},${n(q[1])}`).join(' '); out.push(`<polyline points="${p}" fill="${fill||'none'}"${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''} stroke-linejoin="round"/>`); },
     circle(cx,cy,r,fill,stroke,sw){ out.push(`<circle cx="${n(cx)}" cy="${n(cy)}" r="${n(r)}"${fill?` fill="${fill}"`:' fill="none"'}${stroke?` stroke="${stroke}" stroke-width="${sw||1}"`:''}/>`); },
+    clipStart(x,y,w,h){ const id='flclip'+(++_chartClipSeq); out.push(`<clipPath id="${id}"><rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}"/></clipPath><g clip-path="url(#${id})">`); },
+    clipEnd(){ out.push('</g>'); },
     text(str,x,y,font,fill,align,baseline,rot){ const fp=fparts(font); const anchor=align==='center'?'middle':align==='right'?'end':'start'; const base=baseline==='middle'?'central':baseline==='top'?'text-before-edge':'alphabetic'; const tr=rot?` transform="rotate(${rot} ${n(x)} ${n(y)})"`:''; const R=_rtDrawRuns(str); if(R){ out.push(`<text x="${n(x)}" y="${n(y+_rtBaseOff(_rtMc(),font,baseline||'alphabetic'))}" font-family="${esc(fp.fam)}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${esc(fill)}" text-anchor="${anchor}"${tr}>${_rtSVGSpans(R,font,esc)}</text>`); return; } out.push(`<text x="${n(x)}" y="${n(y)}" font-family="${esc(fp.fam)}" font-size="${fp.size}" font-weight="${fp.wt}" fill="${esc(fill)}" text-anchor="${anchor}" dominant-baseline="${base}"${tr}>${esc(str)}</text>`); },
   };
 }
 
+// ── Axes ───────────────────────────────────────────────────────
+// One axis from its data domain and the author's limits: log axes snap outward to
+// whole decades (with 2–9 minor ticks), linear axes to the nice ticks around the data,
+// so the last tick sits at the end of the axis. Min/max typed by the author win.
+function _chartAxisSpec(dom, a, opts){
+  a=a||{}; opts=opts||{};
+  const val=v=>(v!=null&&v!==''&&isFinite(+v))?+v:null;
+  const umin=val(a.min), umax=val(a.max);
+  let lo=+(dom&&dom[0]), hi=+(dom&&dom[1]); if(!isFinite(lo)) lo=0; if(!isFinite(hi)) hi=lo+1;
+  const p10=e=>Number('1e'+e);
+  if(opts.log){
+    const dlo=lo>0?lo:(hi>0?hi/10:1), dhi=hi>0?hi:dlo*10;
+    const L=(umin!=null&&umin>0)?umin:p10(Math.floor(Math.log10(dlo)+1e-9));
+    let Hh=(umax!=null&&umax>0)?umax:p10(Math.ceil(Math.log10(dhi)-1e-9));
+    if(!(Hh>L)) Hh=L*10;
+    const e0=Math.ceil(Math.log10(L)-1e-9), e1=Math.floor(Math.log10(Hh)+1e-9);
+    let ticks=[]; for(let e=e0;e<=e1;e++) ticks.push(p10(e));
+    const minor=[]; for(let e=e0-1;e<=e1;e++) for(let k=2;k<=9;k++){ const v=k*p10(e); if(v>L*(1+1e-9)&&v<Hh*(1-1e-9)) minor.push(v); }
+    // Less than two decades on the axis: 2× and 5× are labelled too, so it can be read.
+    if(ticks.length<2){ minor.filter(v=>{ const k=Math.round(v/p10(Math.floor(Math.log10(v)+1e-9))); return k===2||k===5; }).forEach(v=>ticks.push(v)); ticks.sort((x,y)=>x-y); }
+    if(!ticks.length) ticks=[L,Hh];
+    return {log:true, min:L, max:Hh, ticks, minor:minor.filter(v=>!ticks.includes(v)), labels:_fmtLogTicks(ticks), user:umin!=null||umax!=null};
+  }
+  const tg=opts.target||5;
+  if(umin!=null||umax!=null){
+    let min=umin!=null?umin:Math.min(lo,_niceTicks(lo,hi,tg)[0]), max=umax!=null?umax:Math.max(hi,_niceTicks(lo,hi,tg).slice(-1)[0]);
+    if(!(max>min)) max=min+1;
+    const eps=1e-9*(max-min), ticks=_niceTicks(min,max,tg).filter(t=>t>=min-eps&&t<=max+eps);
+    return {log:false, min, max, ticks, minor:[], labels:_fmtTicks(ticks), user:true};
+  }
+  const nice=_niceTicks(lo,hi,tg);
+  // The axis ends on a tick: one more step when the data run past the last one.
+  if(nice.length>1&&nice[nice.length-1]<hi-1e-12*Math.abs(hi)){ const st=nice[1]-nice[0]; nice.push(+(nice[nice.length-1]+st).toFixed(10)); }
+  let min=Math.min(lo,nice[0]), max=Math.max(hi,nice[nice.length-1]);
+  if(!(max>min)) max=min+1;
+  return {log:false, min, max, ticks:nice, minor:[], labels:_fmtTicks(nice), user:false};
+}
+function _chartScaleFn(A, p0, p1){
+  if(A.log){ const lo=Math.log10(A.min), hi=Math.log10(A.max); return v=>p0+(Math.log10(Math.max(1e-300,v))-lo)/((hi-lo)||1)*(p1-p0); }
+  return v=>p0+(v-A.min)/((A.max-A.min)||1)*(p1-p0);
+}
+// Tick labels for one linear axis, together, with as many figures as it takes for every
+// label to differ (2e+9 twice for 1.5e9 and 2e9 was the old bug). Large and small
+// numbers are written 1.5×10⁹ — superscript through the label format marks.
+function _sciTick(v, d){
+  let e=Math.floor(Math.log10(Math.abs(v))+1e-12), m=+(v/Math.pow(10,e)).toFixed(d);
+  if(Math.abs(m)>=10){ m=+(m/10).toFixed(d); e++; }
+  return _rtOn()?`${m}×10^{${e}}`:`${m}e${e}`;
+}
+function _fmtTicks(ticks){
+  const nz=ticks.filter(t=>t!==0).map(Math.abs); if(!nz.length) return ticks.map(()=>'0');
+  const mx=Math.max(...nz), sci=mx>=1e5||mx<1e-3;
+  for(let d=0; d<8; d++){
+    const lab=ticks.map(t=>t===0?'0':sci?_sciTick(t,d):d===0&&Number.isInteger(+t.toFixed(9))?String(Math.round(t)):t.toFixed(Math.max(d,0)));
+    if(new Set(lab).size===lab.length) return lab;
+  }
+  return ticks.map(t=>String(t));
+}
+// Log-axis labels: plain numbers from 0.001 to 10 000, else 10ⁿ (2×10ⁿ for a labelled minor tick).
+function _fmtLogTicks(ticks){
+  const ex=v=>Math.floor(Math.log10(v)+1e-9);
+  const plain=ticks.every(v=>ex(v)>=-3&&ex(v)<=4);
+  return ticks.map(v=>{ const e=ex(v), k=Math.round(v/Number('1e'+e));
+    if(plain) return String(+v.toPrecision(6));
+    if(!_rtOn()) return k===1?`1e${e}`:`${k}e${e}`;
+    return k===1?`10^{${e}}`:`${k}×10^{${e}}`; });
+}
+let _chartClipSeq=0;
 // Draw a chart into `emit`, in the element's LOCAL coordinate space (0,0..w,h).
 // Callers translate to el.x,el.y (and rotate) around this.
 function _chartDraw(el, emit){
-  const ch=el.chart, W=el.w, H=el.h, st=ch.style;
+  const ch=el.chart, W=el.w, H=el.h, st=ch.style||{};
   const stat=_chartStatsCached(el);
   // Type: the figure's font and text size (Look › Typography) unless the chart carries its
   // own; T is the size of ticks, category and legend names — no chart text is smaller —
@@ -25134,13 +25585,50 @@ function _chartDraw(el, emit){
   const fs=T*1.1, u=fs/12, ink='#222222', grid='#e2e2e2';
   if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink, T); return; }
   if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink, T); return; }
+  const axes=ch.axes||{}, axX=axes.x||{}, axY=axes.y||{};
+  const clipOn=(x,y,w,h)=>{ if(emit.clipStart) emit.clipStart(x,y,w,h); }, clipOff=()=>{ if(emit.clipEnd) emit.clipEnd(); };
+  // ── Axes first: their limits decide what is drawn and what notes the chart carries ──
+  const yLog=!!axY.log && !_chartLogWhy(stat.kind,'y');
+  const yA=_chartAxisSpec(stat.yDomain||[0,1], axY, {log:yLog});
+  const ymin=yA.min, ymax=yA.max;
+  let xA=null, xDataTicks=null;
+  if(stat.series){
+    const xLog=!!axX.log;
+    xA=_chartAxisSpec(stat.xDomain||[0,1], axX, {log:xLog});
+    // A handful of x values (0, 4, 24 h): tick them, not 0, 5, 10 …
+    const xs=[...new Set(stat.series.flatMap(s=>s.points.map(p=>p.x)))].sort((a,b)=>a-b);
+    if(!xLog&&!xA.user&&xs.length>=2&&xs.length<=8) xDataTicks=xs;
+  }
+  // Values the axis limits leave out, counted and said on the figure.
+  const inY=v=>v>=ymin-1e-12*Math.abs(ymax-ymin)&&v<=ymax+1e-12*Math.abs(ymax-ymin);
+  let outside=0, cut=0;
+  if(stat.series){ const xin=v=>!xA||(v>=xA.min-1e-12&&v<=xA.max+1e-12);
+    stat.series.forEach(s=>s.points.forEach(p=>{ if(!inY(p.y)||!xin(p.x)) outside++; else if(p.err>0&&(p.y+p.err>ymax||(p.y-p.err<ymin&&!(yLog&&p.y-p.err<=0)))) cut++; })); }
+  if(stat.groups) stat.groups.forEach(g=>g.bars.forEach(b=>{ if(b.missing) return; if(stat.kind!=='stackedBar'&&(b.value>ymax||(yLog&&b.value<ymin))) outside++;
+    else if(b.err>0&&b.value+b.err>ymax) cut++;
+    if(st.showPoints&&b.vals&&b.vals.length>1) b.vals.forEach(v=>{ if(!inY(v)) outside++; }); }));
+  if(stat.boxes) stat.boxes.forEach(b=>b.raw.forEach(v=>{ if(!inY(v)) outside++; }));
+  const notes=[];
+  // Integrity: a non-zero bar baseline visually exaggerates differences — disclose it.
+  if(stat.categories && stat.kind!=='box' && !yLog && axY.min!=null && axY.min!=='' && +axY.min>0)
+    notes.push(`⚠ y-axis starts at ${axY.min}, not 0 — bar differences are visually exaggerated`);
+  if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`);
+  if(outside) notes.push(`${outside} value${outside>1?'s':''} outside the axis range not shown`);
+  if(cut) notes.push(`${cut} error bar${cut>1?'s':''} cut at the axis limit`);
+  if(ch.link&&!_chartGesturing()&&_chartLinkState(el).stale) notes.push('⚠ out of date with the densitometry it was made from');
+  const noteH=notes.length?notes.length*(T+1)+2*u:0;
+  // Significance brackets need room above the tallest group.
+  const cats0=stat.categories||[];
+  const sigs=stat.categories?(ch.annos||[]).filter(an=>an&&an.kind==='sig'&&Math.min(an.a,an.b)>=0&&Math.max(an.a,an.b)<cats0.length&&an.a!==an.b):[];
+  const sigH=sigs.length?((14+Math.max(0,...sigs.map(an=>an.level||0))*15)*u+fs):0;
   // Decide up front whether category labels would collide horizontally and must be
   // rotated — bottom padding depends on it, so this has to happen before padB.
   // Reserve exactly enough width for the legend labels (was a fixed 96px that both
   // wasted space with no legend and clipped long series names).
   const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
   let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26*u+mx*T*0.56); }
-  const padL=48*u, padR=(_legW>0?_legW+8*u:16*u), padT=14*u;
+  let _yLabW=0; for(const l of yA.labels) _yLabW=Math.max(_yLabW,_rtText(l).length);
+  const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0?_legW+8*u:16*u), padT=14*u+sigH;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
@@ -25149,7 +25637,7 @@ function _chartDraw(el, emit){
   }
   // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
   const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*T*0.55*0.7+10*u) : 0;
-  const padB = rotateXLabels ? (ch.axes.x.title?24:14)*u+_rotExtent : (ch.axes.x.title?40:28)*u;
+  const padB = (rotateXLabels ? (axX.title?24:14)*u+_rotExtent : (axX.title?40:28)*u) + noteH;
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
   const px1=px0+pw, py1=py0+ph;
 
@@ -25160,28 +25648,18 @@ function _chartDraw(el, emit){
     emit.line(px0,py1,px1,py1,ink,axW);                   // x axis
     emit.line(px0,py0,px0,py1,ink,axW);                   // y axis
   }
-
-  const yD=stat.yDomain||[0,1];
-  const yLog=ch.axes.y.log && yD[0]>0;
-  let ymin=ch.axes.y.min!=null?ch.axes.y.min:yD[0];
-  let ymax=ch.axes.y.max!=null?ch.axes.y.max:yD[1];
-  if(ymin===ymax) ymax=ymin+1;
-  const yScale=v=>{
-    if(yLog){ const lo=Math.log10(Math.max(1e-9,ymin)), hi=Math.log10(ymax); return py1-(Math.log10(Math.max(1e-9,v))-lo)/(hi-lo)*ph; }
-    return py1-(v-ymin)/(ymax-ymin)*ph;
-  };
-  // Y grid + ticks.
-  const yTicks=yLog?_logTicks(Math.max(1e-9,ymin),ymax):_niceTicks(ymin,ymax,5);
-  yTicks.forEach(t=>{
-    if(t<ymin-1e-9||t>ymax+1e-9) return;
+  const yScale=_chartScaleFn(yA, py1, py0);
+  // Y grid + ticks (minor ticks on a log axis, unlabelled).
+  yA.ticks.forEach((t,i)=>{
     const y=yScale(t);
     if(st.showGrid) emit.line(px0,y,px1,y,grid,1);
     emit.line(px0-3,y,px0,y,ink,axW);
-    emit.text(_fmtTick(t),px0-6*u,y,font(T),ink,'right','middle');
+    emit.text(yA.labels[i],px0-6*u,y,font(T),ink,'right','middle');
   });
+  yA.minor.forEach(t=>{ const y=yScale(t); emit.line(px0-2,y,px0,y,ink,Math.max(0.5,axW*0.7)); });
   // Axis titles.
-  if(ch.axes.y.title) emit.text(ch.axes.y.title, 12*u, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
-  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6*u, font(fs), ink, 'center', 'alphabetic');
+  if(axY.title) emit.text(axY.title, 12*u, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
+  if(axX.title) emit.text(axX.title, px0+pw/2, H-6*u-noteH, font(fs), ink, 'center', 'alphabetic');
 
   // User reference / threshold lines — a DRAWN value the author supplies (LOD,
   // baseline, cutoff), never a computed statistic.
@@ -25192,12 +25670,6 @@ function _chartDraw(el, emit){
     emit.line(px0,y,px1,y, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
     if(rf.label) emit.text(rf.label, px1-2, y-3, font(T), rf.color||'#c0392b', 'right', 'alphabetic');
   });
-  // Integrity: a non-zero bar baseline visually exaggerates differences — disclose it.
-  if(stat.categories && stat.kind!=='box' && ch.axes.y.min!=null && ch.axes.y.min>0){
-    emit.text(`⚠ y-axis starts at ${ch.axes.y.min}, not 0 — bar differences are visually exaggerated`, px0, H-2, font(T), '#b00', 'left', 'alphabetic');
-  }
-
-  const colours=_chartColors(ch);
 
   // ── Category charts (bar family + box) share an x band layout ──
   if(stat.categories){
@@ -25206,6 +25678,9 @@ function _chartDraw(el, emit){
     // Rotate crowded labels ~40° (right-anchored at the tick) so they never overlap.
     if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9*u, font(T), ink, 'right', 'middle', -40));
     else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14*u, font(T), ink, 'center', 'alphabetic'));
+    // The top of what each category draws, for its significance bracket.
+    const top=new Array(nC).fill(py1);
+    const lift=(ci,y)=>{ if(isFinite(y)) top[ci]=Math.min(top[ci], Math.max(py0, y)); };
 
     if(stat.kind==='violin'){
       const bw=band*0.44, pr=Math.max(1.5,(st.pointSize||4)-2);
@@ -25217,23 +25692,30 @@ function _chartDraw(el, emit){
           const left=kde.map(p=>[cx-(p.d/maxD)*bw, cy(p.y)]);
           const right=kde.slice().reverse().map(p=>[cx+(p.d/maxD)*bw, cy(p.y)]);
           emit.poly(left.concat(right).concat([left[0]]), ink, b.color, 1);   // filled density
+          kde.forEach(p=>{ if(p.d/maxD>0.02) lift(ci, cy(p.y)); });
         }
+        lift(ci, yScale(b.max));
         emit.line(cx,yScale(b.q1),cx,yScale(b.q3),'#222222',3);       // IQR spine
         emit.circle(cx,yScale(b.med),2.4,'#ffffff',ink,0.6);         // median dot
-        if(st.showPoints && b.raw) b.raw.forEach((v,k)=>emit.circle(cx+_jit(k)*bw*0.5, yScale(v), pr, 'rgba(20,20,20,0.5)', null, 0));
+        if(st.showPoints && b.raw) b.raw.forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.5, yScale(v), pr, 'rgba(20,20,20,0.5)', null, 0); });
       });
     } else if(stat.kind==='beeswarm'){
       const bw=band*0.4, pr=Math.max(2,(st.pointSize||4)-1);
       stat.boxes.forEach((b,ci)=>{
         const cx=xCenter(ci);
-        if(b.raw) b.raw.forEach((v,k)=>emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5));
+        clipOn(px0,py0,pw,ph);
         emit.line(cx-bw*0.85,yScale(b.mean),cx+bw*0.85,yScale(b.mean),'#222222',2.2);   // mean bar
-        if(b.sd>0){ emit.line(cx,yScale(b.mean-b.sd),cx,yScale(b.mean+b.sd),'#222222',1.2);
+        if(b.sd>0){ const lo=(yLog&&b.mean-b.sd<=0)?ymin:b.mean-b.sd;
+          emit.line(cx,yScale(lo),cx,yScale(b.mean+b.sd),'#222222',1.2);
           emit.line(cx-bw*0.3,yScale(b.mean+b.sd),cx+bw*0.3,yScale(b.mean+b.sd),'#222222',1.2);
-          emit.line(cx-bw*0.3,yScale(b.mean-b.sd),cx+bw*0.3,yScale(b.mean-b.sd),'#222222',1.2); }  // ±SD
+          if(!(yLog&&b.mean-b.sd<=0)) emit.line(cx-bw*0.3,yScale(b.mean-b.sd),cx+bw*0.3,yScale(b.mean-b.sd),'#222222',1.2);
+          lift(ci, yScale(b.mean+b.sd)); }  // ±SD
+        clipOff();
+        if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr); });
       });
     } else if(stat.kind==='box'){
       const bw=band*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
+      clipOn(px0,py0,pw,ph);
       stat.boxes.forEach((b,ci)=>{
         const cx=xCenter(ci), x0=cx-bw/2;
         emit.line(cx,yScale(b.min),cx,yScale(b.max),ink,1);          // whisker
@@ -25241,102 +25723,130 @@ function _chartDraw(el, emit){
         emit.line(cx-bw*0.25,yScale(b.max),cx+bw*0.25,yScale(b.max),ink,1);
         emit.rect(x0,yScale(b.q3),bw,yScale(b.q1)-yScale(b.q3),b.color,ink,1);  // IQR box
         emit.line(x0,yScale(b.med),x0+bw,yScale(b.med),ink,1.5);     // median
-        // Overlay every raw value (jittered) — exposes n + spread the box summarises.
-        if(st.showPoints && b.raw) b.raw.forEach((v,k)=>emit.circle(cx+_jit(k)*bw*0.7, yScale(v), pr, 'rgba(20,20,20,0.55)', null, 0));
+        lift(ci, yScale(b.max));
       });
+      clipOff();
+      // Overlay every raw value (jittered) — exposes n + spread the box summarises.
+      if(st.showPoints) stat.boxes.forEach((b,ci)=>{ const cx=xCenter(ci); (b.raw||[]).forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.7, yScale(v), pr, 'rgba(20,20,20,0.55)', null, 0); }); });
     } else {
-      // Bar family.
+      // Bar family. On a log axis the bars rise from the bottom of the axis (its floor
+      // decade), as Prism draws them; on a linear one from zero.
       const stacked=stat.kind==='stackedBar';
       const nS=stat.seriesNames.length;
       const groupW=band*(1-(st.groupGap??0.35));
+      const base0=yLog?py1:Math.max(py0,Math.min(py1,yScale(0)));
+      const dots=[];
+      clipOn(px0,py0,pw,ph);
       stat.groups.forEach((g,ci)=>{
         const gx=xCenter(ci)-groupW/2;
         if(stacked){
           let yTop=yScale(0);
-          g.bars.forEach((b)=>{ const h=yScale(0)-yScale(b.value); emit.rect(gx,yTop-h,groupW,h,b.color,ink,0.5); yTop-=h; });
+          g.bars.forEach((b)=>{ if(b.missing) return; const h=yScale(0)-yScale(b.value); emit.rect(gx,yTop-h,groupW,h,b.color,ink,0.5); yTop-=h; });
+          lift(ci, yTop);
         } else {
           const barW=groupW/Math.max(1,nS)*(1-(st.barGap??0.2));
           const slot=groupW/Math.max(1,nS);
           g.bars.forEach((b,si)=>{
-            const bx=gx+slot*si+(slot-barW)/2, by=yScale(b.value), base=yScale(0);
-            emit.rect(bx,Math.min(by,base),barW,Math.abs(base-by),b.color,ink,0.5);
-            if(b.err>0){ const ex=bx+barW/2; emit.line(ex,yScale(b.value+b.err),ex,yScale(Math.max(0,b.value-b.err)),ink,1);
-              emit.line(ex-barW*0.2,yScale(b.value+b.err),ex+barW*0.2,yScale(b.value+b.err),ink,1); }
+            const bx=gx+slot*si+(slot-barW)/2;
+            if(b.missing){ dots.push({nd:true, x:bx+barW/2, y:base0-3}); return; }
+            const by=yScale(b.value);
+            emit.rect(bx,Math.min(by,base0),barW,Math.abs(base0-by),b.color,ink,0.5);
+            lift(ci, Math.min(by,base0));
+            if(b.err>0){ const ex=bx+barW/2;
+              let hi=b.value+b.err, lo=b.value-b.err;
+              if(!yLog){ if(b.value>=0) lo=Math.max(0,lo); else hi=Math.min(0,hi); }
+              const capV=b.value>=0?hi:lo;
+              emit.line(ex,yScale(hi),ex,(yLog&&lo<=0)?py1:yScale(lo),ink,1);
+              emit.line(ex-barW*0.2,yScale(capV),ex+barW*0.2,yScale(capV),ink,1);
+              lift(ci, yScale(capV)); }
             // Overlay the replicate values (jittered) so the bar never hides its n/spread.
-            if(st.showPoints && b.vals && b.vals.length>1){ const bcx=bx+barW/2, pr=Math.max(1.8,(st.pointSize||4)-1.5);
-              b.vals.forEach((v,k)=>emit.circle(bcx+_jit(k)*barW*0.6, yScale(v), pr, 'rgba(20,20,20,0.6)', '#ffffff', 0.5)); }
+            if(st.showPoints && b.vals && b.vals.length>1){ const bcx=bx+barW/2;
+              b.vals.forEach((v,k)=>{ if(inY(v)){ dots.push({x:bcx+_jit(k)*barW*0.6, y:yScale(v)}); lift(ci, yScale(v)); } }); }
           });
         }
       });
-      // Significance annotations (user-entered strings). Anchored just above the
-      // TALLEST element in the compared span (bar+error, stack total, or overlaid
-      // point), not a fixed ceiling — so brackets sit over what they compare.
-      // Still no computed p-value: an.text is the author's own symbol.
-      const catTopY=ci=>{ const g=stat.groups[ci]; if(!g) return py1; let y=py1;
-        if(stacked){ let tot=0; g.bars.forEach(bb=>{ tot+=bb.value; }); y=yScale(tot); }
-        else g.bars.forEach(bb=>{ y=Math.min(y, yScale(bb.value+bb.err)); });
-        if(st.showPoints) g.bars.forEach(bb=>(bb.vals||[]).forEach(v=>{ y=Math.min(y,yScale(v)); }));
-        return y; };
-      (ch.annos||[]).forEach(an=>{
-        if(an.kind!=='sig') return;
-        const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
-        if(a<0||b>=cats.length) return;
-        const x1=xCenter(a), x2=xCenter(b);
-        let topY=Infinity; for(let ci=a;ci<=b;ci++) topY=Math.min(topY, catTopY(ci));
-        const yTop=Math.max(py0+8, topY - 12 - (an.level||0)*15), drop=6;
-        emit.line(x1,yTop+drop,x1,yTop,ink,1); emit.line(x1,yTop,x2,yTop,ink,1); emit.line(x2,yTop,x2,yTop+drop,ink,1);
-        emit.text(an.text||'*', (x1+x2)/2, yTop-2, font(fs), ink, 'center', 'alphabetic');
-      });
+      clipOff();
+      const pr=Math.max(1.8,(st.pointSize||4)-1.5);
+      dots.forEach(d=>{ if(d.nd) emit.text('n.d.', d.x, d.y, font(T), '#555555', 'center', 'alphabetic');
+        else emit.circle(d.x, d.y, pr, 'rgba(20,20,20,0.6)', '#ffffff', 0.5); });
     }
+    // Significance annotations (user-entered strings), on every category chart. Anchored
+    // just above the TALLEST thing drawn in the compared span (bar + error, box whisker,
+    // violin, beeswarm dot, overlaid point), in the band reserved above the plot — not a
+    // fixed ceiling. Still no computed p-value: an.text is the author's own symbol.
+    sigs.forEach(an=>{
+      const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
+      const x1=xCenter(a), x2=xCenter(b);
+      let topY=Infinity; for(let ci=a;ci<=b;ci++) topY=Math.min(topY, top[ci]);
+      const yTop=Math.max(fs+2, topY - (12 + (an.level||0)*15)*u), drop=6*u;
+      emit.line(x1,yTop+drop,x1,yTop,ink,1); emit.line(x1,yTop,x2,yTop,ink,1); emit.line(x2,yTop,x2,yTop+drop,ink,1);
+      emit.text(an.text||'*', (x1+x2)/2, yTop-2, font(fs), ink, 'center', 'alphabetic');
+    });
   }
 
   // ── Scatter / line (numeric x) ──
   if(stat.series){
-    const xD=stat.xDomain||[0,1];
-    const xLog=ch.axes.x.log && xD[0]>0;
-    let xmin=ch.axes.x.min!=null?ch.axes.x.min:xD[0];
-    let xmax=ch.axes.x.max!=null?ch.axes.x.max:xD[1];
-    if(xmin===xmax) xmax=xmin+1;
-    const xScale=v=> xLog ? px0+(Math.log10(Math.max(1e-9,v))-Math.log10(Math.max(1e-9,xmin)))/(Math.log10(xmax)-Math.log10(Math.max(1e-9,xmin)))*pw
-                          : px0+(v-xmin)/(xmax-xmin)*pw;
-    const xTicks=xLog?_logTicks(Math.max(1e-9,xmin),xmax):_niceTicks(xmin,xmax,5);
-    xTicks.forEach(t=>{ if(t<xmin-1e-9||t>xmax+1e-9) return; const x=xScale(t);
+    const xLog=xA.log, xmin=xA.min, xmax=xA.max;
+    let xmin2=xmin, xmax2=xmax, xt=xA.ticks, xl=xA.labels;
+    if(xDataTicks){
+      const labs=_fmtTicks(xDataTicks), lo=xDataTicks[0], hi=xDataTicks[xDataTicks.length-1];
+      const lo2=lo, sp=pw/((hi-lo2)||1); let gap=Infinity; for(let i=1;i<xDataTicks.length;i++) gap=Math.min(gap,(xDataTicks[i]-xDataTicks[i-1])*sp);
+      let lw=0; labs.forEach(l=>{ lw=Math.max(lw,_rtText(l).length*T*0.56); });
+      if(gap>=lw+6*u){ xmin2=lo2; xmax2=hi; xt=xDataTicks; xl=labs; }
+    }
+    const XA={log:xLog, min:xmin2, max:xmax2};
+    const xScale=_chartScaleFn(XA, px0, px1);
+    const inX=v=>v>=xmin2-1e-12*Math.abs(xmax2-xmin2)&&v<=xmax2+1e-12*Math.abs(xmax2-xmin2);
+    xt.forEach((t,i)=>{ if(!inX(t)) return; const x=xScale(t);
       if(st.showGrid) emit.line(x,py0,x,py1,grid,1);
       emit.line(x,py1,x,py1+3,ink,1);
-      emit.text(_fmtTick(t),x,py1+14*u,font(T),ink,'center','alphabetic'); });
+      emit.text(xl[i],x,py1+14*u,font(T),ink,'center','alphabetic'); });
+    if(xLog) xA.minor.forEach(t=>{ const x=xScale(t); emit.line(x,py1,x,py1+2,ink,1); });
     // Vertical reference lines (author-supplied x threshold).
-    (ch.refs||[]).forEach(rf=>{ if(rf.axis!=='x') return; if(!(rf.value>=xmin && rf.value<=xmax)) return;
+    (ch.refs||[]).forEach(rf=>{ if(rf.axis!=='x') return; if(!(rf.value>=xmin2 && rf.value<=xmax2)) return;
       const x=xScale(rf.value); emit.line(x,py0,x,py1, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
       if(rf.label) emit.text(rf.label, x+3, py0+10*u, font(T), rf.color||'#c0392b', 'left', 'alphabetic'); });
+    const marks=[];
+    clipOn(px0,py0,pw,ph);
     stat.series.forEach(s=>{
-      if(stat.kind==='line'){
-        const pts=s.points.map(p=>[xScale(p.x),yScale(p.y)]);
-        emit.poly(pts,s.color,null,st.lineWidth||2);
-        if(st.showPoints) s.points.forEach(p=>emit.circle(xScale(p.x),yScale(p.y),st.pointSize||3,s.color,null,0));
-      } else {
-        s.points.forEach(p=>emit.circle(xScale(p.x),yScale(p.y),st.pointSize||4,s.color,'#ffffff',0.5));
-      }
+      if(stat.kind==='line') emit.poly(s.points.map(p=>[xScale(p.x),yScale(p.y)]),s.color,null,st.lineWidth||2);
+      // Error bars: mean ± SD / SEM of the replicates at each x, or the column's value.
+      s.points.forEach(p=>{ if(!(p.err>0)) return; const x=xScale(p.x), lo=p.y-p.err, hi=p.y+p.err;
+        const yl=(yLog&&lo<=0)?py1:yScale(lo), yh=yScale(hi);
+        emit.line(x,yl,x,yh,s.color,1);
+        emit.line(x-4,yh,x+4,yh,s.color,1);
+        if(!(yLog&&lo<=0)) emit.line(x-4,yl,x+4,yl,s.color,1); });
       if(ch.fit&&ch.fit.on){
         const f=_chartLinFit(s.points);
-        emit.line(xScale(xmin),yScale(f.m*xmin+f.b),xScale(xmax),yScale(f.m*xmax+f.b),s.color,1.5,[6,4]);
-        if(ch.fit.showEq||ch.fit.showR2){
-          const parts=[]; if(ch.fit.showEq) parts.push(`y=${f.m.toFixed(2)}x+${f.b.toFixed(2)}`); if(ch.fit.showR2) parts.push(`R²=${f.r2.toFixed(2)}`);
-          emit.text(parts.join('  '), px1-4, py0+12*u, font(T), s.color, 'right', 'alphabetic');
-        }
+        emit.line(xScale(xmin2),yScale(f.m*xmin2+f.b),xScale(xmax2),yScale(f.m*xmax2+f.b),s.color,1.5,[6,4]);
       }
+      s.points.forEach(p=>{ if(!inY(p.y)||!inX(p.x)) return;
+        if(stat.kind==='scatter'&&stat.aggregated&&st.showPoints&&p.n>1) p.vals.forEach((v,k)=>{ if(inY(v)) marks.push({x:xScale(p.x)+_jit(k)*6, y:yScale(v), r:Math.max(1.5,(st.pointSize||4)-2), fill:'rgba(20,20,20,0.45)', stroke:null}); });
+        if(stat.kind==='line'){ if(st.showPoints) marks.push({x:xScale(p.x), y:yScale(p.y), r:st.pointSize||3, fill:s.color, stroke:null}); }
+        else marks.push({x:xScale(p.x), y:yScale(p.y), r:st.pointSize||4, fill:s.color, stroke:'#ffffff'}); });
     });
+    clipOff();
+    marks.forEach(m=>emit.circle(m.x,m.y,m.r,m.fill,m.stroke,m.stroke?0.5:0));
+    if(ch.fit&&ch.fit.on&&(ch.fit.showEq||ch.fit.showR2)) stat.series.forEach((s,si)=>{
+      const f=_chartLinFit(s.points), parts=[]; if(ch.fit.showEq) parts.push(`y=${f.m.toFixed(2)}x+${f.b.toFixed(2)}`); if(ch.fit.showR2) parts.push(`R²=${f.r2.toFixed(2)}`);
+      emit.text(parts.join('  '), px1-4, py0+12*u+si*(T+2), font(T), s.color, 'right', 'alphabetic'); });
   }
 
-  // Disclose any values dropped by a log axis, on the figure itself (travels with it).
-  if(stat.warn && stat.warn.dropped>0){
-    emit.text(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`, px0, H-2, font(T), '#b00', 'left', 'alphabetic');
-  }
-  // Legend.
+  // Disclose what the axes left out (values ≤0 on a log axis, values past a limit the
+  // author set, a cut baseline), on the figure itself so it travels with it — on lines
+  // of their own under the x-axis title.
+  notes.forEach((t,i)=>emit.text(t, px0, H-2*u-(notes.length-1-i)*(T+1), font(T), '#b00', 'left', 'alphabetic'));
+  // Legend: each series drawn the way it is plotted (a line with its marker, a dot, a bar).
   if(st.showLegend){
     const items=stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name,color:s.color})):(stat.boxes?stat.boxes.map(b=>({name:b.name,color:b.color})):[]));
     if(items && items.length>1){
       let ly=py0+4*u;
-      items.forEach(it=>{ emit.rect(px1+10*u,ly,10*u,10*u,it.color,ink,0.5); emit.text(it.name,px1+24*u,ly+9*u,font(T),ink,'left','alphabetic'); ly+=16*u; });
+      items.forEach(it=>{
+        if(stat.kind==='line'){ emit.line(px1+8*u,ly+5*u,px1+22*u,ly+5*u,it.color,st.lineWidth||2); if(st.showPoints) emit.circle(px1+15*u,ly+5*u,Math.min(4,st.pointSize||3),it.color,null,0); }
+        else if(stat.kind==='scatter') emit.circle(px1+15*u,ly+5*u,Math.min(4.5,st.pointSize||4),it.color,'#ffffff',0.5);
+        else if(stat.kind==='beeswarm') emit.circle(px1+15*u,ly+5*u,4,it.color,'#333333',0.5);
+        else emit.rect(px1+10*u,ly,10*u,10*u,it.color,ink,0.5);
+        emit.text(it.name,px1+26*u,ly+9*u,font(T),ink,'left','alphabetic'); ly+=16*u; });
     }
   }
 }
@@ -25415,7 +25925,7 @@ function _jit(i){ const s=Math.sin((i+1)*12.9898)*43758.5453; return (s-Math.flo
 function _fmtTick(v){
   if(v===0) return '0';
   const a=Math.abs(v);
-  if(a>=1e5||a<1e-3) return v.toExponential(0);
+  if(a>=1e5||a<1e-3) return Number(v.toExponential(2)).toExponential();   // 1.5e+9, never 2e+9 for 1.5e9
   if(Number.isInteger(v)) return String(v);
   return (+v.toFixed(3)).toString();
 }
@@ -25585,6 +26095,7 @@ function addChartElement(kind){
     logAction('chartAdd',{kind:kind||'bar'});
     toast(`${kind||'bar'} chart added to the grid as panel ${_rtText(formatLabel(im.label))||'?'} — double-click it to edit its data again`,'ok');
     openDataPanelEditor(images.indexOf(im));
+    _chartFreshId=im.id;      // Cancel on this first opening takes the panel away again
     return;
   }
   addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
@@ -25593,6 +26104,8 @@ function addChartElement(kind){
   logAction('chartAdd',{kind:kind||'bar'});
   updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
   openChartModal();
+  // Cancel on this first opening takes the placeholder away again.
+  _chartFreshId=freeformElements[ni]&&freeformElements[ni].id;
 }
 
 // Load a dropped/selected CSV/TSV file into a new chart: a panel in the grid (it used to
@@ -25608,20 +26121,17 @@ function _loadDataFile(f, fail, opts){
     try{
     const parsed=_parseDelimited(ev.target.result);
     if(!parsed.columns.length || !parsed.rows.length){ (fail||toast)('That file had no readable rows','err'); return; }
-    // Guess a sensible default: first non-numeric column as x, remaining numeric columns as y.
-    const firstRow=parsed.rows[0]||[];
-    let xCol=firstRow.findIndex(v=>typeof v!=='number'); if(xCol<0) xCol=0;
-    const yCols=parsed.columns.map((_,i)=>i).filter(i=>i!==xCol && parsed.rows.some(r=>typeof r[i]==='number'));
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=380,h=280, ch=_defaultChart('bar');
-    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name};
-    ch.mapping={xCol, yCols:yCols.length?yCols:[Math.min(1,parsed.columns.length-1)], seriesCol:null, errCol:null};
-    if(yCols.length>1) ch.kind='groupedBar';
+    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name, units:parsed.units||null};
+    // A first guess from the table's shape — X, values, error columns, layout, series,
+    // chart type — every part of it a control in the dialog that opens next.
+    _chartApplyGuess(ch, _chartGuess(parsed), false);
     if(layoutMode!=='freeform'){
       const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
       logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
-      toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid`,'ok');
+      toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
       if(!hold) openDataPanelEditor(images.indexOf(im));
       added=true; return;
     }
@@ -25629,7 +26139,7 @@ function _loadDataFile(f, fail, opts){
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
     updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
-    toast(`Imported ${parsed.rows.length} rows from ${f.name}`,'ok');
+    toast(`Imported ${parsed.rows.length} rows from ${f.name}${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
     if(!hold) openChartModal();
     added=true;
     } finally { settle(added); }
@@ -25640,7 +26150,139 @@ function _loadDataFile(f, fail, opts){
   });
 }
 
+// ── Densitometry → chart ───────────────────────────────────────
+// "Chart these values" in the lanes & bands dialog: one series per analysed panel, the
+// lanes as categories, the value in the best normalisation every panel has (÷ loading
+// control relative to the reference lane, ÷ loading control, relative to the reference
+// lane, or the raw volume), stated in the axis title and the caption. The chart keeps a
+// link to the analyses: a re-analysis rewrites its data in the same undo step, and when
+// it cannot (a panel gone, an analysis out of date) the chart says it is out of date.
+const _GEL_CHART_METRICS=['normLCRef','normLC','relRef','volume'];
+function _gelChartMetricOK(a, im, k){
+  if(k==='volume') return true;
+  const lc=a.loading&&!_gelLoadingStale(a,im);
+  if(k==='normLCRef') return !!lc&&a.refLane!=null;
+  if(k==='normLC') return !!lc;
+  if(k==='relRef') return a.refLane!=null;
+  return false;
+}
+// The analysed panels to chart from: every one except those serving as another's loading control.
+function _gelChartPanels(idx){
+  const lcIdx=new Set(images.map(p=>p&&p.gelAnalysis&&p.gelAnalysis.loading?_gelLoadingIdx(p.gelAnalysis):-1).filter(i=>i>=0));
+  const out=images.map((p,i)=>i).filter(i=>images[i]&&images[i].gelAnalysis&&(!lcIdx.has(i)||i===idx));
+  if(idx!=null&&idx>=0&&!out.includes(idx)&&images[idx]&&images[idx].gelAnalysis) out.unshift(idx);
+  return out;
+}
+function _gelChartMetricLabel(k, P){
+  const a=P[0]&&P[0].gelAnalysis, same=f=>P.every(im=>f(im.gelAnalysis)===f(a));
+  const lc=a&&a.loading?(same(x=>_gelLoadMode(x))?(_gelLoadMode(a)==='total'?'total protein':'the loading control'):'the loading control'):'';
+  const ref=a&&a.refLane!=null&&same(x=>x.refLane)?` lane ${a.refLane+1}`:' the reference lane';
+  if(k==='normLCRef') return `Band volume ÷ ${lc}, relative to${ref}`;
+  if(k==='normLC') return `Band volume ÷ ${lc}`;
+  if(k==='relRef') return `Band volume relative to${ref}`;
+  return 'Band volume (background-subtracted, a.u.)';
+}
+// The table a link stands for, read from the analyses as they are now.
+function _gelChartTable(ids, metric){
+  const P=ids.map(id=>images.find(p=>p&&p.id===id));
+  const gone=P.findIndex(p=>!p||!p.gelAnalysis);
+  if(gone>=0) return {error:`panel ${gone+1} of the chart is no longer in the figure or no longer analysed`};
+  const bad=P.find(p=>!_gelFresh(p)); if(bad) return {error:`panel ${_rtText(formatLabel(bad.label))||'?'}: ${_gelStaleText(bad).toLowerCase()}`};
+  const nm=im=>{ const l=_rtText(formatLabel(im.label)); return l?`Panel ${l}`:(_sourceName?_sourceName(im):im.name)||'Panel'; };
+  const names=[], seen=new Map();
+  P.forEach(im=>{ let n=nm(im); const k=(seen.get(n)||0)+1; seen.set(n,k); names.push(k>1?`${n} (${k})`:n); });
+  const nL=Math.max(...P.map(im=>im.gelAnalysis.lanes.length));
+  const ladder=new Set(P.map(im=>im.gelAnalysis.ladder?im.gelAnalysis.ladder.lane:-1));
+  const rows=[];
+  for(let li=0; li<nL; li++){
+    if(ladder.has(li)&&P.every(im=>!im.gelAnalysis.ladder||im.gelAnalysis.ladder.lane===li)) continue;   // the marker lane is no sample
+    const row=[`Lane ${li+1}`];
+    P.forEach(im=>{ const a=im.gelAnalysis;
+      if(a.ladder&&a.ladder.lane===li){ row.push(''); return; }
+      // The lane's largest band that has a value in this normalisation.
+      const R=_gelRows(a,im).filter(r=>r.laneIdx===li&&r[metric]!=null&&isFinite(r[metric])).sort((x,y)=>y.volume-x.volume);
+      row.push(R.length?+(+R[0][metric]).toPrecision(6):''); });
+    rows.push(row);
+  }
+  return {columns:['Lane',...names], rows, names};
+}
+function _chartLinkState(el){
+  const ch=el&&el.chart, L=ch&&ch.link; if(!L) return {stale:false};
+  const T=_gelChartTable(L.ids||[], L.metric);
+  if(T.error) return {stale:true, why:T.error};
+  const same=JSON.stringify(T.columns)===JSON.stringify(ch.data.columns)&&JSON.stringify(T.rows)===JSON.stringify(ch.data.rows);
+  return same?{stale:false}:{stale:true, why:'the analysis has changed since the chart was made', table:T};
+}
+// Re-read every linked chart from its analyses (called whenever an analysis changes).
+function _chartLinksSync(){
+  let n=0;
+  _allCharts().forEach(el=>{
+    if(!el.chart.link) return;
+    const st=_chartLinkState(el); if(!st.stale||!st.table) return;
+    el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows});
+    el._chartKey=''; el._chartStat=null; n++;
+    if(_isDataPanel(el)) _dataPanelRefresh(el, true);
+  });
+  if(n){ logAction('chartLinkUpdate',{charts:n}); toast(`${n} chart${n>1?'s':''} updated from the re-analysed densitometry`,'ok'); scheduleRender(0); }
+  return n;
+}
+function _chartLinkUpdateDraft(){
+  const ch=_chartDraft; if(!ch||!ch.link) return;
+  const st=_chartLinkState({chart:ch}); if(!st.table){ toast(st.why?`Cannot update: ${st.why}`:'Already up to date','warn'); return; }
+  ch.data=Object.assign({}, ch.data, {columns:st.table.columns, rows:st.table.rows});
+  document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
+  _chartModalPickers(); _chartModalRefresh();
+}
+function _chartLinkUpdateSelected(){
+  const el=_selectedChartEl(); if(!el) return;
+  const st=_chartLinkState(el);
+  if(!st.table){ toast(st.stale?`Cannot update: ${st.why} — re-analyse it (⫼ Analyse lanes & bands)`:'Already up to date', st.stale?'warn':'ok'); return; }
+  pushUndo(); el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows}); el._chartKey=''; el._chartStat=null;
+  logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0); toast('Chart updated from the densitometry','ok');
+}
+// One click from the lanes & bands dialog: chart the analysed panels' values.
+function chartFromDensitometry(idx){
+  idx=_gelPanelIdx(idx);
+  const ids=_gelChartPanels(idx).map(i=>images[i].id);
+  if(!ids.length){ toast('Analyse a blot first (⫼ Analyse lanes & bands)','warn'); return false; }
+  const P=ids.map(id=>images.find(p=>p.id===id));
+  const metric=_GEL_CHART_METRICS.find(k=>P.every(im=>_gelChartMetricOK(im.gelAnalysis,im,k)))||'volume';
+  const T=_gelChartTable(ids, metric);
+  if(T.error){ toast(`Cannot chart: ${T.error} — re-detect first`,'warn'); return false; }
+  if(!T.rows.length){ toast('No lanes to chart','warn'); return false; }
+  const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
+  const ch=_defaultChart(T.names.length>1?'groupedBar':'bar');
+  ch.data={columns:T.columns, rows:T.rows, source:'densitometry', sourceName:`densitometry, panel${P.length>1?'s':''} ${pn}`};
+  ch.mapping={xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, errCol:null, errCols:{}, layout:'xcol', repCols:false, timeCol:0, eventCol:1, groupCol:null};
+  ch.axes.y.title=label;
+  ch.style.showLegend=T.names.length>1;
+  ch.caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background): the largest quantifiable band in each lane, ${label.charAt(0).toLowerCase()+label.slice(1)}; n.d., no quantifiable band.`;
+  ch.link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`};
+  if(typeof closeGelAnalysis==='function') closeGelAnalysis();
+  pushUndo();
+  const w=380, h=280;
+  let where='';
+  if(layoutMode!=='freeform'){
+    // In the grid the chart is a panel beside the blots, lettered like them.
+    const im=_addDataPanel('chart', ch, w, h, 'densitometry');
+    where=` Panel ${_rtText(formatLabel(im.label))||'?'} in the grid.`;
+  } else {
+    const W=canvasLogicalW||1200, H=canvasLogicalH||900;
+    addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:'densitometry'});
+    const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
+    updateFreeformElemList(); if(typeof drawFreeformOverlay==='function') drawFreeformOverlay(); updateElemPropsBar();
+  }
+  logAction('chartFromDensitometry',{panels:ids.length, metric});
+  scheduleRender(0);
+  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}. Linked — a re-analysis updates it.${where}`,'ok');
+  return true;
+}
+
 // ── Chart editor modal ─────────────────────────────────────────
+// The dialog edits a copy of the chart (the draft). Every control writes into the draft
+// as it changes, the data box is re-read as you type, and the preview draws the draft —
+// so the column lists can never be the old file's while new data sits in the box, and
+// Cancel leaves the chart exactly as it was. Apply commits the draft as one undo step.
 function _selectedChartEl(){
   const dp=_editedDataPanel('chart'); if(dp) return dp;
   if(layoutMode!=='freeform') return null;
@@ -25648,134 +26290,341 @@ function _selectedChartEl(){
   const el=freeformElements[[...selectedElems][0]];
   return (el&&el.type==='chart')?el:null;
 }
+let _chartDraft=null, _chartDraftColours={}, _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
+function _chartModalOpen(){ const m=document.getElementById('chart-modal'); return !!(m&&m.classList.contains('open')); }
+// What the sig/ref/name editors act on: the draft while the dialog is open, else the chart.
+function _chartTarget(){ if(_chartDraft&&_chartModalOpen()) return _chartDraft; const el=_selectedChartEl(); return el?el.chart:null; }
 function openChartModal(){
   const el=_selectedChartEl(); if(!el){ toast('Select a chart first','warn'); return; }
+  _chartDraft=JSON.parse(JSON.stringify(el.chart));
+  const d=_chartDraft; d.mapping=d.mapping||{}; d.axes=d.axes||{}; d.axes.x=d.axes.x||{}; d.axes.y=d.axes.y||{}; d.style=d.style||{}; d.fit=d.fit||{};
+  _chartDraftColours={};
   _chartModalSync();
   document.getElementById('chart-modal').classList.add('open');
+  _chartPreview();
 }
-function closeChartModal(){ document.getElementById('chart-modal').classList.remove('open'); _dataPanelEdit=null; }
-
-// Populate the modal from the selected chart.
+function closeChartModal(){ clearTimeout(_chartParseT); document.getElementById('chart-modal').classList.remove('open'); _chartDraft=null; _chartFreshId=null; _dataPanelEdit=null; }
+// Cancel (and ×, Esc): nothing changes; a chart just added from the menu, never applied, goes again.
+function cancelChartModal(){
+  const fresh=_chartFreshId; closeChartModal();
+  if(fresh==null) return;
+  const i=freeformElements.findIndex(e=>e&&e.id===fresh);
+  if(i>=0){ freeformElements.splice(i,1); selectedElems.clear(); updateFreeformElemList(); if(typeof drawFreeformOverlay==='function') drawFreeformOverlay(); updateElemPropsBar(); scheduleRender(0); return; }
+  const k=images.findIndex(p=>p&&p.id===fresh&&_isDataPanel(p));
+  if(k>=0){ images.splice(k,1); if(selectedPanel>=images.length) selectedPanel=images.length-1;
+    renderImgList(); if(typeof renderMiniGrid==='function') renderMiniGrid(); scheduleRender(0); }
+}
+// Every chart in the figure, on either canvas: freeform objects and grid chart panels.
+function _allCharts(){
+  return [...(typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e&&e.type==='chart'&&e.chart),
+          ...(typeof images!=='undefined'?images:[]).filter(im=>im&&im.type==='chart'&&im.chart)];
+}
+const _CHART_HINTS={
+  bar:'One row per replicate: a group column (strain) and a value column. Rows of the same group are averaged; error bars and points show the replicates. Or one column per group (Data layout › Columns).',
+  groupedBar:'A group column and one value column per series (or a series column for tidy data). Repeated rows are averaged.',
+  stackedBar:'A group column and one value column per stacked segment.',
+  line:'An x column (time, dose) and one column per series — or tidy rows with a series column. Rows sharing an x are averaged (mean ± SD/SEM); replicate columns WT_r1, WT_r2 … average into one series; WT and WT_SD pair as value and error.',
+  scatter:'An x column and one or more y columns. With error bars on, points sharing an x are averaged.',
+  box:'One row per value: a group column and a value column (or one column per group).',
+  violin:'One row per value: a group column and a value column (or one column per group).',
+  beeswarm:'One row per value: a group column and a value column (or one column per group). Draws every value with mean ± SD.',
+  heatmap:'A row-label column and one column per sample; each cell is one value.',
+  survival:'One row per subject: time, event (1 = event, 0 = censored) and an optional group.',
+};
+const _CHART_EXAMPLES={
+  bar:'strain\treplicate\tCFU/mL\nWT\t1\t2.04e9\nWT\t2\t1.88e9\nWT\t3\t1.99e9\nΔfliC\t1\t3.40e8\nΔfliC\t2\t4.26e8\nΔfliC\t3\t3.34e8',
+  line:'time_h\tWT_r1\tWT_r2\tWT_r3\tdfliC_r1\tdfliC_r2\tdfliC_r3\n0\t1.06e6\t8.26e5\t1.15e6\t8.55e5\t1.18e6\t1.15e6\n4\t7.50e7\t4.40e7\t4.96e7\t1.27e7\t1.55e7\t1.37e7\n24\t2.04e9\t1.88e9\t1.99e9\t3.40e8\t4.26e8\t3.34e8',
+  scatter:'dose\tresponse\n0.5\t0.12\n1\t0.21\n2\t0.39\n4\t0.71\n8\t1.30',
+  heatmap:'gene\tS1\tS2\tS3\ngeneA\t1.2\t0.4\t-0.8\ngeneB\t-1.5\t0.2\t1.1\ngeneC\t0.6\t1.8\t-2.0',
+  survival:'time\tevent\tgroup\n2\t1\tA\n5\t0\tA\n7\t1\tA\n3\t1\tB\n9\t1\tB\n14\t0\tB',
+};
+function _chartLoadExample(){
+  if(!_chartDraft) return;
+  const k=_chartDraft.kind, ex=_CHART_EXAMPLES[k]||(['groupedBar','stackedBar'].includes(k)?'group\tA\tB\nCtrl\t3\t5\nDrug\t7\t4':_CHART_EXAMPLES[_chartCategorical(k)?'bar':'line']);
+  document.getElementById('chart-data-ta').value=ex;
+  _chartReparse(true);
+}
+// Populate the dialog from the draft.
 function _chartModalSync(){
-  const el=_selectedChartEl(); if(!el) return;
-  const ch=el.chart, cols=ch.data.columns;
+  const ch=_chartDraft; if(!ch) return;
   sv('chart-kind', ch.kind);
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
-  document.getElementById('chart-delim-info').textContent=`${ch.data.columns.length} columns · ${ch.data.rows.length} rows${ch.data.sourceName?` · ${ch.data.sourceName}`:''}`;
-  // Column pickers.
-  const opt=(sel,extra)=>cols.map((c,i)=>`<option value="${i}"${sel===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('')+(extra||'');
-  const xs=document.getElementById('chart-xcol'); if(xs) xs.innerHTML=opt(ch.mapping.xCol??0);
-  const ycWrap=document.getElementById('chart-ycols');
-  if(ycWrap){ ycWrap.innerHTML=cols.map((c,i)=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;margin-right:8px"><input type="checkbox" value="${i}" ${(ch.mapping.yCols||[]).includes(i)?'checked':''} onchange="_chartToggleY(${i},this.checked)">${esc(c||('Col '+(i+1)))}</label>`).join(''); }
-  const es=document.getElementById('chart-err'); if(es) es.value=ch.error;
-  const ecWrap=document.getElementById('chart-errcol-wrap'); if(ecWrap) ecWrap.style.display=(ch.error==='column')?'inline-flex':'none';
-  const ec=document.getElementById('chart-errcol'); if(ec) ec.innerHTML='<option value="">—</option>'+cols.map((c,i)=>`<option value="${i}"${ch.mapping.errCol===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
+  _chartModalPickers();
   sv('chart-xtitle', ch.axes.x.title||''); sv('chart-ytitle', ch.axes.y.title||'');
+  const lim=v=>(v==null||v===''||!isFinite(+v))?'':String(v);
+  sv('chart-xmin', lim(ch.axes.x.min)); sv('chart-xmax', lim(ch.axes.x.max)); sv('chart-ymin', lim(ch.axes.y.min)); sv('chart-ymax', lim(ch.axes.y.max));
   sc('chart-xlog', !!ch.axes.x.log); sc('chart-ylog', !!ch.axes.y.log);
-  sv('chart-palette', ch.style.palette);
-  sc('chart-legend', ch.style.showLegend); sc('chart-grid', ch.style.showGrid); sc('chart-points', ch.style.showPoints);
-  const fitWrap=document.getElementById('chart-fit-wrap'); if(fitWrap) fitWrap.style.display=(ch.kind==='scatter'||ch.kind==='line')?'flex':'none';
+  sv('chart-palette', ch.style.palette||'okabeIto');
+  sc('chart-legend', !!ch.style.showLegend); sc('chart-grid', !!ch.style.showGrid); sc('chart-points', !!ch.style.showPoints);
   sc('chart-fit', !!ch.fit.on); sc('chart-fit-r2', !!ch.fit.showR2);
   sv('chart-caption', ch.caption||'');
-  // Survival + heatmap specifics.
-  const colOpts=(sel)=>cols.map((c,i)=>`<option value="${i}"${sel===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
-  const tcs=document.getElementById('chart-timecol'); if(tcs) tcs.innerHTML=colOpts(ch.mapping.timeCol??0);
-  const ecs=document.getElementById('chart-eventcol'); if(ecs) ecs.innerHTML=colOpts(ch.mapping.eventCol??1);
-  const gcs=document.getElementById('chart-groupcol'); if(gcs) gcs.innerHTML='<option value="">—</option>'+cols.map((c,i)=>`<option value="${i}"${ch.mapping.groupCol===i?' selected':''}>${esc(c||('Col '+(i+1)))}</option>`).join('');
-  sv('chart-colorscale', ch.style.colorscale||'viridis'); sc('chart-heat-values', !!ch.style.showValues); sv('chart-heat-mid', ch.style.midpoint||0);
-  _chartModalKindChange();
-  _chartRenderSigList();
-  _chartRenderRefList();
+  sv('chart-colorscale', ch.style.diverging?'diverging':(ch.style.colorscale||'viridis')); sc('chart-heat-values', !!ch.style.showValues); sv('chart-heat-mid', ch.style.midpoint||0);
+  _chartModalRefresh();
 }
-// Serialise the dataset back to a tab-separated block for the textarea.
-function _chartDataToText(data){
-  const esc=v=>{ const s=String(v??''); return /[\t\n"]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
-  return [data.columns.map(esc).join('\t'), ...data.rows.map(r=>r.map(esc).join('\t'))].join('\n');
+// The controls that list the draft's columns, rebuilt from it.
+function _chartModalPickers(){
+  const ch=_chartDraft; if(!ch) return;
+  const cols=ch.data.columns||[], m=ch.mapping;
+  const nm=i=>esc(_chartColName(cols,i));
+  const opts=(sel,none)=>(none?'<option value="">— none —</option>':'')+cols.map((c,i)=>`<option value="${i}"${sel===i?' selected':''}>${nm(i)}</option>`).join('');
+  document.getElementById('chart-xcol').innerHTML=opts(m.xCol??0);
+  document.getElementById('chart-seriescol').innerHTML=opts(m.seriesCol==null||m.seriesCol===''?null:+m.seriesCol,true);
+  sv('chart-layout', m.layout==='columns'?'columns':'xcol');
+  sc('chart-repcols', !!m.repCols);
+  document.getElementById('chart-ycols').innerHTML=cols.map((c,i)=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;margin-right:8px"><input type="checkbox" value="${i}" ${(m.yCols||[]).includes(i)?'checked':''}>${nm(i)}</label>`).join('');
+  sv('chart-err', ch.error||'none');
+  document.getElementById('chart-timecol').innerHTML=opts(m.timeCol??0);
+  document.getElementById('chart-eventcol').innerHTML=opts(m.eventCol??1);
+  document.getElementById('chart-groupcol').innerHTML='<option value="">—</option>'+cols.map((c,i)=>`<option value="${i}"${m.groupCol===i?' selected':''}>${nm(i)}</option>`).join('');
 }
-function _chartToggleY(i,on){
-  const el=_selectedChartEl(); if(!el) return;
-  const set=new Set(el.chart.mapping.yCols||[]);
-  if(on) set.add(i); else set.delete(i);
-  el.chart.mapping.yCols=[...set].sort((a,b)=>a-b);
+// The per-series error columns: one picker for each plotted value column.
+function _chartRenderErrCols(){
+  const ch=_chartDraft, w=document.getElementById('chart-errcols'); if(!ch||!w) return;
+  const on=ch.error==='column'; w.style.display=on?'block':'none'; if(!on){ w.innerHTML=''; return; }
+  const cols=ch.data.columns||[], m=ch.mapping, map=_chartErrMap(ch);
+  w.innerHTML='<div style="color:var(--muted);font-size:10px">Each series takes the error from its own column (WT → WT_SD is paired by name):</div>'+(m.yCols||[]).map(yc=>
+    `<label style="display:flex;gap:4px;align-items:center;margin-top:2px"><span style="min-width:90px">${esc(_chartColName(cols,yc))}</span><select data-yc="${yc}" style="flex:1">
+      <option value="">— none —</option>${cols.map((c,i)=>i===yc?'':`<option value="${i}"${map[yc]===i?' selected':''}>${esc(_chartColName(cols,i))}</option>`).join('')}</select></label>`).join('');
 }
-// Apply the modal's data + options to the selected chart. Whole-dataset replacement:
-// the textarea is the single source of truth, re-parsed in full on every apply.
-function applyChartModal(){
-  const el=_selectedChartEl(); if(!el) return;
-  pushUndo();
-  const ch=el.chart;
-  const parsed=_parseDelimited(document.getElementById('chart-data-ta').value);
-  if(parsed.columns.length && parsed.rows.length){
-    const changed=JSON.stringify(parsed.rows)!==JSON.stringify(ch.data.rows)||JSON.stringify(parsed.columns)!==JSON.stringify(ch.data.columns);
-    ch.data={columns:parsed.columns, rows:parsed.rows, source:(ch.data.source==='file'?'file':'paste'), sourceName:ch.data.sourceName||''};
-    // Keep mappings valid against the new column count.
-    const nc=parsed.columns.length;
-    if((ch.mapping.xCol??0)>=nc) ch.mapping.xCol=0;
-    ch.mapping.yCols=(ch.mapping.yCols||[]).filter(i=>i<nc); if(!ch.mapping.yCols.length) ch.mapping.yCols=[Math.min(1,nc-1)];
-    if(ch.mapping.errCol!=null && ch.mapping.errCol>=nc) ch.mapping.errCol=null;
-    if(changed) logAction('chartImport',{rows:parsed.rows.length, cols:nc, source:'paste'});
-  }
+// The dialog's controls → the draft. The data box, names, brackets and lines write their own.
+function _chartReadControls(){
+  const ch=_chartDraft; if(!ch) return;
+  const m=ch.mapping, num=id=>{ const v=gv(id); return v===''||!isFinite(+v)?null:+v; };
   ch.kind=gv('chart-kind');
-  ch.mapping.xCol=+gv('chart-xcol');
+  m.xCol=+gv('chart-xcol')||0;
+  m.layout=gv('chart-layout')==='columns'?'columns':'xcol';
+  const scv=gv('chart-seriescol'); m.seriesCol=scv===''?null:+scv;
+  m.repCols=gc('chart-repcols');
+  m.yCols=[...document.querySelectorAll('#chart-ycols input[type=checkbox]')].filter(c=>c.checked).map(c=>+c.value).sort((a,b)=>a-b);
   ch.error=gv('chart-err');
-  if(ch.error==='column'){ const v=gv('chart-errcol'); ch.mapping.errCol=v===''?null:+v; }
+  if(ch.error==='column'){ const per={}; document.querySelectorAll('#chart-errcols select[data-yc]').forEach(s=>{ if(s.value!=='') per[s.dataset.yc]=+s.value; });
+    if(document.querySelector('#chart-errcols select[data-yc]')){ m.errCols=per; m.errCol=null; } }
   ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
-  ch.axes.x.log=gc('chart-xlog'); ch.axes.y.log=gc('chart-ylog');
+  ch.axes.x.min=num('chart-xmin'); ch.axes.x.max=num('chart-xmax'); ch.axes.y.min=num('chart-ymin'); ch.axes.y.max=num('chart-ymax');
+  const xl=document.getElementById('chart-xlog'), yl=document.getElementById('chart-ylog');
+  ch.axes.x.log=!xl.disabled&&xl.checked; ch.axes.y.log=!yl.disabled&&yl.checked;
   ch.style.palette=gv('chart-palette');
   ch.style.showLegend=gc('chart-legend'); ch.style.showGrid=gc('chart-grid'); ch.style.showPoints=gc('chart-points');
   ch.fit.on=gc('chart-fit'); ch.fit.showR2=gc('chart-fit-r2'); ch.fit.showEq=gc('chart-fit-r2');
-  // Survival mapping + heatmap style.
-  ch.mapping.timeCol=+gv('chart-timecol'); ch.mapping.eventCol=+gv('chart-eventcol');
-  const gcv=gv('chart-groupcol'); ch.mapping.groupCol=gcv===''?null:+gcv;
+  m.timeCol=+gv('chart-timecol'); m.eventCol=+gv('chart-eventcol');
+  const gcv=gv('chart-groupcol'); m.groupCol=gcv===''?null:+gcv;
   const csv=gv('chart-colorscale'); ch.style.colorscale=(csv==='diverging'?'diverging':csv); ch.style.diverging=(csv==='diverging');
   ch.style.showValues=gc('chart-heat-values'); ch.style.midpoint=+gv('chart-heat-mid')||0;
   ch.caption=gv('chart-caption');
+}
+// Re-read the data box into the draft. New columns (a new header) get a fresh guess at
+// the mapping — X, values, error pairs, layout, series — never the old file's by position.
+function _chartReparse(force){
+  clearTimeout(_chartParseT);
+  const ch=_chartDraft; if(!ch) return;
+  const parsed=_parseDelimited(document.getElementById('chart-data-ta').value);
+  ch._parseNote={decimalComma:parsed.decimalComma||0, units:parsed.units||null, empty:!(parsed.columns.length&&parsed.rows.length)};
+  if(!parsed.columns.length||!parsed.rows.length){ _chartModalRefresh(); return; }
+  const sameHead=JSON.stringify(parsed.columns)===JSON.stringify(ch.data.columns||[]);
+  ch.data=Object.assign({}, ch.data, {columns:parsed.columns, rows:parsed.rows, units:parsed.units||null});
+  if(!sameHead||force){
+    _chartReadControls();
+    // A new table keeps the chart type the author chose; the rest is guessed afresh.
+    _chartApplyGuess(ch, _chartGuess(parsed), true);
+    _chartModalPickers();
+  }
+  _chartModalRefresh();
+}
+// Visibility, the dependent lists, the status line and the preview — after any change.
+function _chartModalRefresh(){
+  const ch=_chartDraft; if(!ch) return;
+  const k=ch.kind, show=(id,on,disp)=>{ const w=document.getElementById(id); if(w) w.style.display=on?(disp||''):'none'; };
+  const cat=_chartCategorical(k), numX=_chartNumericX(k), wide=cat&&ch.mapping.layout==='columns';
+  show('chart-fit-wrap', numX, 'flex');
+  show('chart-surv-wrap', k==='survival', 'flex');
+  show('chart-heat-wrap', k==='heatmap', 'flex');
+  show('chart-layout-wrap', cat, 'block');
+  show('chart-xcol-wrap', !wide&&k!=='survival', 'block');
+  show('chart-series-wrap', numX||['bar','groupedBar','stackedBar'].includes(k), 'block');
+  show('chart-xlim-wrap', numX, 'inline-flex');
+  document.getElementById('chart-ycols-lbl').textContent=wide?'Group columns (each is one group)':numX?'Y columns (series)':'Y columns';
+  const cols=ch.data.columns||[], hasRep=numX&&_chartHasRepGroups(cols, ch.mapping.yCols||[]);
+  show('chart-rep-wrap', hasRep, 'block');
+  if(hasRep){ const g=_chartRepGroups(cols, ch.mapping.yCols||[]).filter(q=>q.cols.length>1);
+    document.getElementById('chart-rep-note').textContent='('+g.map(q=>`${q.key}: ${q.cols.length}`).join(', ')+')'; }
+  show('chart-heat-mid-wrap', gv('chart-colorscale')==='diverging', 'inline-flex');
+  // Log axes: offered where they mean something; otherwise disabled, with the reason.
+  const why=[];
+  [['x','chart-xlog'],['y','chart-ylog']].forEach(([a,id])=>{ const box=document.getElementById(id), r=_chartLogWhy(k,a);
+    box.disabled=!!r; box.parentElement.title=r||(a==='y'?'Log10 value axis: decades labelled 10ⁿ, minor ticks at 2–9; bars rise from the axis floor':'Log10 x axis (dose, concentration)');
+    box.parentElement.style.opacity=r?'0.5':''; if(r&&box.checked) why.push(`log ${a.toUpperCase()}: ${r}`); });
+  const lw=document.getElementById('chart-log-why'); lw.textContent=why.join(' · '); lw.style.display=why.length?'block':'none';
+  _chartRenderErrCols();
+  document.getElementById('chart-kind-hint').textContent=_CHART_HINTS[k]||'';
+  // Status: what was read, and what the reading changed.
+  const pn=ch._parseNote||{}, D=ch.data;
+  const bits=[`${(D.columns||[]).length} columns · ${(D.rows||[]).length} rows`];
+  if(D.sourceName) bits.push(D.sourceName);
+  if(D.units&&D.units.some(Boolean)) bits.push('units row: '+D.units.map((u,i)=>u?`${_chartColName(D.columns,i)} ${u}`:'').filter(Boolean).join(', '));
+  if(pn.decimalComma) bits.push(`${pn.decimalComma} decimal comma${pn.decimalComma>1?'s':''} read as points`);
+  if(pn.empty) bits.push('⚠ no rows read yet — a header row and at least one data row');
+  document.getElementById('chart-delim-info').textContent=bits.join(' · ');
+  const ln=document.getElementById('chart-link-note');
+  if(ln){ const L=ch.link; ln.style.display=L?'block':'none';
+    if(L){ const st=_chartLinkState({chart:ch}); ln.innerHTML=st.stale?`<span style="color:var(--warn)">⚠ Linked to the densitometry of ${esc(L.panelNames||'its panels')}, which has changed since: ${esc(st.why)}.</span> <button class="btn" style="padding:0 6px;font-size:10px" onclick="_chartLinkUpdateDraft()">↻ Update from densitometry</button>`
+      :`Linked to the densitometry of ${esc(L.panelNames||'its panels')} (${esc(L.metricLabel||'')}) — a re-analysis updates this chart. Editing the data here unlinks it.`; } }
+  _chartRenderNames(); _chartRenderSigList(); _chartRenderRefList();
+  _chartPreview();
+}
+// Draw the draft as Apply would, with its pending colours.
+function _chartPreview(){
+  const ch=_chartDraft, cv=document.getElementById('chart-preview'); if(!ch||!cv) return;
+  const W=380, H=230, dpr=Math.max(1,window.devicePixelRatio||1);
+  if(cv.width!==Math.round(W*dpr)){ cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); }
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
+  if(hid&&Object.keys(_chartDraftColours).length) hid.value=JSON.stringify(Object.assign({}, _sampleColours(), _chartDraftColours));
+  try{ _chartPrevEl={type:'chart', x:0, y:0, w:W, h:H, chart:ch}; _chartDraw(_chartPrevEl, _chartEmitCanvas(ctx)); }
+  catch(e){ ctx.fillStyle='#b00'; ctx.font='11px system-ui'; ctx.fillText('Cannot draw this mapping: '+e.message, 8, 20); }
+  finally{ if(hid) hid.value=keep; }
+}
+// Names & colours: each series (or category) under its data name, with a display name,
+// its colour (the figure's sample colour) and, for categories, its place.
+function _chartRenderNames(){
+  const ch=_chartDraft, w=document.getElementById('chart-names'); if(!ch||!w) return;
+  if(document.activeElement&&w.contains(document.activeElement)&&document.activeElement.type==='text') return;   // typing a name: leave the row alone
+  let stat=null; try{ stat=_chartStats({chart:ch, w:300, h:200}); }catch(e){ stat=null; }
+  if(!stat||stat.kind==='heatmap'){ w.innerHTML='<span style="font-size:10px;color:var(--muted)">—</span>'; return; }
+  const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
+  const items=stat.curves?stat.curves.map(c=>({key:c.name, color:c.color})):
+    stat.series?stat.series.map(s=>({key:s.key, color:s.color})):
+    stat.boxes?stat.boxes.map(b=>({key:b.key, color:b.color, cat:true})):
+    stat.catColours?stat.catColours.map(c=>({key:c.key, color:c.color, cat:true})):
+    // One series of bars: the categories are the samples, so they carry the colours.
+    (stat.groups&&(stat.seriesNames||[]).length===1)?stat.groups.map(g=>({key:g.key, color:g.bars[0].color, cat:true})):
+    (stat.seriesNames||[]).map(s=>({key:s.key, color:s.color}));
+  const catOrder=stat.catKeys&&(stat.boxes||stat.catColours||(stat.groups&&(stat.seriesNames||[]).length===1))?stat.catKeys:null;
+  const orderBtns=stat.catKeys&&!catOrder;   // series coloured, categories still reorderable below
+  const row=(it,i,arr)=>{ const c=_chartDraftColours[it.key]||it.color; const disp=(ch.names&&ch.names[it.key])||'';
+    return `<div style="display:flex;gap:4px;align-items:center;margin-top:2px" data-key="${esc(it.key)}">
+      <input type="color" value="${esc(_hex6(c))}" style="width:26px;height:20px;padding:0" title="${esc(it.key)}'s colour in every chart and the legend key" onchange="_chartColourEdit(this.closest('[data-key]').dataset.key,this.value)">
+      <span style="min-width:90px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Name in the data">${esc(it.key)}</span>
+      <input type="text" value="${esc(disp)}" placeholder="shown as ${esc(it.key)}" style="flex:1;min-width:80px" title="Shown on the chart, its legend and the key as … (format marks work: *fliC* is italic)" oninput="_chartNameEdit(this.closest('[data-key]').dataset.key,this.value)">
+      ${it.cat?`<button class="icon-btn" title="Move left" ${i?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,-1)">↑</button><button class="icon-btn" title="Move right" ${i<arr.length-1?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,1)">↓</button>`:''}</div>`; };
+  let html=items.map(row).join('');
+  if(orderBtns&&stat.catKeys.length>1) html+=`<div style="margin-top:4px;color:var(--muted);font-size:10px">Category order:</div>`+stat.catKeys.map((k,i,arr)=>row({key:k, color:'#ffffff', cat:true},i,arr).replace(/<input type="color"[^>]*>/,'<span style="width:26px"></span>')).join('');
+  if(hid) hid.value=keep;
+  w.innerHTML=html||'<span style="font-size:10px;color:var(--muted)">No series yet</span>';
+}
+function _chartNameEdit(key,val){
+  const ch=_chartTarget(); if(!ch) return;
+  ch.names=ch.names||{}; val=String(val??'');
+  if(val.trim()===''||val===key) delete ch.names[key]; else ch.names[key]=val;
+  if(_chartDraft===ch) _chartPreview();
+}
+function _chartColourEdit(key,val){ if(!/^#[0-9a-f]{6}$/i.test(val)) return; _chartDraftColours[key]=val.toLowerCase(); _chartPreview(); }
+function _chartOrderMove(key,dir){
+  const ch=_chartTarget(); if(!ch) return;
+  let st=null; try{ st=_chartStats({chart:ch, w:300, h:200}); }catch(e){ return; }
+  const keys=(st.catKeys||[]).slice(), i=keys.indexOf(key), j=i+dir; if(i<0||j<0||j>=keys.length) return;
+  [keys[i],keys[j]]=[keys[j],keys[i]]; ch.order=keys;
+  if(_chartDraft===ch){ _chartRenderNames(); _chartRenderSigList(); _chartPreview(); }
+}
+// Serialise the dataset back to a tab-separated block for the textarea (with its units row).
+function _chartDataToText(data){
+  const esc=v=>{ const s=String(v??''); return /[\t\n"]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const head=[data.columns.map(esc).join('\t')];
+  if(data.units&&data.units.some(Boolean)) head.push(data.columns.map((_,i)=>esc(data.units[i]||'')).join('\t'));
+  return [...head, ...data.rows.map(r=>r.map(esc).join('\t'))].join('\n');
+}
+function _chartToggleY(i,on){
+  const ch=_chartTarget(); if(!ch) return;
+  const set=new Set(ch.mapping.yCols||[]);
+  if(on) set.add(i); else set.delete(i);
+  ch.mapping.yCols=[...set].sort((a,b)=>a-b);
+  if(_chartDraft===ch){ _chartModalPickers(); _chartModalRefresh(); }
+}
+// Apply the draft to the selected chart: one undo step.
+function applyChartModal(){
+  const el=_selectedChartEl(); if(!el||!_chartDraft) return;
+  // The data box is the source of truth: whatever it holds now is what is applied.
+  if(_chartParseT||document.getElementById('chart-data-ta').value!==_chartDataToText(_chartDraft.data)) _chartReparse();
+  _chartReadControls();
+  const ch=_chartDraft, old=el.chart;
+  delete ch._parseNote;
+  const nc=(ch.data.columns||[]).length;
+  if(!nc||!(ch.data.rows||[]).length){ ch.data=old.data; }
+  // Keep mappings valid against the column count.
+  const m=ch.mapping;
+  if((m.xCol??0)>=nc) m.xCol=0;
+  m.yCols=(m.yCols||[]).filter(i=>i<nc); if(!m.yCols.length) m.yCols=[Math.min(1,Math.max(0,nc-1))];
+  if(m.errCol!=null && m.errCol>=nc) m.errCol=null;
+  if(m.seriesCol!=null && m.seriesCol>=nc) m.seriesCol=null;
+  const changed=JSON.stringify(ch.data.rows)!==JSON.stringify(old.data.rows)||JSON.stringify(ch.data.columns)!==JSON.stringify(old.data.columns);
+  pushUndo();
+  if(changed){
+    ch.data.source=(old.data.source==='file'?'file':old.data.source==='densitometry'?'paste':old.data.source==='demo'?'paste':(old.data.source||'paste'));
+    logAction('chartImport',{rows:ch.data.rows.length, cols:nc, source:'paste'});
+    if(ch.link){ ch.link=null; toast('Chart data edited by hand — it is no longer linked to the densitometry','warn'); }
+  }
+  el.chart=ch;
+  // Colours set here are the figure's sample colours: every chart and the key follow.
+  if(Object.keys(_chartDraftColours).length){
+    sv('sample-colours', JSON.stringify(Object.assign({}, _sampleColours(), _chartDraftColours)));
+    logAction('sampleColours',{set:Object.keys(_chartDraftColours)});
+    if(typeof _labStyleSync==='function') _labStyleSync(); if(typeof _sampleColoursRender==='function') _sampleColoursRender();
+  }
   el._chartKey=''; el._chartStat=null;       // force stats recompute
   el.label=el.label||(ch.kind+' chart');
+  _chartFreshId=null;
+  if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   closeChartModal(); updateElemPropsBar(); scheduleRender(0);
   if(_isDataPanel(el)) renderImgList();
   toast('Chart updated','ok');
 }
 // Significance annotations (user-entered marks — never computed).
+function _chartSigCats(){
+  const ch=_chartTarget(); if(!ch) return [];
+  try{ const st=_chartStats({chart:ch, w:300, h:200}); return st.categories||[]; }catch(e){ return []; }
+}
 function _chartRenderSigList(){
-  const el=_selectedChartEl(); if(!el) return;
+  const ch=_chartTarget(); if(!ch) return;
   const wrap=document.getElementById('chart-sig-list'); if(!wrap) return;
-  const annos=el.chart.annos||[];
-  wrap.innerHTML=annos.length?'':'<span style="font-size:10px;color:var(--muted)">No brackets yet</span>';
+  if(document.activeElement&&wrap.contains(document.activeElement)&&document.activeElement.type==='text') return;
+  const annos=ch.annos||[], cats=_chartSigCats();
+  const isCat=_chartCategorical(ch.kind);
+  wrap.innerHTML=!isCat?'<span style="font-size:10px;color:var(--muted)">Brackets compare groups: bar, box, violin and beeswarm charts draw them.</span>':annos.length?'':'<span style="font-size:10px;color:var(--muted)">No brackets yet</span>';
+  if(!isCat) return;
+  const pick=(i,prop,v)=>`<select onchange="_chartSigEdit(${i},'${prop}',this.value)" style="font-size:11px;max-width:130px">${cats.map((c,ci)=>`<option value="${ci}"${ci===v?' selected':''}>${esc(_rtText(c))}</option>`).join('')}${v>=cats.length?`<option value="${v}" selected>group ${v+1} (none)</option>`:''}</select>`;
   annos.forEach((an,i)=>{
+    if(an.kind!=='sig') return;
     const row=document.createElement('div');
     row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
-    row.innerHTML=`<span>groups</span>
-      <input type="number" min="1" value="${esc((+an.a||0)+1)}" style="width:40px" onchange="_chartSigEdit(${i},'a',this.value-1)">
-      <span>–</span>
-      <input type="number" min="1" value="${esc((an.b==null?1:+an.b||0)+1)}" style="width:40px" onchange="_chartSigEdit(${i},'b',this.value-1)">
-      <input type="text" value="${esc(an.text||'*')}" maxlength="6" style="width:48px" onchange="_chartSigEdit(${i},'text',this.value)" title="The symbol from your own test">
+    row.innerHTML=`${pick(i,'a',+an.a||0)}<span>–</span>${pick(i,'b',an.b==null?1:+an.b||0)}
+      <input type="text" value="${esc(an.text||'*')}" maxlength="40" style="width:130px" oninput="_chartSigEdit(${i},'text',this.value)" title="The symbol or p value from your own test (up to 40 characters: *, n.s., p = 0.0008, p = 7.6×10^{-4})">
       <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>`;
     wrap.appendChild(row);
   });
 }
 function _chartAddSig(){
-  const el=_selectedChartEl(); if(!el) return;
-  el.chart.annos=el.chart.annos||[];
-  const lvl=el.chart.annos.length;
-  el.chart.annos.push({kind:'sig', a:0, b:Math.min(1,(el.chart.data.rows.length-1)||1), text:'*', level:lvl});
+  const ch=_chartTarget(); if(!ch) return;
+  ch.annos=ch.annos||[];
+  const lvl=ch.annos.filter(a=>a.kind==='sig').length;
+  ch.annos.push({kind:'sig', a:0, b:Math.min(1,(ch.data.rows.length-1)||1), text:'*', level:lvl});
   logAction('chartSigAnno',{a:0,b:1,text:'*'});
-  _chartRenderSigList();
+  _chartRenderSigList(); if(_chartDraft===ch) _chartPreview();
 }
 function _chartSigEdit(i,prop,val){
-  const el=_selectedChartEl(); if(!el||!el.chart.annos[i]) return;
-  el.chart.annos[i][prop]=(prop==='text')?String(val):Math.max(0,parseInt(val)||0);
-  if(prop==='text') logAction('chartSigAnno',{a:el.chart.annos[i].a,b:el.chart.annos[i].b,text:String(val)});
+  const ch=_chartTarget(); if(!ch||!ch.annos[i]) return;
+  ch.annos[i][prop]=(prop==='text')?String(val):Math.max(0,parseInt(val)||0);
+  if(prop==='text') logAction('chartSigAnno',{a:ch.annos[i].a,b:ch.annos[i].b,text:String(val)});
+  if(_chartDraft===ch) _chartPreview();
 }
 function _chartDelSig(i){
-  const el=_selectedChartEl(); if(!el) return;
-  el.chart.annos.splice(i,1); _chartRenderSigList();
+  const ch=_chartTarget(); if(!ch) return;
+  ch.annos.splice(i,1); _chartRenderSigList(); if(_chartDraft===ch) _chartPreview();
 }
 // Reference / threshold lines (drawn author-supplied values — never computed).
 function _chartRenderRefList(){
-  const el=_selectedChartEl(); if(!el) return;
+  const ch=_chartTarget(); if(!ch) return;
   const wrap=document.getElementById('chart-ref-list'); if(!wrap) return;
-  const refs=el.chart.refs||[];
+  if(document.activeElement&&wrap.contains(document.activeElement)&&document.activeElement.tagName==='INPUT') return;
+  const refs=ch.refs||[];
   wrap.innerHTML=refs.length?'':'<span style="font-size:10px;color:var(--muted)">No reference lines</span>';
   refs.forEach((rf,i)=>{
     const row=document.createElement('div');
@@ -25790,30 +26639,36 @@ function _chartRenderRefList(){
   });
 }
 function _chartAddRef(){
-  const el=_selectedChartEl(); if(!el) return;
-  el.chart.refs=el.chart.refs||[];
-  el.chart.refs.push({axis:'y', value:0, label:'', color:'#c0392b'});
+  const ch=_chartTarget(); if(!ch) return;
+  ch.refs=ch.refs||[];
+  ch.refs.push({axis:'y', value:0, label:'', color:'#c0392b'});
   logAction('chartRefLine',{axis:'y'});
-  _chartRenderRefList();
+  _chartRenderRefList(); if(_chartDraft===ch) _chartPreview();
 }
 function _chartRefEdit(i,prop,val){
-  const el=_selectedChartEl(); if(!el||!el.chart.refs[i]) return;
-  el.chart.refs[i][prop]=(prop==='value')?(parseFloat(val)||0):String(val);
+  const ch=_chartTarget(); if(!ch||!ch.refs[i]) return;
+  ch.refs[i][prop]=(prop==='value')?(parseFloat(val)||0):String(val);
+  if(_chartDraft===ch) _chartPreview();
 }
 function _chartDelRef(i){
-  const el=_selectedChartEl(); if(!el) return;
-  el.chart.refs.splice(i,1); _chartRenderRefList();
+  const ch=_chartTarget(); if(!ch) return;
+  ch.refs.splice(i,1); _chartRenderRefList(); if(_chartDraft===ch) _chartPreview();
 }
-// Live-toggle the error-column picker / fit block when those selects change in the modal.
-function _chartModalErrChange(){ const w=document.getElementById('chart-errcol-wrap'); if(w) w.style.display=(gv('chart-err')==='column')?'inline-flex':'none'; }
-function _chartModalKindChange(){
-  const k=gv('chart-kind');
-  const show=(id,on)=>{ const w=document.getElementById(id); if(w) w.style.display=on?'flex':'none'; };
-  show('chart-fit-wrap', k==='scatter'||k==='line');
-  show('chart-surv-wrap', k==='survival');
-  show('chart-heat-wrap', k==='heatmap');
-  const midWrap=document.getElementById('chart-heat-mid-wrap'); if(midWrap) midWrap.style.display=(gv('chart-colorscale')==='diverging')?'inline-flex':'none';
-}
+// Kept for callers of the old names: both now re-read the whole dialog.
+function _chartModalErrChange(){ _chartReadControls(); _chartModalRefresh(); }
+function _chartModalKindChange(){ _chartReadControls(); _chartModalRefresh(); }
+// One listener for the dialog: any control change re-reads the controls into the draft
+// and redraws; typing in the data box re-reads the data a moment after the last key.
+(function wireChartModal(){
+  const m=document.getElementById('chart-modal'); if(!m) return;
+  const own=t=>t.closest('#chart-names, #chart-sig-list, #chart-ref-list');
+  m.addEventListener('change', e=>{ if(!_chartDraft||own(e.target)||e.target.id==='chart-data-ta') return; _chartReadControls(); _chartModalRefresh(); });
+  m.addEventListener('input', e=>{ if(!_chartDraft||own(e.target)) return;
+    if(e.target.id==='chart-data-ta'){ clearTimeout(_chartParseT); _chartParseT=setTimeout(()=>{ _chartParseT=0; _chartReparse(); }, 250); return; }
+    if(e.target.type==='text'||e.target.type==='number'){ _chartReadControls(); _chartPreview(); } });
+  // Leaving the data box re-reads it at once (Tab, a click on Apply).
+  const ta=document.getElementById('chart-data-ta'); if(ta) ta.addEventListener('blur', ()=>{ if(_chartParseT){ _chartParseT=0; _chartReparse(); } });
+})();
 
 // ═══════════════════════════════════════════════════════════════
 // GENE MAPS & GENETIC CIRCUITS
@@ -31331,7 +32186,12 @@ function updateElemPropsBar(){
   document.getElementById('ep-paint-props').style.display=isPaint?'flex':'none';
   const chartPane=document.getElementById('ep-chart-props'); if(chartPane) chartPane.style.display=isChart?'flex':'none';
   const connPane=document.getElementById('ep-conn-props'); if(connPane) connPane.style.display=isConn?'flex':'none';
-  if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette; }
+  if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette;
+    const lk=document.getElementById('ep-chart-link');
+    if(lk){ const L=el.chart.link, st=L?_chartLinkState(el):null; lk.style.display=L?'inline':'none';
+      if(L) lk.innerHTML=st.stale?`<span style="color:var(--warn)" title="${esc(st.why)}">⚠ out of date with the densitometry</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="_chartLinkUpdateSelected()">↻ Update</button>`:`<span style="color:var(--muted)" title="Made from ${esc(L.panelNames||'')} (${esc(L.metricLabel||'')}); a re-analysis updates it">🔗 densitometry</span>`; } }
+  // A chart's colours are its series' sample colours (Edit chart › Names & colours), not one object colour.
+  { const cw=document.getElementById('ep-color'); if(cw&&cw.parentElement) cw.parentElement.style.display=isChart?'none':''; }
   const gmPane=document.getElementById('ep-genemap-props'); if(gmPane) gmPane.style.display=isGenemap?'flex':'none';
   if(isGenemap && el.map){
     const t=document.getElementById('ep-gm-topology'); if(t) t.value=el.map.topology||'linear';
