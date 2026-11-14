@@ -368,7 +368,7 @@ test('a channel key lists every channel the visible panels show, once, with its 
   });
   // Swatches are the LUT's own hue at full intensity — the colour of the brightest pixels
   // the panel shows — not the lifted tag colours (#6a9cff, #4ee04e) the panel tags use.
-  expect(r.rows1).toEqual([{ name: 'DAPI', color: '#4787ff' }, { name: 'GFP', color: '#00ff00' }, { name: 'BF', color: null }]);
+  expect(r.rows1).toEqual([{ name: 'DAPI', color: '#4787ff' }, { name: 'GFP', color: '#00ff00' }, { name: 'BF', color: '#808080' }]);   // BF shown in grey: a grey ramp, not an invisible swatch
   expect(r.hit).toBe(true);
   expect(r.size).toEqual([true, true]);
   expect(r.svgNames).toEqual(['DAPI', 'GFP', 'BF']);

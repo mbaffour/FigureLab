@@ -40,7 +40,10 @@ const PT_RANGE = page => page.evaluate(() => { render(); const k = _physFacts().
 
 // ── No target journal: the report the app always gave ────────────────────────────
 // The expected rows were captured from the build before this change
-// (fixtures/compliance-baseline-nojournal.json). Without the change this fails on its
+// (fixtures/compliance-baseline-nojournal.json), and re-captured in usability round 1,
+// when rows that checked nothing became ℹ "Does not apply" (not counted as passed), the
+// Text size row began measuring every text in the figure, and type kept its printed size
+// when the printed width changed (ux1-type.spec.js). Without the change this fails on its
 // first line: there is no _targetJournal (and no Target journal control) to be "none".
 test('with no target journal the report is word for word the one the app gave before', async ({ page }) => {
   const errors = await loadApp(page);
@@ -112,7 +115,7 @@ test('each verified journal applies exactly its own page, as one undo step', asy
   expect(+elife.w).toBeGreaterThanOrEqual(100);                   // at least 10 cm, 20 cm full page
   expect(+elife.w).toBeLessThanOrEqual(200);
   expect(elife.font).toBe(elife.before.style.labelFont);          // no font stated: untouched
-  expect(elife.after.style.labelSize).toBe('8');                  // no type size stated: the preset's own
+  expect(elife.after.style.labelPt).toBe('8');                    // no type size stated: the preset's own, in points
   expect(elife.dpi).toBe('300');
   expect(elife.name).toBe('figure');
 
@@ -134,7 +137,8 @@ test('each verified journal applies exactly its own page, as one undo step', asy
   expect(asm.dpi).toBe('600');                                    // 300–600, not higher than 600
   expect(asm.font).toBe('Arial,Helvetica,sans-serif');            // Arial, Helvetica or Times New Roman
   expect(asm.bold).toBe(false);                                   // not stated: untouched
-  for (const k of ['panelW', 'panelH', 'gapH', 'gapV', 'labelSize', 'sbH', 'bgColor'])
+  // labelPt, not labelSize: the letters keep their printed size, so at ASM's 177.8 mm their px follow
+  for (const k of ['panelW', 'panelH', 'gapH', 'gapV', 'labelPt', 'sbH', 'bgColor'])
     expect(asm.after.layout[k] ?? asm.after.style[k], k).toBe(asm.before.layout[k] ?? asm.before.style[k]);
   expect(asm.lzw).toBe(false);
 
@@ -156,7 +160,8 @@ const CASES = [
   { j: 'nature', label: 'Text size', bad: "sv('label-size',40)" },
   { j: 'plos', label: 'Printed width', bad: "sv('export-width-mm','200')" },
   { j: 'plos', label: 'Export DPI', bad: "sv('export-dpi','1200')" },
-  { j: 'plos', label: 'Export format', bad: "sc('export-tiff-lzw',false)" },
+  // After LZW is switched on nothing has been exported yet, so the row says "not checked" (ℹ), not ✓.
+  { j: 'plos', label: 'Export format', bad: "sc('export-tiff-lzw',false)", afterIcon: 'ℹ' },
   { j: 'plos', label: 'File name', bad: "sv('export-name','figure 2')", fixT: /Name Fig2/ },
   { j: 'plos', label: 'Text size', bad: "sv('label-size',6)" },
   { j: 'plos', label: 'Font', bad: "sv('label-font','\\'Helvetica Neue\\',Arial,sans-serif')" },
@@ -187,7 +192,7 @@ for (const c of CASES) {
       .locator('button').click();
     const after = await page.evaluate(l => __read().find(r => r.label === l) || null, c.label);   // the report ran again
     // With no journal an accessibility row is shown only while it has something to flag.
-    if (c.j) expect(after.icon, after.text).toBe('✓'); else expect(after).toBeNull();
+    if (c.j) expect(after.icon, after.text).toBe(c.afterIcon || '✓'); else expect(after).toBeNull();
     expect(await page.evaluate(() => undoStack.length)).toBe(d0 + 1);
     if (c.label === 'Red/green') expect(await page.evaluate(() => [images[0].lut, images[1].lut])).toEqual(['magenta', 'green']);
     await closeModal(page);
@@ -265,7 +270,8 @@ test('contrast ratio follows the WCAG formula: 21:1 black on white, 4.48:1 for #
 
 // Before: there was no red lookup table, so a red + green figure could not even be made,
 // and nothing counted the channels in a merge.
-test('red beside green warns with no journal; with ASM it cites ASM; text over pixels is "not checked"', async ({ page }) => {
+// Text over pixels used to be "not checked" while the row showed ✓; it is measured now (ux1-type.spec.js).
+test('red beside green warns with no journal; with ASM it cites ASM; text over pixels is measured', async ({ page }) => {
   const errors = await setup(page, 2);
   const r = await page.evaluate(() => {
     images[0].lut = 'red'; images[1].lut = 'green'; render();
@@ -277,7 +283,8 @@ test('red beside green warns with no journal; with ASM it cites ASM; text over p
   expect(r.none.icon).toBe('⚠');
   expect(r.none.text).toMatch(/QUAREP-LiMi/);
   expect(r.asm.text).toMatch(/ASM: avoid red\/green.*use magenta for red/);
-  expect(r.con.text).toMatch(/panel letters and tags sit over image pixels — not checked/);
+  expect(r.con.text).toMatch(/letters, tags and bar text on the pixels under them/);
+  expect(r.con.text).not.toMatch(/not checked/);
   expect(r.lut).toEqual([200, 0, 0]);
   expect(errors).toEqual([]);
 });

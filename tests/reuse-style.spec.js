@@ -179,7 +179,7 @@ test('lab style: font, sizes, colours and sample colours applied; unused keys li
     const widths = []; const emit = { rect() {}, line(x1, y1, x2, y2, s, w) { widths.push(w); }, poly() {}, circle() {}, text() {}, path() {} };
     try { _chartDraw(el, emit); } catch (e) {}
     const out = { k, before, after, key, summary, ignored, steps: undoStack.length - n0,
-      font: gv('label-font'), axisFont: gv('axis-font'), axisFs: gi('axis-fs'), axisColor: gv('axis-color'), auto: gc('axis-auto-color'),
+      font: gv('label-font'), axisFont: gv('axis-font'), axisFs: gf('axis-fs'), axisPt: gv('axis-pt'), textPt: gv('text-pt'), axisColor: gv('axis-color'), auto: gc('axis-auto-color'),
       axisW: _chartAxisW(), drawnW: Math.max(...widths), fontOpt: [...document.getElementById('label-font').options].some(o => o.value === gv('label-font')) };
     const sess = JSON.parse(JSON.stringify(serializeSession(true)));
     undo();
@@ -192,7 +192,9 @@ test('lab style: font, sizes, colours and sample colours applied; unused keys li
   expect(r.font).toBe("'Source Sans Pro',sans-serif");
   expect(r.fontOpt).toBe(true);                       // the custom family is an option the select really holds
   expect(r.axisFont).toBe('');                        // headings follow the letters' font
-  expect(r.axisFs).toBe(Math.round(11 / r.k));        // 11 pt → px at this print size
+  // 11 pt kept in points (it prints at 11 pt at any printed width); the px follow
+  expect(r.axisPt).toBe('11'); expect(r.textPt).toBe('11');
+  expect(r.axisFs).toBeCloseTo(11 / r.k, 1);
   expect(r.axisColor).toBe('#262626'); expect(r.auto).toBe(false);
   expect(r.axisW).toBeCloseTo(0.6 * 72.27 / 25.4 * 0.75 / r.k, 1);
   expect(r.drawnW).toBeCloseTo(r.axisW, 5);

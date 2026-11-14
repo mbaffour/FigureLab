@@ -112,6 +112,9 @@ test.describe('every control that changes the figure is one undo step', () => {
     await page.evaluate(() => {
       document.querySelectorAll('aside.sidebar details').forEach(d => { d.open = true; });
       sc('show-col-labels', true); sc('show-row-labels', true); onLayoutChange();
+      // one pseudocoloured panel, so the key has something to show: Place the key on the
+      // figure refuses to place an empty key
+      images[1].lut = 'green';
       figGroups.push({ axis: 'row', from: 1, to: 1, label: 'G1' }); renderGroupList();
       selectedPanel = 0; renderImgList(); render();
       // the first panel's settings, opened as its ⚙ would

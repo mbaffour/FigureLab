@@ -106,7 +106,8 @@ test('a hidden panel does not fail the calibration, adjustment or inset lines, o
   // their parent", and the pre-flight's "1 panel(s) show a scale bar but aren't calibrated".
   expect(r.hidden.calib).toMatch(/^All calibrated/);
   expect(r.hidden.adjust).toMatch(/^Within normal range/);
-  expect(r.hidden.insets).toBe('None');
+  // no inset shown: the row says it does not apply (it used to read "None" and count as a pass)
+  expect(r.hidden.insets).toBe('Does not apply — no insets');
   expect(r.hidden.preflight).not.toContain("aren't calibrated");
   expect(r.shown.calib).toMatch(/^1 scale bar\(s\) not calibrated/);
   expect(r.shown.adjust).toMatch(/^1 panel\(s\) with extreme/);

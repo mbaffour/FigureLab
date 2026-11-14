@@ -156,6 +156,10 @@ test('layered SVG looks like the flat SVG and the PNG export, pixel for pixel', 
   for (const [dpi, mm] of [['72', '0'], ['150', '0'], ['300', '0'], ['150', '89'], ['300', '183']]) {
     const r = await page.evaluate(async ([dpi, mm]) => {
       sv('export-dpi', dpi); sv('export-width-mm', mm); render();
+      // The figure keeps its type in points, so at 89 mm every text would print 2–3× larger
+      // in layout px and put that much more anti-aliased text through a comparison that is
+      // about where the layers sit. Hold the type at the same layout px at every width.
+      sv('label-size', '18'); sv('axis-fs', '13'); render(); sv('text-pt', String(+(7 * _physFacts().ptPerPx).toFixed(3))); render();
       const layered = await __svgCap('layered');
       const flat = await __svgCap('flat');
       const c = renderExportCanvas(getExportDPI());

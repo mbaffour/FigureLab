@@ -713,8 +713,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="'Times New Roman',serif">Times New Roman</option>
         <option value="'Courier New',monospace">Courier</option>
       </select></div>
-    <div class="field"><label>Size</label>
-      <input type="number" id="axis-fs" value="13" min="6" max="36" oninput="scheduleRender()" style="width:52px"> px</div>
+    <div class="field"><label for="axis-pt" title="Row/column heading size in points at the printed size; the title is drawn 4 px larger. It stays this size in print when the printed width or the grid changes.">Size</label>
+      <input type="number" id="axis-pt" value="" min="3" max="48" step="0.5" oninput="scheduleRender()" style="width:52px" aria-label="Heading size in points"> pt
+      <input type="number" id="axis-fs" value="13" min="6" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Heading size in layout pixels"> px</div>
     <div class="inline-row">
       <input type="checkbox" id="axis-bold" onchange="scheduleRender()">
       <label for="axis-bold" style="cursor:pointer">Bold</label>
@@ -908,15 +909,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="font-size:10px;color:var(--muted);margin:-2px 0 4px;line-height:1.35">Tip: drag any label, title, row/col header or scale-bar text on the canvas to reposition it. Double-click a label to reset it. Export as <b>SVG</b> for infinitely-sharp (vector) label text.</div>
     <div class="field"><label>Show</label>
       <input type="checkbox" id="show-labels" checked onchange="scheduleRender()"></div>
-    <div class="field"><label>Background</label>
-      <input type="checkbox" id="label-bg" checked onchange="scheduleRender()"></div>
-    <div class="field"><label>Size (px)</label>
-      <input type="number" id="label-size" value="18" min="6" max="72" oninput="scheduleRender()"></div>
+    <div class="field look-grid-part"><label>Background</label>
+      <input type="checkbox" id="label-bg" checked onchange="if(!this.checked&&!gc('label-auto-color')){ sc('label-auto-color',true); toast('Auto contrast is on: without a chip, each letter is drawn white or black from the picture under it','ok'); } scheduleRender()" title="A dark chip behind each letter. Without it, Auto contrast (switched on when you untick this) keeps a letter from vanishing into a white chart or a bright section."></div>
+    <div class="field"><label for="label-pt" title="Panel letter size in points at the printed size (Export › Printed width) — what journals specify. It stays this size in print when the printed width, the canvas or a panel changes; the px beside it follow.">Size</label>
+      <input type="number" id="label-pt" value="" min="3" max="72" step="0.5" oninput="scheduleRender()" style="width:52px" aria-label="Panel letter size in points"> pt
+      <input type="number" id="label-size" value="18" min="6" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
     <div class="field"><label>Color</label>
       <input type="color" id="label-color" value="#ffffff" oninput="scheduleRender()"></div>
-    <div class="field"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag from the brightness of the image beneath — so a white letter never lands on a white histology section. Not needed when the label has a background chip.">Auto contrast</label>
+    <div class="field look-grid-part"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag from the brightness of the image beneath — so a white letter never lands on a white histology section. Not needed when the label has a background chip.">Auto contrast</label>
       <input type="checkbox" id="label-auto-color" onchange="scheduleRender()"></div>
-    <div class="field"><label>Position</label>
+    <div class="field look-grid-part"><label>Position</label>
       <select id="label-pos" onchange="scheduleRender()">
         <option value="tl">Top Left</option><option value="tr">Top Right</option>
         <option value="bl">Bottom Left</option><option value="br">Bottom Right</option>
@@ -929,6 +931,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="roman">i ii iii</option>
       </select>
     </div>
+    <div class="look-grid-part">
     <!-- Panel tags: the short text a panel wears besides its letter — a condition, a
          time point, or its channel names in their LUT colours (DAPI in blue, GFP in
          green), which is how every fluorescence figure names its channels and what
@@ -954,6 +957,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" onclick="applySeriesTags()" style="padding:1px 7px;font-size:10px">Apply</button>
     </div>
     <button class="btn" onclick="tagPanelsFromAcquisition()" style="width:100%;justify-content:center;font-size:11px;margin-top:3px" title="Read the acquisition time each panel arrived with — OME-TIFF DeltaT, an ImageJ frame interval, or the TIFF DateTime tag — and tag the panels with the time elapsed from the earliest of them. No guessing: panels whose file carried no time are left alone.">⏱ Tag from acquisition time</button>
+    </div>
 
     <div class="divider"></div>
     <div class="sec-lbl">Scale bar appearance (all panels) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="These control only how the bar LOOKS. A bar appears once a panel has a µm/px calibration: open that panel's ⚙ and press Calibrate, or click the ⚠ calibrate badge beside its name. The bar's length is per panel, in the same place.">?</span></div>
@@ -961,16 +965,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
       <input type="color" id="sb-color" value="#ffffff" oninput="scheduleRender()"></div>
-    <div class="field"><label for="sb-auto-color" title="Per panel, white or black for the bar and its text from the brightness of the image beneath — a white bar on a bright-field image is invisible">Auto contrast</label>
+    <div class="field look-grid-part"><label for="sb-auto-color" title="Per panel, white or black for the bar and its text from the brightness of the image beneath — a white bar on a bright-field image is invisible">Auto contrast</label>
       <input type="checkbox" id="sb-auto-color" onchange="scheduleRender()"></div>
     <div class="field"><label>Show text</label>
       <input type="checkbox" id="sb-text" checked onchange="scheduleRender()"></div>
-    <button class="btn" onclick="uniformScaleBars()" style="width:100%;justify-content:center;font-size:11px;margin-top:2px" title="Give every calibrated panel the same bar length — the selected panel's, or a clean value about a fifth of the median field of view — and switch its bar on. Bars then read as one across the figure.">≡ Same bar on all calibrated</button>
+    <button class="btn look-grid-part" onclick="uniformScaleBars()" style="width:100%;justify-content:center;font-size:11px;margin-top:2px" title="Give every calibrated panel the same bar length — the selected panel's, or a clean value about a fifth of the median field of view — and switch its bar on. Bars then read as one across the figure.">≡ Same bar on all calibrated</button>
 
     <div class="divider"></div>
     </div><!-- /look-grid-only -->
     <div id="look-ff-note" style="display:none;font-size:10px;color:var(--muted);line-height:1.4;margin-bottom:6px">
-      Panel letters and the global scale-bar defaults apply to <b>grid</b> figures. In freeform, set these per object in the properties bar above the canvas.</div>
+      In freeform, panel letters are the picture objects' labels (typed in the properties bar above the canvas): their size, colour, format and font are set above and under Typography. Position, background chips and panel tags are grid-only.</div>
     <div class="sec-lbl">Journal house style <span class="help-chip" tabindex="0" role="button" aria-label="About target journals" data-tip="Pick the journal the figure is for. FigureLab applies what that journal's own figure guide says where it is mechanical (printed width, font, type size, DPI, TIFF compression, file name) as one undo step, and ✓ Check journal compliance then checks the figure against that guide. Science, Cell and PNAS could only be read from secondary sources that disagree: they keep their size presets and their checks are marked unverified.">?</span></div>
     <div class="field"><label for="target-journal" title="The journal this figure is for. Saved with the figure; the compliance check and the Save dialog check against it.">Target journal</label>
       <select id="target-journal" onchange="_onTargetJournal(this.value)" style="width:150px" title="Choosing a journal applies its figure guide (width, font, type size, DPI, TIFF compression, file name) as one undo step. None checks against general guidance only.">
@@ -1012,8 +1016,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Typography</div>
-    <div class="field"><label>Font family</label>
+    <div class="sec-lbl">Typography <span class="help-chip" tabindex="0" role="button" aria-label="About figure type" data-tip="One font and one set of sizes for the whole figure, in points at the printed size (Export › Printed width), which is how journals state type. The font is used for panel letters, headings, charts, gene maps, scale-bar text and the legend key. Text size is chart and gene-map text, scale-bar and intensity-bar text and the key. Panel letters and headings have their own size under Panel Labels and Row / column header style. All of them stay the same size in print when you change the printed width, resize a chart or a panel, or add columns.">?</span></div>
+    <div class="field"><label for="label-font" title="The figure's font: panel letters, headings, charts, gene maps, scale-bar text and the legend key">Font family</label>
       <select id="label-font" onchange="scheduleRender()" style="width:140px">
         <option value="system-ui,sans-serif">System Sans</option>
         <option value="'Helvetica Neue',Arial,sans-serif">Helvetica</option>
@@ -1022,6 +1026,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="'Times New Roman',serif">Times New Roman</option>
         <option value="'Courier New',monospace">Courier</option>
       </select></div>
+    <div class="field"><label for="text-pt" title="Chart and gene-map text, scale-bar and intensity-bar text and the legend key, in points at the printed size. Chart titles are drawn a tenth larger; nothing FigureLab draws for them is smaller than this.">Text size</label>
+      <input type="number" id="text-pt" value="8" min="3" max="48" step="0.5" oninput="scheduleRender()" style="width:52px" aria-label="Figure text size in points"> pt</div>
+    <div id="type-readout" style="font-size:10px;color:var(--muted);line-height:1.4;margin:-2px 0 4px"></div>
     <div class="inline-row">
       <input type="checkbox" id="label-bold" checked onchange="scheduleRender()">
       <label for="label-bold" style="cursor:pointer">Bold labels</label>
@@ -1184,8 +1191,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="key-dl-btn" onclick="downloadKey()" style="width:100%;justify-content:center" title="Download the figure's legend key as figure-key.png (or the format you last exported the figure in)">⬇ Download key (PNG)</button>
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
       <input type="checkbox" id="key-on-figure" onchange="setKeyOnFigure(this.checked)">
-      <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, at its top-right corner — drag it with the Select tool, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
+      <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, in the corner where it covers least, on the figure's background colour — drag it with the Select tool, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
     </div>
+    <div id="key-why" style="display:none;font-size:10px;color:var(--warn);line-height:1.4;margin-top:3px"></div>
+    <div id="key-names-ui" style="display:none"></div>
+    <input type="hidden" id="key-names" value="">
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
     <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Each blot or gel's whole original image with the cropped region outlined, file name, crop coordinates, tilt and splice markers — the uncropped-originals supplement Nature, Cell, JBC, PLOS and eLife require. Also added to the submission package.">🗎 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
@@ -1794,8 +1804,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
             <option value="cb">Okabe–Ito (colourblind-safe)</option>
             <option value="mono">Monochrome</option>
           </select></label>
-        <label style="font-size:11px">Font size
-          <input type="number" id="gm-fontsize" min="6" max="28" step="1" style="width:100%"></label>
+        <label style="font-size:11px" title="In points at the printed size. Empty: the figure's text size (Look › Typography › Text size), which follows the figure when it changes.">Text size (pt)
+          <input type="number" id="gm-fontsize" min="3" max="28" step="0.5" placeholder="figure" style="width:100%"></label>
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
           <label><input type="checkbox" id="gm-ruler"> bp ruler</label>
           <label><input type="checkbox" id="gm-labels"> labels</label>
@@ -2708,15 +2718,22 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 const APP_VERSION = '3.18.0';  // single source of truth for the app version
 const OBJECTIVES = {'4×':1.62,'10×':0.65,'20×':0.32,'40×':0.16,'60×':0.108,'100×':0.065};
 const ALPHABET   = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// Type sizes are POINTS at the printed size (labelPt letters, axisPt headings, textPt
+// charts, gene maps, bar text and the key): they print at that size whatever the canvas,
+// since _typeSync converts them at the preset's printed width. They used to be px — 8 px
+// on a 1200 px canvas printed at 183 mm is 2.6 pt, so a journal preset made the letters
+// unreadable. Where the journal states a range the preset sits inside it (and the
+// journal's rules clamp it again); where it states none (eLife, EMBO J) these are plain
+// readable sizes, and the toast says the journal gave none.
 const PRESETS = {
-  nature:  {panelW:300,panelH:300,gapH:4,gapV:4,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:50},
-  science: {panelW:260,panelH:260,gapH:3,gapV:3,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
-  cell:    {panelW:320,panelH:320,gapH:5,gapV:5,labelSize:9,axisFs:9,sbH:4,bgColor:'#ffffff',mTop:35,mLeft:55},
-  poster:  {panelW:500,panelH:500,gapH:12,gapV:12,labelSize:22,axisFs:16,sbH:8,bgColor:'#ffffff',mTop:50,mLeft:70},
-  elife:   {panelW:300,panelH:300,gapH:4,gapV:4,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:50},
-  plos:    {panelW:300,panelH:300,gapH:5,gapV:5,labelSize:9,axisFs:9,sbH:4,bgColor:'#ffffff',mTop:32,mLeft:52},
-  embo:    {panelW:280,panelH:280,gapH:4,gapV:4,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:48},
-  pnas:    {panelW:260,panelH:260,gapH:3,gapV:3,labelSize:8,axisFs:8,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
+  nature:  {panelW:300,panelH:300,gapH:4,gapV:4,labelPt:7,axisPt:7,textPt:7,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:50},
+  science: {panelW:260,panelH:260,gapH:3,gapV:3,labelPt:8,axisPt:8,textPt:7,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
+  cell:    {panelW:320,panelH:320,gapH:5,gapV:5,labelPt:8,axisPt:8,textPt:7,sbH:4,bgColor:'#ffffff',mTop:35,mLeft:55},
+  poster:  {panelW:500,panelH:500,gapH:12,gapV:12,labelPt:24,axisPt:20,textPt:18,sbH:8,bgColor:'#ffffff',mTop:50,mLeft:70},
+  elife:   {panelW:300,panelH:300,gapH:4,gapV:4,labelPt:8,axisPt:8,textPt:7,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:50},
+  plos:    {panelW:300,panelH:300,gapH:5,gapV:5,labelPt:10,axisPt:9,textPt:8,sbH:4,bgColor:'#ffffff',mTop:32,mLeft:52},
+  embo:    {panelW:280,panelH:280,gapH:4,gapV:4,labelPt:8,axisPt:8,textPt:7,sbH:3,bgColor:'#ffffff',mTop:30,mLeft:48},
+  pnas:    {panelW:260,panelH:260,gapH:3,gapV:3,labelPt:8,axisPt:8,textPt:7,sbH:3,bgColor:'#ffffff',mTop:28,mLeft:45},
 };
 
 let images      = [];
@@ -4590,6 +4607,13 @@ const CMD_REGISTRY=[
   {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar text label font thickness', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
   // Panel letters — every obvious phrasing returned nothing.
   {label:'Labels: panel letters A, B, C', keys:'label labels letter a b c panel letters lettering caption tag name abc numbering', run:()=>_cmdpGoto('show-labels','Show, then size, colour and position below')},
+  // Type in points — "font size" and "letter size" found nothing, and in freeform the
+  // letter size was not on screen at all.
+  {label:'Text size in points (charts, gene maps, bar text, key)', keys:'font size text size type size typography point points pt chart text axis text tick labels small text readable',
+   run:()=>_cmdpGoto('text-pt','In points at the printed size; letters and headings have their own sizes')},
+  {label:'Panel letter size (pt)', keys:'letter size label size panel letters font size pt points bigger smaller lettering', run:()=>_cmdpGoto('label-pt','Panel letters, in points at the printed size')},
+  {label:'Figure font (letters, headings, charts, key)', keys:'font family typeface arial helvetica times figure font chart font', run:()=>_cmdpGoto('label-font','One font for the whole figure')},
+  {label:'Rename a channel in the legend key', keys:'channel name rename legend key DAPI GFP CellMask tag colour', run:()=>_cmdpGoto('key-on-figure','Channel names are listed below this switch')},
   {label:'Letter position on the panel', keys:'label position corner top left right bottom letter placement', run:()=>_cmdpGoto('label-pos','Which corner the letter sits in')},
   // Annotation — the arrow tool was not in the palette at all.
   {label:'Draw an arrow',           keys:'arrow point marker annotate draw indicate show pointer', hint:'A', run:()=>setTool('arrow')},
@@ -6603,6 +6627,16 @@ function syncGroupToPanel(srcIdx){
 
 // Split-channel row: explode a multi-channel composite into separate
 // single-channel panels plus a merge — the classic split-channel figure.
+// What the author called the channel drawn in this lookup table (Export › Legend key ›
+// Channel names), or ''. One name per colour: the key, the tags' channel names and the
+// caption all read it, so a channel named once is named the same everywhere.
+function _keyRenames(){
+  const s=gv('key-names')||'';
+  if(_keyRenames._s===s) return _keyRenames._m;
+  let m={}; try{ const o=s?JSON.parse(s):{}; if(o&&typeof o==='object'&&!Array.isArray(o)) m=o; }catch(e){}
+  _keyRenames._s=s; _keyRenames._m=m; return m;
+}
+function _keyRename(lut){ const v=_keyRenames()[lut]; return (typeof v==='string'&&v.trim())?v.trim().slice(0,60):''; }
 function _lutChannelName(lut){
   const L=LUT_INFO[lut||'none']; return L?L.chan:'Channel';
 }
@@ -6644,6 +6678,8 @@ const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',red:'#ff5a5a
   // a colour map's tag is written in its bright end, which is readable on a dark image
   viridis:'#70cf57', magma:'#fd9869', inferno:'#fb9d07', cividis:'#c4b468'};
 function _channelName(name, lut){
+  const r=lut&&lut!=='none'?_keyRename(lut):'';
+  if(r) return r;
   const d=_detectChannel(name||'');
   return (d&&d.label&&d.label!=='Merge')?d.label:_lutChannelName(lut);
 }
@@ -6727,7 +6763,8 @@ function _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText){
   const raw=im.raw, native=!!(raw&&raw.min!=null&&raw.max!=null&&raw.max>raw.min);
   const toNative=v=>raw.min+(v/255)*(raw.max-raw.min);
   const hi=_fmtBarVal(native?toNative(wp):wp), lo=_fmtBarVal(native?toNative(bp):bp);
-  const sfs=Math.max(7,Math.round(9*dw/300)), font=`${sfs}px ${_barFontFamily()}`;
+  // The figure's text size (Look › Typography), so it prints at that size at any panel width.
+  const sfs=+_figTextPx().toFixed(2), font=`${sfs}px ${_barFontFamily()}`;
   emitText('cbar',imgIdx,hi, bx-3, by, font, sbClr, 'right','top',0);
   emitText('cbar',imgIdx,lo, bx-3, by+bh, font, sbClr, 'right','alphabetic',0);
 }
@@ -9013,7 +9050,7 @@ function _ltDraw(im,imgIdx,box,R,ink,emitText){
 }
 function _ltDefault(im){
   const a=im&&im.gelAnalysis, n=(a&&_gelFresh(im)&&a.lanes.length)||4;
-  return {rows:[{name:'',cells:new Array(n).fill('')}], lanes:n, pos:'above', fs:Math.max(8,Math.min(24,gi('axis-fs')||12))};
+  return {rows:[{name:'',cells:new Array(n).fill('')}], lanes:n, pos:'above', fs:Math.max(8,Math.min(24,gf('axis-fs')||12))};
 }
 function _ltFit(t){ const n=Math.max(1,Math.round(+t.lanes)||1); t.lanes=n;
   t.rows.forEach(r=>{ r.cells=(r.cells||[]).slice(0,n).map(_ltNorm); while(r.cells.length<n) r.cells.push(''); }); return t; }
@@ -9464,19 +9501,21 @@ function _labStylePlan(settings){
   if(ff){
     const v=_LAB_FONT[ff]||_LAB_FONT[ff.toLowerCase()]||`'${ff.replace(/['"\\]/g,'')}',sans-serif`;
     set['label-font']=v; set['axis-font']='';
-    rows.push(['font_family', ff, `panel letters, row/column headings and title in ${_fontName(v)==='System Sans'?ff:String(v).split(',')[0].replace(/['"]/g,'')}`]);
+    rows.push(['font_family', ff, `the figure's font — panel letters, headings and title, charts, gene maps, scale-bar text and the key — in ${_fontName(v)==='System Sans'?ff:String(v).split(',')[0].replace(/['"]/g,'')}`]);
   }
   if('font_family_custom' in settings) used.add('font_family_custom');
   const fs=num(settings.font_size);
   if('font_size' in settings){ used.add('font_size');
-    if(fs){ const p=Math.max(6,Math.min(36,Math.round(px(fs)))); set['axis-fs']=String(p);
-      rows.push(['font_size', `${fs} pt`, `row/column headings ${p} px (${f(p*k)} pt at print size); the title follows at ${p+4} px (${f((p+4)*k)} pt)`]); }
+    // Kept in points (Look › Typography): they print at this size whatever the printed
+    // width is changed to later, which a conversion to px at load time did not.
+    if(fs){ const pt=Math.max(3,Math.min(48,fs)); set['axis-pt']=String(pt); set['text-pt']=String(pt);
+      rows.push(['font_size', `${fs} pt`, `row/column headings, and chart, gene-map, scale-bar text and the key, at ${f(pt)} pt at print size (${f(pt/k)} px on this canvas now); the title is drawn 4 px larger`]); }
     else skipped.push(['font_size', String(JSON.stringify(settings.font_size)).slice(0,40), 'not applied: not a positive number of points']); }
   const ts=num(settings.title_size);
   if('title_size' in settings){ used.add('title_size');
-    const head=set['axis-fs']?+set['axis-fs']:gi('axis-fs');
-    if(ts&&!fs){ const p=Math.max(6,Math.min(36,Math.round(px(ts))-4)); set['axis-fs']=String(p);
-      rows.push(['title_size', `${ts} pt`, `title ${p+4} px (${f((p+4)*k)} pt); headings ${p} px, since FigureLab sets the title 4 px above the headings`]); }
+    const head=set['axis-pt']?(+set['axis-pt'])/k:gf('axis-fs');
+    if(ts&&!fs){ const pt=Math.max(3,+(ts-4*k).toFixed(2)); set['axis-pt']=String(pt);
+      rows.push(['title_size', `${ts} pt`, `title ${f(ts)} pt; headings ${f(pt)} pt, since FigureLab sets the title 4 px above the headings`]); }
     else if(ts) skipped.push(['title_size', `${ts} pt`, `not applied: FigureLab sets the title 4 px above the headings, so it prints at ${f((head+4)*k)} pt here`]);
     else skipped.push(['title_size', String(JSON.stringify(settings.title_size)).slice(0,40), 'not applied: not a positive number of points']); }
   const ac=str(settings.axis_color);
@@ -9513,11 +9552,12 @@ function loadLabStyle(obj, fileName){
   if(!P.rows.length){ toast(`Nothing in ${fileName||'that file'} is used by FigureLab — no font, sizes, axis colour, line width or sample colours${P.skipped.length?`; read but unusable: ${P.skipped.map(r=>r[0]+' ('+r[2].replace(/^not applied: /,'')+')').join(', ')}`:''}`,'warn'); return P; }
   pushUndo();
   Object.entries(P.set).forEach(([id,v])=>{ if(id==='label-font') _ensureFontOption(v); sv(id,v); });
+  _typeSync();                          // the px fields follow the points now, not at the next frame
   Object.entries(P.check).forEach(([id,v])=>sc(id,v));
   if(P.pal) sv('sample-colours', JSON.stringify(P.pal));
   // What this style put on the font and size controls: a journal chosen later may change
   // them, and the status line then says so instead of claiming the lab font.
-  { const rec={}; ['label-font','axis-fs','axis-color'].forEach(id=>{ if(id in P.set) rec[id]=P.set[id]; }); sv('lab-style-set', Object.keys(rec).length?JSON.stringify(rec):''); }
+  { const rec={}; ['label-font','axis-pt','text-pt','axis-color'].forEach(id=>{ if(id in P.set) rec[id]=P.set[id]; }); sv('lab-style-set', Object.keys(rec).length?JSON.stringify(rec):''); }
   const app=typeof obj.app==='string'?obj.app:'', when=typeof obj.created_at==='string'?obj.created_at:'';
   sv('lab-style-src', [fileName||'paper_style.json', app, when?'saved '+when:''].filter(Boolean).join(' · '));
   logAction('labStyle',{file:fileName||'', used:P.rows.map(r=>r[0]), ignored:P.ignored.length});
@@ -9531,7 +9571,7 @@ function loadLabStyle(obj, fileName){
       <table id="lab-style-applied" style="border-collapse:collapse;font-size:11px">${P.rows.map(tr).join('')}</table>
       ${P.skipped.length?`<div style="margin:8px 0 4px"><b>Read but not applied</b></div><table id="lab-style-skipped" style="border-collapse:collapse;font-size:11px">${P.skipped.map(tr).join('')}</table>`:''}
       ${_labJournalNote()}
-      <div style="color:var(--muted);margin-top:8px">Sizes: the file's sizes are points; FigureLab's are layout pixels, and at this figure's export width and DPI 1 px prints at ${(+P.ptPerPx).toFixed(3)} pt, so pt ÷ ${(+P.ptPerPx).toFixed(3)} = px. Change the export width or DPI later and the printed sizes move with it.</div>
+      <div style="color:var(--muted);margin-top:8px">Sizes: the file's sizes are points, and FigureLab keeps them in points (Look › Typography), so they print at that size whatever printed width you pick later. At this figure's printed width 1 px prints at ${(+P.ptPerPx).toFixed(3)} pt.</div>
       ${P.ignored.length?`<div style="margin-top:8px"><b>Not used by FigureLab</b> (${P.ignored.length}) — settings for CFU Plot Studio's own plots: <span id="lab-style-ignored">${P.ignored.map(esc).join(', ')}</span></div>`:''}
     </div>`);
   return P;
@@ -9545,7 +9585,7 @@ function _labJournalNote(){
   const k=_physFacts().ptPerPx||0.75, bits=[];
   const fn=_fontName(gv('label-font')||'system-ui,sans-serif');
   if(J.fonts&&!J.fonts.includes(fn)) bits.push(`${J.label} asks for ${J.fonts.join(' or ')}; the letters are now in ${fn}`);
-  const hp=gi('axis-fs')*k;
+  const hp=gf('axis-fs')*k;
   if((J.ptMin!=null&&hp<J.ptMin-0.05)||(J.ptMax!=null&&hp>J.ptMax+0.05)) bits.push(`${J.label} asks for ${J.ptNote||`${J.ptMin}–${J.ptMax} pt`} type; the headings now print at ${hp.toFixed(1)} pt`);
   return `<div id="lab-style-journal" style="margin-top:8px"><b>Target journal: ${esc(J.label)}.</b> A lab style and a target journal both set the font and sizes; the one applied last wins, so this lab style is in force now. ${bits.length?esc(bits.join('; '))+' — Check › compliance flags it, and choosing '+esc(J.label)+' again puts its rules back over the lab style.':'Nothing it sets conflicts with '+esc(J.label)+'’s rules.'}</div>`;
 }
@@ -9555,6 +9595,9 @@ function _labStyleOverrides(){
   const out=[];
   if(rec['label-font']!=null&&rec['label-font']!==gv('label-font')) out.push(`font ${_fontName(rec['label-font'])} → ${_fontName(gv('label-font')||'system-ui,sans-serif')}`);
   if(rec['axis-fs']!=null&&String(rec['axis-fs'])!==String(gv('axis-fs'))) out.push(`headings ${rec['axis-fs']} → ${gv('axis-fs')} px`);
+  const _pt=v=>Math.round(parseFloat(v)*10)/10;
+  if(rec['axis-pt']!=null&&_pt(rec['axis-pt'])!==_pt(gv('axis-pt'))) out.push(`headings ${_pt(rec['axis-pt'])} → ${_pt(gv('axis-pt'))} pt`);
+  if(rec['text-pt']!=null&&_pt(rec['text-pt'])!==_pt(gv('text-pt'))) out.push(`text ${_pt(rec['text-pt'])} → ${_pt(gv('text-pt'))} pt`);
   if(rec['axis-color']!=null&&rec['axis-color']!==gv('axis-color')) out.push(`heading colour ${rec['axis-color']} → ${gv('axis-color')}`);
   return out;
 }
@@ -10276,7 +10319,7 @@ function gridGeom(){
   const pw=Math.max(20,gi('panel-w')), ph=Math.max(20,gi('panel-h'));
   const gH=Math.max(0,gi('gap-h')), gV=Math.max(0,gi('gap-v'));
   const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
-  const axisFs=gi('axis-fs');
+  const axisFs=gf('axis-fs');
   const titleH=gv('fig-title').trim()?axisFs+20:0;
   const axisGap=_axisGap();
   const colLblH=(showCols?axisFs+axisGap:0)+_grpBand("col"), rowLblW=(showRows?axisFs+axisGap:0)+_grpBand("row");
@@ -10347,6 +10390,8 @@ function render(targetCanvas, exportScale, opts){
   _skipFrameDraw = !!(opts && opts.skipInsetFrames);   // SVG export re-emits inset outlines as vector
   const _skipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : ()=>false);
   const skipLabels = !!_skipOpt;
+  // Points → px for this frame's type, before anything reads a size (see _typeSync).
+  if(typeof _typeSync==='function') _typeSync();
   figTextItems = [];
   // The placed key's text, for the PDF text layer, and the same skip as the labels.
   _keyTextItems = [];
@@ -10367,6 +10412,7 @@ function render(targetCanvas, exportScale, opts){
   if(layoutMode==='freeform'){
     if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.'); return; }
     renderFreeform(canvas, ctx, S, Object.assign({}, opts, {export:isExport}));
+    if(!isExport&&typeof _syncPhysReadout==='function') _syncPhysReadout();
     return;
   }
   if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
@@ -10379,10 +10425,10 @@ function render(targetCanvas, exportScale, opts){
   const ph=rowHeights(rows, cols, pw, Math.max(20,gi('panel-h')), gH, gV);
   const mTop=gi('m-top'), mLeft=gi('m-left'), mBtm=gi('m-btm'), mRight=gi('m-right');
   const bgColor=gv('bg-color');
-  const showLbls=gc('show-labels'), lblSz=gi('label-size'), lblClr=gv('label-color'), lblPos=gv('label-pos');
+  const showLbls=gc('show-labels'), lblSz=gf('label-size'), lblClr=gv('label-color'), lblPos=gv('label-pos');
   const lblAuto=gc('label-auto-color'), sbAuto=gc('sb-auto-color');
   const sbH=Math.max(1,gi('sb-h')), sbClr=gv('sb-color'), sbTxt=gc('sb-text');
-  const axisFs=gi('axis-fs');
+  const axisFs=gf('axis-fs');
   const figTitle=gv('fig-title').trim();
   const showCols=gc('show-col-labels'), showRows=gc('show-row-labels');
   const panelBorderW=Math.max(0,gi('panel-border-w')||0);
@@ -10748,7 +10794,9 @@ function render(targetCanvas, exportScale, opts){
             im._sbRect={x:sbX, y:sbY, w:barPx, h:sbH, ink:barInk};
             if(!isExport) _sbBars.push({idx:imgIdx, left:sbX, right:sbX+barPx, top:sbY, bottom:sbY+sbH, scale:(dw/sw)});
             if(sbTxt){
-              const sfs=Math.max(7,Math.round(10*ow/300));
+              // The figure's text size (Look › Typography): the same printed size on every
+              // panel, whatever its width (it used to be 10 px per 300 px of panel).
+              const sfs=+_figTextPx().toFixed(2);
               const lbl=_sbLabel(im);
               emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px ${_barFontFamily()}`, barInk, 'center','alphabetic',0);
               ctx.textAlign='left';
@@ -11221,6 +11269,7 @@ function showPanelAnnFloat(imgIdx, annIdx, pb){
   document.getElementById('ann-float-width').value=a.width||2;
   document.getElementById('ann-float-font').value=a.fontSize||16;
   const isTxt=a.type==='text';
+  _annFloatKeyMode(a.type==='legend');
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
   document.getElementById('ann-float-halo').style.display=isTxt?'':'none';
@@ -13212,7 +13261,7 @@ function checkCompliance(){
   const _pf=_physFacts();
   const wIn=_pf.wMm/25.4, hIn=_pf.hMm/25.4;
   const targetMm=getTargetWidthMm();
-  const labelPt=Math.max(1,gi('label-size')||8)*_pf.ptPerPx;
+  const labelPt=Math.max(1,gf('label-size')||8)*_pf.ptPerPx;
   const bg=gv('bg-color');
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   // In freeform the grid's panels are not drawn, so no row judges them.
@@ -13264,20 +13313,21 @@ function checkCompliance(){
     {label:'Panel resolution', ok:_lowPpi.length===0, warn:_lowPpi.length>0,
       note:_lowPpi.length
         ? `${_lowPpi.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')} — printed below ${PANEL_MIN_PPI} ppi, so their pixels are interpolated at this size; make them smaller or pick a narrower column`
-        : (_ppis.length ? `Every image panel prints at ≥${PANEL_MIN_PPI} ppi ✓ (lowest ${Math.round(Math.min(..._ppis.map(p=>p.ppi)))} ppi)` : 'No raster image panels'),
+        : (_ppis.length ? `Every image panel prints at ≥${PANEL_MIN_PPI} ppi ✓ (lowest ${Math.round(Math.min(..._ppis.map(p=>p.ppi)))} ppi)` : 'Does not apply — no raster image panels'),
+      info:!_ppis.length, uncounted:!_ppis.length,
       fix:_lowPpi.length?{a:'lowppi',t:'Select panel'}:null},
     {label:'Printed width', ok:wIn<=7.5, warn:wIn<=8.5&&wIn>7.5,
       note:`${_pf.wMm.toFixed(0)} mm (${wIn.toFixed(2)}")${targetMm?' — matches the chosen column width':' · max double-column is ~183 mm'}`},
     {label:'Printed height',ok:hIn<=9.5, warn:false, note:`${_pf.hMm.toFixed(0)} mm (${hIn.toFixed(2)}")`},
-    _ff ? _ffTextRow(_pf.ptPerPx) : {label:'Text size',     ok:labelPt>=5, warn:labelPt>=4&&labelPt<5,
-      note:`panel labels print at ${labelPt.toFixed(1)} pt${labelPt<5?' — below the ~5 pt most journals accept':''}`},
+    _textFloorRow(_pf.ptPerPx, null),
     {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${esc(bg)} — most journals require white`,
       fix:bgIsWhite?null:{a:'white',t:'Make white'}},
     {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
       note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
     {label:'Panel labels unique', ok:_dupLbls.length===0, warn:false,
       note:_dupLbls.length ? `${esc(_dupLbls.join(', '))} — the same label on more than one panel; rename one in the panel list or use Relabel A, B, C` : 'Every panel has its own label ✓'},
-    {label:'Scale-bar calibration', ok:uncal===0, warn:false, note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:'All calibrated ✓',
+    {label:'Scale-bar calibration', ok:uncal===0, warn:false, info:!_shownPanels.some(im=>im.sbOn), uncounted:!_shownPanels.some(im=>im.sbOn),
+      note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:(_shownPanels.some(im=>im.sbOn)?'All calibrated ✓':'Does not apply — no panel has a scale bar switched on'),
       fix:uncal?{a:'calibrate',t:'Calibrate'}:null},
     // A calibrated bar that falls outside the drawable range is simply not painted —
     // no bar, no label, no handle. Calibration alone therefore cannot be the test:
@@ -13285,7 +13335,8 @@ function checkCompliance(){
     {label:'Scale bar drawn', ok:_sbNotDrawn.length===0, warn:false,
       note:_sbNotDrawn.length
         ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}`
-        : 'Every enabled scale bar is drawn ✓'},
+        : (_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)?'Every enabled scale bar is drawn ✓':'Does not apply — no calibrated scale bar is switched on'),
+      info:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0), uncounted:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
     // Compared panels showing the same channel at different display ranges is the
     // classic silent unfairness: the reader assumes GFP in A and GFP in B were shown the
@@ -13294,7 +13345,8 @@ function checkCompliance(){
     {label:'Display ranges by channel', ok:_rangeDrift.length===0, warn:_rangeDrift.length>0,
       // Labels and channel keys (file names) are the author's text: escaped for the note.
       note:_rangeDrift.length ? esc(_rangeDrift.join('; '))+' — compared panels should share a range, or the legend should say why not'
-                              : (_rangeKeys ? `Same range per channel across panels ✓ (${esc(_rangeKeys)})` : 'No pseudocoloured panels'),
+                              : (_rangeKeys ? `Same range per channel across panels ✓ (${esc(_rangeKeys)})` : 'Does not apply — no pseudocoloured panels'),
+      info:!_rangeKeys, uncounted:!_rangeKeys,
       fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
@@ -13306,7 +13358,8 @@ function checkCompliance(){
       // was in the uniform layout, so a short hugged row is a warning worth
       // reading, not a failure.
       warn:gi('panel-w')>=80&&_minRowH<80&&new Set(_rowHs).size>1&&gc('auto-row-h'),
-      note:new Set(_rowHs).size>1 ? `${gi('panel-w')} px wide, rows ${_rowHs.join(' / ')} px tall` : `${gi('panel-w')}×${_rowHs[0]} px per panel`},
+      note:(new Set(_rowHs).size>1 ? `${gi('panel-w')} px wide, rows ${_rowHs.join(' / ')} px tall` : `${gi('panel-w')}×${_rowHs[0]} px per panel`)
+        +' — the cells’ layout size; whether each picture has the pixels to fill its cell is the Panel resolution row'},
     // Warn, never fail: AI-generated schematics are legitimate in many venues, but the
     // author must disclose them — and the strictest journals refuse them outright.
     // An inset whose parent was deleted still renders, but it is no longer bound to
@@ -13315,7 +13368,8 @@ function checkCompliance(){
     {label:'Linked insets', ok:_orphanInsets===0, warn:_orphanInsets>0,
       note:_orphanInsets
         ? `${_orphanInsets} inset(s) lost their parent panel — no longer synced`
-        : (_linkedInsets ? `${_linkedInsets} inset(s), all linked ✓` : 'None')},
+        : (_linkedInsets ? `${_linkedInsets} inset(s), all linked ✓` : 'Does not apply — no insets'),
+      info:!_orphanInsets&&!_linkedInsets, uncounted:!_orphanInsets&&!_linkedInsets},
     {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
       note:_aiGeneratedCount()
         ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
@@ -13338,8 +13392,9 @@ function checkCompliance(){
   const html=rowsOut.map(_complianceRowHtml).join('');
   const unv=rowsOut.filter(c=>c.unverified).length;
   // A check that has not been run is listed but is neither passed nor failed.
-  const unc=rowsOut.filter(c=>c.uncounted&&!c.unverified).length;
-  const pass=rowsOut.filter(c=>c.ok&&!c.unverified&&!c.uncounted).length, total=rowsOut.length-unv-unc;
+  // Nor is an information row (ℹ): it states a fact or a rule, it does not pass anything.
+  const unc=rowsOut.filter(c=>(c.uncounted||c.info)&&!c.unverified).length;
+  const pass=rowsOut.filter(c=>c.ok&&!c.info&&!c.unverified&&!c.uncounted).length, total=rowsOut.length-unv-unc;
   if(!J){
     showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
       `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
@@ -13358,13 +13413,6 @@ const _FF_NA=new Set(['Panel labels','Panel labels unique','Scale-bar calibratio
   'Display ranges by channel','Min panel size','Linked insets','Scale bars','Scale-bar length','Bar length in legend']);
 const _ffNaRow=label=>({label, ok:true, info:true, uncounted:true,
   note:'Does not apply in freeform layout — it reads grid panels, and this figure is drawn from freeform objects'});
-// Text size for a freeform figure: its smallest text object, picture label or bar text.
-function _ffTextRow(k){
-  const T=_figTextSizes(); if(!T.length) return {label:'Text size', ok:true, info:true, note:'No text on the freeform figure'};
-  const t=T.reduce((a,b)=>b.fs<a.fs?b:a), pt=t.fs*k;
-  return {label:'Text size', ok:pt>=5, warn:pt>=4&&pt<5,
-    note:`smallest text (${_TEXT_KIND[t.kind]||t.kind}) prints at ${pt.toFixed(1)} pt${pt<5?' — below the ~5 pt most journals accept':''}`};
-}
 function _auditFix(action){
   // The journal rows' fixes, and the colour-accessibility ones: each its own undo step.
   { const r=_journalFix(action); if(r==='done') return; if(r){ checkCompliance(); return; } }
@@ -14038,22 +14086,43 @@ function _rgbHex(c){ return '#'+_hex2(c[0])+_hex2(c[1])+_hex2(c[2]); }
 function _lutStops(lut){ const f=LUTS[lut]; return f?[0,64,128,192,255].map(i=>_rgbHex(f(i))):null; }
 function _keyChannelRow(name, lut){
   const L=LUT_INFO[lut];
+  if(lut==='grey') return {name, kind:'channel', lut, color:'#808080', marker:'gradient', stops:['#000000','#404040','#808080','#c0c0c0','#ffffff'], words:'greyscale'};
   if(L&&L.ramp) return {name, kind:'channel', lut, color:_rgbHex(LUTS[lut](128)), marker:'gradient', stops:_lutStops(lut), words:L.words};
   return {name, kind:'channel', lut, color:_rgbHex(LUTS[lut](255)), marker:'square', fill:'filled'};
 }
 // One panel or freeform image: its own LUT, then each merged channel the compositor draws
-// (one with pixels; a channel with no LUT of its own is drawn green). A panel without
-// pseudocolour is keyed by name only when its file name says what it is (BF, DIC, phase).
+// (one with pixels; a channel with no LUT of its own is drawn green). A channel is named
+// by colour (_keyChanName): the name typed under Channel names, else the tag the figure's
+// single-channel panels of that colour agree on, else what the file name says. A panel
+// without pseudocolour is keyed only when its file name says what it shows (BF, DIC, a
+// fluorophore), with a grey ramp and the word greyscale — it is drawn in grey, and a
+// swatchless "GFP" read as GFP in some colour the key forgot to show.
 function _keyImageRows(im, add){
   const nm=im.name||im.label||'', chans=(im.channels||[]).filter(ch=>ch&&ch.img);
   const hasLut=!!(im.lut&&im.lut!=='none'&&LUTS[im.lut]);
-  if(hasLut) add(_keyChannelRow(_channelName(nm, im.lut), im.lut));
-  else if(!chans.length){ const d=_detectChannel(nm); if(d&&d.label&&d.label!=='Merge') add({name:d.label, kind:'channel', color:null, marker:'none'}); }
+  if(hasLut) add(_keyChannelRow(_keyChanName(nm, im.lut), im.lut));
+  else if(!chans.length){ const d=_detectChannel(nm); if(d&&d.label&&d.label!=='Merge') add(_keyChannelRow(d.label, 'grey')); }
   chans.forEach(ch=>{
     const l=ch.lut||'green';
-    if(LUTS[l]) add(_keyChannelRow(_channelName(ch.name, l), l));
-    else add({name:_channelName(ch.name, l), kind:'channel', color:null, marker:'none'});
+    if(LUTS[l]) add(_keyChannelRow(_keyChanName(ch.name, l), l));
+    else add(_keyChannelRow(_channelName(ch.name, l), 'grey'));
   });
+}
+// The name a channel shown in `lut` takes in the key.
+function _keyChanName(fileName, lut){
+  const r=_keyRename(lut); if(r) return r;
+  const t=_keyLutTag(lut); if(t) return t;
+  return _channelName(fileName, lut);
+}
+// The tag typed on the figure's single-channel panels shown in `lut`, when every such
+// panel that has a tag has the same one ("CellMask" on each magenta panel); a series of
+// different tags (0 min, 5 min…) names conditions, not the channel, and is not used.
+function _keyLutTag(lut){
+  const shown=layoutMode==='freeform'?(freeformElements||[]).filter(e=>e&&e.type==='image'):_figurePanels();
+  const tags=new Set();
+  shown.forEach(im=>{ if(!im||im.lut!==lut||(im.channels||[]).some(c=>c&&c.img)) return;
+    const t=String(im.tag||'').trim(); if(t) tags.add(t); });
+  return tags.size===1?[...tags][0].slice(0,60):'';
 }
 // One chart's series, as _chartDraw draws them.
 function _keyChartRows(el, add){
@@ -14115,11 +14184,26 @@ function _keyGenemapRows(el, add){
     else list.forEach(x=>add({name:`${x.f.name||label} (${label})`, kind:'feature', color:x.c, marker:'glyph', glyph, desc}));
   });
 }
-// The rows of the figure's key. A row drawn identically twice (two DAPI panels, the same
-// series in two charts) is listed once.
+// The rows of the figure's key: one per thing the reader has to tell apart.
+//  · a channel once per colour (two DAPI panels, or a split panel and the same channel in
+//    a merge, are one row), its names joined if the panels disagree until one is typed
+//    under Channel names;
+//  · a sample once per name and colour, whatever charts it is drawn in — WT as beeswarm
+//    points in one chart and as a line in another is one row listing both marks, its
+//    swatch the line with the marker on it.
 function _figureKey(){
-  const rows=[], seen=new Set();
-  const add=r=>{ const k=[r.name,r.color,r.marker,r.fill,r.line,r.glyph,r.stroke].join('|'); if(seen.has(k)) return; seen.add(k); rows.push(r); };
+  const rows=[], byKey=new Map();
+  const add=r=>{
+    const k=r.kind==='channel'&&r.lut ? 'c|'+r.lut+(r.lut==='grey'?'|'+r.name:'')
+      : r.kind==='series' ? 's|'+String(r.name)+'|'+String(r.color).toLowerCase()
+      : [r.kind,r.name,r.color,r.marker,r.fill,r.line,r.glyph,r.stroke].join('|');
+    const o=byKey.get(k);
+    if(!o){ const n={...r}; if(r.desc) n.descs=[r.desc]; byKey.set(k,n); rows.push(n); return; }
+    if(r.kind==='channel'){ if(!String(o.name).split(' / ').includes(String(r.name))) o.name=o.name+' / '+r.name; return; }
+    if(r.desc&&!(o.descs||[]).includes(r.desc)){ o.descs=(o.descs||[]).concat(r.desc); o.desc=o.descs.join(' and '); }
+    if(r.line&&!o.line){ o.line=r.line; o.lineW=r.lineW; }
+    if((!o.marker||o.marker==='none')&&r.marker&&r.marker!=='none'){ o.marker=r.marker; o.fill=r.fill; o.stroke=r.stroke; o.strokeW=r.strokeW; }
+  };
   if(layoutMode==='freeform'){
     (freeformElements||[]).forEach(el=>{
       if(!el) return;
@@ -14137,27 +14221,11 @@ function _figureKey(){
 // keyed charts and gene maps).
 function _figureChannels(){ return _figureKey().filter(r=>r.kind==='channel').map(r=>({name:r.name, color:r.color})); }
 
-// The figure's own type: the label font, weight and slant in the grid; in freeform the
-// font of the first chart or gene map, which is what its series names are set in.
-function _keyFont(fs){
-  let fam=gv('label-font')||'system-ui,sans-serif', wt=gc('label-bold')?'bold':'normal', it=gc('label-italic')?'italic':'normal';
-  if(layoutMode==='freeform'){
-    const ce=(freeformElements||[]).find(e=>e&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
-    if(ce){ const s=(ce.type==='chart'?ce.chart.style:ce.map.style)||{}; fam=s.fontFamily||'system-ui, sans-serif'; wt='normal'; it='normal'; }
-  }
-  return `${it} ${wt} ${fs}px ${fam}`;
-}
-// Type size of the standalone key: the placed key's, else the first chart's or map's, else 12.
-function _keyFs(){
-  const a=annotations.find(x=>x&&x.type==='legend')
-    || images.reduce((f,im)=>f||((im&&im.panelAnns)||[]).find(x=>x.type==='legend'),null);
-  if(a) return a.fontSize||12;
-  if(layoutMode==='freeform'){
-    const ce=(freeformElements||[]).find(e=>e&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
-    if(ce){ const s=(ce.type==='chart'?ce.chart.style:ce.map.style)||{}; return s.fontSize||12; }
-  }
-  return 12;
-}
+// The figure's own type (Look › Typography): its font, upright, at its text size — the
+// size the charts' names are set in, so the key prints at the same size as what it keys,
+// placed or standalone, at any printed width.
+function _keyFont(fs){ return `normal normal ${+(+fs).toFixed(2)}px ${_figFontFamily()}`; }
+function _keyFs(){ return _figTextPx(); }
 var _keyMc=null;
 function _keyLayout(rows, fs, font){
   if(!_keyMc) _keyMc=document.createElement('canvas').getContext('2d');
@@ -14173,6 +14241,7 @@ function _keyLayout(rows, fs, font){
 // gradient and text); `st` is {ink, bg, bgOpacity}: the placed key's chip and text
 // colour, or for the standalone file no chip and ink that reads on the figure's background.
 function _keyDraw(emit, x, y, L, st){
+  L.bg=st.bg||st.paper||null;
   if(st.bg) emit.chip(x, y, L.w, L.h, st.bg, st.bgOpacity);
   if(!L.rows.length){ emit.text('nothing to key', x+L.pad, y+L.h/2, L.font, st.ink); return; }
   L.rows.forEach((r,i)=>{
@@ -14183,7 +14252,12 @@ function _keyDraw(emit, x, y, L, st){
 }
 function _keySwatch(emit, r, sx, cy, L){
   const sw=L.sw, s=L.sh, mx=sx+sw/2;
-  if(r.marker==='gradient'&&r.stops){ emit.gradient(sx, cy-s/2, sw, s, r.stops); return; }
+  // A swatch that would vanish into the key's background (white, pale yellow, or a ramp
+  // that ends in it) gets a thin grey outline, so every row shows its swatch.
+  const faint=c=>{ const cr=c&&L.bg?_contrastRatio(c,L.bg):null; return cr!=null&&cr<1.6; };
+  if(r.marker==='gradient'&&r.stops){ emit.gradient(sx, cy-s/2, sw, s, r.stops);
+    if(r.stops.some(faint)) emit.rect(sx, cy-s/2, sw, s, null, '#808080', 0.75); return; }
+  if((r.marker==='square'||r.marker==='circle')&&!r.stroke&&faint(r.color)) r={...r, stroke:'#808080', strokeW:0.75};
   if(r.marker==='glyph'){
     const gx0=sx+sw*0.12, gx1=sx+sw*0.88, gh=s*0.75;
     if(r.glyph==='arc-band'){ emit.rect(gx0, cy-gh/2, gx1-gx0, gh, r.color, '#333333', 1); return; }
@@ -14230,14 +14304,18 @@ function _keyEmitSVG(out){
     else out.push(`<text x="${f2(x)}" y="${f2(y)}" style="font:${ex(font)}" fill="${ex(fill)}" dominant-baseline="central">${ex(str)}</text>`); };
   return e;
 }
-// The placed key keeps its own chip and text colour; the standalone file is drawn on the
-// figure's background with ink that reads on it. Those two are the only differences.
-function _keyAnnStyle(a){ return {ink:a.color||'#ffffff', bg:a.fill!==false?(a.fillColor||'#000000'):null, bgOpacity:a.fillOpacity??0.6}; }
-function _keyStandaloneStyle(){ const bg=gv('bg-color')||'#ffffff'; return {ink:luma(bg)<128?'#ffffff':'#000000', bg:null}; }
+// The placed key and the standalone file are drawn alike: on the figure's background
+// colour, opaque — a chip of it where the key is placed, so it reads over a photo or a
+// chart — with ink that reads on it. The placed key used to be a translucent black chip
+// with white (or the annotation colour's) names, which matched neither the file nor, over
+// a dark photo, anything legible.
+function _keyAutoStyle(){ const bg=gv('bg-color')||'#ffffff'; return {ink:luma(bg)<128?'#ffffff':'#000000', bg, bgOpacity:1}; }
+function _keyAnnStyle(a){ return _keyAutoStyle(); }
+function _keyStandaloneStyle(){ return _keyAutoStyle(); }
 
 // The key placed on the figure (a figure-level or panel-pinned `legend` annotation).
 function _drawLegend(ctx, x, y, a){
-  const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs));
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
   a._w=L.w; a._h=L.h;
   ctx.save();
   _keyDraw(_keyEmitCanvas(ctx, _keyTextItems, _keySkipText), x, y, L, _keyAnnStyle(a));
@@ -14302,7 +14380,7 @@ function _keyText(rows){
 function copyKeyText(){
   const ta=document.getElementById('key-text'); if(!ta) return;
   const t=ta.value=_keyText();
-  if(!t){ toast('This figure has nothing to key yet','warn'); return; }
+  if(!t){ toast(_keyEmptyWhy(),'warn'); return; }
   const done=()=>toast('Legend text copied — paste it into your figure legend','ok');
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done,()=>{ ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ toast('Select the text and copy it','warn'); } });
   else { ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ toast('Select the text and copy it','warn'); } }
@@ -14312,15 +14390,15 @@ function copyKeyText(){
 function _keyPlaced(){
   return annotations.some(a=>a&&a.type==='legend') || images.some(im=>im&&(im.panelAnns||[]).some(a=>a.type==='legend'));
 }
-// One switch, one undo step: on adds the key at the figure's top-right corner (move it
+// One switch, one undo step: on adds the key in the figure's emptiest corner (move it
 // with the Select tool, or place more with ▤ Key); off removes every placed key.
 function setKeyOnFigure(on){
   if(!!on===_keyPlaced()){ _keySyncUI(); return; }
+  if(on&&!_figureKey().length){ _keySyncUI(); toast(_keyEmptyWhy(),'warn'); return; }
   pushUndo();
   if(on){
-    const W=canvasLogicalW||1, H=canvasLogicalH||1, L=_keyLayout(_figureKey(), 12, _keyFont(12));
-    annotations.push({type:'legend', xf:Math.max(0,(W-L.w-10)/W), yf:Math.min(0.5,10/H), color:gv('ann-color')||'#ffffff',
-      width:1, fontSize:12, fill:true, fillColor:'#000000', fillOpacity:0.6});
+    const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), p=_keyFreeSpot(L.w, L.h);
+    annotations.push({type:'legend', xf:p.xf, yf:p.yf, width:1});
   } else {
     annotations=annotations.filter(a=>!(a&&a.type==='legend'));
     images.forEach(im=>{ if(im&&im.panelAnns) im.panelAnns=im.panelAnns.filter(a=>a.type!=='legend'); });
@@ -14329,10 +14407,77 @@ function setKeyOnFigure(on){
   logAction('keyOnFigure',{on:!!on});
   renderAnnotationList(); scheduleRender(0);
 }
+// Where a key w × h (layout px) covers the least of the figure: each corner of the canvas,
+// and of the margins round the panels, scored by how much picture, chart or text it would
+// sit on. Ties go to the top right, where the key always went.
+function _keyFreeSpot(w, h){
+  const W=canvasLogicalW||1, H=canvasLogicalH||1, m=6;
+  const busy=[];
+  if(layoutMode==='freeform') (freeformElements||[]).forEach(e=>{ if(e&&e.w>0&&e.h>0&&!e.hidden) busy.push({x:e.x,y:e.y,w:e.w,h:e.h}); });
+  else (panelBounds||[]).forEach(b=>busy.push({x:b.x,y:b.y,w:b.w,h:b.h}));
+  (figTextItems||[]).forEach(t=>{ if(t&&t.bbox) busy.push(t.bbox); });
+  annotations.forEach(a=>{ if(!a||a.hidden||a.type==='legend') return;
+    const x0=Math.min(a.xf,a.x2f??a.xf)*W, y0=Math.min(a.yf,a.y2f??a.yf)*H;
+    busy.push({x:x0-8,y:y0-8,w:Math.abs((a.x2f??a.xf)-a.xf)*W+16,h:Math.abs((a.y2f??a.yf)-a.yf)*H+16}); });
+  const xs=[W-w-m, m], ys=[m, H-h-m];
+  const cand=[]; ys.forEach(y=>xs.forEach(x=>cand.push({x,y})));
+  // inside the margins too: just right of / below the panels' extent
+  if(busy.length){ const R=Math.max(...busy.map(b=>b.x+b.w)), B=Math.max(...busy.map(b=>b.y+b.h));
+    if(R+m+w<=W) cand.push({x:R+m,y:m});
+    if(B+m+h<=H) cand.push({x:W-w-m,y:B+m}); }
+  const ov=(a,b)=>Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x))*Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
+  let best=null;
+  cand.forEach((c,i)=>{ c.x=Math.max(0,Math.min(W-w,c.x)); c.y=Math.max(0,Math.min(H-h,c.y));
+    const r={x:c.x,y:c.y,w,h}, s=busy.reduce((t,b)=>t+ov(r,b),0);
+    if(!best||s<best.s-0.5) best={s,c}; });
+  const c=best?best.c:{x:Math.max(0,W-w-10),y:10};
+  return {xf:c.x/W, yf:c.y/H};
+}
+// Why the key is empty, in words the author can act on.
+function _keyEmptyWhy(){
+  const vec=layoutMode==='freeform'?(freeformElements||[]).some(e=>e&&e.type==='image'&&e.isVector)
+    :_figurePanels().some(im=>im&&im.isVector);
+  const ff=layoutMode==='freeform';
+  return 'This figure has nothing to key: no pseudocoloured channel, no panel whose file name says what it shows (BF, DIC, a fluorophore), no chart series and no gene-map feature.'
+    +(vec?' A chart or drawing brought in as an SVG picture is a picture to FigureLab — its series cannot be read from it, so they are not keyed; build the chart with ＋ Chart (freeform) and the key lists its series.':'')
+    +(ff&&!vec?' Pictures without a lookup table are not keyed, since their colours carry no meaning a key could name.':'');
+}
 function _keySyncUI(){
   const sw=document.getElementById('key-on-figure'); if(sw) sw.checked=_keyPlaced();
   const lbl={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF',svg:'SVG'}[_keyFmt||'png']||'PNG';
   const b=document.getElementById('key-dl-btn'); if(b){ const t=`⬇ Download key (${lbl})`; if(b.textContent!==t) b.textContent=t; }
+  _keyNamesUI();
+}
+// Export › Legend key › Channel names: one box per channel colour in the key. Typing a
+// name renames that channel in the key, its text, the panel tags' channel names and the
+// caption; clearing the box goes back to the tag or the file name.
+function _keyNamesUI(){
+  const box=document.getElementById('key-names-ui'); if(!box) return;
+  const empty=!images.length&&!freeformElements.length;
+  const rows=empty?[]:_figureKey().filter(r=>r.kind==='channel'&&r.lut&&r.lut!=='grey');
+  const why=document.getElementById('key-why');
+  if(why){ const t=(!empty&&!_figureKey().length)?_keyEmptyWhy():''; if(why.textContent!==t){ why.textContent=t; why.style.display=t?'':'none'; } }
+  const sig=JSON.stringify(rows.map(r=>[r.lut,r.name,r.color]));
+  if(box.dataset.sig===sig) return;
+  if(box.contains(document.activeElement)) return;      // never rebuilt under the cursor
+  box.dataset.sig=sig;
+  box.style.display=rows.length?'':'none';
+  box.innerHTML=rows.length?`<div style="font-size:10px;color:var(--muted);margin:4px 0 2px">Channel names</div>`
+    +rows.map(r=>`<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px"><span style="width:10px;height:10px;border-radius:2px;flex:none;background:${esc(r.color||'#888')};border:1px solid var(--border2)"></span>`
+      +`<input type="text" class="key-name-in" data-lut="${esc(r.lut)}" value="${esc(_rtText(r.name))}" maxlength="60" style="flex:1;font-size:11px" aria-label="Name of the ${esc(_colourName(r.color||'#888888'))} channel" title="The ${esc(_colourName(r.color||'#888888'))} channel's name in the key, its text, the panel tags and the caption. Clear it to use the panels' tag or the file name again."></div>`).join(''):'';
+  box.querySelectorAll('.key-name-in').forEach(inp=>inp.addEventListener('change',()=>setKeyChannelName(inp.dataset.lut, inp.value)));
+}
+// One undo step. '' removes the rename.
+function setKeyChannelName(lut, name){
+  if(!lut) return;
+  const m={..._keyRenames()}, v=String(name||'').trim().slice(0,60);
+  if((m[lut]||'')===v) return;
+  pushUndo();
+  if(v) m[lut]=v; else delete m[lut];
+  sv('key-names', Object.keys(m).length?JSON.stringify(m):'');
+  logAction('keyChannelName',{lut, name:v});
+  const box=document.getElementById('key-names-ui'); if(box) box.dataset.sig='';
+  scheduleRender(0);
 }
 // Called at the start of every on-screen render(), so the text box, the switch and the
 // button follow every change that redraws the figure.
@@ -14751,6 +14896,10 @@ function roundRectPath(ctx,x,y,w,h,r){
 }
 
 // ── Floating annotation toolbar ──────────────────────────────
+function _annFloatKeyMode(isKey){
+  ['ann-float-color','ann-float-width'].forEach(id=>{ const e=document.getElementById(id); if(!e) return;
+    e.style.display=isKey?'none':''; const l=e.previousElementSibling; if(l&&l.classList.contains('fl-lbl')) l.style.display=isKey?'none':''; });
+}
 function showAnnFloat(idx){
   const a=annotations[idx];
   if(!a) return;
@@ -14760,7 +14909,10 @@ function showAnnFloat(idx){
   document.getElementById('ann-float-font').value=a.fontSize||16;
   const isTxt=a.type==='text'||a.type==='textbox';
   const isInset=a.type==='inset';
-  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox'||a.type==='spotlight'||a.type==='legend';
+  // The key is drawn in the figure's own colours (_keyAutoStyle), so it offers no colour,
+  // width or fill to change: those controls did nothing a reader could see the file share.
+  const hasFill=a.type==='rect'||a.type==='ellipse'||a.type==='textbox'||a.type==='spotlight';
+  _annFloatKeyMode(a.type==='legend');
   const isTb=a.type==='textbox';
   document.getElementById('ann-float-font').style.display=isTxt?'':'none';
   document.getElementById('ann-float-font-lbl').style.display=isTxt?'':'none';
@@ -16276,6 +16428,74 @@ function _physFacts(){
   const ptPerPx=72*scale/dpi;
   return {dpi, scale, wMm, hMm, ptPerPx, px:Math.round(lw*scale)};
 }
+// ── The figure's type, in points at the printed size ───────────
+// Journals state type in points at final size; FigureLab draws in layout px, and a layout
+// px prints at _physFacts().ptPerPx points — which moves whenever the printed width, the
+// canvas width (a column added, a panel resized) or, below 96, the DPI moves. So the
+// figure keeps its type in points and works the px out at the start of every render:
+//   label-pt → panel letters (label-size, px)   axis-pt → headings and title (axis-fs, px)
+//   text-pt  → everything else FigureLab sets: chart and gene-map text, scale-bar and
+//              intensity-bar text, the legend key (no px field; _figTextPx()).
+// The px fields stay. A size typed there, set by a lab style or an older preset, or read
+// from a figure saved before points existed (its pt fields load empty) is the size it
+// prints at now, and the pt field follows it. Whichever of a pair changed since the last
+// render wins (both — an undo or an opened file — the points); when neither did and the
+// print scale moved, the points stand and the px follow.
+var _ty={label:{pt:null,px:null}, axis:{pt:null,px:null}, k:0.75, textPx:32/3, W:0};
+var TEXT_PT_DEFAULT=8;
+// pt per layout px for a canvas `W` layout px wide: _physFacts().ptPerPx, without a render.
+function _kForLogicalW(W){
+  const mm=getTargetWidthMm();
+  if(mm>0) return (mm/25.4*72)/Math.max(1,W);
+  const d=getExportDPI(); return 72*Math.max(1,d/96)/d;
+}
+// The canvas width the next render will have with headings `axisPx` px tall: the row
+// headings and row group bands are as wide as the heading type (render()'s totalW).
+function _typeLogicalW(axisPx){
+  if(layoutMode==='freeform') return Math.max(200, parseInt(gv('fm-canvas-w'))||1200);
+  if(!images.length||typeof gridGeom!=='function') return canvasLogicalW||1;
+  const G=gridGeom(); if(!G) return canvasLogicalW||1;
+  const n=(gc('show-row-labels')?1:0)+(_hasGroups('row')?1:0);
+  return G.x0+G.gridW+gi('m-right')+n*(axisPx-gf('axis-fs'));
+}
+function _typeSync(){
+  const num=id=>{ const v=parseFloat(gv(id)); return isFinite(v)&&v>0?v:null; };
+  const r2=v=>Math.round(v*100)/100;
+  const pair=(slot, ptId, pxId, dflt, kOf)=>{
+    const pt=num(ptId), px=num(pxId)||dflt, last=_ty[slot];
+    const ptCh=pt!=null&&pt!==last.pt, pxCh=px!==last.px;
+    let k;
+    if(pt!=null&&(ptCh||!pxCh)){
+      let v=px; for(let i=0;i<4;i++){ k=kOf(v); v=pt/k; }
+      v=r2(v); if(v!==num(pxId)) sv(pxId, v);
+    } else { k=kOf(px); const p=r2(px*k); if(p!==pt) sv(ptId, p); }
+    _ty[slot]={pt:num(ptId), px:num(pxId)};
+    return k;
+  };
+  pair('axis', 'axis-pt', 'axis-fs', 13, v=>_kForLogicalW(_typeLogicalW(v)));
+  const W=_typeLogicalW(gf('axis-fs')), k=_kForLogicalW(W);
+  pair('label', 'label-pt', 'label-size', 18, ()=>k);
+  const tp=num('text-pt')||TEXT_PT_DEFAULT;
+  _ty.k=k; _ty.W=W; _ty.textPx=tp/k;
+  const ro=document.getElementById('type-readout');
+  if(ro){ const mm=getTargetWidthMm(), f=v=>(+v).toFixed(1).replace(/\.0$/,'');
+    const t=`1 pt = ${f(1/k)} px here (${mm>0?`${f(mm)} mm printed width`:'no printed width chosen: 1 px prints at 1/96 in'}) · text ${f(tp)} pt = ${f(tp/k)} px`;
+    if(ro.textContent!==t) ro.textContent=t; }
+  return _ty;
+}
+// The figure text size in layout px (Look › Typography › Text size).
+function _figTextPx(){ return _ty.textPx||(_typeSync().textPx); }
+// The figure font: what a chart, gene map or key set in no font of its own is drawn in.
+// A chart's or map's font is its own only when it is not the system sans-serif every one
+// of them was created with (no control ever set anything else, except the homogenizer).
+function _figFontFamily(){ return gv('label-font')||'system-ui,sans-serif'; }
+function _objFontFamily(st){
+  const f=st&&st.fontFamily;
+  return (!f||/^\s*system-ui\s*,\s*sans-serif\s*$/i.test(f)) ? _figFontFamily() : f;
+}
+// An object's own text size: a size in points set on it (fontPt), else the figure's.
+function _objTextPx(st){ const p=st&&+st.fontPt; return p>0 ? p/(_ty.k||0.75) : _figTextPx(); }
+
 // ── Effective resolution of each panel ─────────────────────────
 // Journals' 300 dpi rule is about each image at its printed size. The Export DPI is
 // about the canvas: a 512 px confocal field stretched across a column exports at
@@ -16359,12 +16579,13 @@ function _syncPanelPpi(){
 function _syncPhysReadout(){
   const el=document.getElementById('phys-readout'); if(!el) return;
   const f=_physFacts();
-  const lbl=Math.max(7,gi('label-size')||8);
-  const labelPt=lbl*f.ptPerPx;
-  const warn=labelPt<5;
+  // The smallest text the figure prints, whatever drew it (letters, headings, charts,
+  // gene maps, bar text, annotations, the key) — in freeform too, where this used to read
+  // the grid's letter size and so went stale.
+  const sm=_figSmallestText(f.ptPerPx), warn=!!sm&&sm.pt<TEXT_PT_FLOOR-0.05;
   el.innerHTML=`Prints ${f.wMm.toFixed(0)} × ${f.hMm.toFixed(0)} mm at ${f.dpi} DPI (${f.px} px wide) · `
-    +`panel labels ≈ <b style="color:${warn?'var(--danger)':'inherit'}">${labelPt.toFixed(1)} pt</b>`
-    +(warn?' — below the ~5 pt most journals accept':'');
+    +(sm?`smallest text ≈ <b style="color:${warn?'var(--danger)':'inherit'}">${sm.pt.toFixed(1)} pt</b> (${esc(_TEXT_KIND[sm.kind]||sm.kind)}${sm.where?' '+esc(sm.where):''})`:'no text')
+    +(warn?` — below the ${TEXT_PT_FLOOR} pt any journal FigureLab has read accepts`:'');
   // Called at the end of every render and when the DPI or printed width changes — the
   // two moments a panel's printed size can change.
   _syncPanelPpi();
@@ -16609,7 +16830,11 @@ function _fontName(v){
 }
 // The fonts the figure's text is set in, from its two font controls, with where each is used.
 function _figFontUse(){
-  const out=[{where:'panel letters, tags, annotations and bar text', name:_fontName(gv('label-font')||'system-ui,sans-serif'), id:'label-font'}];
+  const out=[{where:'panel letters, tags, annotations, bar text, charts, gene maps and the key', name:_fontName(gv('label-font')||'system-ui,sans-serif'), id:'label-font'}];
+  // A chart or gene map set in a font of its own (the homogenizer can give it one).
+  if(layoutMode==='freeform') (freeformElements||[]).forEach(e=>{
+    const st=e&&e.type==='chart'&&e.chart?e.chart.style:(e&&e.type==='genemap'&&e.map?e.map.style:null); if(!st) return;
+    const f=_objFontFamily(st); if(f!==_figFontFamily()) out.push({where:`${e.type==='chart'?'chart':'gene map'} “${_rtText(e.label||'')||e.type}”`, name:_fontName(f), id:null}); });
   if(gv('axis-font')) out.push({where:'headings', name:_fontName(gv('axis-font')), id:'axis-font'});
   if(layoutMode==='freeform') [...new Set(freeformElements.filter(e=>e&&e.type==='text'&&e.fontFamily).map(e=>_fontName(e.fontFamily)))]
     .forEach(n=>out.push({where:'freeform text', name:n, id:null}));
@@ -16632,38 +16857,84 @@ function _journalFontValue(J){ return (J.fonts||[]).map(n=>_JFONT_VALUE[n]).find
 // annotations and the placed key, each in logical px; pt = px × _physFacts().ptPerPx,
 // the factor the printed-size readout uses.
 const _TEXT_KIND={panel:'panel letters', tag:'panel tags', title:'figure title', col:'column headings', row:'row headings',
-  group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key', fftext:'freeform text'};
+  group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key', fftext:'freeform text',
+  chart:'chart text', genemap:'gene-map text', lanetable:'lane labels'};
+// A text-only emitter: _chartDraw and _genemapDraw run through it to list the text they
+// draw, with its size, without drawing anything.
+function _textRecEmit(out){
+  const no=()=>{};
+  return {rect:no, line:no, poly:no, circle:no, chip:no, gradient:no,
+    text(str,x,y,font){ str=_rtText(String(str??'')); if(!str.trim()) return;
+      const m=/(\d+(?:\.\d+)?)px/.exec(font||''); out.push({fs:m?+m[1]:12, str}); }};
+}
+const _qt=v=>`“${String(v).replace(/\s+/g,' ').trim().slice(0,24)}”`;
 // A freeform figure draws its own objects, not the grid's panels and annotations: its
 // text objects, and each picture object's label and scale-bar text.
+// Every text the figure prints, each with `where` (what it is and what it says), so a
+// row can name the smallest: in the grid, what the last render drew (figTextItems) and
+// the annotations and placed key; in freeform, its text objects, each picture's label and
+// bar text, each chart's and gene map's text, and the annotations and key.
 function _figTextSizes(){
   const out=[];
+  const ann=a=>{ if(!a||a.hidden) return;
+    if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16, where:_qt(_rtText(a.text))});
+    if(a.type==='legend'&&_figureKey().length) out.push({kind:'key', fs:_keyFs(), where:'the placed key'}); };
   if(layoutMode==='freeform'){
     freeformElements.forEach(el=>{ if(!el) return;
-      if(el.type==='text'&&String(el.text??'').trim()) out.push({kind:'fftext', fs:el.fontSize||16, el});
+      const nm=_rtText(el.label||'')||el.type;
+      if(el.type==='text'&&String(el.text??'').trim()) out.push({kind:'fftext', fs:el.fontSize||16, el, where:_qt(_rtText(el.text))});
       if(el.type==='image'||el.type==='aiicon'){ const fu=_ffFurniture(el);
-        if(fu.label&&String(fu.label.str||'').trim()) out.push({kind:'panel', fs:fu.label.fs});
-        if(fu.sbText&&String(fu.sbText.str||'').trim()) out.push({kind:'sb', fs:fu.sbText.fs}); } });
+        if(fu.label&&String(fu.label.str||'').trim()) out.push({kind:'panel', fs:fu.label.fs, where:_qt(_rtText(fu.label.str))});
+        if(fu.sbText&&String(fu.sbText.str||'').trim()) out.push({kind:'sb', fs:fu.sbText.fs, where:`${_qt(fu.sbText.str)} on ${_qt(nm)}`}); }
+      const ch=el.type==='chart'&&el.chart;
+      if(ch&&ch.data&&Array.isArray(ch.data.rows)&&Array.isArray(ch.data.columns)&&ch.mapping){
+        const rec=[]; try{ _chartDraw(el,_textRecEmit(rec)); }catch(e){}
+        rec.forEach(t=>out.push({kind:'chart', fs:t.fs, el, where:`${_qt(t.str)} in chart ${_qt(nm)}`})); }
+      if(el.type==='genemap'&&el.map){
+        const rec=[]; try{ _genemapDraw(el,_textRecEmit(rec)); }catch(e){}
+        rec.forEach(t=>out.push({kind:'genemap', fs:t.fs, el, where:`${_qt(t.str)} in gene map ${_qt(nm)}`})); }
+    });
+    annotations.forEach(ann);
     return out;
   }
-  (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill}); });
-  const ann=a=>{ if(!a||a.hidden) return;
-    if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16});
-    if(a.type==='legend') out.push({kind:'key', fs:a.fontSize||12}); };
+  (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill, where:_qt(_rtText(t.str))}); });
   annotations.forEach(ann);
   _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(ann));
   return out;
 }
+// The smallest text in the figure at print size: {pt, kind, where}, or null.
+function _figSmallestText(k){
+  const T=_figTextSizes(); if(!T.length) return null;
+  const t=T.reduce((a,b)=>b.fs<a.fs?b:a);
+  return {pt:t.fs*k, kind:t.kind, where:t.where||'', n:T.length};
+}
+const _smallTxt=sm=>`${_TEXT_KIND[sm.kind]||sm.kind}${sm.where?` ${esc(sm.where)}`:''} ${sm.pt.toFixed(1)} pt`;
+// FigureLab's own floor, for figures whose journal states no type size (or whose stated
+// size is unverified): nothing a journal FigureLab has read accepts is below 5 pt —
+// Nature's minimum, the smallest any of them states.
+const TEXT_PT_FLOOR=5;
+function _textFloorRow(k, J){
+  const sm=_figSmallestText(k), nm=J?esc(J.short||J.label):'';
+  if(!sm) return {label:'Text size', ok:true, info:true, uncounted:true, note:'Does not apply — the figure has no text'};
+  const ok=sm.pt>=TEXT_PT_FLOOR-0.05;
+  return {label:'Text size', ok, fix:ok?null:{a:'jtextfloor',t:`Raise to ${TEXT_PT_FLOOR} pt`},
+    note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
+      +(ok?' ✓':` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`)
+      +(J?` · ${nm} ${J.ptMin!=null&&!J.verified?`gives ${esc(J.ptNote||`${J.ptMin}–${J.ptMax} pt`)} only in unverified sources`:'states no type size'}`:'')};
+}
 // Text a journal's size range can be fixed for: what the letter, heading and annotation
 // size controls set, and a freeform text object's own size. Scale-bar text follows the
 // panel width and is reported, not changed.
-const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','key','fftext']);
+const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','key','fftext','chart','genemap','sb','cbar']);
+// The kinds Look › Typography › Text size sets.
+const _TEXT_PT_KINDS=new Set(['chart','genemap','sb','cbar','key']);
 function _journalTextReport(J, ptPerPx){
   const by=new Map();
   _figTextSizes().forEach(t=>{ const pt=t.fs*ptPerPx, g=by.get(t.kind)||{min:Infinity,max:-Infinity};
     g.min=Math.min(g.min,pt); g.max=Math.max(g.max,pt); by.set(t.kind,g); });
   const bad=[...by].filter(([,g])=>(J.ptMin!=null&&g.min<J.ptMin-0.05)||(J.ptMax!=null&&g.max>J.ptMax+0.05));
   const f=v=>v.toFixed(1);
-  return { by, bad, fixable:bad.some(([k])=>_TEXT_FIXABLE.has(k)),
+  return { by, bad, fixable:bad.some(([k])=>_TEXT_FIXABLE.has(k)), smallest:_figSmallestText(ptPerPx),
     list:[...by].map(([k,g])=>`${_TEXT_KIND[k]||k} ${g.min===g.max||Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', '),
     badList:bad.map(([k,g])=>`${_TEXT_KIND[k]||k} ${Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', ') };
 }
@@ -16679,29 +16950,43 @@ function _journalTextStep(J){
   const lo=J.ptMin!=null?J.ptMin/k:0, hi=J.ptMax!=null?J.ptMax/k:Infinity;
   const fit=v=>{ if(v<lo-1e-9) v=Math.ceil(lo-1e-9); if(v>hi+1e-9) v=Math.floor(hi+1e-9); return Math.max(1,v); };
   const T=_figTextSizes(), kinds=new Set(T.map(t=>t.kind));
-  const st={label:null, axis:null, anns:[], clash:false, letterFloor:false, k};
+  const st={label:null, axis:null, text:null, maps:[], anns:[], clash:false, letterFloor:false, k};
+  // Chart, gene-map, bar text and the key: the figure's text size, in points.
+  if(T.some(t=>_TEXT_PT_KINDS.has(t.kind)&&!(t.el&&t.el.type==='genemap'&&_gmOwnSize(t.el)))){
+    const cur=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT;
+    let v=cur; if(J.ptMin!=null&&v<J.ptMin) v=J.ptMin; if(J.ptMax!=null&&v>J.ptMax) v=J.ptMax;
+    if(v!==cur) st.text=v;
+  }
+  (layoutMode==='freeform'?freeformElements:[]).forEach(el=>{ if(!el||el.type!=='genemap'||!el.map||!_gmOwnSize(el)) return;
+    const cur=_gmTextPx(el.map.style)*k; let v=cur;
+    if(J.ptMin!=null&&v<J.ptMin-0.05) v=J.ptMin; if(J.ptMax!=null&&v>J.ptMax+0.05) v=J.ptMax;
+    if(v!==cur) st.maps.push([el,v]); });
   if(kinds.has('panel')||kinds.has('tag')){
     // letters draw at no less than 7 px and tags at 0.8 of the letter size
-    const p=gi('label-size'), drawn=Math.max(7,p); let L=Math.max(7,fit(drawn));
+    const p=gf('label-size'), drawn=Math.max(7,p); let L=Math.max(7,fit(drawn));
     if(7>hi+1e-9) st.letterFloor=true;
     if(kinds.has('tag')) while(Math.max(7,Math.round(L*0.8))<lo-1e-9 && L+1<=hi+1e-9) L++;
     if(L!==drawn) st.label=L;
   }
   const heads=['col','row','group'].some(x=>kinds.has(x)), title=kinds.has('title');
   if(heads||title){
-    const a=gi('axis-fs'), lo2=Math.max(1,Math.ceil(lo-1e-9)), hi2=Math.floor(hi+1e-9);
+    const a=gf('axis-fs'), lo2=Math.max(1,Math.ceil(lo-1e-9)), hi2=Math.floor(hi+1e-9);
     let A=fit(a);
     if(heads&&title){ if(hi2-4>=lo2) A=Math.min(A,hi2-4); else st.clash=true; }
     else if(title) A=Math.max(1,fit(a+4)-4);                      // a title alone, at A+4
     if(A!==a) st.axis=A;
   }
-  const fixAnn=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='legend')) return;
-    const d=a.fontSize||(a.type==='legend'?12:16), v=fit(d); if(v!==d) st.anns.push([a,v]); };
-  if(layoutMode==='freeform') T.filter(t=>t.kind==='fftext').forEach(t=>{ const d=t.el.fontSize||16, v=fit(d); if(v!==d) st.anns.push([t.el,v]); });
+  // (the placed key is set at the figure's text size, which st.text covers)
+  const fixAnn=a=>{ if(!a||a.hidden||a.type!=='text') return;
+    const d=a.fontSize||16, v=fit(d); if(v!==d) st.anns.push([a,v]); };
+  // Annotations are drawn on freeform figures too, so their text is fitted there as well.
+  if(layoutMode==='freeform'){ T.filter(t=>t.kind==='fftext').forEach(t=>{ const d=t.el.fontSize||16, v=fit(d); if(v!==d) st.anns.push([t.el,v]); }); annotations.forEach(fixAnn); }
   else { annotations.forEach(fixAnn); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(fixAnn)); }
   return st;
 }
-const _textStepEmpty=st=>!st||(st.label==null&&st.axis==null&&!st.anns.length);
+const _textStepEmpty=st=>!st||(st.label==null&&st.axis==null&&st.text==null&&!(st.maps||[]).length&&!st.anns.length);
+// A gene map set at a size of its own (its dialog's Text size, or a px size from before points).
+function _gmOwnSize(el){ const s=(el.map&&el.map.style)||{}; return +s.fontPt>0||(s.fontSize&&+s.fontSize!==12); }
 // Bring every adjustable text size into the journal's range at final print size. The
 // heading size moves the canvas width (the row-heading band), which moves pt per px when a
 // printed width is set, so it settles over a few passes. The caller records the undo step.
@@ -16713,6 +16998,8 @@ function _journalClampText(J){
     const st=_journalTextStep(J); if(_textStepEmpty(st)) break;
     if(st.label!=null) sv('label-size',st.label);
     if(st.axis!=null) sv('axis-fs',st.axis);
+    if(st.text!=null) sv('text-pt',st.text);
+    (st.maps||[]).forEach(([el,v])=>{ el.map.style={...el.map.style, fontPt:v, fontSize:undefined}; el._genemapCache=null; });
     st.anns.forEach(([a,v])=>{ a.fontSize=v; });
     changed=true;
   }
@@ -16849,23 +17136,71 @@ function _accessRows(J){
   rows.push({label:'Channels per merge', ok:!many.length, warn:many.length>0,
     note:many.length ? `${many.map(im=>`${esc(_rtText(formatLabel(im.label))||'?')} (${1+im.channels.length})`).join(', ')} — QUAREP-LiMi checklist: at most 3 channels in a merge, preferably 2; show the rest as separate greyscale panels`
       : 'Every merge has at most 3 channels ✓ (QUAREP-LiMi checklist)'});
-  // (c) text contrast, where the text sits on a flat colour: the headings, title and group
-  // bands on the figure background. Letters and tags sit on the picture (a chip is
-  // translucent), so their background is pixels, not a colour.
-  const bg=gv('bg-color'), flat=new Set(['title','col','row','group']), low=new Map(); let n=0, worst=null, over=0;
-  (figTextItems||[]).forEach(t=>{ if(!t||!String(t.str||'').trim()) return;
-    if(!flat.has(t.kind)){ if(t.kind==='panel'||t.kind==='tag') over++; return; }
-    const fa=_rgbaOf(t.fill); if(!fa||fa[3]<1){ over++; return; }
+  // (c) text contrast. Headings, title and group bands sit on the figure background, a
+  // flat colour. Letters, tags and bar text sit on the picture, so their background is
+  // pixels: _textPixelContrast reads the rendered figure under each one. Below 3:1 a
+  // letter is not legible (white on a white chart read as ✓ "not checked"); 3–4.5:1 is a
+  // warning, 4.5:1 being WCAG AA for text.
+  const bg=gv('bg-color'), flat=new Set(['title','col','row','group']), low=new Map(); let n=0, worst=null;
+  (figTextItems||[]).forEach(t=>{ if(!t||!String(t.str||'').trim()||!flat.has(t.kind)) return;
+    const fa=_rgbaOf(t.fill); if(!fa||fa[3]<1) return;
     const r=_contrastRatio(t.fill,bg); if(r==null) return;
     n++; worst=worst==null?r:Math.min(worst,r);
     if(r<4.5-1e-9){ const k=`${_TEXT_KIND[t.kind]} ${t.fill} on ${bg}`; if(!low.has(k)||low.get(k)>r) low.set(k,r); } });
+  const px=_textPixelContrast(); n+=px.n; if(px.worst!=null) worst=worst==null?px.worst:Math.min(worst,px.worst);
+  px.low.forEach(([k,r])=>{ if(!low.has(k)||low.get(k)>r) low.set(k,r); });
+  const fail=[...low.values()].some(r=>r<3-1e-9);
   const cRule=J&&J.access&&J.access.contrast?`${J.short||J.label}: ${J.access.contrast}`:'WCAG AA: at least 4.5:1 for text'+(J?` (${J.short||J.label} states no contrast rule)`:'');
-  const overNote=over?` · panel letters and tags sit over image pixels — not checked`:'';
-  rows.push({label:'Text contrast', ok:low.size===0, warn:low.size>0, src:J&&J.access&&J.access.contrast?_JSRC(J):'',
-    note:low.size ? [...low].map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+` — below 4.5:1; ${cRule}${overNote}`
-      : (n?`${n} text item${n===1?'':'s'} on the background, lowest ${worst.toFixed(1)}:1 ✓ (${cRule})${overNote}`:`No text on a flat background to check${overNote}`),
-    fix:(low.size&&!gc('axis-auto-color'))?{a:'contrast',t:'Auto colour'}:null});
+  const lowList=[...low].sort((a,b)=>a[1]-b[1]);
+  rows.push(n||low.size ? {label:'Text contrast', ok:low.size===0, warn:low.size>0&&!fail, src:J&&J.access&&J.access.contrast?_JSRC(J):'',
+    note:low.size ? lowList.slice(0,6).map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+(lowList.length>6?` and ${lowList.length-6} more`:'')
+        +` — ${fail?'below 3:1, so hard or impossible to read':'below 4.5:1'}; ${cRule}. Measured on the rendered figure: the text's colour against the pixels under it`
+      : `${n} text item${n===1?'':'s'} measured (headings on the background, letters, tags and bar text on the pixels under them), lowest ${worst.toFixed(1)}:1 ✓ (${cRule})`,
+    fix:low.size?(px.low.length?{a:'lblcontrast',t:'Auto contrast'}:(!gc('axis-auto-color')?{a:'contrast',t:'Auto colour'}:null)):null}
+    : {label:'Text contrast', ok:true, info:true, uncounted:true, note:'Does not apply — no text to measure'});
   return J?rows:rows.filter(r=>!r.ok);
+}
+
+// Contrast of the text drawn over pictures — panel letters, tags, scale-bar and
+// intensity-bar text, a freeform picture's label and bar text — measured on the figure as
+// rendered: the pixels in each text's box that are not its own ink are its background
+// (a chip, a halo, the picture), and their median is set against the ink. Text whose box
+// holds nothing but its own colour has no visible background: 1:1. {n, worst, low:[[what, ratio]]}.
+function _textPixelContrast(){
+  const out={n:0, worst:null, low:[]};
+  const cv=document.getElementById('fig-canvas'); if(!cv||!cv.width||!canvasLogicalW) return out;
+  let ctx; try{ ctx=cv.getContext('2d'); }catch(e){ return out; }
+  const sx=cv.width/canvasLogicalW, sy=cv.height/(canvasLogicalH||canvasLogicalW);
+  const items=[];
+  if(layoutMode==='freeform') (freeformElements||[]).forEach(el=>{ if(!el||(el.type!=='image'&&el.type!=='aiicon')) return;
+    const fu=_ffFurniture(el); [fu.label,fu.sbText].forEach(t=>{ if(t&&String(t.str||'').trim()) items.push(t); }); });
+  else (figTextItems||[]).forEach(t=>{ if(t&&['panel','tag','sb','cbar'].includes(t.kind)&&String(t.str||'').trim()) items.push(t); });
+  if(!_keyMc) _keyMc=document.createElement('canvas').getContext('2d');
+  const lum=(r,g,b)=>{ const f=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); }; return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
+  items.forEach(t=>{
+    const ink=_rgbaOf(t.fill); if(!ink) return;
+    let b=t.bbox;
+    if(!b){ _keyMc.font=t.font; const w=_keyMc.measureText(_rtText(t.str)).width, fs=t.fs||12;
+      const x=t.align==='center'?t.x-w/2:t.align==='right'?t.x-w:t.x, y=t.baseline==='top'?t.y:t.baseline==='middle'?t.y-fs/2:t.y-fs*0.8;
+      b={x:x-2,y:y-2,w:w+4,h:fs+4}; }
+    const X=Math.max(0,Math.floor(b.x*sx)), Y=Math.max(0,Math.floor(b.y*sy));
+    const Wd=Math.min(cv.width-X,Math.ceil(b.w*sx)), Hd=Math.min(cv.height-Y,Math.ceil(b.h*sy));
+    if(Wd<1||Hd<1) return;
+    let d; try{ d=ctx.getImageData(X,Y,Wd,Hd).data; }catch(e){ return; }
+    const Li=lum(ink[0],ink[1],ink[2]), bgL=[];
+    const step=Math.max(1,Math.floor(Math.sqrt(Wd*Hd/4000)));
+    for(let yy=0;yy<Hd;yy+=step) for(let xx=0;xx<Wd;xx+=step){ const i=(yy*Wd+xx)*4;
+      const dr=d[i]-ink[0], dg=d[i+1]-ink[1], db=d[i+2]-ink[2];
+      if(dr*dr+dg*dg+db*db>40*40) bgL.push(lum(d[i],d[i+1],d[i+2])); }
+    const total=Math.ceil(Hd/step)*Math.ceil(Wd/step);
+    let L;
+    if(bgL.length<total*0.15) L=Li;                    // nothing but its own colour under it
+    else { bgL.sort((a,b)=>a-b); L=bgL[bgL.length>>1]; }
+    const r=(Math.max(L,Li)+0.05)/(Math.min(L,Li)+0.05);
+    out.n++; out.worst=out.worst==null?r:Math.min(out.worst,r);
+    if(r<4.5-1e-9) out.low.push([`${_TEXT_KIND[t.kind]||t.kind} ${_qt(_rtText(t.str))} (${t.fill})`, r]);
+  });
+  return out;
 }
 
 // ── Blots and gels ──
@@ -16919,7 +17254,8 @@ function _blotRows(J, shown){
         } else notes.push(`${nm(im)}: ${n} labelled markers; above/below not checked — no ladder lane assigned in ⫼ Analyse lanes & bands`);
       } else notes.push(`${nm(im)}: ${n} labelled markers ✓`);
     });
-    rows.push({label:'MW markers', ok:!warn, warn, src, note:notes.join('; ')+` — ${jn}: ${bl.mwNote}. Counted: numbers placed by ↕ MW ladder; ${_MW_HEURISTIC}`});
+    const unchecked=!warn&&notes.some(n=>/not checked/.test(n));
+    rows.push({label:'MW markers', ok:!warn, warn, info:unchecked, uncounted:unchecked, src, note:notes.join('; ')+` — ${jn}: ${bl.mwNote}. Counted: numbers placed by ↕ MW ladder; ${_MW_HEURISTIC}`});
   }
   const splices=annotations.filter(a=>a&&a.splice&&B.some(im=>im.id===a.splicePanel)).length;
   if(splices) rows.push({label:'Splices', ok:true, info:true, src:bl.splice?src:'',
@@ -17001,10 +17337,12 @@ function _journalRows(J, g){
     const narrow=floorBad?_journalNarrowFor(J,pf.ptPerPx):null;
     const canFit=tr.fixable&&!titleClash&&!_textStepEmpty(st);
     rows.push({label:'Text size', ok:!tr.bad.length, src,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Scale-bar and intensity-bar text follow the panel width: switch the bar text off and give the length in the legend, or change the panel size':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}`
-        : (tr.list?`${esc(tr.list)} ✓ — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — smallest: ${_smallTxt(tr.smallest)} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}`
+        : (tr.list?`${esc(tr.list)} ✓ (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
       fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
-  } else rows.push({label:'Text size', ok:true, info:true, note:`panel labels print at ${g.labelPt.toFixed(1)} pt · ${nm} states no type size`});
+  } else rows.push(_textFloorRow(pf.ptPerPx, J));
+  // An unverified size range never fails, so FigureLab's own floor is checked beside it.
+  if(!V&&J.ptMin!=null){ const fr=_textFloorRow(pf.ptPerPx, J); if(!fr.ok){ fr.label='Text size (floor)'; rows.push(fr); } }
   // fonts
   if(J.fonts){
     const use=_figFontUse(), off=use.filter(u=>!J.fonts.includes(u.name));
@@ -17020,7 +17358,7 @@ function _journalRows(J, g){
     if(L.bold&&!gc('label-bold')) bad.push('not bold');
     if(L.upper&&!['ABC','custom'].includes(gv('label-format'))) bad.push('not upper-case');
     rows.push({label:'Panel letters', ok:!bad.length, src,
-      note:(bad.length?bad.join(', '):'upper-case bold Helvetica ✓')+` — ${nm}: ${J.fontNote}`,
+      note:(bad.length?bad.join(', '):'upper-case bold Helvetica ✓')+` — ${nm}: ${J.fontNote}. Font embedding is not checked and not done: FigureLab’s PDF names the base-14 Helvetica without embedding it, and TIFF and PNG hold no fonts`,
       fix:bad.length?{a:'jletters',t:'Fix letters'}:null});
   }
   // resolution
@@ -17031,11 +17369,22 @@ function _journalRows(J, g){
       note:`${dpi} DPI${lowD?` — below ${need}`:highD?` — above ${J.dpiMax}`:' ✓'}${hasText&&J.dpiLine&&J.dpiLine!==J.dpiPhoto?' (the figure has text, so it is a combination figure)':''} · ${nm}: ${J.dpiNote}`,
       fix:(lowD||highD)?{a:'jdpi',t:`Set ${_journalDpiTarget(J,dpi,hasText)}`}:null});
   } else rows.push({label:'Export DPI', ok:true, info:true, note:`${dpi} DPI · ${nm}: ${J.dpiNote||'no resolution stated'}`});
+  if(!J.dpiPhoto){
+    // The journal states no resolution for photographs (Nature: main figures should be
+    // vector), so the general 300 ppi rule is checked and said to be general guidance.
+    const low=g.ppis.filter(p=>p.ppi<PANEL_MIN_PPI-0.5);
+    rows.push(g.ppis.length ? {label:'Panel resolution', ok:!low.length, warn:low.length>0,
+      note:low.length ? `${low.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')} — below ${PANEL_MIN_PPI} ppi at print size, so their pixels are interpolated; make them smaller or pick a narrower width · ${nm} states no resolution for photographs${J.dpiNote?` (${esc(J.dpiNote)})`:''}; ${PANEL_MIN_PPI} ppi is the general rule`
+        : `Every image panel prints at ≥${PANEL_MIN_PPI} ppi ✓ (lowest ${Math.round(Math.min(...g.ppis.map(p=>p.ppi)))} ppi) · ${nm} states no resolution for photographs; ${PANEL_MIN_PPI} ppi is the general rule`,
+      fix:low.length?{a:'lowppi',t:'Select panel'}:null}
+      : {label:'Panel resolution', ok:true, info:true, uncounted:true, note:'Does not apply — no raster image panels'});
+  }
   if(J.dpiPhoto){
     const low=g.ppis.filter(p=>p.ppi<J.dpiPhoto-0.5);
     rows.push({label:'Panel resolution', ok:!low.length, src,
       note:low.length ? `${low.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')} — below the ${J.dpiPhoto} ppi ${nm} asks for at print size; their pixels are interpolated, and a higher export DPI does not add detail — make them smaller or pick a narrower width`
-        : (g.ppis.length?`Every image panel prints at ≥${J.dpiPhoto} ppi ✓ (lowest ${Math.round(Math.min(...g.ppis.map(p=>p.ppi)))} ppi)`:'No raster image panels'),
+        : (g.ppis.length?`Every image panel prints at ≥${J.dpiPhoto} ppi ✓ (lowest ${Math.round(Math.min(...g.ppis.map(p=>p.ppi)))} ppi)`:'Does not apply — no raster image panels'),
+      info:!g.ppis.length, uncounted:!g.ppis.length,
       fix:low.length?{a:'jlowppi',t:'Select panel'}:null});
   }
   // export format, colour mode, file size, file name
@@ -17043,9 +17392,9 @@ function _journalRows(J, g){
     const FN={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF (lossless)',svg:'SVG'};
     const last=_lastExportFmt, okFmt=!last||J.formats.includes(last), lzwBad=J.lzw&&!gc('export-tiff-lzw');
     const stage=J.formatStage?` at ${J.formatStage}`:'';
-    rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src,
+    rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src, info:!last&&!lzwBad, uncounted:!last&&!lzwBad,
       note:(lzwBad?'TIFFs are written uncompressed — tick Compress TIFF (LZW). ':'')
-        +(last?`last exported as ${FN[last]||last}${okFmt?' ✓':` — not accepted${stage}`}`:`not exported yet — use ${J.formats.map(f=>FN[f]).join(' or ')}`)
+        +(last?`last exported as ${FN[last]||last}${okFmt?' ✓':` — not accepted${stage}`}`:`not checked — not exported yet this session; use ${J.formats.map(f=>FN[f]).join(' or ')}`)
         +` · ${nm}: ${J.formatNote}`,
       fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
   }
@@ -17129,8 +17478,19 @@ function _journalFix(action){
     renderImgList(); render(); return true;
   }
   if(action==='contrast'){ pushUndo(); sc('axis-auto-color',true); render(); return true; }
+  // Letters, tags and bar text: Auto contrast picks white or black from the pixels under
+  // each (headings' Auto colour too, in the same step).
+  if(action==='lblcontrast'){ pushUndo(); sc('label-auto-color',true); sc('sb-auto-color',true); sc('axis-auto-color',true); render(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
   if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
+  if(action==='jtextfloor'){
+    // Everything Fit can set, up to FigureLab's floor; one undo step, none if nothing moves.
+    render(); const snap=snapshotState();
+    if(_journalClampText({ptMin:TEXT_PT_FLOOR, ptMax:null})) _pushSnap(snap);
+    else toast('Nothing here can be raised — the smallest text has a size of its own; change it where it was made','warn');
+    if(typeof renderAnnotationList==='function') renderAnnotationList();
+    return true;
+  }
   if(!J) return false;
   if(action==='jwidth'){ pushUndo(); sv('export-width-mm',String(_journalWidthTarget(J,_physFacts().wMm))); _syncWidthOptions(); render(); _syncPhysReadout(); return true; }
   if(action==='jdpi'){ const t=_journalDpiTarget(J,getExportDPI(),_figTextSizes().length>0); if(t){ pushUndo(); sv('export-dpi',String(t)); _syncPhysReadout(); } return true; }
@@ -17286,7 +17646,7 @@ async function doExport(fmt, opts){
   // The key shows no picture, so the gate on AI-generated imagery has nothing to ask about.
   if(!asKey && !_aiPolicyGate(()=>doExport(fmt))) return;
   if(_exporting){ toast('Export already in progress…','warn'); return; }
-  if(asKey && !_figureKey().length){ toast('This figure has nothing to key yet — no pseudocoloured channel, named brightfield panel, chart series or gene-map feature','warn'); return; }
+  if(asKey && !_figureKey().length){ toast(_keyEmptyWhy(),'warn'); return; }
   _exporting=true; document.body.classList.add('exporting');
   const dpi=getExportDPI();
   toast(`Generating ${dpi} DPI ${asKey?'key ':''}${fmt.toUpperCase()}…`,'ok');
@@ -18141,7 +18501,7 @@ function _pptxTextItem(S, it, ptPerPx, name){
 }
 // The key placed on the figure: swatches (and its chip) as one picture, its names as text.
 async function _pptxKey(S, a, x, y, E, ptPerPx, sc){
-  const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs)), st=_keyAnnStyle(a);
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), st=_keyAnnStyle(a);
   const c=document.createElement('canvas'); c.width=Math.max(1,Math.ceil(L.w*sc)); c.height=Math.max(1,Math.ceil(L.h*sc));
   const ctx=c.getContext('2d'); ctx.setTransform(sc,0,0,sc,0,0);
   const items=[];
@@ -18470,7 +18830,7 @@ function _svgAnnMarkup(list, W, H){
   // and the standalone key. Shared by the figure-level key and a key pinned to a panel,
   // so the two cannot drift apart in the SVG.
   const legendSVG=(a, lx, ly)=>{
-    const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs)), buf=[];
+    const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), buf=[];
     _keyDraw(_keyEmitSVG(buf), lx, ly, L, _keyAnnStyle(a));
     annSVG+=buf.join('');
   };
@@ -18561,7 +18921,7 @@ function _svgPanelLegends(cells, only){
   // and the standalone key. Shared by the figure-level key and a key pinned to a panel,
   // so the two cannot drift apart in the SVG.
   const legendSVG=(a, lx, ly)=>{
-    const fs=a.fontSize||12, L=_keyLayout(_figureKey(), fs, _keyFont(fs)), buf=[];
+    const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), buf=[];
     _keyDraw(_keyEmitSVG(buf), lx, ly, L, _keyAnnStyle(a));
     annSVG+=buf.join('');
   };
@@ -19597,7 +19957,7 @@ function applyPreset(name){
   if(p){
     sv('panel-w',p.panelW); sv('panel-h',p.panelH);
     _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${nice} preset applied`);
-    sv('label-size',p.labelSize); sv('axis-fs',p.axisFs);
+    sv('label-pt',p.labelPt); sv('axis-pt',p.axisPt); sv('text-pt',p.textPt);
     sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
     sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
     // Science: inside the 150–300 dpi its (unverified) sources give, not above it.
@@ -19617,7 +19977,11 @@ function applyPreset(name){
   const labNote=labOv.length?` — over the lab style (applied last wins): ${labOv.join(', ')}`:'';
   _labStyleSync();
   scheduleRender();
-  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}`, labNote?'warn':'ok');
+  // The sizes in force now, in points (after the journal's own range clamped them).
+  render();
+  const _f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
+  const sizes=p?` — letters ${_f1(gv('label-pt'))} pt, headings ${_f1(gv('axis-pt'))} pt, text ${_f1(gv('text-pt'))} pt${J&&J.ptMin==null&&J.verified?` (${J.short||J.label} states no type size)`:''}`:'';
+  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}`, labNote?'warn':'ok');
   else if(labNote) toast(`${nice} preset applied${labNote}`,'warn');
 }
 
@@ -20173,6 +20537,9 @@ const _FIG_CONTROLS=[
   // a loaded lab style (paper_style.json): sample name → colour, chart axis width (px)
   ['labStyle.sampleColours','sample-colours'],['labStyle.chartAxisW','chart-axis-w'],['labStyle.source','lab-style-src'],
   ['labStyle.applied','lab-style-set'],
+  // the figure's type in points (Look › Typography) and the key's channel names
+  ['style.labelPt','label-pt'],['style.axisPt','axis-pt'],['style.textPt','text-pt'],
+  ['keyNames','key-names'],
 ];
 // The undo snapshot's two lists, by name: views of the one list above, so they cannot drift.
 const _layoutTextIds=_FIG_CONTROLS.filter(c=>c[2]!=='c').map(c=>c[1]);
@@ -21575,6 +21942,9 @@ const gv = id => {
   return el.value ?? '';
 };
 const gi = id => parseInt(gv(id)) || 0;
+// A size that may carry a fraction: type sizes are kept in points and drawn at
+// pt ÷ (pt per px), which is rarely a whole number of pixels.
+const gf = id => parseFloat(gv(id)) || 0;
 const gc = id => document.getElementById(id)?.checked ?? false;
 // Distance from a row/column header to the panel edge. Defaults to 6 for figures
 // saved before the control existed, where the header floated in the left margin.
@@ -21590,7 +21960,7 @@ const GROUP_BRACKETS = ['bar','square','none'];
 const _bracketStyle = () => gv('group-bracket') || 'bar';
 const _hasGroups = axis => figGroups.some(g => g.axis===axis && String(g.label||'').trim());
 // Width/height reserved beside the ordinary row/column labels.
-const _grpBand = axis => _hasGroups(axis) ? gi('axis-fs')+_axisGap()+9 : 0;
+const _grpBand = axis => _hasGroups(axis) ? gf('axis-fs')+_axisGap()+9 : 0;
 
 // (2) repeating blocks — every N rows (or columns) is one group
 function groupsFromBlocks(axis, size, names){
@@ -21991,7 +22361,10 @@ function _syncModeSections(mode){
   const pam=document.getElementById('panel-ann-mode-btn');
   if(pam){ pam.style.display = grid ? '' : 'none';
     if(!grid && typeof panelAnnMode!=='undefined' && panelAnnMode) togglePanelAnnMode(); }
-  show('look-grid-only', grid);          // panel letters / row+col headers are grid concepts
+  // Panel letters and scale-bar looks also draw freeform pictures' labels and bars
+  // (_ffFurniture reads them), so they stay visible there; only the grid-only parts hide.
+  show('look-grid-only', true);
+  document.querySelectorAll('#look-grid-only .look-grid-part').forEach(e=>{ e.style.display=grid?'':'none'; });
   show('look-ff-note', !grid);
   // Templates rebuild a grid; say so instead of silently switching the mode back.
   const t=document.getElementById('templates-acc');
@@ -22560,7 +22933,7 @@ function _ffFurniture(el){
       const sbX=el.x+el.w-pad-sbPxW, sbY=el.y+el.h-pad-sbH2, color=gv('sb-color')||'#fff';
       out.sb={x:sbX, y:sbY, w:sbPxW, h:sbH2, color, scale};
       if(gc('sb-text')){
-        const sfs=Math.max(8,Math.round(el.w*0.05));
+        const sfs=+_figTextPx().toFixed(2);          // the figure's text size, as in the grid
         out.sbText={kind:'sb', str:_sbLabel(el), x:sbX+sbPxW/2, y:sbY-3, fs:sfs, font:`${sfs}px ${_barFontFamily()}`,
           fill:color, align:'center', baseline:'alphabetic', rot:0};
       }
@@ -22571,7 +22944,7 @@ function _ffFurniture(el){
   // when the letter colour is set to follow the picture.
   const _data=el.type==='chart'||el.type==='genemap', _lt=_data?el.letter:el.label;
   if(_lt&&gc('show-labels')){
-    const fs=Math.max(7,gi('label-size')), str=formatLabel(_lt), chip=gc('label-bg');
+    const fs=Math.max(7,gf('label-size')), str=formatLabel(_lt), chip=gc('label-bg');
     const font=`${gc('label-italic')?'italic ':''}${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`;
     const lc=gv('label-color')||'#ffffff';
     const fill=(_data&&!chip&&(gc('label-auto-color')||luma(lc)>160))?'#000000':lc;   // never white on a white chart
@@ -23965,26 +24338,32 @@ function _chartEmitSVG(out){
 function _chartDraw(el, emit){
   const ch=el.chart, W=el.w, H=el.h, st=ch.style;
   const stat=_chartStatsCached(el);
-  const font=(sz,wt)=>`${wt?wt+' ':''}${sz}px ${st.fontFamily||'system-ui,sans-serif'}`;
-  const fs=st.fontSize||12, ink='#222222', grid='#e2e2e2';
-  if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink); return; }
-  if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink); return; }
+  // Type: the figure's font and text size (Look › Typography) unless the chart carries its
+  // own; T is the size of ticks, category and legend names — no chart text is smaller —
+  // and titles are a tenth larger. The fixed gaps below were laid out for 12 px titles
+  // and scale with the type (u), so text that has to print at 8 pt on a chart printed
+  // small still fits beside its axis instead of running off the chart.
+  const T=_objTextPx(st), fam=_objFontFamily(st);
+  const font=(sz,wt)=>`${wt?wt+' ':''}${+(+sz).toFixed(2)}px ${fam}`;
+  const fs=T*1.1, u=fs/12, ink='#222222', grid='#e2e2e2';
+  if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink, T); return; }
+  if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink, T); return; }
   // Decide up front whether category labels would collide horizontally and must be
   // rotated — bottom padding depends on it, so this has to happen before padB.
   // Reserve exactly enough width for the legend labels (was a fixed 96px that both
   // wasted space with no legend and clipped long series names).
   const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
-  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26+mx*(fs-1)*0.56); }
-  const padL=48, padR=(_legW>0?_legW+8:16), padT=14;
+  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26*u+mx*T*0.56); }
+  const padL=48*u, padR=(_legW>0?_legW+8*u:16*u), padT=14*u;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
     for(const c of stat.categories) _maxLabelChars=Math.max(_maxLabelChars, _rtText(c).length);   // as drawn: H_{2}O is 3 characters
-    rotateXLabels = _maxLabelChars*(fs-1)*0.55 > bandApprox*0.98;   // est. label width vs band
+    rotateXLabels = _maxLabelChars*T*0.55 > bandApprox*0.98;   // est. label width vs band
   }
   // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
-  const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*(fs-2)*0.55*0.7+10) : 0;
-  const padB = rotateXLabels ? (ch.axes.x.title?24:14)+_rotExtent : (ch.axes.x.title?40:28);
+  const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*T*0.55*0.7+10*u) : 0;
+  const padB = rotateXLabels ? (ch.axes.x.title?24:14)*u+_rotExtent : (ch.axes.x.title?40:28)*u;
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
   const px1=px0+pw, py1=py0+ph;
 
@@ -24012,11 +24391,11 @@ function _chartDraw(el, emit){
     const y=yScale(t);
     if(st.showGrid) emit.line(px0,y,px1,y,grid,1);
     emit.line(px0-3,y,px0,y,ink,axW);
-    emit.text(_fmtTick(t),px0-6,y,font(fs-1),ink,'right','middle');
+    emit.text(_fmtTick(t),px0-6*u,y,font(T),ink,'right','middle');
   });
   // Axis titles.
-  if(ch.axes.y.title) emit.text(ch.axes.y.title, 12, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
-  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6, font(fs), ink, 'center', 'alphabetic');
+  if(ch.axes.y.title) emit.text(ch.axes.y.title, 12*u, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
+  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6*u, font(fs), ink, 'center', 'alphabetic');
 
   // User reference / threshold lines — a DRAWN value the author supplies (LOD,
   // baseline, cutoff), never a computed statistic.
@@ -24025,11 +24404,11 @@ function _chartDraw(el, emit){
     if(!(rf.value>=ymin && rf.value<=ymax)) return;
     const y=yScale(rf.value);
     emit.line(px0,y,px1,y, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
-    if(rf.label) emit.text(rf.label, px1-2, y-3, font(fs-2), rf.color||'#c0392b', 'right', 'alphabetic');
+    if(rf.label) emit.text(rf.label, px1-2, y-3, font(T), rf.color||'#c0392b', 'right', 'alphabetic');
   });
   // Integrity: a non-zero bar baseline visually exaggerates differences — disclose it.
   if(stat.categories && stat.kind!=='box' && ch.axes.y.min!=null && ch.axes.y.min>0){
-    emit.text(`⚠ y-axis starts at ${ch.axes.y.min}, not 0 — bar differences are visually exaggerated`, px0, H-2, font(fs-2), '#b00', 'left', 'alphabetic');
+    emit.text(`⚠ y-axis starts at ${ch.axes.y.min}, not 0 — bar differences are visually exaggerated`, px0, H-2, font(T), '#b00', 'left', 'alphabetic');
   }
 
   const colours=_chartColors(ch);
@@ -24039,8 +24418,8 @@ function _chartDraw(el, emit){
     const cats=stat.categories, nC=cats.length||1, band=pw/nC;
     const xCenter=ci=>px0+band*(ci+0.5);
     // Rotate crowded labels ~40° (right-anchored at the tick) so they never overlap.
-    if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9, font(fs-2), ink, 'right', 'middle', -40));
-    else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14, font(fs-1), ink, 'center', 'alphabetic'));
+    if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9*u, font(T), ink, 'right', 'middle', -40));
+    else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14*u, font(T), ink, 'center', 'alphabetic'));
 
     if(stat.kind==='violin'){
       const bw=band*0.44, pr=Math.max(1.5,(st.pointSize||4)-2);
@@ -24138,11 +24517,11 @@ function _chartDraw(el, emit){
     xTicks.forEach(t=>{ if(t<xmin-1e-9||t>xmax+1e-9) return; const x=xScale(t);
       if(st.showGrid) emit.line(x,py0,x,py1,grid,1);
       emit.line(x,py1,x,py1+3,ink,1);
-      emit.text(_fmtTick(t),x,py1+14,font(fs-1),ink,'center','alphabetic'); });
+      emit.text(_fmtTick(t),x,py1+14*u,font(T),ink,'center','alphabetic'); });
     // Vertical reference lines (author-supplied x threshold).
     (ch.refs||[]).forEach(rf=>{ if(rf.axis!=='x') return; if(!(rf.value>=xmin && rf.value<=xmax)) return;
       const x=xScale(rf.value); emit.line(x,py0,x,py1, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
-      if(rf.label) emit.text(rf.label, x+3, py0+10, font(fs-2), rf.color||'#c0392b', 'left', 'alphabetic'); });
+      if(rf.label) emit.text(rf.label, x+3, py0+10*u, font(T), rf.color||'#c0392b', 'left', 'alphabetic'); });
     stat.series.forEach(s=>{
       if(stat.kind==='line'){
         const pts=s.points.map(p=>[xScale(p.x),yScale(p.y)]);
@@ -24156,7 +24535,7 @@ function _chartDraw(el, emit){
         emit.line(xScale(xmin),yScale(f.m*xmin+f.b),xScale(xmax),yScale(f.m*xmax+f.b),s.color,1.5,[6,4]);
         if(ch.fit.showEq||ch.fit.showR2){
           const parts=[]; if(ch.fit.showEq) parts.push(`y=${f.m.toFixed(2)}x+${f.b.toFixed(2)}`); if(ch.fit.showR2) parts.push(`R²=${f.r2.toFixed(2)}`);
-          emit.text(parts.join('  '), px1-4, py0+12, font(fs-1), s.color, 'right', 'alphabetic');
+          emit.text(parts.join('  '), px1-4, py0+12*u, font(T), s.color, 'right', 'alphabetic');
         }
       }
     });
@@ -24164,24 +24543,25 @@ function _chartDraw(el, emit){
 
   // Disclose any values dropped by a log axis, on the figure itself (travels with it).
   if(stat.warn && stat.warn.dropped>0){
-    emit.text(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`, px0, H-2, font(fs-2), '#b00', 'left', 'alphabetic');
+    emit.text(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`, px0, H-2, font(T), '#b00', 'left', 'alphabetic');
   }
   // Legend.
   if(st.showLegend){
     const items=stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name,color:s.color})):(stat.boxes?stat.boxes.map(b=>({name:b.name,color:b.color})):[]));
     if(items && items.length>1){
-      let ly=py0+4;
-      items.forEach(it=>{ emit.rect(px1+10,ly,10,10,it.color,ink,0.5); emit.text(it.name,px1+24,ly+9,font(fs-1),ink,'left','alphabetic'); ly+=16; });
+      let ly=py0+4*u;
+      items.forEach(it=>{ emit.rect(px1+10*u,ly,10*u,10*u,it.color,ink,0.5); emit.text(it.name,px1+24*u,ly+9*u,font(T),ink,'left','alphabetic'); ly+=16*u; });
     }
   }
 }
 // Heatmap: coloured matrix + a MANDATORY colourbar showing the true numeric range.
-function _chartDrawHeatmap(el, emit, stat, font, fs, ink){
+function _chartDrawHeatmap(el, emit, stat, font, fs, ink, T){
+  T=T||fs; const u=fs/12;
   const ch=el.chart, st=ch.style, W=el.w, H=el.h;
   emit.rect(0,0,W,H,'#ffffff',null,0);
   const nR=stat.matrix.length, nC=(stat.matrix[0]||[]).length;
   if(!nR||!nC){ emit.text('No matrix data', W/2, H/2, font(fs), ink, 'center', 'middle'); return; }
-  const padL=Math.min(90, Math.max(40, W*0.18)), padT=ch.axes.y.title?24:14, padR=64, padB=Math.min(70,Math.max(28,H*0.14));
+  const padL=Math.min(90*u, Math.max(40*u, W*0.18)), padT=(ch.axes.y.title?24:14)*u, padR=64*u, padB=Math.min(70*u,Math.max(28*u,H*0.14));
   const gw=Math.max(10,W-padL-padR), gh=Math.max(10,H-padT-padB);
   const cw=gw/nC, chh=gh/nR;
   // Diverging scales must centre on an explicit midpoint (never the data mean).
@@ -24196,28 +24576,29 @@ function _chartDrawHeatmap(el, emit, stat, font, fs, ink){
   stat.matrix.forEach((row,ri)=>row.forEach((v,ci)=>{
     const t=norm(v); const col=(t==null)?'#dddddd':_colorScale(t,scaleName);
     emit.rect(padL+ci*cw, padT+ri*chh, cw, chh, col, null, 0);
-    if(st.showValues && isFinite(v) && cw>22 && chh>14){ emit.text((+v.toFixed(2)).toString(), padL+ci*cw+cw/2, padT+ri*chh+chh/2, font(Math.min(fs-2,cw*0.28)), (t>0.6?'#fff':'#222'), 'center', 'middle'); }
+    if(st.showValues && isFinite(v) && cw>22 && chh>14){ emit.text((+v.toFixed(2)).toString(), padL+ci*cw+cw/2, padT+ri*chh+chh/2, font(Math.min(T,cw*0.28)), (t>0.6?'#fff':'#222'), 'center', 'middle'); }
   }));
   // Row + column labels.
-  stat.rowLabels.forEach((r,ri)=>{ if(chh>10) emit.text(String(r), padL-5, padT+ri*chh+chh/2, font(fs-2), ink, 'right', 'middle'); });
-  stat.colLabels.forEach((c,ci)=>{ if(cw>10) emit.text(String(c), padL+ci*cw+cw/2, padT+gh+12, font(fs-2), ink, 'center', 'alphabetic'); });
-  if(ch.axes.y.title) emit.text(ch.axes.y.title, 10, padT+gh/2, font(fs), ink, 'center', 'alphabetic', -90);
+  stat.rowLabels.forEach((r,ri)=>{ if(chh>10) emit.text(String(r), padL-5*u, padT+ri*chh+chh/2, font(T), ink, 'right', 'middle'); });
+  stat.colLabels.forEach((c,ci)=>{ if(cw>10) emit.text(String(c), padL+ci*cw+cw/2, padT+gh+12*u, font(T), ink, 'center', 'alphabetic'); });
+  if(ch.axes.y.title) emit.text(ch.axes.y.title, 10*u, padT+gh/2, font(fs), ink, 'center', 'alphabetic', -90);
   // Mandatory colourbar (numeric range always shown).
-  const barX=W-padR+18, barY=padT, barW=12, barH=gh;
+  const barX=W-padR+18*u, barY=padT, barW=12*u, barH=gh;
   const steps=40;
   for(let i=0;i<steps;i++){ const t=1-i/steps; emit.rect(barX, barY+i*(barH/steps), barW, barH/steps+0.5, _colorScale(useDiv?t:t, scaleName), null, 0); }
   emit.rect(barX,barY,barW,barH,null,ink,0.5);
   const hi=useDiv?(mid+Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid))):stat.max;
   const lo=useDiv?(mid-Math.max(Math.abs(stat.max-mid),Math.abs(stat.min-mid))):stat.min;
-  emit.text(_fmtTick(hi), barX+barW+3, barY+4, font(fs-3), ink, 'left', 'middle');
-  emit.text(_fmtTick((hi+lo)/2), barX+barW+3, barY+barH/2, font(fs-3), ink, 'left', 'middle');
-  emit.text(_fmtTick(lo), barX+barW+3, barY+barH-2, font(fs-3), ink, 'left', 'middle');
+  emit.text(_fmtTick(hi), barX+barW+3, barY+4, font(T), ink, 'left', 'middle');
+  emit.text(_fmtTick((hi+lo)/2), barX+barW+3, barY+barH/2, font(T), ink, 'left', 'middle');
+  emit.text(_fmtTick(lo), barX+barW+3, barY+barH-2, font(T), ink, 'left', 'middle');
 }
 // Survival: Kaplan–Meier step curves with censoring ticks. No p-value computed.
-function _chartDrawSurvival(el, emit, stat, font, fs, ink){
+function _chartDrawSurvival(el, emit, stat, font, fs, ink, T){
+  T=T||fs; const u=fs/12;
   const ch=el.chart, st=ch.style, W=el.w, H=el.h;
   emit.rect(0,0,W,H,'#ffffff',null,0);
-  const padL=48, padR=(st.showLegend&&!stat.singleGroup?96:16), padT=14, padB=ch.axes.x.title?40:28;
+  const padL=48*u, padR=(st.showLegend&&!stat.singleGroup?96:16)*u, padT=14*u, padB=(ch.axes.x.title?40:28)*u;
   const px0=padL, py0=padT, pw=Math.max(10,W-padL-padR), ph=Math.max(10,H-padT-padB);
   const px1=px0+pw, py1=py0+ph;
   const axW=_chartAxisW();
@@ -24225,11 +24606,11 @@ function _chartDrawSurvival(el, emit, stat, font, fs, ink){
   const tmax=stat.tmax||1;
   const xS=t=>px0+(t/tmax)*pw, yS=s=>py1-s*ph;           // survival 0..1
   // Y ticks 0..1.
-  [0,0.25,0.5,0.75,1].forEach(s=>{ const y=yS(s); emit.line(px0-3,y,px0,y,ink,1); emit.text(s.toFixed(2),px0-6,y,font(fs-1),ink,'right','middle'); });
+  [0,0.25,0.5,0.75,1].forEach(s=>{ const y=yS(s); emit.line(px0-3,y,px0,y,ink,1); emit.text(s.toFixed(2),px0-6*u,y,font(T),ink,'right','middle'); });
   // X ticks.
-  _niceTicks(0,tmax,5).forEach(t=>{ if(t<0||t>tmax) return; const x=xS(t); emit.line(x,py1,x,py1+3,ink,1); emit.text(_fmtTick(t),x,py1+14,font(fs-1),ink,'center','alphabetic'); });
-  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6, font(fs), ink, 'center', 'alphabetic');
-  emit.text(ch.axes.y.title||'Survival probability', 12, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
+  _niceTicks(0,tmax,5).forEach(t=>{ if(t<0||t>tmax) return; const x=xS(t); emit.line(x,py1,x,py1+3,ink,1); emit.text(_fmtTick(t),x,py1+14*u,font(T),ink,'center','alphabetic'); });
+  if(ch.axes.x.title) emit.text(ch.axes.x.title, px0+pw/2, H-6*u, font(fs), ink, 'center', 'alphabetic');
+  emit.text(ch.axes.y.title||'Survival probability', 12*u, py0+ph/2, font(fs), ink, 'center', 'alphabetic', -90);
   stat.curves.forEach(cv=>{
     // Step function: horizontal then vertical drops.
     const pts=[]; let prev=null;
@@ -24239,7 +24620,7 @@ function _chartDrawSurvival(el, emit, stat, font, fs, ink){
     cv.censors.forEach(c=>{ const x=xS(c.t), y=yS(c.s); emit.line(x,y-3,x,y+3,cv.color,1.5); });   // censoring ticks
   });
   if(st.showLegend && !stat.singleGroup){
-    let ly=py0+4; stat.curves.forEach(cv=>{ emit.line(px1+10,ly+5,px1+22,ly+5,cv.color,2); emit.text(cv.name,px1+26,ly+9,font(fs-1),ink,'left','alphabetic'); ly+=16; });
+    let ly=py0+4*u; stat.curves.forEach(cv=>{ emit.line(px1+10*u,ly+5*u,px1+22*u,ly+5*u,cv.color,2); emit.text(cv.name,px1+26*u,ly+9*u,font(T),ink,'left','alphabetic'); ly+=16*u; });
   }
 }
 // Deterministic jitter in [-0.5,0.5] seeded by an index — so overlaid raw points
@@ -24831,15 +25212,24 @@ function _gmFeatures(map){
   }).sort((a,b)=>a.start-b.start);
 }
 
+function _gmTextPx(st){
+  st=st||{};
+  if(+st.fontPt>0) return st.fontPt/(_ty.k||0.75);
+  if(st.fontSize&&+st.fontSize!==12) return +st.fontSize;      // a px size from before points
+  return _figTextPx();
+}
 // Draw a gene map into `emit`, in the element's LOCAL space (0,0..w,h).
 function _genemapDraw(el, emit){
   const map=el.map, W=el.w, H=el.h, st=map.style||{};
-  const fs=st.fontSize||12;
-  const font=(sz,wt)=>`${wt?wt+' ':''}${sz}px ${st.fontFamily||'system-ui, sans-serif'}`;
+  // The figure's font and text size (Look › Typography), or the map's own size in points
+  // (its dialog's Text size). A map saved before points existed with a size typed in px
+  // other than the old 12 px default keeps that px size. No map text is smaller than fs.
+  const fs=_gmTextPx(st);
+  const fam=_objFontFamily(st), font=(sz,wt)=>`${wt?wt+' ':''}${+(+sz).toFixed(2)}px ${fam}`;
   const ink='#222222', L=Math.max(1,map.length|0);
   const feats=_gmFeatures(map);
   emit.rect(0,0,W,H,'#ffffff',null,0);
-  if(st.title) emit.text(st.title, W/2, 4, font(fs+1,'bold'), ink, 'center', 'top');
+  if(st.title) emit.text(st.title, W/2, 4, font(fs*1.1,'bold'), ink, 'center', 'top');
   const titleH=st.title?fs+10:0;
   if(map.topology==='circular') _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH);
   else                          _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH);
@@ -24877,11 +25267,11 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
     _sbolGlyph(emit, f.type, a, b, midY, f.strand, col, gh);
     if(st.showLabels && f.name){
       const above = !st.strandRows || f.strand>0;
-      const cxL=(a+b)/2, halfW=String(f.name).length*(fs-1)*0.29;
+      const cxL=(a+b)/2, halfW=String(f.name).length*(fs)*0.29;
       const row=placeRow(above?'up':'down', cxL-halfW, cxL+halfW);
       const step=row*(fs+2);
       const ly = above ? midY-gh*1.15-2-step : midY+gh*1.15+2+step;
-      emit.text(f.name, cxL, ly, font(fs-1), ink, 'center', above?'alphabetic':'top');
+      emit.text(f.name, cxL, ly, font(fs), ink, 'center', above?'alphabetic':'top');
     }
   });
 
@@ -24894,11 +25284,11 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
       if(t<0||t>L) return;
       const tx=bp2x(t);
       emit.line(tx,ry,tx,ry+4,'#999999',1);
-      emit.text(String(Math.round(t)), tx, ry+5, font(fs-3), '#666666', 'center', 'top');
+      emit.text(String(Math.round(t)), tx, ry+5, font(fs), '#666666', 'center', 'top');
     });
-    emit.text(_bpLabel(L), x1, ry-4, font(fs-2,'bold'), '#444444', 'right', 'alphabetic');
+    emit.text(_bpLabel(L), x1, ry-4, font(fs,'bold'), '#444444', 'right', 'alphabetic');
   } else {
-    emit.text(_bpLabel(L), x1, midY+gh+fs, font(fs-2,'bold'), '#444444', 'right', 'alphabetic');
+    emit.text(_bpLabel(L), x1, midY+gh+fs, font(fs,'bold'), '#444444', 'right', 'alphabetic');
   }
 }
 
@@ -24926,7 +25316,7 @@ function _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH){
       const am=(a0+a1)/2, lr=out?R+band+6:R-band-6;
       const lx=cx+lr*Math.cos(am), ly=cy+lr*Math.sin(am);
       const right=Math.cos(am)>=0;
-      emit.text(f.name, lx, ly, font(fs-1), ink, out?(right?'left':'right'):(right?'right':'left'), 'middle');
+      emit.text(f.name, lx, ly, font(fs), ink, out?(right?'left':'right'):(right?'right':'left'), 'middle');
     }
   });
 
@@ -24941,7 +25331,7 @@ function _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH){
   }
   // Centre stamp: the construct's size, which is the whole point of the scale.
   emit.text(_bpLabel(L), cx, cy, font(fs,'bold'), '#444444', 'center', 'middle');
-  emit.text('circular', cx, cy+fs+2, font(fs-3), '#888888', 'center', 'middle');
+  emit.text('circular', cx, cy+fs+2, font(fs), '#888888', 'center', 'middle');
 }
 
 // Canvas draw + idle raster proxy, mirroring _drawChartElement.
@@ -25199,7 +25589,7 @@ function _genemapModalSync(){
   sv('gm-topology', m.topology||'linear');
   sv('gm-title', st.title||'');
   sv('gm-palette', st.palette||'sbol');
-  sv('gm-fontsize', st.fontSize||12);
+  sv('gm-fontsize', +st.fontPt>0?st.fontPt:(st.fontSize&&+st.fontSize!==12?+(st.fontSize*(_ty.k||0.75)).toFixed(1):''));
   const chk=(id,on)=>{ const e=document.getElementById(id); if(e) e.checked=!!on; };
   chk('gm-ruler', st.showRuler!==false);
   chk('gm-labels', st.showLabels!==false);
@@ -25228,7 +25618,7 @@ function applyGenemapModal(){
   el.map.style={...el.map.style,
     title:gv('gm-title')||'',
     palette:gv('gm-palette')||'sbol',
-    fontSize:Math.max(6,parseInt(gv('gm-fontsize'),10)||12),
+    fontPt:(parseFloat(gv('gm-fontsize'))>0?Math.max(3,parseFloat(gv('gm-fontsize'))):undefined), fontSize:undefined,
     showRuler:gc('gm-ruler'), showLabels:gc('gm-labels'), strandRows:gc('gm-strandrows')};
   el._genemapCache=null;
   if(_isDataPanel(el)){ if(el.map.style.title) el.name=el.map.style.title; renderImgList(); }
@@ -28606,7 +28996,7 @@ function runAdvancedConsistency(){
   }
 
   // 6. Label font size
-  const labelSz=gi('label-size');
+  const labelSz=gf('label-size');
   if(labelSz<8) results.push({status:'fail',msg:`Label font ${labelSz}px may be too small for publication (≥8px recommended)`});
   else results.push({status:'pass',msg:`Label font size ${labelSz}px`});
 

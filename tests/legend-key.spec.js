@@ -65,7 +65,8 @@ test('the key of a grid figure downloads as PNG and as SVG, with each channel\'s
     return { pngName: png.name, px, svgName: svgCap.name, key: __svgKey(svg),
       viewBox: (/viewBox="([^"]+)"/.exec(svg) || [])[1], rows: _figureKey().map(k => [k.name, k.color, k.marker]) };
   });
-  expect(r.rows).toEqual([['DAPI', '#4787ff', 'square'], ['GFP', '#00ff00', 'square'], ['BF', null, 'none']]);
+  // BF is drawn in grey: a grey ramp, not an invisible swatch (newcomer-17)
+  expect(r.rows).toEqual([['DAPI', '#4787ff', 'square'], ['GFP', '#00ff00', 'square'], ['BF', '#808080', 'gradient']]);
   expect(r.pngName).toBe('fig1-key.png');
   expect(r.px.found).toBe(true);
   // 300 DPI: the key is drawn at the figure's export scale, not at screen size.
@@ -191,14 +192,14 @@ test('the legend text follows a rename, a colour change, a hidden panel and a ch
     out.chartRecoloured = txt();
     return out;
   });
-  expect(r.start).toBe('DAPI (blue); GFP (green); BF.');
-  expect(r.recoloured).toBe('DAPI (blue); GFP (magenta); BF.');
-  expect(r.renamed).toBe('DAPI (blue); RFP (magenta); BF.');
-  expect(r.hidden).toBe('RFP (magenta); BF.');
+  expect(r.start).toBe('DAPI (blue); GFP (green); BF (greyscale).');
+  expect(r.recoloured).toBe('DAPI (blue); GFP (magenta); BF (greyscale).');
+  expect(r.renamed).toBe('DAPI (blue); RFP (magenta); BF (greyscale).');
+  expect(r.hidden).toBe('RFP (magenta); BF (greyscale).');
   // The chart is a panel of the same grid, so the key keys it after the image panels.
-  expect(r.chart).toBe('RFP (magenta); BF; WT (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRenamed).toBe('RFP (magenta); BF; Wild type (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRecoloured).toBe('RFP (magenta); BF; Wild type (blue, filled bars); KO (red, filled bars).');
+  expect(r.chart).toBe('RFP (magenta); BF (greyscale); WT (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRenamed).toBe('RFP (magenta); BF (greyscale); Wild type (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRecoloured).toBe('RFP (magenta); BF (greyscale); Wild type (blue, filled bars); KO (red, filled bars).');
   expect(errors).toEqual([]);
 });
 
@@ -223,7 +224,8 @@ test('Place the key on the figure adds and removes the key as one undo step, and
     const pdf = new TextDecoder('latin1').decode((await _captureDownload(() => doExport('pdf'))).data);
     const svg = __txt(await _captureDownload(() => exportSVG('t', 150, document.getElementById('fig-canvas'))));
     const keySvg = __txt(await _captureDownload(() => doExport('svg', { key: true })));
-    return { inside: a.xf > 0.3 && a.xf < 1 && a._w > 30, pdfText: ['DAPI', 'GFP', 'BF'].map(n => pdf.includes(`(${n}) Tj`)),
+    // placed on the figure (where it covers least: ux1-type.spec.js checks it avoids the pictures)
+    return { inside: a.xf >= 0 && a.xf < 1 && a.yf >= 0 && a.yf < 1 && a._w > 30, pdfText: ['DAPI', 'GFP', 'BF'].map(n => pdf.includes(`(${n}) Tj`)),
       figNames: __svgKey(svg).names.filter(n => ['DAPI', 'GFP', 'BF'].includes(n)), keyNames: __svgKey(keySvg).names };
   });
   expect(r.inside).toBe(true);
@@ -275,7 +277,7 @@ test('the submission package, multi-page PDF, PowerPoint and batch export carry 
   });
   for (const f of ['fig2-key.png', 'fig2-key.tiff', 'fig2-key.pdf', 'fig2-key.svg', 'fig2-key.txt'])
     expect(r.names).toContain(f);
-  expect(r.keyTxt.trim()).toBe('DAPI (blue); GFP (green); BF.');
+  expect(r.keyTxt.trim()).toBe('DAPI (blue); GFP (green); BF (greyscale).');
   expect(r.keySvgNames).toEqual(['DAPI', 'GFP', 'BF']);
   expect(r.keyPdfText).toBe(true);
   expect(r.pages).toBe(2);
