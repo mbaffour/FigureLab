@@ -382,3 +382,239 @@ test('phage-11: zoomed in, every part of the figure can be scrolled to; Ctrl+scr
   expect(Math.abs(p.dy)).toBeLessThan(2);
   expect(errors).toEqual([]);
 });
+
+// ── Blots: lane table, package, S1, journal width ──────────────────────────
+// A dark-on-light blot with n lanes (x0 = 30 + 90k, 50 px wide), one band each, through _commitImage.
+async function blot(page, n, name) {
+  return page.evaluate(({ n, name }) => {
+    const pitch = 90, W = 60 + pitch * n, H = 160;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d'), id = x.createImageData(W, H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      let s = 0;
+      for (let k = 0; k < n; k++) if (i + 0.5 >= 30 + pitch * k && i + 0.5 < 80 + pitch * k) {
+        s += 60 * Math.exp(-((j + 0.5 - 50) ** 2) / 18) + 60 * Math.exp(-((j + 0.5 - 80) ** 2) / 18) + 60 * Math.exp(-((j + 0.5 - 115) ** 2) / 18); }
+      const v = Math.max(0, Math.min(255, Math.round(225 - s))), o = (j * W + i) * 4;
+      id.data[o] = id.data[o + 1] = id.data[o + 2] = v; id.data[o + 3] = 255;
+    }
+    x.putImageData(id, 0, 0);
+    const src = c.toDataURL('image/png');
+    return new Promise((res, rej) => { const img = new Image();
+      img.onload = () => { _commitImage(img, src, name || 'blot.png'); render(); res(images.length - 1); };
+      img.onerror = rej; img.src = src; });
+  }, { n, name });
+}
+
+test('blot-03: the lane table editor shows the lanes under its columns, marks the ladder, and takes a whole row', async ({ page }) => {
+  const errors = await loadApp(page);
+  await blot(page, 6, 'phoA_blot.png');
+  await page.evaluate(() => { runGelAnalysis(0); gelSetLadder(0, 0, '75,50,37'); openLaneTable(0); });
+  // + Row puts the cursor in the new row's name, so typing names it (it used to land in a lane cell)
+  await page.getByRole('button', { name: '+ Row' }).click();
+  await page.keyboard.type('IPTG');
+  await page.keyboard.press('Tab');
+  let r = await page.evaluate(() => images[0].laneTable.rows.map(x => x.name));
+  expect(r[r.length - 1]).toBe('IPTG');
+  // a whole row pasted into lane 2's cell fills lanes 2–6
+  const cell = page.locator('#lt-grid .lt-cell[data-r="1"][data-c="1"]');
+  await cell.focus();
+  await page.evaluate(() => {
+    const el = document.querySelector('#lt-grid .lt-cell[data-r="1"][data-c="1"]');
+    const dt = new DataTransfer(); dt.setData('text/plain', '-\t+\t-\t+\t-');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  r = await page.evaluate(() => images[0].laneTable.rows[1].cells);
+  expect(r).toEqual(['', '–', '+', '–', '+', '–']);
+  // typed: "- + - + - +" into lane 1 of the first row
+  await page.locator('#lt-grid .lt-cell[data-r="0"][data-c="0"]').fill('- + - + - +');
+  await page.locator('#lt-grid .lt-cell[data-r="0"][data-c="0"]').press('Tab');
+  r = await page.evaluate(() => images[0].laneTable.rows[0].cells);
+  expect(r).toEqual(['–', '+', '–', '+', '–', '+']);
+  // the picture: drawn, wide enough to read, and the ladder lane's column says M
+  const pv = await page.evaluate(() => { const c = document.getElementById('lt-preview');
+    const x = c.getContext('2d').getImageData(0, 20, c.width, c.height - 20).data; let dark = 0;
+    for (let i = 0; i < x.length; i += 4) if (x[i] < 120) dark++;
+    return { w: c.width, h: c.height, shown: c.style.display, dark,
+      head: [...document.querySelectorAll('#lt-grid th')].map(t => t.textContent.trim()) }; });
+  expect(pv.shown).toBe('block');
+  expect(pv.w).toBeGreaterThanOrEqual(300);
+  expect(pv.dark).toBeGreaterThan(200);        // the blot's bands are in the picture
+  expect(pv.head[1]).toBe('1 M');
+  expect(errors).toEqual([]);
+});
+
+const ZIPREAD = `window._zipRead = async (bytes) => {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset); const out = {}; let p = 0;
+  while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
+    const csize = dv.getUint32(p + 18, true), nlen = dv.getUint16(p + 26, true), elen = dv.getUint16(p + 28, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nlen)), off = p + 30 + nlen + elen, raw = bytes.subarray(off, off + csize);
+    out[name] = (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw);
+    p = off + csize;
+  }
+  return out; };`;
+
+test('blot-14: the submission package carries each analysed blot\'s densitometry and lane profiles as source data', async ({ page }) => {
+  test.setTimeout(60000);
+  const errors = await loadApp(page);
+  await blot(page, 4, 'phoA_blot.png');
+  await blot(page, 4, 'phoB_blot.png');
+  await page.evaluate(ZIPREAD);
+  const r = await page.evaluate(async () => {
+    sv('cols', 1); sv('rows', 2); onLayoutChange();
+    images[1].label = '';                     // an unlettered strip is named by its file
+    render(); runGelAnalysis(0); runGelAnalysis(1);
+    const cap = await _captureDownload(() => exportSubmissionPackage());
+    const files = await _zipRead(cap.data);
+    const names = Object.keys(files).filter(n => n.startsWith('source-data/'));
+    const dens = new TextDecoder().decode(files['source-data/panel_A-densitometry.csv'] || new Uint8Array());
+    return { names, head: dens.split('\n')[0], same: dens === gelCSV(0) };
+  });
+  expect(r.names).toEqual(expect.arrayContaining(['source-data/panel_A-densitometry.csv', 'source-data/panel_A-lane-profiles.csv',
+    'source-data/panel_phoB_blot-densitometry.csv', 'source-data/panel_phoB_blot-lane-profiles.csv']));
+  expect(r.head).toMatch(/densitometry, panel A \(phoA_blot\.png\)/);
+  expect(r.same).toBe(true);                  // the same file the dialog's CSV button writes
+  expect(errors).toEqual([]);
+});
+
+test('blot-16: the S1 sheet titles an unlettered strip by its file and marks the ladder sizes and lanes', async ({ page }) => {
+  const errors = await loadApp(page);
+  await blot(page, 4, 'pstS_blot.png');
+  const r = await page.evaluate(() => {
+    images[0].label = ''; images[0].cropT = 5; images[0].cropB = 5; render();
+    runGelAnalysis(0); gelSetLadder(0, 0, '75,50,37');
+    const pg = _s1PageCanvas(images[0], { forPdf: true });
+    const text = pg.items.map(i => i.str).join(' ');
+    // magenta marker text drawn left of the ladder lane, inside the scan area
+    const x = pg.canvas.getContext('2d'), d = x.getImageData(0, pg.imgY, pg.canvas.width, pg.imgH).data;
+    let magenta = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 80 && d[i + 2] > 200) magenta++;
+    const bare = _s1PageCanvas(Object.assign({}, images[0], { gelAnalysis: null }), { forPdf: true });
+    const y = bare.canvas.getContext('2d').getImageData(0, bare.imgY, bare.canvas.width, bare.imgH).data;
+    let magenta0 = 0; for (let i = 0; i < y.length; i += 4) if (y[i] > 200 && y[i + 1] < 80 && y[i + 2] > 200) magenta0++;
+    return { text, magenta, magenta0 };
+  });
+  expect(r.text).toContain('pstS_blot.png — uncropped original (no panel letter)');
+  expect(r.text).not.toContain('Panel ?');
+  expect(r.text).toMatch(/Molecular-weight markers \(kDa\) from the ladder fit in lane 1, drawn beside the ladder: 75, 50, 37/);
+  expect(r.magenta).toBeGreaterThan(r.magenta0 + 100);   // the sizes and lane numbers are drawn on the scan
+  expect(errors).toEqual([]);
+});
+
+test('blot-12: a journal preset never picks a width that prints the figure taller than the journal allows', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 5);
+  const r = await page.evaluate(() => {
+    sv('cols', 1); sv('rows', 5); onLayoutChange(); render();   // a tall single-column stack
+    const sel = document.getElementById('target-journal'); sel.value = 'asm'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    render(); const pf = _physFacts();
+    return { w: getTargetWidthMm(), h: pf.hMm, shown: document.getElementById('export-width-mm').selectedOptions[0].textContent };
+  });
+  expect(r.h).toBeLessThanOrEqual(228.6 + 0.5);   // was 177.8 mm wide and ~ 900 mm tall
+  expect(r.w).toBeGreaterThan(0);
+  expect(r.w).toBeLessThan(177.8);
+  expect(r.shown).toMatch(/fits ASM's 228.6 mm height/);
+  expect(errors).toEqual([]);
+});
+
+// ── First use: errors, tutorials, empty state, readouts ────────────────────
+test('newcomer-24: a bad file is refused in plain words', async ({ page }, info) => {
+  const errors = await loadApp(page);
+  const dir = info.outputPath('bad'); fs.mkdirSync(dir, { recursive: true });
+  const bytes = Buffer.alloc(4096); for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 7919 + 13) & 255;
+  bytes.write('II*\0', 0, 'latin1'); bytes.writeUInt32LE(4000000, 4);     // a TIFF header pointing past the end
+  fs.writeFileSync(dir + '/corrupt_scan.tif', bytes);
+  fs.writeFileSync(dir + '/notes.txt', 'some notes, not an image');
+  fs.writeFileSync(dir + '/empty.png', Buffer.alloc(0));
+  await page.evaluate(() => { window._t = []; const o = toast; window.toast = (m, k) => { window._t.push(m); return o(m, k); }; });
+  for (const f of ['corrupt_scan.tif', 'notes.txt', 'empty.png']) {
+    await page.locator('#file-input').setInputFiles(dir + '/' + f);
+    await page.waitForTimeout(300);
+  }
+  const t = (await page.evaluate(() => window._t)).join('\n');
+  expect(t).toMatch(/corrupt_scan\.tif": the TIFF is damaged or cut short/);
+  expect(t).toMatch(/notes\.txt": it is not an image file/);
+  expect(t).toMatch(/empty\.png": the file is empty \(0 bytes\)/);
+  expect(t).not.toMatch(/DataView|outside the bounds/);
+  expect(await page.evaluate(() => images.filter(Boolean).length)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-15 / newcomer-16: a tutorial gives your own figure back in one step; the tour closes Help', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  await page.evaluate(() => { images[0].captionNote = 'MY FIGURE'; images.forEach((im, i) => im.label = 'XYZ'[i]); render(); });
+  page.on('dialog', d => d.accept());
+  await page.evaluate(() => startTutorial(TUTORIALS.find(t => t.setup && t.id !== 'basics').id));
+  await page.waitForFunction(() => !images.some(im => im && im.captionNote === 'MY FIGURE'));
+  await page.evaluate(() => _tutAbort());                      // Esc / end of the tutorial
+  await expect(page.locator('#confirm-modal-bg')).toBeVisible();
+  await expect(page.locator('#confirm-modal-bg')).toContainText('Bring your own figure back?');
+  await page.locator('#cm-ok').click();
+  const back = await page.evaluate(() => images.filter(Boolean).map(im => im.label + ':' + (im.captionNote || '')));
+  expect(back).toEqual(['X:MY FIGURE', 'Y:', 'Z:']);
+  // the five-minute tour does not run under the Help dialog
+  await page.evaluate(() => { openHelp('tutorials'); startTour(true); });
+  expect(await page.evaluate(() => document.getElementById('help-modal').classList.contains('open'))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-15 / freeform-44: with nothing left in the figure, nothing is left painted under the welcome card', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(() => {
+    pushUndo({ boundary: true }); images.length = 0; renderImgList(); render();
+    const c = document.getElementById('fig-canvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let ink = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) ink++;
+    return { card: getComputedStyle(document.getElementById('empty-state')).display, ink };
+  });
+  expect(r.card).toBe('flex');
+  expect(r.ink).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-25 / freeform-48: the size readouts follow a new printed width and a loaded freeform canvas', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  await page.evaluate(() => render());
+  await page.locator('#export-width-mm').selectOption('190.5', { force: true });
+  await expect(page.locator('#canvas-info')).toContainText('190.5×');
+  const r = await page.evaluate(() => {
+    const sel = document.getElementById('layout-mode'); sel.value = 'freeform'; setLayoutMode('freeform');
+    addFreeformElement({ type: 'rect', x: 50, y: 50, w: 100, h: 100 });
+    sv('fm-canvas-w', 1328); render(); const a = document.getElementById('phys-readout').textContent;
+    sv('fm-canvas-w', 1200); sv('fm-canvas-h', 536); render(); const b = document.getElementById('phys-readout').textContent;
+    return { a, b };
+  });
+  expect(r.b).not.toEqual(r.a);
+  expect(r.b).toMatch(/Prints 191 × 85 mm/);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-19: Open settings from the canvas shows one panel\'s settings at a time', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  for (const i of [0, 1, 2]) {
+    await page.evaluate((i) => { const b = panelBounds.find(p => p.idx === i);
+      const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+      const k = r.width / canvasLogicalW;
+      c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + (b.x + b.w / 2) * k, clientY: r.top + (b.y + b.h / 2) * k })); }, i);
+    await page.getByText('Open settings').click();
+  }
+  const open = await page.evaluate(() => [...document.querySelectorAll('#img-list .img-settings.open')].map(d => d.id));
+  expect(open).toEqual(['settings-2']);
+  expect(errors).toEqual([]);
+});
+
+test('freeform-08: the autosave warning names the images it could not hold', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const t = await page.evaluate(() => {
+    window._t = []; const o = toast; window.toast = (m, k) => { window._t.push(m); return o(m, k); };
+    images[0].name = 'MG1655_tilescan_6000px.png';
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k, v) { if (k === AUTOSAVE_KEY && String(v).includes(images[0].src.slice(30, 90))) throw new Error('QuotaExceededError'); return orig.call(this, k, v); };
+    try { autosaveNow(); } finally { Storage.prototype.setItem = orig; }
+    return window._t.join('\n');
+  });
+  expect(t).toMatch(/Autosave cannot hold the pixels of 1 image \(MG1655_tilescan_6000px\.png; too large/);
+  expect(errors).toEqual([]);
+});

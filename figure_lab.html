@@ -1126,7 +1126,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="sec-lbl">File name</div>
     <input type="text" id="export-name" value="figure" style="width:100%" placeholder="figure">
     <div class="field"><label>Export DPI <span class="help-chip" tabindex="0" role="button" aria-label="About Export DPI" data-tip="Dots per inch of the exported file. Use 300 for print, 600 for journal submission. The figure is re-rendered at the true pixel count, not just tagged.">?</span></label>
-      <select id="export-dpi" onchange="_syncPhysReadout()">
+      <select id="export-dpi" onchange="_syncPhysReadout();scheduleRender(0)">
         <option value="72">72 (screen)</option>
         <option value="150">150</option>
         <option value="300" selected>300 (print)</option>
@@ -1134,7 +1134,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="1200">1200 (line art)</option>
       </select></div>
     <div class="field"><label>Printed width <span class="help-chip" tabindex="0" role="button" aria-label="About printed width" data-tip="The physical width the figure will occupy in the journal. Journals specify this in millimetres, not pixels. Setting it makes the export land at exactly that size at the chosen DPI, and lets FigureLab tell you the true point size of your text.">?</span></label>
-      <select id="export-width-mm" onchange="_syncPhysReadout()">
+      <select id="export-width-mm" onchange="_syncPhysReadout();scheduleRender(0)">
         <option value="0" selected>Free (whatever the canvas gives)</option>
         <option value="89">89 mm — single column (Nature)</option>
         <option value="183">183 mm — double column (Nature; eLife preset)</option>
@@ -1158,7 +1158,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select></div>
     <div id="phys-readout" style="font-size:10px;color:var(--muted);line-height:1.5;margin:-2px 0 6px"></div>
 
-    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: most journals prefer it; uncompressed, or LZW-compressed (lossless) when you tick Compress TIFF — PLOS asks for LZW. PDF: figure labels are real embedded text (selectable, searchable, sharp at any zoom) over the image — lossless avoids artefacts for line art. SVG: everything vector, editable in Illustrator/Inkscape. JPEG/WebP: small but lossy.">?</span></div>
+    <div class="sec-lbl">Format <span class="help-chip" tabindex="0" role="button" aria-label="About export formats" data-tip="PNG: lossless, safe default. TIFF: what PLOS, ASM and many others ask for (Nature wants PDF or another vector format — ⌘K “Check against …” says which); uncompressed, or LZW-compressed (lossless) when you tick Compress TIFF — PLOS asks for LZW. PDF: figure labels are real embedded text (selectable, searchable, sharp at any zoom) over the image — lossless avoids artefacts for line art. SVG: everything vector, editable in Illustrator/Inkscape. JPEG/WebP: small but lossy.">?</span></div>
     <div class="export-grid">
       <button class="btn btn-success" onclick="doExportPreflight('png')">PNG</button>
       <button class="btn" onclick="doExportPreflight('jpeg')">JPEG</button>
@@ -1552,7 +1552,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" aria-label="Straighten to upright" onclick="straightenFromToolbar()" title="Set the selected photo back to upright — or every photo, if none is selected">⌐</button>
     </span>
     <div class="toolbar-sep"></div>
-    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 Colour-blind viewD
+    <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px" title="Preview your figure as viewers with colour-vision deficiency see it. Display only — never changes your exported pixels.">👁 Colour-blind view
       <select id="cvd-mode" onchange="setCvdMode(this.value)" style="font-size:10px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
         <option value="none">Normal vision</option>
         <option value="deuter">Deuteranopia (red-green)</option>
@@ -1604,12 +1604,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <button class="btn" onclick="addChartElement('bar')" title="Add a data chart from a CSV or pasted data">📊 Chart</button>
           <button class="btn" onclick="addGenemapElement('linear')" title="Add a bp-scaled gene map / genetic circuit (SBOL glyphs)">🧬 Gene map</button>
         </div>
+        <!-- Diagram starters fold away: seventeen buttons on a first screen hid the four that matter. -->
+        <details class="es-more" style="margin-top:6px;font-size:10.5px;color:var(--muted)"><summary style="cursor:pointer">More starters — PRISMA, CONSORT and fishbone diagrams</summary>
         <div class="es-actions" style="margin-top:6px">
           <span style="font-size:10.5px;color:var(--muted);align-self:center">Flow:</span>
           <button class="btn" onclick="applyFlowTemplate('prisma2020')" title="PRISMA 2020 systematic-review flow">⬇ PRISMA</button>
           <button class="btn" onclick="applyFlowTemplate('consort')" title="CONSORT trial participant flow">⬇ CONSORT</button>
           <button class="btn" onclick="applyFlowTemplate('fishbone')" title="Fishbone / Ishikawa cause-and-effect">⌥ Fishbone</button>
         </div>
+        </details>
         <div class="es-flow">
           <span class="es-step es-cur">Import</span>›<span class="es-step">Layout</span>›<span class="es-step">Calibrate</span>›<span class="es-step">Annotate</span>›<span class="es-step">Audit</span>›<span class="es-step">Export</span>
         </div>
@@ -1910,19 +1913,18 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <ol class="help-ol">
   <li>Open <span class="help-ui">figure_lab.html</span> in your browser (Chrome or Firefox recommended).</li>
   <li>Drag images onto the drop zone — or click it to browse and pick files.</li>
-  <li>Set your grid: choose the number of <b>rows</b> and <b>columns</b> in the Layout section.</li>
-  <li>Adjust panel labels (A/B/C) and turn on scale bars where you need them.</li>
+  <li>Set your grid: choose the number of <b>rows</b> and <b>columns</b> in the Arrange section.</li>
+  <li>Adjust panel labels (A/B/C) in Look, and calibrate the panels that need a scale bar (the <span class="help-ui">⚠ calibrate</span> badge under a panel's name opens it).</li>
   <li>Press <kbd>R</kbd> (or click <span class="help-ui">⟳ Render</span>) to preview the figure.</li>
-  <li>Set a file name and DPI, then export in your chosen format.</li>
+  <li>Set a file name and the DPI your journal asks for, then export with the <span class="help-ui">↓ PNG / PDF / TIFF / SVG</span> buttons above the figure. Can't find a control? Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> and type what you want to do (“span two rows”, “change font”).</li>
 </ol>
 <div class="help-callout help-tip"><b>Tip</b> Press <kbd>R</kbd> any time you change a setting to refresh the preview. A "render outdated" cue appears when the canvas is behind your latest edits.</div>
 
 <h3 class="help-h">The interface at a glance</h3>
-<p class="help-p">The window has three zones:</p>
+<p class="help-p">The window has two zones:</p>
 <ul class="help-ul">
-  <li><b>Left</b> — the image list and settings. Each image gets its own panel with adjustments (brightness, scale bar, label, crop, and more), plus the Layout section for grid size and gaps.</li>
-  <li><b>Center</b> — the canvas, where your rendered figure appears. A toolbar above it holds zoom, fit, labels, and annotation tools; an info bar below shows pixel dimensions and physical size in mm.</li>
-  <li><b>Right / Export</b> — the Export panel for file name, format, and DPI, plus a Figure notes scratchpad and metadata exports.</li>
+  <li><b>Left</b> — the side panel, in sections: <b>Images</b> (the list; each image's ⚙ opens its own settings — brightness, scale bar, label, crop, span and more), <b>Arrange</b> (grid size, gaps, headings), <b>Look</b> (letters, scale-bar style, journal), <b>Annotate &amp; Draw</b> (arrows, text, shapes), <b>Check</b> and <b>Export</b> (file name, DPI, printed width, caption, Methods, submission package, save and load).</li>
+  <li><b>Center</b> — the canvas, where your rendered figure appears. The toolbar above it holds Render, the export buttons, zoom, fit, labels and rotate; the header shows the pixel size, the printed size in mm and the zoom.</li>
 </ul>
 
 <h3 class="help-h">Core workflow, step by step</h3>
@@ -2362,7 +2364,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details class="faq-item"><summary class="faq-q">What is the difference between PDF and PDF (lossless)?</summary><div class="faq-a"><p class="help-p">The standard PDF embeds the figure as a JPEG-compressed raster — small, but lossy, which can add ringing artefacts around sharp edges. A lossless PDF uses Flate (non-lossy) compression instead. Prefer lossless for <b>line art, western blots, and sharp text</b>, where JPEG artefacts are visible and some journals reject JPEG-in-PDF for line art. For photographic panels the standard PDF is usually fine.</p></div></details>
 <details class="faq-item"><summary class="faq-q">My exported PNG opens at the wrong size or DPI in Photoshop / ImageJ — why?</summary><div class="faq-a"><p class="help-p">This is fixed. FigureLab now writes a standard <b>pHYs</b> resolution chunk into the PNG, which is what Photoshop, GIMP, and ImageJ/FIJI actually read for physical resolution. Older versions embedded the DPI only as a text field, so editors reported the browser default (72 DPI) at a giant pixel size. Re-export and the true DPI will be reported correctly. JPEG exports carry the DPI in their JFIF header. WebP has no standard field for it, so a WebP opens at your software's default DPI — use PNG or TIFF for print.</p></div></details>
 <details class="faq-item"><summary class="faq-q">The figure looks blurry when zoomed or after export — what do I do?</summary><div class="faq-a"><p class="help-p">Export at a higher DPI (300–600, or 1200 for line art): raster exports are re-rendered at the real pixel count, not upscaled, so more DPI gives text, lines and scale bars genuinely more detail. An image panel cannot print more detail than its source pixels, though: a 512 px field stretched across a column is enlarged at any DPI. Each image-list row shows the ppi a panel actually prints at, and the Save dialog and the compliance check name any panel below 300 ppi. On screen, FigureLab keeps a separate high-resolution preview layer matched to your display (HiDPI/Retina) so labels and annotations stay sharp when you zoom in — the underlying measurement buffer is left untouched so quantification stays exact.</p><div class="help-callout help-tip"><b>Tip</b> Very large renders are capped at about 60 megapixels to stay within browser memory; if you hit the cap, a toast tells you and the export is scaled down rather than crashing.</div></div></details>
-<details class="faq-item"><summary class="faq-q">How do I get a clean white background for print?</summary><div class="faq-a"><p class="help-p">For journal submission, use TIFF at 300–600 DPI with a white background. You can also press <span class="help-ui">Ctrl + P</span> for a print-ready view that hides all the app chrome.</p></div></details>
+<details class="faq-item"><summary class="faq-q">How do I get a clean white background for print?</summary><div class="faq-a"><p class="help-p">For journal submission, export in the format and at the DPI your journal asks for — usually TIFF at 300 DPI (PLOS, ASM), while Nature wants PDF or another vector format; ⌘K → “Check against …” tells you — with a white background. You can also press <span class="help-ui">Ctrl + P</span> for a print-ready view that hides all the app chrome.</p></div></details>
 
 <h3 class="help-h">Saving &amp; reproducibility</h3>
 <details class="faq-item"><summary class="faq-q">Do my images get saved in the session JSON?</summary><div class="faq-a"><p class="help-p">Yes — the session file embeds your image pixel data along with the layout, per-panel settings, annotations, and figure notes, so loading it restores the entire figure with no re-dropping. Everything still stays on your computer; the JSON is just a local file you save yourself. (Sessions saved by very old versions, before pixel data was embedded, will prompt you to re-drop those images.)</p></div></details>
@@ -3816,7 +3818,18 @@ function _addOneFile(f, opts){
     const isSVG=f.type==='image/svg+xml'||nameL.endsWith('.svg');
     const isTIFF=f.type==='image/tiff'||nameL.endsWith('.tif')||nameL.endsWith('.tiff');
     const kind=_fileKind(f);
-    const fail=(msg)=>{ toast(msg||`Couldn't load "${f.name}" — unsupported or corrupt`,'err'); };
+    // Plain reasons, not the decoder's internals ("Offset is outside the bounds of the
+    // DataView") or one "unsupported or corrupt" for an empty file and a text file alike.
+    const fail=(msg)=>{
+      let why=null;
+      if(f.size===0) why='the file is empty (0 bytes)';
+      else if(msg&&/DataView|outside the bounds|offset|Invalid typed array|RangeError|Cannot read|undefined|is not a function/i.test(msg))
+        why=`the ${isTIFF?'TIFF':'file'} is damaged or cut short — its data could not be read`;
+      else if(!msg&&!/^image\//.test(f.type||'')&&!/\.(png|jpe?g|gif|webp|bmp|avif|tiff?|svg)$/i.test(nameL))
+        why=`it is not an image file${f.type?` (${f.type})`:''} — FigureLab opens PNG, JPEG, TIFF and SVG images, CSV/TSV data and GenBank files`;
+      else if(!msg) why='the image could not be decoded — the file is damaged, or in a format this browser cannot read';
+      toast(why?`Couldn't load "${f.name}": ${why}`:msg,'err');
+    };
     // Charts and gene maps do not become grid panels. They are waited for like the
     // images, so a drop finishes in the order it was given.
     if(kind==='seq'){ _loadGeneFile(f, fail, opts).then(done, ()=>done(false)); return; }
@@ -5219,7 +5232,12 @@ function updateEmptyState(){
   _drawerOnFigure(empty);
   // The drag-divider tip is meaningless with no panels — keep it out of the way.
   if(empty){ const h=document.getElementById('canvas-hint'); if(h) h.style.display='none';
-    if(typeof updateGreeting==='function') updateGreeting(); }
+    if(typeof updateGreeting==='function') updateGreeting();
+    // Nothing is in the figure, so nothing is drawn: undoing back to the start (or
+    // undoing a restored session) left the previous figure painted under the card.
+    ['fig-canvas','fig-canvas-hd','ann-canvas'].forEach(id=>{ const c=document.getElementById(id);
+      if(c&&c.width&&c.height) c.getContext('2d').clearRect(0,0,c.width,c.height); });
+    if(typeof hideHD==='function') hideHD(); }
 }
 function esOpenTemplates(){
   const d=[...document.querySelectorAll('.sidebar > details')]
@@ -8967,12 +8985,14 @@ function _ltFitCell(ctx,str,fs,budget,fontOf){
   while(k>0&&ctx.measureText(plain.slice(0,k)+'…').width>budget) k--;
   return {str:(k>0?plain.slice(0,k):'')+'…', fs:f, cut:true};
 }
+const _ltDrawn=new Map();   // im.id → where the table and its columns were last drawn (logical px)
 function _ltDraw(im,imgIdx,box,R,ink,emitText){
   const t=im.laneTable, n=_ltLanes(im), al=_ltAlign(im), font=_ltFont(R.fs);
   _ltOrientNotice(im);
   const xs=al.mode==='lanes'?al.u.map(u=>box.dx+u*box.dw):al.u.map(u=>box.ox+u*box.ow);
   const nRows=Math.min(t.rows.length,(R.fit&&R.fit.drawRows!=null)?R.fit.drawRows:t.rows.length);
   const top=t.pos==='below'?box.oy+box.oh+R.gap:box.oy-R.gap-nRows*R.lh;
+  if(im.id!=null) _ltDrawn.set(im.id,{box:{...box}, xs:xs.slice(), top, bottom:top+nRows*R.lh});
   // Measured here and left-aligned, so the bbox, the SVG anchor and the PDF all agree.
   if(!_ltMeasure) _ltMeasure=document.createElement('canvas').getContext('2d');
   // Each column's room: halfway to its neighbours, never past the picture's edges.
@@ -9058,10 +9078,12 @@ function openLaneTable(idx){
       <label for="lt-lanes">Lanes</label><input id="lt-lanes" type="number" min="1" max="60" style="width:52px" title="How many columns. With a current lane analysis of the same count, the columns sit on the detected lanes." onchange="laneTableSet(_ltUI.idx,{lanes:this.value})">
       <label for="lt-pos">Position</label><select id="lt-pos" onchange="laneTableSet(_ltUI.idx,{pos:this.value})"><option value="above">above the blot</option><option value="below">below the blot</option></select>
       <label for="lt-fs">Font size</label><input id="lt-fs" type="number" min="6" max="72" step="0.5" style="width:52px" onchange="laneTableSet(_ltUI.idx,{fs:this.value})">
-      <button class="btn" style="font-size:10px" onclick="laneTableAddRow(_ltUI.idx,'')" title="Add a condition row (one undo step)">+ Row</button>
+      <button class="btn" style="font-size:10px" onclick="if(laneTableAddRow(_ltUI.idx,'')){ const r=document.querySelectorAll('#lt-grid .lt-name'); const l=r[r.length-1]; if(l) l.focus(); }" title="Add a condition row (one undo step); the cursor goes to its name">+ Row</button>
       <button class="btn" id="lt-match" style="font-size:10px;display:none" onclick="laneTableMatchLanes(_ltUI.idx)"></button>
       <button class="btn" style="font-size:10px" onclick="laneTableRemove(_ltUI.idx)" title="Take the table off the panel (one undo step)">✕ Remove table</button>
     </div>
+    <div style="font-size:10px;color:var(--muted);margin:2px 0">The panel as the figure draws it, with each column's number over its lane — check every row sits over the right lanes. Paste or type a whole row into a cell (<code>- + - + - +</code>, or cells copied from a spreadsheet) to fill it across.</div>
+    <canvas id="lt-preview" style="display:block;max-width:100%;border:1px solid var(--border);border-radius:4px;background:#fff;margin-bottom:6px"></canvas>
     <div id="lt-grid" style="overflow:auto;max-height:50vh"></div>
   </div>`;
   document.body.appendChild(m);
@@ -9071,11 +9093,66 @@ function openLaneTable(idx){
     e.preventDefault(); _ltUI.focus={r:+c.dataset.r,c:+c.dataset.c};
     laneTableCycle(_ltUI.idx,+c.dataset.r,+c.dataset.c); _ltRefocus(); });
   g.addEventListener('change',e=>{ const t=e.target;
-    if(t.classList.contains('lt-cell')) laneTableSetCell(_ltUI.idx,+t.dataset.r,+t.dataset.c,t.value);
+    if(t.classList.contains('lt-cell')&&_ltRowTokens(t.value)) laneTableFillRow(_ltUI.idx,+t.dataset.r,+t.dataset.c,_ltRowTokens(t.value));
+    else if(t.classList.contains('lt-cell')) laneTableSetCell(_ltUI.idx,+t.dataset.r,+t.dataset.c,t.value);
     else if(t.classList.contains('lt-name')) laneTableSetName(_ltUI.idx,+t.dataset.r,t.value); });
-  g.addEventListener('focusin',e=>{ const t=e.target; if(t.classList.contains('lt-cell')){ _ltUI.focus={r:+t.dataset.r,c:+t.dataset.c}; t.select(); } });
+  g.addEventListener('focusin',e=>{ const t=e.target; if(t.classList.contains('lt-cell')){ _ltUI.focus={r:+t.dataset.r,c:+t.dataset.c}; t.select(); _ltPreview(false); } });
+  g.addEventListener('paste',e=>{ const t=e.target; if(!t.classList||!t.classList.contains('lt-cell')) return;
+    const tok=_ltRowTokens((e.clipboardData||window.clipboardData).getData('text'));
+    if(!tok) return;
+    e.preventDefault(); laneTableFillRow(_ltUI.idx,+t.dataset.r,+t.dataset.c,tok); });
   _ltRender();
   return true;
+}
+// A whole row typed or pasted into one cell: "- + - + - +", "−,+,−,+", or cells copied
+// from a spreadsheet row (tab-separated). null for a single value.
+function _ltRowTokens(v){
+  v=String(v==null?'':v).replace(/\r?\n.*$/s,'');
+  if(/\t/.test(v)) return v.split('\t').map(x=>x.trim());
+  if(/,/.test(v)) return v.split(',').map(x=>x.trim());
+  const sp=v.trim().split(/\s+/);
+  return sp.length>1&&sp.every(x=>/^[-−–—+]$/.test(x)) ? sp : null;
+}
+// Fill a row from column c onwards with the tokens (one undo step); past the last column is dropped, and said.
+function laneTableFillRow(idx,r,c,tok){
+  let cut=0;
+  const ok=_ltEdit(idx,t=>{ const row=t.rows[r]; if(!row||c<0||c>=t.lanes) return false;
+    tok.forEach((v,k)=>{ if(c+k<t.lanes) row.cells[c+k]=_ltNorm(v); else cut++; }); });
+  if(ok) toast(`Filled ${tok.length-cut} cell${tok.length-cut===1?'':'s'} of the row from lane ${c+1}${cut?` — ${cut} value${cut>1?'s were':' was'} past the last lane and left out`:''}`,cut?'warn':'ok');
+  return ok;
+}
+// The panel as the figure draws it — blot and table — with every column's number over
+// the lane it sits on and the focused column marked, so a row shifted by one lane is
+// seen here and not first in the exported figure.
+function _ltPreview(doRender){
+  const cv=document.getElementById('lt-preview'); if(!cv||!_ltUI) return;
+  const idx=_ltUI.idx, im=images[idx]; if(!im) return;
+  if(doRender!==false) render();
+  const fc=document.getElementById('fig-canvas'), pb=(panelBounds||[]).find(b=>b.idx===idx);
+  if(!pb||!fc.width){ cv.style.display='none'; return; }
+  const D=_ltDrawn.get(im.id), k=fc.width/(canvasLogicalW||fc.width);
+  const t=_ltFit(JSON.parse(JSON.stringify(im.laneTable||_ltDefault(im)))), n=t.lanes;
+  const box=D?D.box:{ox:pb.x,oy:pb.y,ow:pb.w,oh:pb.h,dx:pb.x,dw:pb.w};
+  const al=_ltAlign(Object.assign({},im,{laneTable:t}));
+  const xs=D&&D.xs.length===n?D.xs:(al.mode==='lanes'?al.u.map(u=>box.dx+u*box.dw):al.u.map(u=>box.ox+u*box.ow));
+  // from the row names (drawn left of the blot) to the blot's right edge
+  if(!_ltMeasure) _ltMeasure=document.createElement('canvas').getContext('2d');
+  _ltMeasure.font=_ltFont(t.fs||12);
+  const nameW=Math.max(0,...t.rows.map(r=>_rtMeasure(_ltMeasure,String(r.name||'').trim())));
+  const x0=Math.max(0,Math.min(box.ox-nameW-Math.round((t.fs||12)*0.5),pb.x)-4), x1=Math.max(box.ox+box.ow,pb.x+pb.w)+4;
+  const y0=Math.max(0,Math.min(D?D.top:box.oy,box.oy)-4), y1=Math.max(box.oy+box.oh,D?D.bottom:0)+4;
+  const W=Math.min(820,Math.max(300,(x1-x0)*1.5)), sc=W/(x1-x0), head=16, H=Math.round((y1-y0)*sc)+head;
+  cv.width=Math.round(W); cv.height=H; cv.style.display='block';
+  const x=cv.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,cv.width,cv.height);
+  x.imageSmoothingQuality='high';
+  x.drawImage(fc, x0*k, y0*k, (x1-x0)*k, (y1-y0)*k, 0, head, cv.width, H-head);
+  const a=im.gelAnalysis, ladder=al.mode==='lanes'&&a&&a.ladder?a.ladder.lane:-1, f=_ltUI.focus;
+  x.font='bold 11px system-ui,sans-serif'; x.textAlign='center'; x.textBaseline='top';
+  xs.forEach((X,c)=>{ const px=(X-x0)*sc;
+    if(f&&f.c===c){ x.fillStyle='rgba(91,141,238,.22)'; x.fillRect(px-6,head,12,H-head); }
+    x.strokeStyle=c===ladder?'rgba(220,120,0,.7)':'rgba(91,141,238,.55)'; x.lineWidth=1; x.setLineDash([3,3]);
+    x.beginPath(); x.moveTo(px,head-2); x.lineTo(px,H); x.stroke(); x.setLineDash([]);
+    x.fillStyle=c===ladder?'#c26a00':(f&&f.c===c?'#1d4ed8':'#333'); x.fillText(c===ladder?'M':String(c+1), px, 2); });
 }
 function _ltRefocus(){ if(!_ltUI||!_ltUI.focus) return;
   const el=document.querySelector(`#lt-grid .lt-cell[data-r="${_ltUI.focus.r}"][data-c="${_ltUI.focus.c}"]`); if(el){ el.focus(); el.select(); } }
@@ -9108,7 +9185,8 @@ function _ltRender(){
   const set=(id,v)=>{ const el=document.getElementById(id); if(el&&document.activeElement!==el) el.value=v; };
   set('lt-lanes',n); set('lt-pos',t.pos); set('lt-fs',t.fs);
   const cell='width:34px;text-align:center;padding:2px;font-size:12px;cursor:pointer';
-  let h=`<table style="border-collapse:collapse;font-size:11px"><tr><th style="text-align:left;padding:2px 4px">Row</th>${Array.from({length:n},(_,k)=>`<th style="padding:2px;color:var(--muted)">${k+1}</th>`).join('')}<th></th></tr>`;
+  const _lad=al.mode==='lanes'&&a&&a.ladder?a.ladder.lane:-1;
+  let h=`<table style="border-collapse:collapse;font-size:11px"><tr><th style="text-align:left;padding:2px 4px">Row</th>${Array.from({length:n},(_,k)=>k===_lad?`<th style="padding:2px;color:#c26a00" title="Lane ${k+1} is the ladder lane of the analysis (M): usually left blank">${k+1} M</th>`:`<th style="padding:2px;color:var(--muted)">${k+1}</th>`).join('')}<th></th></tr>`;
   t.rows.forEach((row,r)=>{
     h+=`<tr><td style="padding:2px 4px"><input class="lt-name" data-r="${r}" value="${esc(row.name||'')}" placeholder="e.g. IPTG" style="width:120px" title="The row's name, drawn left of the blot"></td>`;
     const _cut=(im.id!=null&&_ltCut.get(im.id))||[];
@@ -9117,6 +9195,7 @@ function _ltRender(){
     h+=`<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this row (one undo step)" onclick="laneTableDeleteRow(_ltUI.idx,${r})">✕</button></td></tr>`;
   });
   document.getElementById('lt-grid').innerHTML=h+'</table>';
+  _ltPreview();
 }
 // While the editor is on top, Ctrl/⌘+Z undoes and the grid shows it.
 document.addEventListener('keydown',e=>{
@@ -9535,7 +9614,7 @@ const TOUR_STEPS=[
   {sel:'#cols', title:'2 · Choose a layout', body:'Set rows × columns for your grid, or pick a Template / Journal preset. The panel map shows how images are arranged.'},
   // The tools sit in a section that starts closed; open it, or the ring lands on nothing.
   {before:()=>_tutOpen('ann-tools'), sel:'#ann-tools', title:'3 · Annotate', body:'Add arrows, boxes, scale bars, and text. Switch to ↖ Select (or press Esc) to move or edit anything you draw.'},
-  {sel:'#export-acc', title:'4 · Export', body:'Set a file name and DPI (300 for print, 600 for journals), then export PNG, TIFF, PDF, SVG — or a whole submission package.'},
+  {sel:'#export-acc', title:'4 · Export', body:'Set a file name and the DPI your journal asks for (usually 300; some want 600 for line art), then export PNG, TIFF, PDF, SVG — or a whole submission package. ⌘K → “Check against …” says which format your journal takes.'},
   {sel:'#help-btn', title:'5 · Finding everything', body:'Sections are named for what you are doing — Crop & Scale, Measure, Check. Press ⌘K to search every tool by name. Press ❔ for help & FAQ.'},
 ];
 // The same engine runs the basics tour and every task tutorial (TUTORIALS, below).
@@ -9548,12 +9627,21 @@ const TOUR_STEPS=[
 let _tourI=0, _tourSteps=TOUR_STEPS, _tut=null, _tourPoll=null;
 function startTour(force){
   try{ if(!force && localStorage.getItem('fl-tour-done')) return; }catch(e){}
+  { const hm=document.getElementById('help-modal'); if(hm) hm.classList.remove('open'); }   // it sat dimmed over every step
   _tut=null; _tourSteps=TOUR_STEPS;
   _tourI=0; _tourShow();
 }
 function _tourEndSave(){ try{ localStorage.setItem('fl-tour-done','1'); localStorage.setItem('fl-hints-seen','1'); }catch(e){} }
 function _tourClose(){ clearInterval(_tourPoll); _tourPoll=null; const o=document.getElementById('tour-ov'); if(o) o.remove(); }
-function _tourEnd(){ _tourClose(); _tourEndSave(); _tut=null; _tourSteps=TOUR_STEPS; }
+let _tutSaved=null;
+function _tourEnd(){ _tourClose(); _tourEndSave(); _tut=null; _tourSteps=TOUR_STEPS;
+  const saved=_tutSaved; _tutSaved=null;
+  if(saved) setTimeout(()=>_tutOfferRestore(saved),0); }
+function _tutOfferRestore(saved){
+  showConfirmModal('Bring your own figure back?',
+    'The tutorial replaced the figure you had open. Restore it now, as it was when the tutorial started? (One undo step — Ctrl+Z goes back to the tutorial’s figure.)',
+    ()=>{ applySession(saved,{origin:'file'}); toast('Your figure is back, as it was before the tutorial','ok'); });
+}
 function _tourFinish(){
   if(_tut){ try{ localStorage.setItem('fl-tut-done-'+_tut.id,'1'); }catch(e){}
     toast(`Tutorial complete: ${_tut.title}. Ctrl+Z steps back through it; ❔ → Tutorials has the others.`,'ok'); }
@@ -9946,7 +10034,13 @@ async function startTutorial(id){
   if(images.some(Boolean) && !confirm(`Start "${T.title}"? It replaces the current figure with a small demo one. Ctrl+Z brings yours back.`)) return;
   if(layoutMode==='freeform'){ const lm=document.getElementById('layout-mode'); if(lm) lm.value='grid'; setLayoutMode('grid'); }
   const hm=document.getElementById('help-modal'); if(hm) hm.classList.remove('open');
+  // Keep the author's figure: a tutorial's "Do it for me" steps are each an undo step,
+  // so getting it back took 16 presses of Ctrl+Z. It is offered back in one when the
+  // tutorial ends.
+  const had=images.some(Boolean)||freeformElements.length>0;
+  let saved=null; if(had){ try{ saved=serializeSession(true); }catch(e){ saved=null; } }
   const ok=await T.setup(); if(ok===false) return;
+  _tutSaved=saved;
   _tut=T; _tourSteps=T.steps; _tourI=0;
   logAction('tutorialStart',{id:T.id});
   _tourShow();
@@ -15460,7 +15554,11 @@ function showPanelMenu(idx, cx, cy){
       renderImgList();
       const gear=document.querySelector(`[data-gear="${idx}"]`);
       const drawer=document.getElementById('settings-'+idx);
-      if(gear){ if(!(drawer&&drawer.classList.contains('open'))) gear.click(); gear.scrollIntoView({behavior:'smooth',block:'nearest'}); }
+      // One panel's settings at a time from here: opening C, D and F in turn left all
+      // three open, the side panel thousands of pixels long and the one asked for below
+      // the fold. The others close; this one's header goes to the top of the panel.
+      document.querySelectorAll('#img-list .img-settings.open').forEach(d=>{ if(d!==drawer){ const g=document.querySelector(`[data-gear="${d.id.replace('settings-','')}"]`); if(g) g.click(); else d.classList.remove('open'); } });
+      if(gear){ if(!(drawer&&drawer.classList.contains('open'))) gear.click(); gear.closest('.img-item').scrollIntoView({behavior:'smooth',block:'start'}); }
     });
     const sep=document.createElement('div');
     sep.style.cssText='height:1px;background:var(--border);margin:3px 0';
@@ -15978,7 +16076,7 @@ function clearAnnotations(){
 function confirmNewFigure(){
   showConfirmModal('Start a new figure?','Everything in this figure is cleared — panels, annotations, objects, title, notes, layout and style go back to a blank figure. Ctrl+Z brings it back.',()=>{
     // One undo step: clearing the history as well made a mis-click unrecoverable.
-    if(typeof _tutAbort==='function') _tutAbort('Tutorial ended — you started a new figure.');
+    if(typeof _tutAbort==='function'){ _tutSaved=null; _tutAbort('Tutorial ended — you started a new figure.'); }
     pushUndo({boundary:true});
     _resetFigureState();
     logAction('newFigure');
@@ -16674,6 +16772,19 @@ function _applyJournalRules(J){
     if(!(cur>0&&ok&&ok.ok)){
       const t=(!(cur>0)&&J.widthDefault)?J.widthDefault:_journalWidthTarget(J,w);
       if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); did.push(`${t} mm wide`); }
+      // The width the preset picked must not print the figure taller than the journal
+      // allows: ASM's 177.8 mm made a tall blot stack 360 mm high, a failed rule nobody
+      // had chosen. Then the widest width that fits is used instead, and said.
+      if(J.maxH){ render(); const pf=_physFacts();
+        if(pf.hMm>J.maxH+0.5&&pf.wMm>0){
+          let fit=Math.floor(pf.wMm*J.maxH/pf.hMm*10)/10;
+          if(J.columns){ const c=J.columns.filter(c=>c.mm<=fit+0.05).sort((p,q)=>q.mm-p.mm)[0]; fit=c?c.mm:null; }
+          else if(J.widthRange&&fit<(J.widthRange.min||0)) fit=null;
+          if(fit){
+            const sel=document.getElementById('export-width-mm');
+            if(sel&&![...sel.options].some(o=>o.value===String(fit))){ const o=document.createElement('option'); o.value=String(fit); o.textContent=`${fit} mm — fits ${J.short||J.label}'s ${J.maxH} mm height`; sel.appendChild(o); }
+            sv('export-width-mm',String(fit)); did.pop(); did.push(`${fit} mm wide — the widest that keeps it within ${J.maxH} mm tall`); }
+        } }
     }
   }
   // fonts: switched only when the current one is not on the journal's list
@@ -17698,6 +17809,20 @@ async function exportSubmissionPackage(){
       const safe=(el.label||('chart_'+(ci+1))).replace(/[^\w.-]+/g,'_');
       files.push({name:`source-data/${safe}.csv`, data:csv});
     });
+    // The densitometry behind every analysed blot or gel in the figure — the numbers a
+    // quantification chart was drawn from, which journals ask for as source data. They
+    // used to be downloadable only one dialog at a time. A stale analysis ships with the
+    // STALE line its CSV already opens with.
+    for(const im of (grid?_figurePanels():images.filter(Boolean))){
+      if(!im||!im.gelAnalysis) continue;
+      const gi_=images.indexOf(im); if(gi_<0) continue;
+      const tag=(_rtText(formatLabel(im.label))||_sourceName(im)||String(gi_+1)).normalize('NFKC').replace(/\.[A-Za-z0-9]{2,4}$/,'');
+      try{
+        files.push({name:`source-data/panel_${tag}-densitometry.csv`, data:gelCSV(gi_)});
+        const cx=_gelCtx(im,im.gelAnalysis);
+        if(!cx.error) files.push({name:`source-data/panel_${tag}-lane-profiles.csv`, data:gelProfileCSV(gi_)});
+      }catch(e){ _captureSkips.push({label:`densitometry CSV for panel ${tag}`, why:e&&e.message||String(e)}); }
+    }
     // Entry names, once, over everything: a label or an export name is free text, and
     // used raw it collided (two "WT" panels — extraction keeps one) or made folders
     // ("WT/KO", "../x"). The README lists the names as they are in the ZIP.
@@ -20427,7 +20552,7 @@ function applySession(s,_opts){
       _opts=_opts||{};
       // Opening a file replaces the figure a running tutorial is working on; its
       // "Do it for me" steps would then act on the loaded panels.
-      if(typeof _tutAbort==='function') _tutAbort('Tutorial ended — you opened another figure.');
+      if(typeof _tutAbort==='function'){ _tutSaved=null; _tutAbort('Tutorial ended — you opened another figure.'); }
       if(!_opts.noUndo) pushUndo({boundary:true});
       // A file with no images list at all keeps the panels on screen (a style/layout
       // file applied to them); one with a list replaces them.
@@ -22254,6 +22379,9 @@ function renderFreeform(canvas, ctx, S, opts){
   if(!isExport){
     annCanvas.width=W; annCanvas.height=H;
     canvasLogicalW=W; canvasLogicalH=H;
+    // the Export readout follows the canvas it measures (it kept the previous figure's
+    // width after a load or a canvas resize)
+    if(typeof _syncPhysReadout==='function') _syncPhysReadout();
   }
 
   const bgColor=gv('bg-color');
@@ -29244,7 +29372,11 @@ function _s1PageCanvas(im, opts){
   const r1=v=>{ const x=Math.round(v*10)/10; return Number.isInteger(x)?String(x):x.toFixed(1); };
   const pt=([x,y])=>`(${r1(x)}, ${r1(y)})`;
   const L=[];   // [text, bold?]
-  L.push([`Panel ${_rtText(formatLabel(im.label))||'?'} — uncropped original`, true]);
+  // A panel with no letter is titled by its file, not "Panel ?".
+  const _s1Name=_rtText(formatLabel(im.label));
+  L.push([_s1Name?`Panel ${_s1Name} — uncropped original`:`${_sourceName(im)||'Unlettered panel'} — uncropped original (no panel letter)`, true]);
+  const MW=_s1Markers(im);
+  if(MW) L.push([`Molecular-weight markers (kDa) from the ladder fit in lane ${MW.ladderLane}, drawn beside the ladder: ${MW.marks.map(m=>m.kda).join(', ')}. Lanes numbered 1–${MW.lanes.length} as in the densitometry.`]);
   L.push([`Source file: ${_sourceName(im)||'(unnamed)'} · ${G.iw} × ${G.ih} px`]);
   if(!G.cropped) L.push(['Not cropped: the whole image is used in the figure.']);
   else if(G.rotated) L.push([`Crop: a ${r1(G.sw)} × ${r1(G.sh)} px region tilted ${r1(G.angle)}° about the image centre. Corners (source px) TL ${pt(G.corners[0])}, TR ${pt(G.corners[1])}, BR ${pt(G.corners[2])}, BL ${pt(G.corners[3])}.`]);
@@ -29312,6 +29444,18 @@ function _s1PageCanvas(im, opts){
     x.fillStyle=S1_OUTLINE; x.fillText(_rtText(formatLabel(im.label)), P[0][0]+lw+3, P[0][1]+lw+3);
     x.restore();
   }
+  if(MW){
+    // marker sizes beside the ladder lane and a number over each lane, at their source positions
+    const g=_cropGeom(im), at=(fx,fy)=>{ const [u,v]=g.toSrc(fx,fy); return [ix+u*sc, iy+v*sc]; };
+    const mf=Math.max(11,Math.round(fs*0.9));
+    x.save(); x.font=`bold ${mf}px ${fam}`; x.lineJoin='round'; x.lineWidth=Math.max(2,Math.round(mf*0.22));
+    const put=(t,X,Y,al,bl)=>{ x.textAlign=al; x.textBaseline=bl; x.strokeStyle='rgba(255,255,255,.95)'; x.strokeText(t,X,Y); x.fillStyle=S1_OUTLINE; x.fillText(t,X,Y); };
+    MW.marks.forEach(m=>{ const [X,Y]=at(m.x0, m.y); put(String(m.kda), X-4, Y, 'right', 'middle');
+      x.strokeStyle=S1_OUTLINE; x.lineWidth=Math.max(1,lw/2); x.beginPath(); x.moveTo(X-3,Y); x.lineTo(X+Math.max(4,lw*2),Y); x.stroke(); x.lineWidth=Math.max(2,Math.round(mf*0.22)); });
+    if(MW.marks.length){ const [X,Y]=at(MW.marks[0].x0, MW.marks[0].y); put('kDa', X-4, Y-mf*1.2, 'right', 'bottom'); }
+    MW.lanes.forEach((L,k)=>{ const [X,Y]=at(L.xc, L.top); put(k===MW.ladderLane-1?'M':String(k+1), X, Y-3, 'center', 'bottom'); });
+    x.restore();
+  }
   G.splices.filter(s=>s.mapped).forEach(s=>{
     x.save(); x.strokeStyle=S1_SPLICE; x.lineWidth=lw; x.setLineDash([lw*4,lw*3]);
     x.beginPath(); x.moveTo(ix+s.p1[0]*sc, iy+s.p1[1]*sc); x.lineTo(ix+s.p2[0]*sc, iy+s.p2[1]*sc); x.stroke(); x.restore();
@@ -29319,6 +29463,19 @@ function _s1PageCanvas(im, opts){
   return {canvas:c, items, geom:G, scale:sc, imgX:ix, imgY:iy, imgW:dw, imgH:dh, lineWidth:lw, outline:P};
 }
 const S1_OUTLINE='#ff00ff', S1_SPLICE='#00a0ff';   // magenta and blue: neither occurs in a grey blot
+// The ladder's marker sizes and the lanes of a current analysis, in crop-frame pixels,
+// for the S1 sheet. Only when the sizes pair one for one with the ladder's bands — the
+// same rule the figure's MW labels follow — so no size is drawn on the wrong band.
+function _s1Markers(im){
+  const a=im&&im.gelAnalysis;
+  if(!a||!_gelFresh(im)||!a.ladder||a.ladder.assignError||!a.lanes[a.ladder.lane]) return null;
+  const sizes=_gelParseSizes(a.ladder.sizes)||[], L=a.lanes[a.ladder.lane], bands=L.bands.slice().sort((p,q)=>p.yc-q.yc);
+  if(!sizes.length||sizes.length!==bands.length||_gelLadderSizes(a.ladder.sizes).error) return null;
+  const f=a.frame;
+  return {ladderLane:a.ladder.lane+1,
+    marks:bands.map((b,i)=>({kda:sizes[i], x0:L.x0, y:b.yc})),
+    lanes:a.lanes.map(l=>({xc:(l.x0+l.x1)/2, top:f.sy}))};
+}
 
 async function _s1PdfBytes(ims, opts){
   const pages=[];
@@ -29465,7 +29622,7 @@ function autosaveNow(){
   }
   const key=unstored.join('\u0000');
   if(key && key!==_autosaveUnstored)
-    toast(`Autosave cannot hold the pixels of ${unstored.length} image${unstored.length>1?'s':''} (too large for browser storage). Every panel's settings are kept; after a crash you would drop ${unstored.length>1?'those files':'that file'} again.`,'warn');
+    toast(`Autosave cannot hold the pixels of ${unstored.length} image${unstored.length>1?'s':''} (${unstored.slice(0,3).join(', ')}${unstored.length>3?`, and ${unstored.length-3} more`:''}; too large for browser storage). Every panel's settings are kept; after a crash you would drop ${unstored.length>1?'those files':'that file'} again.`,'warn');
   _autosaveUnstored=key;
   const el=document.getElementById('autosave-status');
   if(el) el.textContent='Autosaved '+new Date(t).toLocaleTimeString()+(unstored.length?` (${unstored.length} image${unstored.length>1?'s':''} not stored)`:'');

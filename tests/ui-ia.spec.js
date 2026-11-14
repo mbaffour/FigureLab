@@ -37,7 +37,7 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     // its background method, total-protein mode and lane profile
     'gel-bg', 'gel-bg-p', 'gel-bg-unit', 'gel-lc-mode', 'gel-prof-lane', 'gel-prof-info', 'gel-profile',
     // The lane condition table editor, built when it opens.
-    'lt-modal-bg', 'lt-status', 'lt-match', 'lt-lanes', 'lt-pos', 'lt-fs', 'lt-grid',
+    'lt-modal-bg', 'lt-status', 'lt-match', 'lt-lanes', 'lt-pos', 'lt-fs', 'lt-grid', 'lt-preview',
     // The uncropped-originals (S1) dialog, built when it opens.
     's1-modal-bg',
     // The Replace-all summary (old → new per panel), built when the files are picked.
