@@ -390,14 +390,14 @@ test('phage-20 / freeform-11: Pop out keeps the freeform charts, scale bars, cro
   });
   const before = await page.evaluate(() => ({ undo: undoStack.length, ruler: __rulers()[0], W: canvasLogicalW, H: canvasLogicalH,
     A: (() => { const pb = panelBounds.find(p => p.idx === 0); return [pb.dx, pb.dy, pb.dw, pb.dh]; })() }));
+  // The circle clip now carries into freeform (freeform group, freeform-20), so nothing is
+  // lost and Pop out no longer stops to name it.
   await page.locator('button', { hasText: 'Pop out to free layout' }).first().click();
-  await expect(page.locator('#confirm-modal-bg')).toBeVisible();
-  await expect(page.locator('#cm-body')).toContainText('circle');     // said BEFORE anything changes
-  expect(await page.evaluate(() => layoutMode)).toBe('grid');
-  await page.locator('#cm-ok').click();
+  await expect(page.locator('#confirm-modal-bg')).toHaveCount(0);
   const r = await page.evaluate(() => {
     render();
     const els = freeformElements, A = els.find(e => e.type === 'image' && e.name === 'tem.tif');
+    if (els.find(e => e.type === 'image' && e.name === 'plate.png').cropShape !== 'circle') throw new Error('circle clip not carried');
     const D = els.find(e => e.type === 'image' && e.name === 'spot.png');
     const lane = els.filter(e => e.type === 'text' && /10\^/.test(e.text));
     return { mode: layoutMode, charts: els.filter(e => e.type === 'chart').length, images: els.filter(e => e.type === 'image').length,

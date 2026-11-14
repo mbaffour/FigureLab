@@ -450,6 +450,12 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   transition:background .1s,border-color .1s}
 #align-bar button:hover{background:var(--border);border-color:var(--border2)}
 #align-bar .snap-btn.active{background:rgba(61,214,140,.15);color:var(--a2);border-color:var(--a2)}
+#align-bar button:disabled{opacity:.4;cursor:default}
+#elem-props-bar{min-height:62px;align-content:center}
+#elem-props-bar.ep-none > :not(.ep-keep){display:none !important}
+#elem-props-bar:not(.ep-none) > #ep-empty{display:none}
+#align-bar .geo-in{width:56px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px;font-family:var(--mono)}
+#align-bar .geo-in:disabled{opacity:.45}
 #elem-props-bar .abar-sep{width:1px;height:18px;background:var(--border);margin:0 4px;flex-shrink:0}
 .ep-tbtn{padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;cursor:pointer;line-height:1.35;font-family:var(--mono)}
 .ep-tbtn:hover{background:var(--border)}
@@ -1395,40 +1401,59 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
 <!-- ── Canvas area ───────────────────────────────────────────── -->
 <div class="canvas-area">
-  <!-- Alignment bar (freeform mode, ≥2 elements selected) -->
+  <!-- Arrange bar (freeform mode): always shown there, so the canvas never jumps when the
+       selection changes. Position and size of the selection as numbers, then align, space,
+       distribute, match size and stacking for objects and annotations alike. -->
   <div id="align-bar">
-    <span style="font-size:10px;color:var(--muted);margin-right:2px">Align:</span>
-    <button onclick="alignElems('left')"   title="Align left edges">⊢L</button>
-    <button onclick="alignElems('right')"  title="Align right edges">R⊣</button>
-    <button onclick="alignElems('top')"    title="Align top edges">⊤T</button>
-    <button onclick="alignElems('bottom')" title="Align bottom edges">B⊥</button>
-    <button onclick="alignElems('centerH')" title="Center horizontally">↔</button>
-    <button onclick="alignElems('centerV')" title="Center vertically">↕</button>
+    <span id="ab-geo" style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted)" title="Position and size of the selection. Type a number and press Enter. In mm they are the printed size (Export › printed width).">
+      <label for="geo-x">X</label><input type="number" id="geo-x" class="geo-in" step="any" onchange="_geoApply('x',this.value)">
+      <label for="geo-y">Y</label><input type="number" id="geo-y" class="geo-in" step="any" onchange="_geoApply('y',this.value)">
+      <label for="geo-w">W</label><input type="number" id="geo-w" class="geo-in" step="any" min="0" onchange="_geoApply('w',this.value)">
+      <label for="geo-h">H</label><input type="number" id="geo-h" class="geo-in" step="any" min="0" onchange="_geoApply('h',this.value)">
+      <label for="geo-a" title="Angle in degrees, clockwise ([ and ] turn it by 1°, Shift by 5°)">∠</label><input type="number" id="geo-a" class="geo-in" step="any" style="width:44px" onchange="_geoApply('a',this.value)" title="Angle in degrees, clockwise ([ and ] turn it by 1°, Shift by 5°)">
+      <label title="Keep the shape: typing W changes H in proportion, and the other way round" style="display:flex;align-items:center;gap:1px;cursor:pointer"><input type="checkbox" id="geo-keep" style="margin:0">⛓</label>
+      <select id="geo-unit" title="Units: canvas pixels, or millimetres at the printed size" onchange="_geoSync(true)" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)">
+        <option value="px">px</option><option value="mm">mm</option></select>
+    </span>
+    <span id="ab-hint" style="font-size:10px;color:var(--muted);margin:0 4px" title="Click to select; Shift-, ⌘- or Ctrl-click adds to the selection; drag a box on empty canvas to select everything it touches; Ctrl+A selects all">Shift/⌘-click adds · drag a box · Ctrl+A all</span>
+    <div class="abar-sep"></div>
+    <span style="font-size:10px;color:var(--muted);margin-right:2px" title="One item lines up with the canvas; several line up with each other">Align:</span>
+    <button class="ab-sel1" onclick="alignElems('left')"   title="Align left edges (one item: to the canvas's left edge)">⊢L</button>
+    <button class="ab-sel1" onclick="alignElems('right')"  title="Align right edges (one item: to the canvas's right edge)">R⊣</button>
+    <button class="ab-sel1" onclick="alignElems('top')"    title="Align top edges (one item: to the canvas's top)">⊤T</button>
+    <button class="ab-sel1" onclick="alignElems('bottom')" title="Align bottom edges (one item: to the canvas's bottom)">B⊥</button>
+    <button class="ab-sel1" onclick="alignElems('centerH')" title="Centre horizontally (one item: on the canvas)">↔</button>
+    <button class="ab-sel1" onclick="alignElems('centerV')" title="Centre vertically (one item: on the canvas)">↕</button>
     <div class="abar-sep"></div>
     <span style="font-size:10px;color:var(--muted);margin-right:2px">Space:</span>
-    <input type="number" id="ff-space" value="12" min="0" max="600" step="1"
+    <input type="number" id="ff-space" value="12" min="0" max="600" step="any"
       style="width:46px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px"
       title="The gap to put between the selected objects, in pixels">
-    <button onclick="spaceElems('h')" title="Put exactly this many pixels between the selected objects, left to right — works with two or more">⇿</button>
-    <button onclick="spaceElems('v')" title="Put exactly this many pixels between the selected objects, top to bottom — works with two or more">⇕</button>
+    <button class="ab-sel2" onclick="spaceElems('h')" title="Put exactly this many pixels between the selected items, left to right — works with two or more">⇿</button>
+    <button class="ab-sel2" onclick="spaceElems('v')" title="Put exactly this many pixels between the selected items, top to bottom — works with two or more">⇕</button>
     <div class="abar-sep"></div>
     <span style="font-size:10px;color:var(--muted);margin-right:2px">Distribute:</span>
-    <button onclick="distributeElems('h')" title="Spread three or more objects evenly between the outermost two, keeping those two where they are">←→</button>
-    <button onclick="distributeElems('v')" title="Spread three or more objects evenly between the outermost two, keeping those two where they are">↑↓</button>
+    <button class="ab-sel3" onclick="distributeElems('h')" title="Spread three or more items evenly between the outermost two, keeping those two where they are (equal gaps)">←→</button>
+    <button class="ab-sel3" onclick="distributeElems('v')" title="Spread three or more items evenly between the outermost two, keeping those two where they are (equal gaps)">↑↓</button>
     <div class="abar-sep"></div>
-    <span style="font-size:10px;color:var(--muted);margin-right:2px">Layer:</span>
-    <button onclick="changeZOrder('front')"   title="Bring to front">⬆⬆</button>
-    <button onclick="changeZOrder('forward')" title="Bring forward">⬆</button>
-    <button onclick="changeZOrder('back')"    title="Send to back">⬇⬇</button>
-    <button onclick="changeZOrder('backward')"title="Send back">⬇</button>
+    <span style="font-size:10px;color:var(--muted);margin-right:2px">Match:</span>
+    <button class="ab-sel2" onclick="matchSizeElems('w')" title="Same width as the first object you selected (a picture keeps its shape)">=W</button>
+    <button class="ab-sel2" onclick="matchSizeElems('h')" title="Same height as the first object you selected (a picture keeps its shape)">=H</button>
+    <div class="abar-sep"></div>
+    <span style="font-size:10px;color:var(--muted);margin-right:2px" title="Stacking order of objects and annotations">Layer:</span>
+    <button class="ab-sel1" onclick="changeZOrder('front')"   title="Bring to front">⬆⬆</button>
+    <button class="ab-sel1" onclick="changeZOrder('forward')" title="Bring forward one step">⬆</button>
+    <button class="ab-sel1" onclick="changeZOrder('backward')"title="Send back one step (an annotation goes behind the object under it)">⬇</button>
+    <button class="ab-sel1" onclick="changeZOrder('back')"    title="Send to back (an annotation goes behind every object)">⬇⬇</button>
     <div class="abar-sep"></div>
     <button id="snap-toggle-btn" class="snap-btn" onclick="toggleSnap()" title="Toggle snap to grid">⊞ Snap</button>
     <div class="abar-sep"></div>
-    <button onclick="deleteSelectedElems()" style="color:var(--danger)" title="Delete selected">✕ Del</button>
+    <button class="ab-sel1" onclick="deleteSelectedElems()" style="color:var(--danger)" title="Delete selected">✕ Del</button>
   </div>
   <!-- Freeform element properties bar (single element selected) -->
   <div id="elem-props-bar" style="display:none;align-items:center;gap:6px;padding:5px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap;font-size:11px">
-    <span style="color:var(--muted);font-size:10px">Props:</span>
+    <span class="ep-keep" style="color:var(--muted);font-size:10px">Props:</span>
+    <span id="ep-empty" class="ep-keep" style="color:var(--muted);font-size:10px"></span>
     <label id="ep-label-wrap" style="display:flex;align-items:center;gap:3px">Label<input type="text" id="ep-label" style="width:70px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('label',this.value)"></label>
     <label style="display:flex;align-items:center;gap:3px">Opacity<input type="range" id="ep-opacity" min="0" max="1" step="0.05" value="1" style="width:60px" oninput="updateElemProp('opacity',+this.value);document.getElementById('ep-opacity-v').textContent=Math.round(this.value*100)+'%'"><code id="ep-opacity-v" style="width:32px">100%</code></label>
     <label style="display:flex;align-items:center;gap:3px">Color<input type="color" id="ep-color" value="#5b8dee" style="width:28px;height:22px;padding:0;border:none;cursor:pointer" oninput="updateElemProp('color',this.value)"></label>
@@ -1534,6 +1559,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">B<input type="number" id="ep-cropB" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropB',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">R<input type="number" id="ep-cropR" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropR',+this.value)"></label>
       <button class="btn" style="padding:2px 7px;font-size:10px" onclick="openFreeformCropEditor()" title="Visual crop editor">✂ Visual Crop</button>
+      <div class="abar-sep"></div>
+      <span style="color:var(--muted);font-size:10px" title="Clip the picture to a shape (the pixels outside are hidden, not deleted)">Clip:</span>
+      <button class="ep-tbtn ep-clip" data-clip="rect" onclick="ffSetClip('rect')" title="Rectangle (no clip)">□</button>
+      <button class="ep-tbtn ep-clip" data-clip="circle" onclick="ffSetClip('circle')" title="Circle clip">◯</button>
+      <button class="ep-tbtn ep-clip" data-clip="ellipse" onclick="ffSetClip('ellipse')" title="Ellipse clip">⬭</button>
+      <button class="ep-tbtn ep-clip" data-clip="rounded" onclick="ffSetClip('rounded')" title="Rounded rectangle clip — the corner radius is the number beside it">▢</button>
+      <input type="number" id="ep-clipR" min="0" max="2000" step="1" value="16" title="Corner radius of the rounded clip, px" style="width:40px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="ffSetClipR(+this.value)">
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Brightness<input type="range" id="ep-br" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('brightness',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Contrast<input type="range" id="ep-ct" min="0.2" max="3" step="0.05" value="1" style="width:55px" oninput="updateElemProp('contrast',+this.value)"></label>
@@ -1940,8 +1972,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div style="color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase;grid-column:1/-1;margin-top:6px">Freeform mode</div>
       <div><code>↑↓←→</code> Nudge element (1px)</div>
       <div><code>Shift+↑↓←→</code> Nudge 10px</div>
-      <div><code>Ctrl+A</code> Select all elements</div>
+      <div><code>Ctrl+A</code> Select all objects and annotations</div>
       <div><code>Delete</code> Delete selected elements</div>
+      <div><code>Shift/⌘/Ctrl+click</code> Add to (or take out of) the selection</div>
+      <div><code>Drag on empty canvas</code> Select everything the box touches</div>
+      <div><code>[ / ]</code> Turn the selection 1° (Shift: 5°)</div>
+      <div><code>Alt+drag a handle</code> Resize without snapping</div>
+      <div><code>X Y W H ∠</code> Type position, size, angle (bar above the canvas)</div>
+      <div><code>Dbl-click text</code> Edit a text annotation's words</div>
+      <div><code>Escape</code> Deselect (or click beside the canvas)</div>
     </div>
     <p style="font-size:10px;color:var(--muted);margin-top:14px">Shortcuts are inactive while typing in an input field.</p>
   </div>
@@ -2746,6 +2785,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <option value="rect">□ Rect</option>
     <option value="ellipse">○ Ellipse</option>
   </select>
+  <button id="ann-float-bold" class="ep-tbtn" title="Bold, for this text only" style="display:none;font-weight:bold;padding:2px 7px">B</button>
+  <span class="fl-lbl" id="ann-float-rad-lbl" style="display:none" title="Corner radius in px: 0 is square corners">Corner R</span>
+  <input type="number" id="ann-float-rad" min="0" max="400" value="0" style="display:none;width:44px" title="Corner radius in px: 0 is square corners">
+  <button id="ann-float-back" title="Send this annotation behind the objects (it is drawn there in every export). ⬆ Front brings it back on top." style="display:none;padding:2px 6px">⬇ Behind</button>
+  <button id="ann-float-front" title="Bring this annotation in front of every object" style="display:none;padding:2px 6px">⬆ Front</button>
   <select id="ann-float-repeat" title="Put a copy of this annotation at the same spot on other panels (on the same pixels when they share a crop and source size)" style="display:none;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text);font-size:11px;font-family:var(--mono)">
     <option value="">⧉ Repeat on…</option>
     <option value="row">panels in this row</option>
@@ -4128,8 +4172,16 @@ function _commitImage(img,src,name,svgSource,calib,raw){
     const H=parseInt(document.getElementById('fm-canvas-h').value)||900;
     const ew=Math.min(300,Math.round(img.naturalWidth*0.5)||300);
     const eh=Math.round(ew*(img.naturalHeight/img.naturalWidth))||200;
-    addFreeformElement({type:'image',src,img,
-      x:Math.round((W-ew)/2),y:Math.round((H-eh)/2),w:ew,h:eh,
+    // Side by side, left to right and then a row down, rather than all in a stack at the
+    // centre where only the top one could be seen; a cascade once the canvas is full.
+    const ims=freeformElements.filter(e=>e&&(e.type==='image'||e.type==='aiicon'));
+    let px=20, py=20;
+    if(ims.length){ const last=ims[ims.length-1]; px=last.x+last.w+20; py=last.y;
+      if(px+ew>W-10){ px=20; py=Math.max(...ims.map(e=>e.y+e.h))+20; } }
+    if(py+eh>H-10||px+ew>W-10){ const k=ims.length%12; px=Math.round((W-ew)/2)+k*24-132; py=Math.round((H-eh)/2)+k*24-132;
+      px=Math.max(0,Math.min(W-ew,px)); py=Math.max(0,Math.min(H-eh,py)); }
+    addFreeformElement({type:'image',src,img,name:name||'',
+      x:Math.round(px),y:Math.round(py),w:ew,h:eh,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropAngle:0,
       cropShape:'rect',blackPt:0,whitePt:255,grayscale:false,
       invert:false,lut:'none',gamma:1.0,
@@ -4836,6 +4888,16 @@ const CMD_REGISTRY=[
   {label:'Alt text: draft from the figure (accessibility)', keys:'alt text alt-text accessibility screen reader a11y description springer aip', run:()=>draftAltText()},
   {label:'Alt text: go to the box', keys:'alt text alt-text write edit accessibility description', run:()=>focusAltText()},
   {label:'Group selection',          keys:'group combine objects together', run:()=>groupSelectedElems()},
+  {label:'Align selected objects: right edges (freeform)', keys:'align right edges line up objects annotations freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } alignElems('right'); }},
+  {label:'Align selected objects: bottom edges (freeform)', keys:'align bottom edges line up objects annotations freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } alignElems('bottom'); }},
+  {label:'Align selected objects: centres, vertically (freeform)', keys:'align centre center vertically middle objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } alignElems('centerV'); }},
+  {label:'Space selected items left to right (exact gap)', keys:'space spacing gap equal exact apart horizontal row objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } spaceElems('h'); }},
+  {label:'Space selected items top to bottom (exact gap)', keys:'space spacing gap equal exact apart vertical column objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } spaceElems('v'); }},
+  {label:'Distribute selected objects evenly, top to bottom (freeform)', keys:'distribute spread equal gaps vertical objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } distributeElems('v'); }},
+  {label:'Match width to the first selected', keys:'match same width size equal objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } matchSizeElems('w'); }},
+  {label:'Match height to the first selected', keys:'match same height size equal objects freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } matchSizeElems('h'); }},
+  {label:'Select all objects and annotations', keys:'select all everything ctrl a objects annotations freeform', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } _ffSelectAll(); }},
+  {label:'Position and size: type X, Y, W, H or angle', keys:'position size x y width height angle rotate numeric coordinates exact mm nudge move', run:()=>{ if(layoutMode!=='freeform'){ toast('Freeform only: switch Canvas mode to Freeform','warn'); return; } (()=>{ const g=document.getElementById('geo-x'); if(g&&!g.disabled){ g.focus(); g.select(); } else toast('Select an object first; its X, Y, W, H and angle are in the bar above the canvas','info'); })(); }},
   {label:'Ungroup selection',        keys:'ungroup separate objects',       run:()=>ungroupSelectedElems()},
   {label:'Connect two objects',      keys:'connect connector arrow link line flow', run:()=>connectSelected()},
   {label:'Prune dangling connectors',keys:'connector dangling prune clean',  run:()=>_pruneDanglingConnectors()},
@@ -4909,6 +4971,7 @@ const CMD_REGISTRY=[
   {label:'Duplicate this row', keys:'duplicate row copy layout grid', run:()=>duplicateGridLine('row')},
   {label:'Duplicate this column', keys:'duplicate column copy layout grid', run:()=>duplicateGridLine('col')},
   {label:'Canvas: graphical abstract (Elsevier)', keys:'graphical abstract elsevier deliverable canvas preset', run:()=>applyDeliverable('graphicalAbstract')},
+  {label:'Canvas: square graphical abstract (custom size — check your journal)', keys:'graphical abstract square cell press cell reports embo synopsis visual abstract custom deliverable canvas preset', run:()=>applyDeliverable('squareAbstract')},
   {label:'Canvas: TOC image (Nature Chem)', keys:'toc table of contents image nature deliverable', run:()=>applyDeliverable('tocImage')},
   {label:'Canvas: A0 poster panel', keys:'poster a0 conference deliverable canvas', run:()=>applyDeliverable('posterA0')},
   {label:'Canvas: 16:9 slide', keys:'slide powerpoint keynote talk deliverable canvas', run:()=>applyDeliverable('slide169')},
@@ -4952,6 +5015,7 @@ const CMD_REGISTRY=[
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
   {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
   {label:'Crop shape: ellipse',      keys:'crop clip shape ellipse oval mask',  run:()=>_cmdCropShape('ellipse')},
+  {label:'Clip shape: rounded rectangle (freeform picture)', keys:'crop clip shape rounded rectangle corners radius round mask', run:()=>{ if(layoutMode!=='freeform'){ toast('The rounded clip is for freeform pictures — select one in freeform','warn'); return; } ffSetClip('rounded'); }},
   {label:'Crop images as I import (toggle)', keys:'crop import precrop toggle on arrival', run:()=>_cmdTogglePreCrop()},
   {label:'Add text annotation',      keys:'text annotation add label',          run:()=>setTool('text')},
   {label:'Rotate selected panel 90° right', keys:'rotate turn panel photo image right cw clockwise orientation tilt flip sideways angle landscape portrait', run:()=>rotateSelectedPanel(90)},
@@ -4988,7 +5052,7 @@ const CMD_REGISTRY=[
   {label:'Align selected objects: centres (freeform)', keys:'align centre center middle objects freeform', run:()=>_cmdpFree(()=>alignElems('centerH'))},
   {label:'Distribute selected objects evenly (freeform)', keys:'distribute evenly spread equal spacing objects freeform', run:()=>_cmdpFree(()=>distributeElems('h'))},
   {label:'Bring selected object to front (freeform)', keys:'front bring to front layer order top above raise freeform', run:()=>_cmdpFree(()=>changeZOrder('front'))},
-  {label:'Send selected object to back (freeform)', keys:'back send to back layer order bottom behind lower freeform', run:()=>_cmdpFree(()=>changeZOrder('back'))},
+  {label:'Send selected object to back (freeform; an annotation goes behind the objects)', keys:'back send to back layer order bottom behind lower freeform annotation box arrow', run:()=>_cmdpFree(()=>changeZOrder('back'))},
   {label:'Lock / unlock selected object (freeform)', keys:'lock unlock pin fix freeze object freeform', run:()=>_cmdpFree(()=>toggleLockSelected())},
 ];
 let _cmdpSel=0, _cmdpFiltered=[];
@@ -5566,6 +5630,10 @@ function _refreshPreflight(){
       +(_vp.vector.some(v=>!v.data)?` Imported SVG panel${_vp.vector.filter(v=>!v.data).length>1?'s':''} ${_vp.vector.filter(v=>!v.data).map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} stay <b>vector</b>.`:'')
       +(_vp.vector.some(v=>v.data)?` Chart and gene map panel${_vp.vector.filter(v=>v.data).length>1?'s':''} ${_vp.vector.filter(v=>v.data).map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} ${_vp.vector.filter(v=>v.data).length>1?'are':'is'} written as <b>vector</b>.`:'')
       +_vp.raster.map(r=>` Panel ${esc(_rtText(formatLabel(r.im.label))||'?')} was imported as SVG but is written as <b>pixels</b>: ${esc(r.why.join('; '))}.`).join('')
+    : (fmt==='pdf'||fmt==='pdf-lossless')
+    // Says what the PDF's text is and is not: real, named fonts, not embedded. The freeform
+    // PDF used to have no text at all and nothing here said so.
+    ? `Panel letters, labels, text annotations and text boxes are written as <b>real, selectable text</b> in the PDF's standard fonts (Helvetica, Times or Courier, whichever matches the figure's font; the font is named in the file). They are <b>not embedded</b>: every PDF reader supplies these fonts, but a journal preflight that requires all fonts embedded will flag them. Text with characters those fonts lack (Greek, ≥, ✓)${layoutMode==='freeform'?' and text on a turned object':''} stays in the picture. Pictures, lines and shapes are pixels at ${dpi} DPI.`
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
@@ -6898,6 +6966,7 @@ function setPanelAngle(idx, deg, opts){
   if(!(opts&&opts.quiet)){ renderImgList(); scheduleRender(0); }
 }
 function rotateSelectedPanel(delta){
+  if(layoutMode==='freeform'){ rotateFromToolbar(delta); return; }   // the selected objects
   const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:-1;
   if(idx<0){ toast('Click a panel first, then rotate it','warn'); return; }
   pushUndo();
@@ -6919,13 +6988,13 @@ function rotateAllPanels(delta){
 // The toolbar buttons act on what you have selected, and on everything when you have
 // selected nothing — so they work before you have learned that panels are selectable.
 function rotateFromToolbar(delta){
-  if(layoutMode==='freeform'){ toast('In freeform, use the rotate handle on the selected object','warn'); return; }
+  if(layoutMode==='freeform'){ if(selectedElems.size) _ffRotateSel(delta); else toast('Select an object first, then turn it (or type its angle in ∠ above the canvas)','warn'); return; }
   if(selectedPanel>=0&&images[selectedPanel]){ rotateSelectedPanel(delta); return; }
   const n=rotateAllPanels(delta);
   if(n) toast(`All ${n} photo${n>1?'s':''} turned ${delta>0?'clockwise':'anticlockwise'} — click one first to turn just that one`,'ok');
 }
 function straightenFromToolbar(){
-  if(layoutMode==='freeform'){ toast('In freeform, use the rotate handle on the selected object','warn'); return; }
+  if(layoutMode==='freeform'){ if(selectedElems.size) _ffRotateSel(0, true); else toast('Select an object first, then straighten it','warn'); return; }
   if(selectedPanel>=0&&images[selectedPanel]){
     if(!_panelAngle(selectedPanel)){ toast('That photo is already upright','ok'); return; }
     pushUndo(); setPanelAngle(selectedPanel,0); toast(`${_rtText(formatLabel(images[selectedPanel].label))||'Panel'} upright`,'ok'); return;
@@ -10947,6 +11016,7 @@ function render(targetCanvas, exportScale, opts){
   // The placed key's text, for the PDF text layer, and the same skip as the labels.
   _keyTextItems = [];
   _keySkipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : null);
+  _annTextSkip = typeof _skipOpt==='function' ? _skipOpt : null;   // the PDF: text marks go in its text layer
   if(!isExport) _keyRefresh();            // the legend text, the switch and the button follow every redraw
   if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
   // A hidden panel (the source files a merge parked, a panel hidden with 👁) is not drawn,
@@ -12068,7 +12138,7 @@ function _ceTarget(){
 // Palette helpers — set the clip shape on the panel the user is working on, and
 // flip the import preference, without making them hunt for the control.
 function _cmdCropShape(shape){
-  if(layoutMode==='freeform'){ toast('Clip shape applies to grid panels','warn'); return; }
+  if(layoutMode==='freeform'){ ffSetClip(shape); return; }
   const live=images.map((im,i)=>im?i:-1).filter(i=>i>=0);
   if(!live.length){ toast('Add an image first','warn'); return; }
   const idx=(selectedPanel>=0 && images[selectedPanel])?selectedPanel:live[0];
@@ -12480,11 +12550,21 @@ function applyCropModal(){
     }
     pushUndo();
     {
+      // The box keeps the picture's scale, as a typed crop does: it takes the crop's own
+      // shape and the kept pixels stay where they were. Apply used to keep the old box and
+      // stretch the crop into it (a 2:1 crop of a 3.6:1 panorama drawn 1.8x too wide).
+      const img=el._imgEl||el.img, iw=img&&(img.naturalWidth||img.width), ih=img&&(img.naturalHeight||img.height);
+      const visW=f=>iw*(1-((f.cropL||0)+(f.cropR||0))/100), visH=f=>ih*(1-((f.cropT||0)+(f.cropB||0))/100);
+      const kx=iw?el.w/(visW(el)||1):0, ky=ih?el.h/(visH(el)||1):0, L0=el.cropL||0, T0=el.cropT||0;
       el.cropT=_cropPct(cropEdState.cy);
       el.cropL=_cropPct(cropEdState.cx);
       el.cropB=_cropPct((1-cropEdState.cy-cropEdState.ch));
       el.cropR=_cropPct((1-cropEdState.cx-cropEdState.cw));
       el.cropAngle=+cropEdState.ang||0;
+      if(iw&&ih&&kx>0&&ky>0){
+        el.x+=((el.cropL||0)-L0)/100*iw*kx; el.y+=((el.cropT||0)-T0)/100*ih*ky;
+        el.w=Math.max(1, visW(el)*kx); el.h=Math.max(1, visH(el)*ky);
+      }
       el._cropCache=undefined; el._cropKey=undefined;
       el._adjCache=undefined; el._adjKey=undefined;
     }
@@ -15213,74 +15293,100 @@ function _colourName(c){
 }
 // END _colourName
 
+// The PDF export's text layer. While render() draws a PDF (opts.skipLabels is a
+// function), a text annotation's or text box's words are recorded with the figure's
+// labels and, when the PDF's standard fonts can set them, left out of the picture —
+// they used to be pixels in every PDF, and a freeform PDF had no text at all.
+var _annTextSkip=null;
+// A text annotation's font: the figure's label font, size and italic, and its own Bold
+// (B in its toolbar) when set — text annotations used to be bold whenever the panel
+// letters were, with no way to change one.
+function _annTextFont(a){
+  const fs=a.fontSize||16, b=a.bold!=null?!!a.bold:gc('label-bold');
+  return `${gc('label-italic')?'italic':'normal'} ${b?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+}
+function _annTextOut(it){
+  if(!_annExport || !_annTextSkip || !it || !String(it.str||'').trim()) return false;
+  figTextItems.push(it);
+  return !!_annTextSkip(it);
+}
+// A text box's lines: where each sits and what it says. The canvas, the SVG, the
+// PowerPoint and the PDF all place the words from this, so they cannot disagree.
+// Lines are centred in the box on the font's own ascent and descent, so a face with
+// tall ascenders (Arial) sits where a short one does.
+function _tbLayout(a, W, H){
+  const bx=Math.min(a.xf,a.x2f)*W, by=Math.min(a.yf,a.y2f)*H;
+  const bw=Math.abs(a.x2f-a.xf)*W, bh=Math.abs(a.y2f-a.yf)*H;
+  if(!(bw>=4&&bh>=4)) return null;
+  const fs=a.fontSize||16, pad=8;
+  const fam=a.fontFamily||gv('label-font')||'system-ui,sans-serif';
+  const font=`${a.italic?'italic ':''}${a.bold?'bold ':''}${fs}px ${fam}`;
+  const mc=_rtMc(), saved=mc.font; mc.font=font;
+  const text=String(a.text||'Text'), maxW=Math.max(1,bw-pad*2);
+  let raw;
+  if(_rtDrawRuns(text)) raw=_rtWrap(mc, text, font, maxW).map(l=>({runs:l.runs, w:l.w}));
+  else {
+    const words=text.split(' '), out=[]; let line='';
+    for(const word of words){
+      const test=line?line+' '+word:word;
+      if(mc.measureText(test).width>maxW&&line){ out.push(line); line=word; } else line=test;
+    }
+    if(line) out.push(line);
+    raw=out.map(l=>({runs:[{t:l}], w:mc.measureText(l).width}));
+  }
+  const m=mc.measureText('Hg');
+  const asc=m.fontBoundingBoxAscent!=null?m.fontBoundingBoxAscent:fs*0.8, desc=m.fontBoundingBoxDescent!=null?m.fontBoundingBoxDescent:fs*0.2;
+  mc.font=saved;
+  const lh=fs*1.3, top=by+(bh-raw.length*lh)/2;
+  const lines=raw.map((l,i)=>({runs:l.runs, str:l.runs.map(r=>r.t).join(''), w:l.w, x:bx+(bw-l.w)/2, y:top+i*lh+(lh-(asc+desc))/2+asc}));
+  const inkTop=top+(lh-(asc+desc))/2, inkBot=top+(raw.length-1)*lh+(lh+(asc+desc))/2;
+  return {bx, by, bw, bh, fs, font, lh, lines, shape:a.shape==='ellipse'?'ellipse':'rect',
+    fill:a.color||'#ffffff', fillColor:a.fillColor||'#000000', fillOpacity:a.fillOpacity??0.6,
+    overflow: inkTop<by-0.5 || inkBot>by+bh+0.5 || raw.some(l=>l.w>bw+0.5)};
+}
 function drawAnnotationSingle(ctx, a, W, H){
   if(a.type==='legend'){ _drawLegend(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='axes'){ _drawAxes(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='textbox'){
-    const bx=Math.min(a.xf,a.x2f)*W, by=Math.min(a.yf,a.y2f)*H;
-    const bw=Math.abs(a.x2f-a.xf)*W, bh=Math.abs(a.y2f-a.yf)*H;
-    if(bw<4||bh<4) return;
-    const fs=a.fontSize||16, pad=8;
+    const T=_tbLayout(a, W, H); if(!T) return;
     ctx.save();
     // Background shape
-    ctx.globalAlpha=a.fillOpacity??0.6;
-    ctx.fillStyle=a.fillColor||'#000000';
-    if(a.shape==='ellipse'){
-      ctx.beginPath(); ctx.ellipse(bx+bw/2,by+bh/2,bw/2,bh/2,0,0,Math.PI*2); ctx.fill();
-    } else {
-      ctx.fillRect(bx,by,bw,bh);
-    }
-    ctx.globalAlpha=1;
-    // Clip to shape
+    ctx.globalAlpha=T.fillOpacity;
+    ctx.fillStyle=T.fillColor;
     ctx.beginPath();
-    if(a.shape==='ellipse'){
-      ctx.ellipse(bx+bw/2,by+bh/2,(bw-pad)/2,(bh-pad)/2,0,0,Math.PI*2);
-    } else {
-      ctx.rect(bx+pad,by+pad,bw-pad*2,bh-pad*2);
-    }
+    if(T.shape==='ellipse') ctx.ellipse(T.bx+T.bw/2,T.by+T.bh/2,T.bw/2,T.bh/2,0,0,Math.PI*2);
+    else ctx.rect(T.bx,T.by,T.bw,T.bh);
+    ctx.fill();
+    ctx.globalAlpha=1;
+    // The box itself is the clip. It used to be the box inset by 8 px on every side while
+    // the lines were centred in the whole box, so in a 30 px box the top 6 px of every
+    // letter were cut off; Arial, whose ascenders sit higher, lost the T's crossbar.
     ctx.clip();
-    // Word-wrap text
-    const fam=a.fontFamily||gv('label-font')||'system-ui,sans-serif';
-    ctx.font=`${a.italic?'italic ':''} ${a.bold?'bold ':''} ${fs}px ${fam}`;
-    ctx.fillStyle=a.color||'#ffffff';
-    ctx.textBaseline='top';
-    const maxW=bw-pad*2;
-    if(_rtDrawRuns(a.text||'Text')){
-      // Wrapped by drawn width with the spans intact, each line centred as a whole.
-      const lines=_rtWrap(ctx, a.text||'Text', ctx.font, maxW);
-      const lh=fs*1.3;
-      let ty=by+(bh-lines.length*lh)/2;
-      for(const ln of lines){ _rtDrawRunList(ctx, ln.runs, bx+(bw-ln.w)/2, ty, {align:'left'}); ty+=lh; }
-      ctx.restore();
-      return;
-    }
-    const words=(a.text||'Text').split(' ');
-    const lines=[]; let line='';
-    for(const word of words){
-      const test=line?line+' '+word:word;
-      if(ctx.measureText(test).width>maxW&&line){ lines.push(line); line=word; }
-      else line=test;
-    }
-    if(line) lines.push(line);
-    const lh=fs*1.3, totalH=lines.length*lh;
-    let ty=by+(bh-totalH)/2;
-    for(const ln of lines){
-      ctx.fillText(ln, bx+(bw-ctx.measureText(ln).width)/2, ty);
-      ty+=lh;
+    ctx.fillStyle=T.fill;
+    for(const ln of T.lines){
+      const it={str:ln.str, runs:ln.runs, x:ln.x, y:ln.y, fs:T.fs, font:T.font, fill:T.fill, align:'left', baseline:'alphabetic', rot:0, kind:'ann'};
+      if(_annTextOut(it)) continue;               // the PDF writes it as text
+      _rtDrawRunList(ctx, ln.runs, ln.x, ln.y, {font:T.font, align:'left', baseline:'alphabetic'});
     }
     ctx.restore();
+    // On screen only: a box too small for its text says so with a dashed red edge.
+    if(T.overflow && !_annExport){ ctx.save(); ctx.strokeStyle='#e5484d'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+      ctx.strokeRect(T.bx+0.75,T.by+0.75,T.bw-1.5,T.bh-1.5); ctx.restore(); }
     return;
   }
   if(a.type==='text'){
     const fs=a.fontSize||16;
-    const fam=gv('label-font')||'system-ui,sans-serif';
-    const wt=gc('label-bold')?'bold':'normal';
-    const st=gc('label-italic')?'italic':'normal';
-    ctx.font=`${st} ${wt} ${fs}px ${fam}`;
+    ctx.font=_annTextFont(a);
     ctx.textBaseline='top';
+    // In a PDF the words, and their halo, are text in the PDF's own font: the halo is the
+    // same glyphs stroked, so outline and letters cannot fall apart (a halo left in the
+    // picture would be the canvas font's outline around Helvetica's letters).
+    const _R=_rtDrawRuns(a.text), _hw=Math.max(2,fs*0.18);
+    if(_annTextOut({str:String(a.text??''), runs:_R||[{t:String(a.text??'')}], x:a.xf*W, y:a.yf*H, fs, font:ctx.font, fill:a.color||'#fff', align:'left', baseline:'top', rot:0, kind:'ann',
+      halo:a.halo?{color:a.haloColor||'rgba(0,0,0,.85)', w:_hw}:null})) return;
     if(a.halo){
       ctx.save(); ctx.lineJoin='round'; ctx.miterLimit=2;
-      ctx.lineWidth=Math.max(2,fs*0.18);
+      ctx.lineWidth=_hw;
       ctx.strokeStyle=a.haloColor||'rgba(0,0,0,.85)';
       _rtDraw(ctx, a.text, a.xf*W, a.yf*H, {stroke:true}); ctx.restore();
     }
@@ -15345,6 +15451,29 @@ function drawAnnotationSingle(ctx, a, W, H){
 }
 
 // ── Annotation overlay (selection highlight + panel border) ─
+// The selected annotation's golden highlight and its resize handles (grid and freeform).
+function _drawSelAnn(ctx,W,H){
+  if(!(selectedAnnotation>=0 && selectedAnnotation<annotations.length)) return;
+    const a=annotations[selectedAnnotation]; if(!a) return;
+    ctx.save(); ctx.globalAlpha=0.55;
+    const hw=(a.width||2)+4;
+    if(a.type==='text'){
+      const fs=a.fontSize||16, tw=_rtText(a.text).length*fs*0.58;
+      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,3]);
+      ctx.strokeRect(a.xf*W-4, a.yf*H-4, tw+8, fs+8);
+    } else if(a.type!=='inset'){
+      drawShape(ctx, a.type, a.xf*W,a.yf*H, (a.x2f??a.xf)*W,(a.y2f??a.yf)*H, '#f5a623', hw);
+    }
+    ctx.restore();
+    // Draw resize handles
+    const handles=getAnnHandles(a,W,H);
+    handles.forEach(h=>{
+      ctx.save();
+      ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(h.x,h.y,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    });
+}
 function drawAnnOverlay(){
   const ctx=annCanvas.getContext('2d');
   ctx.clearRect(0,0,annCanvas.width,annCanvas.height);
@@ -15423,27 +15552,7 @@ function drawAnnOverlay(){
   }
 
   // Selected annotation golden highlight + resize handles (static)
-  if(selectedAnnotation>=0 && selectedAnnotation<annotations.length){
-    const a=annotations[selectedAnnotation];
-    ctx.save(); ctx.globalAlpha=0.55;
-    const hw=(a.width||2)+4;
-    if(a.type==='text'){
-      const fs=a.fontSize||16, tw=_rtText(a.text).length*fs*0.58;
-      ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.setLineDash([4,3]);
-      ctx.strokeRect(a.xf*W-4, a.yf*H-4, tw+8, fs+8);
-    } else if(a.type!=='inset'){
-      drawShape(ctx, a.type, a.xf*W,a.yf*H, (a.x2f??a.xf)*W,(a.y2f??a.yf)*H, '#f5a623', hw);
-    }
-    ctx.restore();
-    // Draw resize handles
-    const handles=getAnnHandles(a,W,H);
-    handles.forEach(h=>{
-      ctx.save();
-      ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(h.x,h.y,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.restore();
-    });
-  }
+  _drawSelAnn(ctx,W,H);
   // Resize in progress: live preview
   if(annResizeState && annResizeState.idx>=0 && annResizeState.idx<annotations.length){
     const a=annotations[annResizeState.idx];
@@ -15590,15 +15699,30 @@ function showAnnFloat(idx){
   document.getElementById('ann-float-fill-color').style.display=hasFill?'':'none';
   document.getElementById('ann-float-fill-opacity').style.display=hasFill?'':'none';
   const tbText=document.getElementById('ann-float-tb-text');
-  const hasText=isTb||a.type==='axes';
-  if(tbText){ tbText.style.display=hasText?'':'none'; if(hasText) tbText.value=a.text||(a.type==='axes'?'D V A P':''); tbText.title=a.type==='axes'?'Four letters: up down left right':''; }
+  // A text annotation's words are edited here too (or by double-clicking it); they could
+  // only be deleted and typed again.
+  const hasText=isTb||a.type==='axes'||isPlainTxt;
+  if(tbText){ tbText.style.display=hasText?'':'none'; if(hasText) tbText.value=a.text||(a.type==='axes'?'D V A P':''); tbText.title=a.type==='axes'?'Four letters: up down left right':isPlainTxt?'The text (or double-click it on the figure)':'';
+    tbText.placeholder=isPlainTxt?'text':'box text'; }
+  const bB=document.getElementById('ann-float-bold');
+  if(bB){ bB.style.display=isPlainTxt?'':'none'; if(isPlainTxt) bB.classList.toggle('active', a.bold!=null?!!a.bold:gc('label-bold')); }
+  const isRect=a.type==='rect';
+  ['ann-float-rad','ann-float-rad-lbl'].forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display=isRect?'':'none'; });
+  if(isRect){ const r=document.getElementById('ann-float-rad'); if(r) r.value=+a.radius||0; }
+  // Stacking against the freeform objects.
+  const ffz=layoutMode==='freeform'&&!isInset;
+  const bk=document.getElementById('ann-float-back'), fr=document.getElementById('ann-float-front');
+  if(bk) bk.style.display=ffz?'':'none';
+  if(fr) fr.style.display=ffz&&a.z!=null?'':'none';
   const tbShape=document.getElementById('ann-float-tb-shape');
   if(tbShape){ tbShape.style.display=isTb?'':'none'; if(isTb) tbShape.value=a.shape||'rect'; }
   const rtChip=document.getElementById('ann-float-rt'); if(rtChip) rtChip.style.display=isTxt?'':'none';
   // Repeat on… belongs to panel annotations; a figure-level one has no panel to repeat from.
   const repSel=document.getElementById('ann-float-repeat'); if(repSel) repSel.style.display='none';
   if(hasFill){
-    document.getElementById('ann-float-fill').checked=a.fill!==false;
+    // A box or ellipse is drawn filled only when a.fill is set, so the tick says exactly
+    // that (it showed ticked on an empty box, so a new fill colour seemed to do nothing).
+    document.getElementById('ann-float-fill').checked=(a.type==='rect'||a.type==='ellipse')?!!a.fill:a.fill!==false;
     document.getElementById('ann-float-fill-color').value=a.fillColor||'#000000';
     document.getElementById('ann-float-fill-opacity').value=a.fillOpacity??0.6;
   }
@@ -15647,6 +15771,24 @@ function hidePanelTooltip(){
 function _annToolActive(){
   return activeTool && activeTool!=='none' && !/^measure-/.test(activeTool);
 }
+// The annotation a freeform click lands on, or -1. One sent behind an object does not
+// win a click on that object (it would swallow every click on the icons it sits under).
+// Top-layer annotations are tried first, then those behind objects from the top down.
+function _ffAnnAt(x, y){
+  const W=annCanvas.width, H=annCanvas.height;
+  let topEl=-Infinity;
+  freeformElements.forEach(el=>{ if(el&&el.type!=='connector'&&hitFreeformElement(el,x,y)) topEl=Math.max(topEl, +el.zIndex||0); });
+  const order=annotations.map((a,i)=>i).filter(i=>annotations[i]&&!annotations[i].hidden&&!annotations[i].locked)
+    .sort((p,q)=>{ const zp=annotations[p].z, zq=annotations[q].z;
+      if(zp==null&&zq==null) return q-p; if(zp==null) return -1; if(zq==null) return 1; return zq-zp; });
+  for(const i of order){
+    const a=annotations[i];
+    if(!hitAnnotation(a,x,y,W,H)) continue;
+    if(a.z!=null && a.z<topEl) continue;
+    return i;
+  }
+  return -1;
+}
 // In freeform with the Select tool, an existing annotation still wins the click —
 // otherwise you could create one and never be able to move it again.
 function _annUnderPoint(e){
@@ -15687,7 +15829,28 @@ annCanvas.addEventListener('mousedown', e=>{
   if(layoutMode==='freeform'&&!spaceDown){
     // Annotation tools, and clicks that land on an existing annotation, fall through
     // to the same code grid mode uses. Everything else is object manipulation.
-    if(!_annToolActive() && !_annUnderPoint(e)){ freeformMousedown(e); return; }
+    if(!_annToolActive()){
+      const p=canvasCoords(annCanvas,e), sa=annotations[selectedAnnotation];
+      const onHandle=selectedAnnotation>=0&&sa&&hitAnnHandle(sa,p.x,p.y,annCanvas.width,annCanvas.height);
+      const ai=onHandle?selectedAnnotation:_ffAnnAt(p.x,p.y);
+      if(ai<0){ freeformMousedown(e); return; }
+      const a=annotations[ai];
+      if(!onHandle && (e.shiftKey||e.metaKey||e.ctrlKey)){
+        // Shift/⌘/Ctrl-click adds the annotation to (or takes it out of) the selection.
+        if(sa) ffAnnSel.add(sa);
+        selectedAnnotation=-1; hideAnnFloat();
+        if(ffAnnSel.has(a)) ffAnnSel.delete(a); else ffAnnSel.add(a);
+        updateFreeformElemList(); drawFreeformOverlay(); return;
+      }
+      if(!onHandle && ffAnnSel.has(a) && _ffSelCount()>1){
+        // Part of a selection: drag all of it.
+        const q=canvasCoords(annCanvas,e);
+        _pendingUndoSnap=_pendingUndoSnap||snapshotState();
+        _ffStartGroupDrag(q.x, q.y, {kind:'ann', a}); return;
+      }
+      // A plain click selects this annotation alone (the objects are let go).
+      if(!onHandle){ selectedElems.clear(); ffAnnSel.clear(); updateFreeformElemList(); positionCtxToolbar(); updateElemPropsBar(); }
+    }
   }
   // Space + drag = pan the scroll container
   if(spaceDown){
@@ -15824,7 +15987,8 @@ annCanvas.addEventListener('mousedown', e=>{
   }
   // 2. Hit-test all annotations for selection / move (skip hidden & locked)
   let hit=-1;
-  for(let i=annotations.length-1;i>=0;i--){
+  if(layoutMode==='freeform') hit=_ffAnnAt(x,y);     // the stacking against objects decides
+  else for(let i=annotations.length-1;i>=0;i--){
     if(annotations[i].hidden||annotations[i].locked) continue;
     if(hitAnnotation(annotations[i],x,y,W,H)){hit=i;break;}
   }
@@ -16280,7 +16444,8 @@ annCanvas.addEventListener('mouseup', e=>{
     type:activeTool,
     xf:annState.x0/annCanvas.width, yf:annState.y0/annCanvas.height,
     x2f:x/annCanvas.width,          y2f:y/annCanvas.height,
-    color:gv('ann-color'), width:gi('ann-width'),
+    // a text box's words are on its own dark fill, so they stay white
+    color:activeTool==='textbox'?gv('ann-color'):_annInk((annState.x0+x)/2,(annState.y0+y)/2), width:gi('ann-width'),
     ...(activeTool==='inset'?{insetCorner:'br'}:{}),
     ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
     ...(activeTool==='textbox'?{text:'Label',fill:true,fillColor:'#000000',fillOpacity:0.6,shape:'rect',fontSize:16,fontFamily:'',bold:false,italic:false}:{}),
@@ -16290,8 +16455,33 @@ annCanvas.addEventListener('mouseup', e=>{
   renderAnnotationList(); scheduleRender(0);
 });
 
+// Edit a text annotation's words where it sits (double-click it). They could only be
+// deleted and typed again.
+function _editTextAnn(i){
+  const a=annotations[i]; if(!a||a.type!=='text') return false;
+  const W=annCanvas.width, H=annCanvas.height, rect=annCanvas.getBoundingClientRect();
+  const inp=document.getElementById('ann-text-input');
+  inp._editAnn=a; inp._panelAnn=null; inp._px=a.xf; inp._py=a.yf;
+  inp.style.left=Math.max(4,Math.min(window.innerWidth-200,rect.left+a.xf*W*(rect.width/W)))+'px';
+  inp.style.top=Math.max(4,rect.top+a.yf*H*(rect.height/H)-4)+'px';
+  inp.style.display='block'; inp.value=a.text||''; inp.focus(); inp.select();
+  return true;
+}
 // Double-click a panel to drop editable text directly onto the image.
 annCanvas.addEventListener('dblclick', e=>{
+  // A text annotation or text box: edit its words (both layouts).
+  if(activeTool==='none' && !panelAnnMode){
+    const {x,y}=canvasCoords(annCanvas,e), W=annCanvas.width, H=annCanvas.height;
+    const i=layoutMode==='freeform'?_ffAnnAt(x,y):(()=>{ for(let k=annotations.length-1;k>=0;k--){ const q=annotations[k]; if(q&&!q.hidden&&!q.locked&&hitAnnotation(q,x,y,W,H)) return k; } return -1; })();
+    const a=i>=0?annotations[i]:null;
+    if(a&&(a.type==='text'||a.type==='textbox')){
+      selectedAnnotation=i; selectedElems.clear(); ffAnnSel.clear();
+      if(a.type==='text') _editTextAnn(i);
+      else { showAnnFloat(i); const t=document.getElementById('ann-float-tb-text'); if(t){ t.focus(); t.select(); } }
+      if(layoutMode==='freeform') drawFreeformOverlay(); else drawAnnOverlay();
+      return;
+    }
+  }
   // Freeform: double-click a text object to edit its words in place
   if(layoutMode==='freeform'){
     if(activeTool!=='none') return;
@@ -16479,18 +16669,36 @@ document.getElementById('ann-float-fill').addEventListener('change', e=>{
 });
 document.getElementById('ann-float-fill-color').addEventListener('input', e=>{
   if(selectedAnnotation<0) return;
-  annotations[selectedAnnotation].fillColor=e.target.value;
+  const a=annotations[selectedAnnotation];
+  a.fillColor=e.target.value;
+  // Choosing a fill colour for an empty box fills it (it used to wait for Fill to be ticked).
+  if((a.type==='rect'||a.type==='ellipse')&&!a.fill){ a.fill=true; document.getElementById('ann-float-fill').checked=true; }
   drawAnnOverlay(); scheduleRender(0);
 });
+document.getElementById('ann-float-bold').addEventListener('click', ()=>{
+  const a=annotations[selectedAnnotation]; if(!a||a.type!=='text') return;
+  pushUndo(); a.bold=!(a.bold!=null?!!a.bold:gc('label-bold'));
+  document.getElementById('ann-float-bold').classList.toggle('active', a.bold);
+  scheduleRender(0);
+});
+document.getElementById('ann-float-rad').addEventListener('input', e=>{
+  const a=annotations[selectedAnnotation]; if(!a||a.type!=='rect') return;
+  a.radius=Math.max(0, +e.target.value||0); drawAnnOverlay(); scheduleRender(0);
+});
+document.getElementById('ann-float-back').addEventListener('click', ()=>{ if(selectedAnnotation<0) return; selectedElems.clear(); changeZOrder('back'); showAnnFloat(selectedAnnotation); });
+document.getElementById('ann-float-front').addEventListener('click', ()=>{ if(selectedAnnotation<0) return; selectedElems.clear(); changeZOrder('front'); showAnnFloat(selectedAnnotation); });
 document.getElementById('ann-float-fill-opacity').addEventListener('input', e=>{
   if(selectedAnnotation<0) return;
   annotations[selectedAnnotation].fillOpacity=parseFloat(e.target.value)||0.3;
   drawAnnOverlay(); scheduleRender(0);
 });
+// The words of a text box, a text annotation or the axes letters (one undo step, by the
+// toolbar's own rule for its fields).
 document.getElementById('ann-float-tb-text').addEventListener('input', e=>{
   const t=annotations[selectedAnnotation]?.type;
-  if(selectedAnnotation<0||(t!=='textbox'&&t!=='axes')) return;
+  if(selectedAnnotation<0||(t!=='textbox'&&t!=='axes'&&t!=='text')) return;
   annotations[selectedAnnotation].text=e.target.value;
+  if(t==='text') renderAnnotationList();
   scheduleRender(0);
 });
 document.getElementById('ann-float-tb-shape').addEventListener('change', e=>{
@@ -16523,6 +16731,12 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
   function commit(){
     const txt=inp.value.trim();
     inp.style.display='none';
+    // Editing an existing text annotation in place (double-click it): one undo step.
+    if(inp._editAnn){
+      const a=inp._editAnn; inp._editAnn=null; inp._px=undefined;
+      if(txt && annotations.includes(a) && txt!==a.text){ pushUndo(); a.text=txt; }
+      renderAnnotationList(); scheduleRender(0); return;
+    }
     if(!txt||inp._px===undefined) return;
     if(inp._panelAnn){
       // Panel-bound text annotation
@@ -16534,22 +16748,43 @@ document.getElementById('ann-float-del').addEventListener('click', ()=>{
       inp._panelAnn=null;
     } else {
       pushUndo();
+      // Dark on a light canvas, white over a picture; the halo only for light text.
+      const col=_annInk(inp._px*annCanvas.width, inp._py*annCanvas.height);
       annotations.push({type:'text',xf:inp._px,yf:inp._py,
-        text:txt,color:gv('ann-color'),fontSize:gi('ann-font'),halo:true});
+        text:txt,color:col,fontSize:gi('ann-font'),halo:luma(col)>150});
     }
     inp._px=undefined;
     renderAnnotationList(); scheduleRender(0);
   }
   inp.addEventListener('keydown',e=>{
     if(e.key==='Enter'){ e.preventDefault(); commit(); }
-    if(e.key==='Escape'){ inp._px=undefined; inp.style.display='none'; }
+    if(e.key==='Escape'){ inp._px=undefined; inp._editAnn=null; inp.style.display='none'; }
     e.stopPropagation();
   });
   inp.addEventListener('blur',()=>{ setTimeout(commit,80); });
 })();
 
+// The colour a new annotation gets. The picker starts white, which is right over a
+// micrograph and invisible on a freeform canvas's white background: an arrow drawn on a
+// graphical abstract was there only in the sidebar's count. Until the colour is chosen by
+// hand, a freeform annotation takes black or white by what is under it.
+var _annColorTouched=false;
+document.getElementById('ann-color').addEventListener('input', ()=>{ _annColorTouched=true; });
+function _annInk(x, y){
+  const c=gv('ann-color')||'#ffffff';
+  if(layoutMode!=='freeform'||_annColorTouched||c.toLowerCase()!=='#ffffff') return c;
+  try{
+    const fc=document.getElementById('fig-canvas'), k=fc.width/(canvasLogicalW||fc.width);
+    const px=Math.max(0,Math.min(fc.width-5,Math.round(x*k)-2)), py=Math.max(0,Math.min(fc.height-5,Math.round(y*k)-2));
+    const d=fc.getContext('2d').getImageData(px,py,5,5).data; let s=0, n=0;
+    for(let i=0;i<d.length;i+=4){ s+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; n++; }
+    return n&&s/n>150 ? '#111111' : '#ffffff';
+  }catch(e){ return c; }
+}
 // True while an export render draws annotations, so editing aids stay off the file.
 var _annExport=false;
+// Annotations drawAnnotations leaves out: freeform draws those sent behind objects itself.
+var _annSkip=null;
 // ── Marks that follow their panel ───────────────────────────────
 // A figure mark is stored as fractions of the canvas, so when the layout changed it kept
 // its place on the canvas while the panels moved under it: nine rulers on a TEM panel
@@ -16631,6 +16866,9 @@ function _annFollow(mode, geo, W, H, ready){
   for(const a of annotations){
     if(!a||typeof a.xf!=='number'||typeof a.yf!=='number') continue;
     const P=_annPts(a), pf=P.flat();
+    // Moved together with the objects (a group drag, align, space, the X/Y fields): pinned
+    // where it now is against where the objects now are, and not followed again.
+    if(a._pinFresh){ delete a._pinFresh; if(ready) a.pin=_annBind(a, P, mode, geo, W, H); continue; }
     let pin=a.pin;
     const same=!!(pin&&pin.m===mode&&Array.isArray(pin.p)&&pin.p.length===pf.length&&pf.every((v,k)=>Math.abs(v-pin.p[k])<1e-9));
     if(!same){ if(!ready) continue; pin=a.pin=_annBind(a, P, mode, ref.geo, ref.W, ref.H); }
@@ -16716,9 +16954,10 @@ function drawAnnotations(ctx, W, H){
     ctx.strokeRect(ix,iy,iW,iH);
     ctx.restore();
   });
-  // Draw all other annotations
+  // Draw all other annotations (not those renderFreeform already drew behind objects)
   annotations.forEach(a => {
     if(a.type==='inset'||a.hidden) return;
+    if(_annSkip && _annSkip.has(a)) return;
     drawAnnotationSingle(ctx, a, W, H);
   });
 }
@@ -16756,11 +16995,18 @@ function drawShape(ctx, type, x1,y1,x2,y2, color, width, annObj){
     ctx.stroke();
   } else if(type==='rect'){
     const rx=Math.min(x1,x2), ry=Math.min(y1,y2), rw=Math.abs(x2-x1), rh=Math.abs(y2-y1);
+    const rr=Math.min(+(annObj&&annObj.radius)||0, rw/2, rh/2);   // rounded corners (Corner radius)
+    if(rr>0){
+      roundRectPath(ctx,rx,ry,rw,rh,rr);
+      if(annObj?.fill){ ctx.save(); ctx.globalAlpha=annObj.fillOpacity??0.3; ctx.fillStyle=annObj.fillColor||color; ctx.fill(); ctx.restore(); }
+      ctx.stroke();
+    } else {
     if(annObj?.fill){
       ctx.save(); ctx.globalAlpha=annObj.fillOpacity??0.3;
       ctx.fillStyle=annObj.fillColor||color; ctx.fillRect(rx,ry,rw,rh); ctx.restore();
     }
     ctx.strokeRect(rx,ry,rw,rh);
+    }
   } else if(type==='spotlight'){
     // Dim everything but the region: an oversized rect with the region punched out,
     // filled even-odd. Callers that want the dim confined to a panel clip first. The
@@ -17048,7 +17294,11 @@ function applyHomogenize(){
 // ═══════════════════════════════════════════════════════════════
 const DELIVERABLES={
   graphicalAbstract:{label:'Graphical abstract (Elsevier)', w:1328, h:531, dpi:300, widthMm:112.4,
-    note:'Elsevier asks for at least 1328×531 px at ≥300 dpi (5:2 landscape). Spec as of Aug 2026 — check your journal.'},
+    note:'Elsevier asks for at least 1328×531 px at ≥300 dpi (5:2 landscape; a larger image keeps the 5:2 shape). Checked on elsevier.com (Graphical abstract page), Nov 2026 — check your journal: Cell Press journals (Cell Reports among them) are Elsevier titles with their own rules.'},
+  // Not a publisher's specification: FigureLab could not read Cell Press's or EMBO Press's
+  // own pages to check theirs, so this is a starting canvas the author sets, said as such.
+  squareAbstract:{label:'Graphical abstract (square, custom size)', w:1200, h:1200, dpi:300, widthMm:101.6, custom:true,
+    note:'A square canvas, 1200×1200 px, for journals that ask for a square graphical abstract (Cell Press journals, for example). This is NOT a checked journal specification: FigureLab could not confirm Cell Press’s or EMBO Press’s sizes from their own pages. Set the size your journal’s author guide states in Freeform › Canvas size (W and H).'},
   tocImage:{label:'TOC image (Nature Chem / Chem Biol)', w:1063, h:591, dpi:300, widthMm:90,
     note:'Fits 90×50 mm at 300 dpi, white background, minimal text. Most Nature journals do NOT accept graphical abstracts — verify yours does.'},
   posterA0:{label:'Poster panel (A0 portrait)', w:2384, h:3370, dpi:150, widthMm:841,
@@ -19171,7 +19421,11 @@ const _pptxX=_xmlEsc;   // every PowerPoint part is XML: the one sanitiser
 // A label's runs as PowerPoint runs: italic, bold, superscript (baseline 30000) and
 // subscript (-25000) carried over from *…*, **…**, ^{…} and _{…}.
 function _pptxRuns(str, font, fill, ptPerPx){
-  const P=_rtFontParts(font), runs=_rtDrawRuns(String(str))||[{t:String(str)}];
+  return _pptxRunList(_rtDrawRuns(String(str))||[{t:String(str)}], font, fill, ptPerPx);
+}
+// The same, from runs already cut (a text box's wrapped lines).
+function _pptxRunList(runs, font, fill, ptPerPx){
+  const P=_rtFontParts(font);
   const sz=Math.max(100, Math.round(P.size*ptPerPx*100)), face=_pptxX(_pptxTypeface(P.fam));
   const bold=/bold|[6-9]00/.test(P.wt);
   return runs.map(r=>`<a:r><a:rPr lang="en-US" sz="${sz}"${(r.b||bold)?' b="1"':''}${(r.i||P.ital)?' i="1"':''}${r.sup?' baseline="30000"':r.sub?' baseline="-25000"':''} dirty="0">`
@@ -19195,7 +19449,7 @@ function _pptxSlideBuilder(E){
     const src=cr&&cr.some(v=>v>0)?`<a:srcRect l="${cr[0]}" t="${cr[1]}" r="${cr[2]}" b="${cr[3]}"/>`:'';
     S.sp.push(`<p:pic><p:nvPicPr><p:cNvPr id="${S.id++}" name="${_pptxX(name)}"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`
       +`<p:blipFill><a:blip r:embed="${rid}">${amt}</a:blip>${src}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`
-      +`<p:spPr>${xfrm(x,y,w,h,o.rot)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`);
+      +`<p:spPr>${xfrm(x,y,w,h,o.rot)}<a:prstGeom prst="${o.prst||'rect'}">${o.prst==='roundRect'?`<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.min(50000, (o.r||0)/Math.max(1e-6,Math.min(w,h))*100000))}"/></a:avLst>`:'<a:avLst/>'}</a:prstGeom></p:spPr></p:pic>`);
   };
   // A shape: prst rect / roundRect / ellipse / line, with fill and outline (null = none).
   S.shape=(prst, x, y, w, h, fill, line, lw, name, o)=>{
@@ -19214,7 +19468,7 @@ function _pptxSlideBuilder(E){
   S.text=(x, y, w, h, paras, name, o)=>{
     o=o||{};
     S.sp.push(`<p:sp><p:nvSpPr><p:cNvPr id="${S.id++}" name="${_pptxX(name)}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>`
-      +`<p:spPr>${xfrm(x,y,w,h,o.rot)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>`
+      +`<p:spPr>${xfrm(x,y,w,h,o.rot)}<a:prstGeom prst="${o.prst||'rect'}"><a:avLst/></a:prstGeom>${o.fill?_pptxFill(o.fill):'<a:noFill/>'}</p:spPr>`
       +`<p:txBody><a:bodyPr wrap="${o.wrap?'square':'none'}" lIns="${X(o.ins||0)}" tIns="${X(o.ins||0)}" rIns="${X(o.ins||0)}" bIns="${X(o.ins||0)}" rtlCol="0" anchor="${o.anchor||'t'}"><a:noAutofit/></a:bodyPr><a:lstStyle/>`
       +paras.map(p=>`<a:p><a:pPr algn="${o.algn||'l'}"><a:lnSpc><a:spcPct val="${o.lnSpc||100000}"/></a:lnSpc></a:pPr>${p||''}<a:endParaRPr lang="en-US" dirty="0"/></a:p>`).join('')
       +`</p:txBody></p:sp>`);
@@ -19303,6 +19557,39 @@ async function exportPPTX(){
       if(f.letter){ const inside=f.h>=f.fs+8;
         _pptxTextItem(B, {str:f.letter, x:f.x+4, y:inside?f.y+4:f.y-3, fs:f.fs, font:`bold ${f.fs}px ${gv('label-font')||'system-ui,sans-serif'}`, fill:f.ink, align:'left', baseline:inside?'top':'alphabetic'}, ptPerPx, 'Inset letter'); }
     };
+    // One figure annotation as PowerPoint shapes and text; what has no PowerPoint form is
+    // drawn on `oc` and named in `used` (written as one picture by the caller).
+    const emitAnn=async (a, oc, used)=>{
+      if(!a||a.hidden) return;
+      const W=Lw, H=Lh;
+      const x1=a.xf*W, y1=a.yf*H, x2=(a.x2f??a.xf)*W, y2=(a.y2f??a.yf)*H, col=a.color||'#ffffff', lw=a.width||2;
+      // A blot's lane numbers, MW labels and splice marker stay loose shapes, named for
+      // the panel they belong to, so they can be found and moved with it.
+      const tp=(a.splice||a.blotPanel!=null)?_findPanelById(a.splice?a.splicePanel:a.blotPanel):null;
+      const tn=tp?`Panel ${_rtText(formatLabel(tp.label)||'?')}: `+(a.splice?'splice marker':a.mw?'MW label':'lane number'):'';
+      if(tn&&(a.type==='line'||a.type==='arrow')) B.line(x1,y1,x2,y2,col,lw,tn,a.type==='arrow');
+      else if(tn&&a.type==='text'){
+        const fs=a.fontSize||16, font=_annTextFont(a);
+        _pptxTextItem(B, {str:a.text||'', x:x1, y:y1, fs, font, fill:col, align:'left', baseline:'top'}, ptPerPx, tn+' '+_rtText(a.text||'').slice(0,20)); nText++;
+      }
+      else if(a.type==='line'||a.type==='arrow') B.line(x1,y1,x2,y2,col,lw,a.type==='arrow'?'Arrow':'Line',a.type==='arrow');
+      else if(a.type==='rect'||a.type==='ellipse') B.shape(a.type==='rect'?(a.radius>0?'roundRect':'rect'):'ellipse', Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1),
+        a.fill?`rgba(${_pptxColor(a.fillColor||col).hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${a.fillOpacity??0.3})`:null, col, lw, a.type==='rect'?'Box':'Ellipse', {r:+a.radius||0});
+      else if(a.type==='text'){
+        const fs=a.fontSize||16, font=_annTextFont(a);
+        _pptxTextItem(B, {str:a.text||'', x:x1, y:y1, fs, font, fill:col, align:'left', baseline:'top'}, ptPerPx, 'Text: '+_rtText(a.text||'').slice(0,40)); nText++;
+      } else if(a.type==='textbox'){
+        // Its shape, filled as on the figure, holding its words as editable text: one
+        // paragraph per line as the canvas breaks them, with their italics and scripts.
+        const T=_tbLayout(a, W, H); if(!T) return;
+        const fc=_pptxColor(T.fillColor);
+        const fill=`rgba(${fc.hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${T.fillOpacity})`;
+        B.text(T.bx, T.by, T.bw, T.bh, T.lines.map(ln=>_pptxRunList(ln.runs, T.font, T.fill, ptPerPx)), 'Text box: '+_rtText(a.text||'').slice(0,40),
+          {algn:'ctr', anchor:'ctr', prst:T.shape, fill, lnSpc:Math.round(1.3/1.2*100000)});
+        nText++;
+      } else if(a.type==='legend') await _pptxKey(B, a, x1, y1, E, ptPerPx, sc);
+      else if(a.type!=='inset'){ drawAnnotationSingle(oc, a, W, H); used.push(a.type); }
+    };
     if(!ff){
       const lbl=im=>_rtText(formatLabel(im.label)||_sourceName(im)||'panel');
       const keysOf=async idx=>{ const cell=L.cells&&L.cells.get(idx); if(cell) for(const a of (images[idx]?.panelAnns||[]))
@@ -19342,6 +19629,13 @@ async function exportPPTX(){
     } else {
       for(const it of L.items){
         if(it.kind==='slice'){ await pic(it.canvas, it.r, 'Objects'); nPics++; }
+        else if(it.kind==='anns'){
+          // Annotations sent behind objects, written at their place in the stack.
+          const c=document.createElement('canvas'); c.width=over.width; c.height=over.height;
+          const cx=c.getContext('2d'); cx.setTransform(sc,0,0,sc,0,0);
+          const used=[]; for(const a of it.list) await emitAnn(a, cx, used);
+          if(used.length){ const ib=_inkBounds(c); if(ib){ await pic(_cropCanvas(c,ib), ib, 'Marks behind objects, as a picture: '+[...new Set(used)].join(', ')); nPics++; } }
+        }
         else if(it.kind==='vector'){
           const c=document.createElement('canvas'); render(c, sc, {ffOnly:new Set([it.el]), noBg:true});
           const ib=_inkBounds(c); if(ib){ await pic(_cropCanvas(c,ib), ib, (it.el.type[0].toUpperCase()+it.el.type.slice(1))+' '+_rtText(it.el.label||'')); nPics++; }
@@ -19359,7 +19653,17 @@ async function exportPPTX(){
             return {x:cx0+mx*Math.cos(rad)-my*Math.sin(rad)-w/2, y:cy0+mx*Math.sin(rad)+my*Math.cos(rad)-h/2}; };
           // An imported SVG kept vector in the SVG export is a picture here, like the rest.
           const pc=it.pic||_ffPicture(el, sc), c=pc.canvas, r=pc.r;
-          await B.picture(c, r.x0*kx, r.y0*ky, r.w*kx, r.h*ky, 'Panel '+_rtText(formatLabel(el.label)||'image'), {rot, opacity:el.opacity});
+          // A clip shape is the picture's own shape in PowerPoint (ellipse / rounded
+          // rectangle), with the whole picture inside it, so it stays a cropable picture.
+          let bx=r.x0*kx, by=r.y0*ky, bw=r.w*kx, bh=r.h*ky; const po={rot, opacity:el.opacity};
+          if(_ffClipped(el)){
+            const circ=el.cropShape==='circle', s=Math.min(el.w,el.h);
+            const nx=circ?el.x+el.w/2-s/2:el.x, ny=circ?el.y+el.h/2-s/2:el.y, nw=circ?s:el.w, nh=circ?s:el.h;
+            po.crop={l:(nx-bx)/bw, t:(ny-by)/bh, r:(bx+bw-nx-nw)/bw, b:(by+bh-ny-nh)/bh};
+            po.prst=el.cropShape==='rounded'?'roundRect':'ellipse'; po.r=Math.min(+(el.clipR??16)||0, nw/2, nh/2);
+            bx=nx; by=ny; bw=nw; bh=nh;
+          }
+          await B.picture(c, bx, by, bw, bh, 'Panel '+_rtText(formatLabel(el.label)||el.name||'image'), po);
           nPics++;
           if(it.fu.sb){ const q=turn(it.fu.sb.x,it.fu.sb.y,it.fu.sb.w,it.fu.sb.h); B.shape('rect', q.x, q.y, it.fu.sb.w, it.fu.sb.h, it.fu.sb.color, null, 0, 'Scale bar', {rot}); }
           for(const t of [it.fu.sbText, it.fu.label].filter(Boolean)){
@@ -19375,28 +19679,7 @@ async function exportPPTX(){
       }
     }
     // Figure annotations: native shapes and text where PowerPoint has them, else pixels.
-    const W=Lw, H=Lh;
-    for(const a of annotations){
-      if(!a||a.hidden) continue;
-      const x1=a.xf*W, y1=a.yf*H, x2=(a.x2f??a.xf)*W, y2=(a.y2f??a.yf)*H, col=a.color||'#ffffff', lw=a.width||2;
-      // A blot's lane numbers, MW labels and splice marker stay loose shapes, named for
-      // the panel they belong to, so they can be found and moved with it.
-      const tp=(a.splice||a.blotPanel!=null)?_findPanelById(a.splice?a.splicePanel:a.blotPanel):null;
-      const tn=tp?`Panel ${_rtText(formatLabel(tp.label)||'?')}: `+(a.splice?'splice marker':a.mw?'MW label':'lane number'):'';
-      if(tn&&(a.type==='line'||a.type==='arrow')) B.line(x1,y1,x2,y2,col,lw,tn,a.type==='arrow');
-      else if(tn&&a.type==='text'){
-        const fs=a.fontSize||16, font=`${gc('label-italic')?'italic':'normal'} ${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
-        _pptxTextItem(B, {str:a.text||'', x:x1, y:y1, fs, font, fill:col, align:'left', baseline:'top'}, ptPerPx, tn+' '+_rtText(a.text||'').slice(0,20)); nText++;
-      }
-      else if(a.type==='line'||a.type==='arrow') B.line(x1,y1,x2,y2,col,lw,a.type==='arrow'?'Arrow':'Line',a.type==='arrow');
-      else if(a.type==='rect'||a.type==='ellipse') B.shape(a.type==='rect'?'rect':'ellipse', Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1),
-        a.fill?`rgba(${_pptxColor(a.fillColor||col).hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${a.fillOpacity??0.3})`:null, col, lw, a.type==='rect'?'Box':'Ellipse');
-      else if(a.type==='text'){
-        const fs=a.fontSize||16, font=`${gc('label-italic')?'italic':'normal'} ${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
-        _pptxTextItem(B, {str:a.text||'', x:x1, y:y1, fs, font, fill:col, align:'left', baseline:'top'}, ptPerPx, 'Text: '+_rtText(a.text||'').slice(0,40)); nText++;
-      } else if(a.type==='legend') await _pptxKey(B, a, x1, y1, E, ptPerPx, sc);
-      else if(a.type!=='inset'){ drawAnnotationSingle(octx, a, W, H); overUsed.push(a.type); }
-    }
+    for(const a of annotations){ if(L.below&&L.below.has(a)) continue; await emitAnn(a, octx, overUsed); }
     if(overUsed.length){ const ib=_inkBounds(over); if(ib){ await pic(_cropCanvas(over,ib), ib, 'Marks as a picture: '+[...new Set(overUsed)].join(', ')); nPics++; } }
 
     const slide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -19562,7 +19845,7 @@ function _svgInsetConnectors(f, cell){
 // Figure annotations (`list`, in fractions of W × H) as vector: arrows, lines, boxes,
 // ellipses, counters, axes, rulers, spotlights, text and the placed key. Types this does
 // not know are left out; the layered export paints those instead (_SVG_ANN_VECTOR).
-const _SVG_ANN_VECTOR=new Set(['line','arrow','rect','counter','legend','axes','spotlight','ruler','ellipse','text']);
+const _SVG_ANN_VECTOR=new Set(['line','arrow','rect','counter','legend','axes','spotlight','ruler','ellipse','text','textbox']);
 function _svgAnnMarkup(list, W, H){
   const esc=_xmlEsc;
   let annSVG='';
@@ -19577,6 +19860,8 @@ function _svgAnnMarkup(list, W, H){
     _keyDraw(_keyEmitSVG(buf), lx, ly, L, _keyAnnStyle(a));
     annSVG+=buf.join('');
   };
+  // A box or ellipse filled on the figure is filled here too (it was always written empty).
+  const annFill=a=>a.fill?`fill="${esc(a.fillColor||a.color||'#ffffff')}" fill-opacity="${+(a.fillOpacity??0.3)}"`:'fill="none"';
   (list||[]).forEach(a=>{
     // A mark hidden in the Layers list is not in the figure or the PNG; nor is it here.
     if(!a||a.hidden) return;
@@ -19596,7 +19881,7 @@ function _svgAnnMarkup(list, W, H){
     } else if(a.type==='rect'){
       const rx=Math.min(+x1,+x2), ry=Math.min(+y1,+y2);
       const rw=Math.abs(+x2-+x1), rh=Math.abs(+y2-+y1);
-      annSVG+=`<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
+      annSVG+=`<rect x="${rx}" y="${ry}" width="${rw}" height="${rh}"${a.radius>0?` rx="${+a.radius}" ry="${+a.radius}"`:''} stroke="${col}" stroke-width="${lw}" ${annFill(a)}/>`;
     } else if(a.type==='counter'){
       // Counters were missing from the SVG altogether: the export empties the
       // annotation list for the raster and re-emits only the types it knows.
@@ -19643,12 +19928,22 @@ function _svgAnnMarkup(list, W, H){
     } else if(a.type==='ellipse'){
       const cx=((+x1+(+x2))/2).toFixed(2), cy=((+y1+(+y2))/2).toFixed(2);
       const rx=(Math.abs(+x2-+x1)/2).toFixed(2), ry2=(Math.abs(+y2-+y1)/2).toFixed(2);
-      annSVG+=`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry2}" stroke="${col}" stroke-width="${lw}" fill="none"/>`;
+      annSVG+=`<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry2}" stroke="${col}" stroke-width="${lw}" ${annFill(a)}/>`;
+    } else if(a.type==='textbox'){
+      // A text box is its shape and real text, one <text> per line as the canvas sets them,
+      // with the italics, bold and super/subscripts as tspans (it used to be a picture).
+      const T=_tbLayout(a, W, H); if(!T) return;
+      const f2=v=>(+v).toFixed(2);
+      const shp=T.shape==='ellipse'
+        ? `<ellipse cx="${f2(T.bx+T.bw/2)}" cy="${f2(T.by+T.bh/2)}" rx="${f2(T.bw/2)}" ry="${f2(T.bh/2)}"`
+        : `<rect x="${f2(T.bx)}" y="${f2(T.by)}" width="${f2(T.bw)}" height="${f2(T.bh)}"`;
+      annSVG+=`<g data-type="textbox">${shp} fill="${esc(T.fillColor)}" fill-opacity="${+T.fillOpacity}" stroke="none"/>`
+        +T.lines.filter(ln=>ln.str.trim()).map(ln=>`<text x="${f2(ln.x)}" y="${f2(ln.y)}" style="font:${esc(T.font)}" fill="${esc(T.fill)}">${_rtSVGSpans(ln.runs, T.font, esc)}</text>`).join('')+'</g>';
     } else if(a.type==='text'){
       const fs=a.fontSize||16;
       const halo=a.halo?` stroke="${esc(a.haloColor||'rgba(0,0,0,0.85)')}" stroke-width="${Math.max(2,fs*0.18).toFixed(2)}" stroke-linejoin="round" paint-order="stroke"`:'';
-      const _r=_rtDrawRuns(a.text);
-      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${esc(fam)}" font-size="${+fs||16}" font-weight="${wt}" font-style="${st}" fill="${col}"${halo}>${_r?_rtSVGSpans(_r,`${st} ${wt} ${fs}px ${fam}`,esc):esc(a.text)}</text>`;
+      const _r=_rtDrawRuns(a.text), awt=(a.bold!=null?!!a.bold:wt==='bold')?'bold':'normal';
+      annSVG+=`<text x="${x1}" y="${(+y1+fs).toFixed(2)}" font-family="${esc(fam)}" font-size="${+fs||16}" font-weight="${awt}" font-style="${st}" fill="${col}"${halo}>${_r?_rtSVGSpans(_r,`${st} ${awt} ${fs}px ${fam}`,esc):esc(a.text)}</text>`;
     }
   });
   return annSVG;
@@ -19680,11 +19975,19 @@ function _svgPanelLegends(cells, only){
   }
   return annSVG;
 }
+// A freeform picture's clip shape as an SVG shape (for a clipPath).
+function _svgClipShape(el){
+  const f2=v=>(+v).toFixed(2), cx=el.x+el.w/2, cy=el.y+el.h/2;
+  if(el.cropShape==='circle') return `<circle cx="${f2(cx)}" cy="${f2(cy)}" r="${f2(Math.min(el.w,el.h)/2)}"/>`;
+  if(el.cropShape==='ellipse') return `<ellipse cx="${f2(cx)}" cy="${f2(cy)}" rx="${f2(el.w/2)}" ry="${f2(el.h/2)}"/>`;
+  const r=Math.max(0, Math.min(+(el.clipR??16)||0, el.w/2, el.h/2));
+  return `<rect x="${f2(el.x)}" y="${f2(el.y)}" width="${f2(el.w)}" height="${f2(el.h)}" rx="${f2(r)}" ry="${f2(r)}"/>`;
+}
 // A freeform object that SVG writes as vector — an imported SVG nothing raster-only was
 // applied to, a connector, a chart or a gene map — or '' for anything else.
 function _svgFreeformVector(el){
   const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
-  if(el.type==='image' && el.isVector && el.svgSource && !el.rotation
+  if(el.type==='image' && el.isVector && el.svgSource && !el.rotation && !_ffClipped(el)
      && !(el.cropT||el.cropL||el.cropB||el.cropR)
      && (el.brightness==null||el.brightness===1) && (el.contrast==null||el.contrast===1)
      && !el.grayscale && !el.invert && (el.lut==null||el.lut==='none')){
@@ -19948,6 +20251,13 @@ function _layerFreeform(dpi, o){
     if(ib) out.push({kind:'slice', els:run.slice(), canvas:_cropCanvas(c, ib), r:ib});
     run=[];
   };
+  // Annotations sent behind objects (a.z) go in at their place in the stack, as
+  // {kind:'anns'} items, so the layered SVG and the PowerPoint stack them as the figure does.
+  // (With a magnified inset everything is one picture; they stay with the top marks then.)
+  const belowAll=insets.length?[]:annotations.filter(a=>a&&a.z!=null&&!a.hidden&&a.type!=='inset').sort((p,q)=>p.z-q.z);
+  let bi=0;
+  const _below=z=>{ const list=[]; while(bi<belowAll.length&&belowAll[bi].z<z) list.push(belowAll[bi++]);
+    if(list.length){ flush(); out.push({kind:'anns', list}); } };
   const savedAnns=annotations;
   try{
     if(insets.length){
@@ -19960,6 +20270,7 @@ function _layerFreeform(dpi, o){
       if(ib) out.push({kind:'slice', els:sorted.filter(el=>!isVec(el)), canvas:_cropCanvas(c, ib), r:ib});
       sorted.filter(isVec).forEach(el=>out.push({kind:'vector', el, svg:_svgFreeformVector(el)}));
     } else sorted.forEach(el=>{
+      _below(el.zIndex);                       // annotations sent behind this object come first
       const isImg=(el.type==='image'||el.type==='aiicon');
       const vec=_svgFreeformVector(el);
       if(isImg && !why.has(el)){
@@ -19970,10 +20281,12 @@ function _layerFreeform(dpi, o){
       else run.push(el);
     });
     flush();
+    _below(Infinity);
   } finally { annotations=savedAnns; scheduleRender(0); }
-  const annRaster=_layerAnnRaster(savedAnns, Lw, Lh, S);
+  const below=new Set(belowAll);
+  const annRaster=_layerAnnRaster(savedAnns.filter(a=>!below.has(a)), Lw, Lh, S);
   const kx=1/S, ky=1/S;   // see _layerGrid
-  return {S, kx, ky, Lw, Lh, items:out, annRaster, fallback:[...why].map(([el,w])=>({el, why:w}))};
+  return {S, kx, ky, Lw, Lh, items:out, annRaster, below, fallback:[...why].map(([el,w])=>({el, why:w}))};
 }
 // Valid, unique XML ids for the layers, from the panel letters ("A" → panel-A).
 function _layerIds(){
@@ -20120,15 +20433,25 @@ function _exportLayeredSVG(name, dpi){
         layers.push(layer(ids('objects', String(nObj)), `Objects: ${it.els.map(e=>_rtText(e.label||e.text||e.type)).join(', ').slice(0,80)}`, img(it.canvas, it.r)));
       } else if(it.kind==='vector'){
         layers.push(layer(ids(it.el.type, it.el.label||it.el.type), `${it.el.type[0].toUpperCase()+it.el.type.slice(1)} ${_rtText(it.el.label||'')}`.trim(), it.svg));
+      } else if(it.kind==='anns'){
+        // Annotations sent behind objects: a layer of their own at that place in the stack.
+        const vec=it.list.filter(a=>_SVG_ANN_VECTOR.has(a.type)), ras=_layerAnnRaster(it.list, W, H, S);
+        const body=(ras?img(ras.canvas,{x0:0,y0:0,w:ras.canvas.width,h:ras.canvas.height}):'')+_svgAnnMarkup(vec, W, H);
+        if(body) layers.push(layer(ids('annotations-behind', String(++nObj)), 'Annotations behind objects', body));
       } else {
         const el=it.el, id=ids('panel', formatLabel(el.label)||'object');
         const rot=el.rotation?` transform="rotate(${+el.rotation} ${f2(el.x+el.w/2)} ${f2(el.y+el.h/2)})"`:'';
         const op=(el.opacity!=null&&el.opacity<1)?` opacity="${el.opacity}"`:'';
-        let body=it.vector||(it.pic?img(it.pic.canvas, it.pic.r):'');
+        // A clip shape is a clipPath on the whole picture, so it can be changed downstream.
+        let clipA='';
+        if(!it.vector && it.pic && _ffClipped(el)){ const cid=ids('clip', formatLabel(el.label)||el.name||'object'); defs.push(`<clipPath id="${cid}">${_svgClipShape(el)}</clipPath>`); clipA=` clip-path="url(#${cid})"`; }
+        let body=it.vector||(it.pic?img(it.pic.canvas, it.pic.r, clipA):'');
         if(it.fu.sb) body+=furnSVG({type:'sb', ...it.fu.sb});
         if(it.fu.sbText) body+=_svgTextItem(it.fu.sbText, esc);
         if(it.fu.label) body+=_svgTextItem(it.fu.label, esc);
-        layers.push(layer(id, 'Panel '+_rtText(formatLabel(el.label)||'image'), body, rot+op));
+        // Named by its letter and its file (four layers were all "Panel image").
+        const lname=[_rtText(formatLabel(el.label)||''), el.name||''].filter(Boolean).join(' · ')||'image';
+        layers.push(layer(id, 'Panel '+lname, body, rot+op));
         nPanels++;
       }
     });
@@ -20136,7 +20459,7 @@ function _exportLayeredSVG(name, dpi){
   // Figure annotations: the ones with a vector form as shapes and text, the rest painted.
   const savedAnns=annotations;
   const annBody=(L.annRaster?img(L.annRaster.canvas,{x0:0,y0:0,w:L.annRaster.canvas.width,h:L.annRaster.canvas.height}):'')
-    +_svgAnnMarkup(savedAnns.filter(a=>a&&_SVG_ANN_VECTOR.has(a.type)&&!tied.has(a)), W, H);
+    +_svgAnnMarkup(savedAnns.filter(a=>a&&_SVG_ANN_VECTOR.has(a.type)&&!tied.has(a)&&!(L.below&&L.below.has(a))), W, H);
   if(annBody) layers.push(layer('annotations','Annotations',annBody));
   if(L.annRaster) notes.push(`Annotations of type ${L.annRaster.types.join(', ')} are painted (one transparent picture in the Annotations layer).`);
   if(!ff&&tied.size) notes.push('Lane numbers, MW labels and splice markers are in the layer of the blot they belong to.');
@@ -20181,7 +20504,11 @@ function _exportFlatSVG(name, dpi, canvas){
     const i=images.indexOf(im), b=panelBounds.find(p=>p.idx===i);
     if(b && b.dw>0 && b.dh>0){ vecIdx.add(i); vecPanels.push({im, b}); }
   });
-  const savedAnns=annotations; annotations=[];
+  const savedAnns=annotations;
+  // Freeform annotations sent behind objects are painted into the picture where they sit
+  // in the stack (the vector layer goes on top of everything); the rest are written on top.
+  const _behind=layoutMode==='freeform'?savedAnns.filter(a=>a&&a.z!=null&&!a.hidden&&a.type!=='inset'):[];
+  annotations=_behind;
   // skipCharts: charts are re-emitted as true vector below, so keep them off the raster
   // (otherwise the antialiased raster edges double up under the vector <g>).
   // skipInsetFrames: inset outlines, their letters and connector lines are re-emitted
@@ -20205,7 +20532,7 @@ function _exportFlatSVG(name, dpi, canvas){
 
   // Annotations, and keys pinned to panels, as vector (logical coords)
   const W=Lw, H=Lh;
-  const annSVG=_svgPanelLegends(cells)+_svgAnnMarkup(annotations, W, H);
+  const annSVG=_svgPanelLegends(cells)+_svgAnnMarkup(annotations.filter(a=>!_behind.includes(a)), W, H);
   // Vector round-trip: re-embed freeform SVG objects as TRUE vector (crisp & editable),
   // overlaying their raster region. Only when nothing raster-only was applied to them.
   let vecSVG='';
@@ -20421,14 +20748,20 @@ function _pdfTextOps(items, k, hPt){
       const L=_rtLayout(mc, it.runs, it.font), off=_rtBaseOff(mc, it.font, it.baseline);
       const dx=it.align==='center'?-L.w/2:(it.align==='right'||it.align==='end')?-L.w:0;
       const c=_pdfColor(it.fill), tgs=gs(c.a);
+      const place=()=>{ let o='';
+        if(it.rot) o+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm ${(dx*k).toFixed(3)} ${(-off*k).toFixed(3)} Td `;
+        else o+=`1 0 0 1 ${X(it.x+dx)} ${Y(it.y+off)} Tm `;
+        L.runs.forEach((q,i)=>{
+          const sz=(L.size*k*((q.sup||q.sub)?_RT_SCRIPT:1)).toFixed(3);
+          o+=`/${fkey(_pdfFontFor(q.font))} ${sz} Tf ${(-q.dy*k).toFixed(3)} Ts (${_pdfStr(runBytes[i])}) Tj `;
+        });
+        return o; };
+      // A halo: the same glyphs stroked first (text render mode 1), the fill on top.
+      if(it.halo){ const hc=_pdfColor(it.halo.color);
+        ops+=`q ${gs(hc.a)}${(it.halo.w*k).toFixed(3)} w 1 j 1 J ${hc.r.toFixed(3)} ${hc.g.toFixed(3)} ${hc.b.toFixed(3)} RG BT 1 Tr `+place()+`0 Ts 0 Tr ET Q\n`; }
       if(tgs) ops+=`q ${tgs}`;
       ops+=`BT ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
-      if(it.rot) ops+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm ${(dx*k).toFixed(3)} ${(-off*k).toFixed(3)} Td `;
-      else ops+=`1 0 0 1 ${X(it.x+dx)} ${Y(it.y+off)} Tm `;
-      L.runs.forEach((q,i)=>{
-        const sz=(L.size*k*((q.sup||q.sub)?_RT_SCRIPT:1)).toFixed(3);
-        ops+=`/${fkey(_pdfFontFor(q.font))} ${sz} Tf ${(-q.dy*k).toFixed(3)} Ts (${_pdfStr(runBytes[i])}) Tj `;
-      });
+      ops+=place();
       ops+=`0 Ts ET${tgs?' Q':''}\n`;
       continue;
     }
@@ -20478,6 +20811,7 @@ async function _exportPDFWithText(name, dpi, opts){
   try{
     await exportPDF(name, eff, pc, {...opts, textItems:items, ptPerUnit, info:_pdfFigureInfo()});
   } finally {
+    _annTextSkip=null;   // nothing after this PDF may leave text marks out of a picture
     scheduleRender(0);   // restore the on-screen canvas + figTextItems
   }
 }
@@ -22720,6 +23054,12 @@ document.addEventListener('keydown', e=>{
       rotateSelectedPanel((e.key==='[' ? -1 : 1) * (e.shiftKey?5:1));
       return;
     }
+    // ...and the selected freeform objects (they did nothing in freeform).
+    if((e.key==='['||e.key===']'||e.key==='{'||e.key==='}') && layoutMode==='freeform' && selectedElems.size){
+      e.preventDefault();
+      _ffRotateSel((e.key==='['||e.key==='{' ? -1 : 1) * (e.shiftKey?5:1));
+      return;
+    }
     if(e.key==='r'||e.key==='R'){ render(); return; }
     if(e.key==='v'||e.key==='V'){ setTool('none'); return; }
     if(e.key==='a'||e.key==='A'){ setTool('arrow'); return; }
@@ -22730,25 +23070,31 @@ document.addEventListener('keydown', e=>{
     if(e.key==='i'||e.key==='I'){ setTool('inset'); return; }
     // Delete selected annotation or freeform element
     if(e.key==='Delete'||e.key==='Backspace'){
-      if(layoutMode==='freeform'&&selectedElems.size){ deleteSelectedElems(); return; }
+      if(layoutMode==='freeform'&&(selectedElems.size||ffAnnSel.size)){ deleteSelectedElems(); return; }
       // An undo step, as the toolbar's ✕ always was — a deleted ruler comes back with its name.
       if(selectedAnnotation>=0){ pushUndo(); annotations.splice(selectedAnnotation,1); selectedAnnotation=-1; hideAnnFloat(); renderAnnotationList(); scheduleRender(0); return; }
     }
     // Nudge selected freeform elements with arrow keys
-    if(layoutMode==='freeform'&&selectedElems.size){
+    if(layoutMode==='freeform'&&(selectedElems.size||_ffAnnSelList().length)){
       const d=e.shiftKey?10:1;
       // Move an element by (dx,dy); for a connector, translate only its FREE endpoints
       // (anchored endpoints follow their elements, so nudging the bbox would fight them).
-      const nudge=(dx,dy)=>selectedElems.forEach(i=>{ const el=freeformElements[i]; if(!el) return;
+      // Locked objects stay put; selected annotations move with the objects.
+      const nudge=(dx,dy)=>{ selectedElems.forEach(i=>{ const el=freeformElements[i]; if(!el||el.locked) return;
         if(el.type==='connector'){ if(!(el.from&&el.from.el)&&el.fromPt){ el.fromPt.x+=dx; el.fromPt.y+=dy; } if(!(el.to&&el.to.el)&&el.toPt){ el.toPt.x+=dx; el.toPt.y+=dy; } }
         else { el.x+=dx; el.y+=dy; } });
+        _ffAnnSelList().forEach(a=>{ if(!a.locked) _annMove(a, dx, dy, canvasLogicalW||1, canvasLogicalH||1); });
+        if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation); };
       const _dir={ArrowLeft:[-d,0],ArrowRight:[d,0],ArrowUp:[0,-d],ArrowDown:[0,d]}[e.key];
       if(_dir){ e.preventDefault(); _nudgeUndo(); nudge(_dir[0],_dir[1]); drawFreeformOverlay(); scheduleRender(0); return; }
     }
   }
   if(e.key==='Escape'){
     setTool('none'); selectedAnnotation=-1; selectedPanel=-1; selectedPanelAnn=null;
-    selectedElems.clear(); hideAnnFloat(); drawAnnOverlay();
+    selectedElems.clear(); ffAnnSel.clear(); hideAnnFloat();
+    // In freeform the Props bar and the floating toolbar follow the selection: redraw them
+    // (they stayed up after Escape, so the next drag moved the "deselected" object).
+    if(layoutMode==='freeform'){ updateFreeformElemList(); drawFreeformOverlay(); } else drawAnnOverlay();
   }
   if(e.key==='?'||e.key==='/'&&e.shiftKey){ document.getElementById('kb-modal').classList.add('open'); return; }
   // Shift decides, not the letter's case: a browser can report Ctrl/⌘+Shift+Z as a
@@ -22760,7 +23106,7 @@ document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey)&&e.key==='e'){ e.preventDefault(); doExportPreflight('png'); }
   if((e.ctrlKey||e.metaKey)&&e.key==='0'){ e.preventDefault(); zoomToFit(); }
   if((e.ctrlKey||e.metaKey)&&e.key==='1'){ e.preventDefault(); zoomTo100(); }
-  if((e.ctrlKey||e.metaKey)&&e.key==='a'&&layoutMode==='freeform'){ e.preventDefault(); freeformElements.forEach((_,i)=>selectedElems.add(i)); updateFreeformElemList(); drawFreeformOverlay(); }
+  if((e.ctrlKey||e.metaKey)&&e.key==='a'&&layoutMode==='freeform'){ e.preventDefault(); _ffSelectAll(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='d'||e.key==='D')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); duplicateSelectedElems(); }
   if((e.ctrlKey||e.metaKey)&&(e.key==='g'||e.key==='G')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); if(e.shiftKey) ungroupSelectedElems(); else groupSelectedElems(); }
   // Space pans only over the figure. On a focused button or section header it is the
@@ -23309,6 +23655,10 @@ function _syncModeSections(mode){
   const pam=document.getElementById('panel-ann-mode-btn');
   if(pam){ pam.style.display = grid ? '' : 'none';
     if(!grid && typeof panelAnnMode!=='undefined' && panelAnnMode) togglePanelAnnMode(); }
+  // The freeform arrange and properties bars belong to freeform only.
+  { const ab=document.getElementById('align-bar'); if(ab) ab.classList.toggle('visible', !grid); }
+  if(grid){ show('elem-props-bar', false); if(typeof ffAnnSel!=='undefined') ffAnnSel.clear(); }
+  else if(typeof updateElemPropsBar==='function') updateElemPropsBar();
   // Panel letters and scale-bar looks also draw freeform pictures' labels and bars
   // (_ffFurniture reads them), so they stay visible there; only the grid-only parts hide.
   show('look-grid-only', true);
@@ -23418,7 +23768,9 @@ function _toLocal(el,x,y){
   return _rotPt(x,y,el.x+el.w/2,el.y+el.h/2,-el.rotation);
 }
 // The rotate handle sits above the top edge (in the element's local frame)
-function getFreeformRotateHandle(el){ return {id:'rot', x:el.x+el.w/2, y:el.y-26, cx:'grab'}; }
+// It goes below the object when the object is at the top of the canvas, where a grip
+// above it would be drawn off the canvas and could not be grabbed.
+function getFreeformRotateHandle(el){ const below=el.y<30; return {id:'rot', x:el.x+el.w/2, y:below?el.y+el.h+26:el.y-26, below, cx:'grab'}; }
 
 function hitFreeformElement(el,x,y){
   if(el.type==='connector') return _hitConnector(el,x,y);   // follow the polyline, not the bbox
@@ -23612,11 +23964,11 @@ function drawFreeformOverlay(){
     ctx.setLineDash([]);
     if(el.locked){
       ctx.font='12px system-ui'; ctx.fillStyle='#8892a6'; ctx.textBaseline='top';
-      ctx.fillText('🔒', el.x+3, el.y+3);                 // locked: badge, no handles
+      ctx.fillText('🔒', el.x+el.w-18, el.y+3);           // locked: badge (top right, off the letter), no handles
     } else {
       // stem up to the rotate handle
       const rh=getFreeformRotateHandle(el);
-      ctx.beginPath(); ctx.moveTo(cx,el.y); ctx.lineTo(rh.x,rh.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,rh.below?el.y+el.h:el.y); ctx.lineTo(rh.x,rh.y); ctx.stroke();
       ctx.beginPath(); ctx.arc(rh.x,rh.y,6,0,Math.PI*2);
       ctx.fillStyle='#f5a623'; ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.fill(); ctx.stroke();
       // resize handles
@@ -23635,9 +23987,17 @@ function drawFreeformOverlay(){
     if(_snapGuides.gy!=null){ ctx.beginPath(); ctx.moveTo(0,_snapGuides.gy+0.5); ctx.lineTo(W,_snapGuides.gy+0.5); ctx.stroke(); }
     ctx.restore();
   }
-  // Update alignment bar visibility
+  // Annotations selected with the objects: a dashed box each. A single selected annotation
+  // keeps its highlight and handles here too (a redraw used to wipe them in freeform).
+  { const sel=_ffAnnSelList();
+    ctx.save(); ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    sel.forEach(a=>{ if(selectedAnnotation>=0&&annotations[selectedAnnotation]===a) return; const b=_annBox(a,W,H); ctx.strokeRect(b.x-4,b.y-4,b.w+8,b.h+8); });
+    ctx.restore();
+    if(selectedAnnotation>=0&&annotations[selectedAnnotation]&&!annDragState&&!annResizeState) _drawSelAnn(ctx,W,H); }
+  // The arrange bar is always there in freeform, so the canvas never jumps under the mouse.
   const ab=document.getElementById('align-bar');
-  ab.classList.toggle('visible', selectedElems.size>=2);
+  ab.classList.add('visible');
+  _geoSync();
   // Update element properties bar (single selection)
   updateElemPropsBar();
   // Floating context toolbar next to the selection
@@ -23659,7 +24019,9 @@ function updateFreeformElemList(){
     const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='genemap'?'🧬':el.type==='connector'?'↳':'◻';
     const grp=el.groupId?' <span title="Grouped" style="opacity:.6">⧉</span>':'';
     const ai=el.aiGenerated?' <span title="AI-generated schematic — disclosed in export metadata" style="font-size:9px;color:var(--a2);border:1px solid var(--a2);border-radius:3px;padding:0 3px">AI</span>':'';
-    row.innerHTML=`<span>${icon} ${esc(el.label||el.type||'element')}${grp}${ai}</span>
+    // Named by its letter and its file, so four imported pictures are not four "image" rows.
+    const nm=(el.type==='image'&&el.name&&el.label&&el.label!==el.name)?`${el.label} · ${el.name}`:(el.label||el.name||el.type||'element');
+    row.innerHTML=`<span>${icon} ${esc(nm)}${grp}${ai}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
       if(ev.target.tagName==='BUTTON') return;
@@ -23711,15 +24073,35 @@ function renderFreeform(canvas, ctx, S, opts){
   // on a transparent canvas, to place it between the objects written separately.
   if(opts && opts.noBg) ctx.clearRect(0,0,W,H); else { ctx.fillStyle=bgColor; ctx.fillRect(0,0,W,H); }
   const _ffOnly=(opts && opts.ffOnly) || null;
+  // Figure text is recorded as the grid records it (figTextItems), and left off the picture
+  // when opts.skipLabels says so: the PDF writes it as real text, the flat SVG as <text>.
+  // Freeform used to ignore this, so its PDF had no text at all — the letters were pixels.
+  // A turned object's text stays in the picture (the PDF text layer sets text level).
+  const _skL=opts && opts.skipLabels;
+  const _skipT=typeof _skL==='function' ? _skL : (_skL ? ()=>true : ()=>false);
+  const _txtOut=(it, el)=>{ if(el && el.rotation) return false; figTextItems.push(it); return !!_skipT(it); };
 
   if(typeof _syncConnectorBBoxes==='function') _syncConnectorBBoxes();   // derive connector geometry first
   // Sort by zIndex
   const sorted=[...freeformElements].sort((a,b)=>a.zIndex-b.zIndex);
   // O(1) original-index lookup — avoids an O(n) indexOf per element (was O(n²) per render).
   const _elIdx=new Map(freeformElements.map((e,i)=>[e,i]));
+  // Marks follow the objects they are on before anything is drawn, since an annotation
+  // sent behind the objects (a.z) is drawn between them (freeform-35: a filled box behind
+  // the icons it groups). Pictures are built first so their marks can be followed.
+  const _below=[];
+  if(!_ffOnly){
+    freeformElements.forEach(el=>{ if((el.type==='image'||el.type==='aiicon')&&!el._imgEl&&el.src) buildImgEl(el); });
+    { const g=_ffPinGeo(); _annFollow('ff', g, W, H, g.ready!==false); }   // marks on an object move with it; a resize moves none
+    annotations.forEach(a=>{ if(a&&a.z!=null&&!a.hidden&&a.type!=='inset') _below.push(a); });
+    _below.sort((p,q)=>p.z-q.z);
+  }
+  let _bi=0;
+  const _drawBelow=z=>{ while(_bi<_below.length&&_below[_bi].z<z){ _annExport=isExport; try{ drawAnnotationSingle(ctx,_below[_bi],W,H); } finally { _annExport=false; } _bi++; } };
 
   sorted.forEach(el=>{
     if(_ffOnly && !_ffOnly.has(el)) return;
+    _drawBelow(el.zIndex);
     ctx.save();
     ctx.globalAlpha=el.opacity??1;
     // Connectors carry absolute geometry — draw before the rotation transform and skip it.
@@ -23750,8 +24132,11 @@ function renderFreeform(canvas, ctx, S, opts){
         if(sw>0&&sh>0){
           const adj=applyAdjust(el,sx,sy,sw,sh,_cd.rotated?_cd.img:null);
           const src=adj?.off?adj.canvas:null;
+          const _clip=_ffClipped(el);
+          if(_clip){ ctx.save(); _ffClipPath(ctx, el); ctx.clip(); }
           if(src) ctx.drawImage(src,0,0,src.width,src.height,el.x,el.y,el.w,el.h);
           else ctx.drawImage(_cd.img,sx,sy,sw,sh,el.x,el.y,el.w,el.h);
+          if(_clip) ctx.restore();
         }
       }
       // Scale bar for calibrated image elements.
@@ -23761,7 +24146,7 @@ function renderFreeform(canvas, ctx, S, opts){
       const fu=_ffFurniture(el);
       if(fu.sb){
         ctx.fillStyle=fu.sb.color; ctx.fillRect(fu.sb.x,fu.sb.y,fu.sb.w,fu.sb.h);
-        if(fu.sbText){
+        if(fu.sbText && !_txtOut(fu.sbText, el)){
           ctx.font=fu.sbText.font; ctx.fillStyle=fu.sbText.fill;
           ctx.textAlign='center'; ctx.textBaseline='alphabetic';
           ctx.fillText(fu.sbText.str, fu.sbText.x, fu.sbText.y);
@@ -23770,7 +24155,7 @@ function renderFreeform(canvas, ctx, S, opts){
         if(!isExport) _sbBars.push({ff:true, idx:_elIdx.get(el), left:fu.sb.x, right:fu.sb.x+fu.sb.w, top:fu.sb.y, bottom:fu.sb.y+fu.sb.h, scale:fu.sb.scale});
       }
       // Panel label for image elements
-      if(fu.label) _ffDrawLetter(ctx, fu.label);
+      if(fu.label && !_txtOut(fu.label, el)) _ffDrawLetter(ctx, fu.label);
       // Add to panelBounds for annotation compatibility (preview only — render()
       // clears panelBounds when !isExport, so pushing during an export duplicates).
       if(!isExport){
@@ -23785,10 +24170,15 @@ function renderFreeform(canvas, ctx, S, opts){
       const align=el.align||'left';
       ctx.textAlign=align;
       const maxW=el.w-12;
+      // Each line is a text item as well (the PDF's text layer, the flat SVG's <text>).
+      const _ti=(runs,str,x,y)=>({str, runs, x, y, fs, font:ctx.font, fill:el.color||'#111', align, baseline:'top', rot:0, kind:'text'});
       if(_rtDrawRuns(String(el.text??'Text'))){
         const lh=fs*1.3;
         const tx=align==='center'?el.x+el.w/2:align==='right'?el.x+el.w-6:el.x+6;
-        _rtWrap(ctx, String(el.text??'Text'), ctx.font, maxW).forEach((ln,li)=>_rtDrawRunList(ctx, ln.runs, tx, el.y+6+li*lh));
+        _rtWrap(ctx, String(el.text??'Text'), ctx.font, maxW).forEach((ln,li)=>{
+          const str=ln.runs.map(r=>r.t).join('');
+          if(str.trim() && _txtOut(_ti(ln.runs,str,tx,el.y+6+li*lh), el)) return;
+          _rtDrawRunList(ctx, ln.runs, tx, el.y+6+li*lh); });
         ctx.textAlign='left';
       } else {
       // Wrap each explicit line (\n) independently, preserving blank lines
@@ -23805,7 +24195,7 @@ function renderFreeform(canvas, ctx, S, opts){
       }
       const lh=fs*1.3;
       const tx=align==='center'?el.x+el.w/2:align==='right'?el.x+el.w-6:el.x+6;
-      lines.forEach((ln,li)=>ctx.fillText(ln,tx,el.y+6+li*lh));
+      lines.forEach((ln,li)=>{ if(ln.trim() && _txtOut(_ti([{t:ln}],ln,tx,el.y+6+li*lh), el)) return; ctx.fillText(ln,tx,el.y+6+li*lh); });
       ctx.textAlign='left';
       }
     } else if(el.type==='rect'){
@@ -23838,20 +24228,21 @@ function renderFreeform(canvas, ctx, S, opts){
     } else if(el.type==='chart'){
       // Vector chart geometry (crisp at export scale). Drag proxy handled inside.
       // SVG export skips the raster here and re-emits the chart as true vector.
-      if(!skipCharts && typeof _drawChartElement==='function'){ _drawChartElement(el, ctx, isExport); if(el.letter) _ffDrawLetter(ctx, _ffFurniture(el).label); }
+      if(!skipCharts && typeof _drawChartElement==='function'){ _drawChartElement(el, ctx, isExport); if(el.letter){ const _L=_ffFurniture(el).label; if(_L && !_txtOut(_L, el)) _ffDrawLetter(ctx, _L); } }
       if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     } else if(el.type==='genemap'){
       // Gene map / genetic circuit — same emit backend as charts, so it is vector
       // in SVG and crisp at export scale. SVG export skips the raster and re-emits.
-      if(!skipCharts && typeof _drawGenemapElement==='function'){ _drawGenemapElement(el, ctx, isExport); if(el.letter) _ffDrawLetter(ctx, _ffFurniture(el).label); }
+      if(!skipCharts && typeof _drawGenemapElement==='function'){ _drawGenemapElement(el, ctx, isExport); if(el.letter){ const _L=_ffFurniture(el).label; if(_L && !_txtOut(_L, el)) _ffDrawLetter(ctx, _L); } }
       if(!isExport){ const ci=_elIdx.get(el); panelBounds.push({idx:ci, x:el.x, y:el.y, w:el.w, h:el.h}); }
     }
     ctx.restore();
   });
 
   if(!_ffOnly){
-    { const g=_ffPinGeo(); _annFollow('ff', g, W, H, g.ready!==false); }   // marks on an object move with it; a resize moves none
-    _annExport=isExport; drawAnnotations(ctx,W,H); _annExport=false; }   // annotations are baked into exports too
+    _drawBelow(Infinity);
+    _annSkip=_below.length?new Set(_below):null;
+    _annExport=isExport; try{ drawAnnotations(ctx,W,H); } finally { _annExport=false; _annSkip=null; } }   // annotations are baked into exports too
   if(!isExport){
     if(typeof _syncPhysReadout==='function') _syncPhysReadout();   // the printed size follows a canvas resize
     drawFreeformOverlay();
@@ -23895,7 +24286,10 @@ function _ffFurniture(el){
     const fs=Math.max(7,gf('label-size')), str=formatLabel(_lt), chip=gc('label-bg');
     const font=`${gc('label-italic')?'italic ':''}${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui'}`;
     const lc=gv('label-color')||'#ffffff';
-    const fill=(_data&&!chip&&(gc('label-auto-color')||luma(lc)>160))?'#000000':lc;   // never white on a white chart
+    let fill=(_data&&!chip&&(gc('label-auto-color')||luma(lc)>160))?'#000000':lc;   // never white on a white chart
+    // A clipped picture leaves its corner (where the letter sits) to the background: a
+    // white letter there on a white canvas would vanish, so it takes the dark ink then.
+    if(!chip&&_ffClipped(el)&&el.cropShape!=='rounded'){ const bgL=luma(gv('bg-color')||'#ffffff'); if(Math.abs(luma(lc)-bgL)<90) fill=bgL>128?'#000000':'#ffffff'; }
     out.label={kind:'panel', str, x:el.x+6, y:el.y+5, fs, font, fill, align:'left', baseline:'top', rot:0};
     const R=_rtDrawRuns(str); if(R) out.label.runs=R;
     if(chip){                                          // the dark chip the grid's letters wear
@@ -23914,6 +24308,33 @@ function _ffDrawLetter(ctx, L){
   ctx.font=L.font; ctx.fillStyle=L.fill; ctx.textBaseline='top';
   _rtDraw(ctx, L.str, L.x, L.y);
 }
+
+// ── Clip shapes on freeform pictures ─────────────────────────
+// A circle, ellipse or rounded rectangle clip, as the grid has (circle and ellipse) —
+// freeform had none, so a graphical abstract (freeform only) could have no round inset.
+// It is the same field the grid uses (cropShape), so Pop out carries it as it is, and
+// clipR is the rounded corners' radius in canvas px. Pixels outside are hidden, not removed.
+function _ffClipPath(ctx, el, x, y, w, h){
+  x=x??el.x; y=y??el.y; w=w??el.w; h=h??el.h;
+  const s=el.cropShape||'rect';
+  ctx.beginPath();
+  if(s==='circle') ctx.arc(x+w/2, y+h/2, Math.min(w,h)/2, 0, Math.PI*2);
+  else if(s==='ellipse') ctx.ellipse(x+w/2, y+h/2, w/2, h/2, 0, 0, Math.PI*2);
+  else if(s==='rounded') roundRectPath(ctx, x, y, w, h, Math.max(0, Math.min(+(el.clipR??16)||0, w/2, h/2)));
+  else ctx.rect(x, y, w, h);
+}
+function _ffClipped(el){ return !!el && (el.type==='image'||el.type==='aiicon') && ['circle','ellipse','rounded'].includes(el.cropShape); }
+function ffSetClip(shape){
+  const el=_selectedImageEl();
+  if(!el){ toast('Select a picture first — the clip shape applies to the picture objects','warn'); return; }
+  if((el.cropShape||'rect')===shape){ updateElemPropsBar(); return; }
+  pushUndo();
+  el.cropShape=shape; if(shape==='rounded'&&el.clipR==null) el.clipR=16;
+  updateElemPropsBar(); scheduleRender(0);
+  logAction('clipShape',{shape});
+  toast(shape==='rect'?'Clip removed':`${shape==='rounded'?'Rounded rectangle':shape[0].toUpperCase()+shape.slice(1)} clip — it carries into every export`,'ok');
+}
+function ffSetClipR(v){ const el=_selectedImageEl(); if(!el) return; el.clipR=Math.max(0, +v||0); scheduleRender(0); }
 
 // Build an HTMLImageElement for a freeform image element
 // Width in SOURCE pixels of the part of a freeform image that is actually displayed,
@@ -23983,26 +24404,46 @@ function freeformMousedown(e){
   }
   // Hit-test elements (top to bottom by zIndex)
   const sorted=[...freeformElements.map((el,i)=>({el,i}))].sort((a,b)=>b.el.zIndex-a.el.zIndex);
+  // Shift, ⌘ or Ctrl adds to the selection (and takes a selected object out of it).
+  // Only Shift used to, and only from a marquee, which nothing on screen said.
+  const mod=e.shiftKey||e.metaKey||e.ctrlKey;
+  if(selectedAnnotation>=0){
+    if(mod&&annotations[selectedAnnotation]) ffAnnSel.add(annotations[selectedAnnotation]);
+    selectedAnnotation=-1; hideAnnFloat();
+  }
   for(const {el,i} of sorted){
     if(hitFreeformElement(el,x,y)){
-      if(!e.shiftKey) selectedElems.clear();
+      if(mod && selectedElems.has(i)){
+        selectedElems.delete(i);
+        if(el.groupId&&!e.altKey) freeformElements.forEach((o,k)=>{ if(o.groupId===el.groupId) selectedElems.delete(k); });
+        _pendingUndoSnap=null; updateFreeformElemList(); drawFreeformOverlay();
+        return true;
+      }
+      // A plain click on an object that is part of a selection keeps the selection, so
+      // the drag moves all of it; a click that does not move selects that one alone.
+      const keep=mod || (!e.altKey && selectedElems.has(i) && _ffSelCount()>1);   // Alt: this member alone
+      if(!keep){ selectedElems.clear(); ffAnnSel.clear(); }
       selectedElems.add(i);
       // Clicking one member of a group selects the whole group (Alt = just this member).
       if(!e.altKey) _expandSelectionToGroups();
       // Start drag — unless the clicked object is locked (then just select it)
-      if(!el.locked){
-        const origPositions=freeformElements.map(e2=>({x:e2.x,y:e2.y}));
-        elemDragState={moving:true,indices:[...selectedElems],origPositions,mx:x,my:y,preDrag:JSON.stringify(freeformElements)};
-      }
+      if(!el.locked) _ffStartGroupDrag(x, y, (!mod&&keep)?{kind:'el', i}:null);
       updateFreeformElemList(); drawFreeformOverlay();
       return true;
     }
   }
   // Rubber-band selection
-  if(!e.shiftKey) selectedElems.clear();
+  if(!mod){ selectedElems.clear(); ffAnnSel.clear(); }
   elemRubberState={x0:x,y0:y,x,y};
   drawFreeformOverlay();
   return true; // consume event in freeform mode
+}
+// Drag everything selected: objects (but not locked ones) and annotations together.
+// solo: the item clicked, selected alone again if the mouse comes up without moving.
+function _ffStartGroupDrag(x, y, solo){
+  const idx=[...selectedElems].filter(i=>freeformElements[i]&&!freeformElements[i].locked);
+  elemDragState={moving:true, indices:idx, origPositions:freeformElements.map(e2=>({x:e2.x,y:e2.y})), mx:x, my:y,
+    anns:_ffAnnSelList().filter(a=>!a.locked).map(a=>({a, p:[a.xf,a.yf,a.x2f,a.y2f]})), solo, moved:false};
 }
 
 function freeformMousemove(e){
@@ -24038,7 +24479,9 @@ function freeformMousemove(e){
     }
     let rdx=x-mx, rdy=y-my;
     if(el.rotation){ const r=-el.rotation*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r), t=rdx*cs-rdy*sn; rdy=rdx*sn+rdy*cs; rdx=t; }
-    const dx=snapValue(rdx), dy=snapValue(rdy);
+    // Alt resizes freely, without the snap grid (as Alt frees a drag from the guides).
+    const snapF=e.altKey?(v=>v):snapValue;
+    const dx=snapF(rdx), dy=snapF(rdy);
     const corner=(handle.includes('l')||handle.includes('r'))&&(handle.includes('t')||handle.includes('b'));
     const isImg=el.type==='image'||el.type==='aiicon';
     // Corners keep aspect for images by default (Shift frees them); for shapes/text it's the reverse.
@@ -24049,14 +24492,15 @@ function freeformMousemove(e){
     if(handle.includes('b')) nh=Math.max(20,origH+dy);
     if(handle.includes('t')) nh=Math.max(20,origH-dy);
     if(lockAspect&&origH>0){
-      const ar=origW/origH;                                  // drive by the axis that moved more
-      if(Math.abs(nw/origW-1)>=Math.abs(nh/origH-1)) nh=nw/ar; else nw=nh*ar;
-      nw=Math.max(20,nw); nh=Math.max(20,nh);
-    }
-    nw=snapValue(nw); nh=snapValue(nh);
+      // Drive by the axis that moved more, round THAT one, and derive the other from it:
+      // rounding both separately bent a square picture to 520.42 × 520.14.
+      const ar=origW/origH;
+      if(Math.abs(nw/origW-1)>=Math.abs(nh/origH-1)){ nw=Math.max(20,snapF(nw)); nh=_r4(nw/ar); }
+      else { nh=Math.max(20,snapF(nh)); nw=_r4(nh*ar); }
+    } else { nw=snapF(nw); nh=snapF(nh); }
     el.w=nw; el.h=nh;
-    if(handle.includes('l')) el.x=snapValue(origX+origW-nw);  // keep the opposite edge/corner fixed
-    if(handle.includes('t')) el.y=snapValue(origY+origH-nh);
+    if(handle.includes('l')) el.x=_r4(origX+origW-nw);  // keep the opposite edge/corner fixed
+    if(handle.includes('t')) el.y=_r4(origY+origH-nh);
     drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.moving){
@@ -24067,9 +24511,18 @@ function freeformMousemove(e){
       el.x=snapValue(orig.x+dx); el.y=snapValue(orig.y+dy);
     });
     // object-alignment snap (single element only; Alt bypasses)
-    _snapGuides = (elemDragState.indices.length===1)
+    _snapGuides = (elemDragState.indices.length===1 && !(elemDragState.anns||[]).length)
       ? _applyObjectSnap(freeformElements[elemDragState.indices[0]], e.altKey)
       : null;
+    // Selected annotations move by what the objects moved (snapping included).
+    if((elemDragState.anns||[]).length){
+      const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+      let ddx=snapValue(dx), ddy=snapValue(dy);
+      const i0=elemDragState.indices[0];
+      if(i0!=null&&freeformElements[i0]){ ddx=freeformElements[i0].x-elemDragState.origPositions[i0].x; ddy=freeformElements[i0].y-elemDragState.origPositions[i0].y; }
+      elemDragState.anns.forEach(({a,p})=>{ a.xf=p[0]+ddx/W; a.yf=p[1]+ddy/H; if(p[2]!=null) a.x2f=p[2]+ddx/W; if(p[3]!=null) a.y2f=p[3]+ddy/H; a._pinFresh=true; });
+    }
+    if(dx||dy) elemDragState.moved=true;
     drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.drawing){
@@ -24126,7 +24579,14 @@ function freeformMouseup(e){
     elemResizeState=null; annCanvas.style.cursor='default'; _commitFF(); scheduleRender(0); return true;
   }
   if(elemDragState?.moving){
+    const ds=elemDragState;
     elemDragState=null; _snapGuides=null; annCanvas.style.cursor='default';
+    if(!ds.moved){
+      _pendingUndoSnap=null;                         // a click, not a move: no undo step
+      if(ds.solo){ selectedElems.clear(); ffAnnSel.clear();
+        if(ds.solo.kind==='el'){ selectedElems.add(ds.solo.i); if(!e.altKey) _expandSelectionToGroups(); }
+        else { const k=annotations.indexOf(ds.solo.a); if(k>=0){ selectedAnnotation=k; showAnnFloat(k); } } }
+    }
     _commitFF(); updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0); return true;
   }
   if(elemDragState?.drawing){
@@ -24158,6 +24618,10 @@ function freeformMouseup(e){
         if(el.x+el.w>rx&&el.x<rx+rw&&el.y+el.h>ry&&el.y<ry+rh) selectedElems.add(i);
       });
       _expandSelectionToGroups();   // marquee behaves like click: partial group hit selects the whole group
+      // ...and picks up the arrows, boxes and text it touches, to arrange with the objects
+      const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
+      annotations.forEach(a=>{ if(!a||a.hidden||a.locked||a.type==='inset') return; const b=_annBox(a,W,H);
+        if(b.x+b.w>=rx&&b.x<=rx+rw&&b.y+b.h>=ry&&b.y<=ry+rh) ffAnnSel.add(a); });
     }
     updateFreeformElemList(); drawFreeformOverlay(); return true;
   }
@@ -24186,95 +24650,313 @@ function _applyObjectSnap(el, bypass){
 // ═══════════════════════════════════════════════════════════════
 // ALIGNMENT & SNAP
 // ═══════════════════════════════════════════════════════════════
-function alignElems(dir){
-  if(selectedElems.size<1) return;
-  const sel=[...selectedElems].map(i=>freeformElements[i]).filter(e=>e&&e.type!=='connector');  // connectors follow their anchors
-  if(!sel.length) return;
-  const minX=Math.min(...sel.map(e=>e.x)), maxX=Math.max(...sel.map(e=>e.x+e.w));
-  const minY=Math.min(...sel.map(e=>e.y)), maxY=Math.max(...sel.map(e=>e.y+e.h));
-  sel.forEach(el=>{
-    if(dir==='left')    el.x=minX;
-    else if(dir==='right')   el.x=maxX-el.w;
-    else if(dir==='top')     el.y=minY;
-    else if(dir==='bottom')  el.y=maxY-el.h;
-    else if(dir==='centerH') el.x=(minX+maxX)/2-el.w/2;
-    else if(dir==='centerV') el.y=(minY+maxY)/2-el.h/2;
+// ── One selection for objects and annotations ─────────────────
+// In freeform, arrows, boxes, text and text boxes (annotations) are selected, aligned,
+// spaced, distributed and layered with the objects. They used to be a separate world:
+// a marquee or Ctrl+A never picked them up, so "equal gaps" between a title box and the
+// pictures under it, or an arrow lined up with a panel's edge, had to be done by eye.
+var ffAnnSel=new Set();   // annotations selected together with freeform objects
+function _ffAnnSelList(){
+  if(layoutMode!=='freeform') return [];
+  const out=[], gone=[];
+  ffAnnSel.forEach(a=>{ if(annotations.includes(a)&&!a.hidden) out.push(a); else gone.push(a); });
+  gone.forEach(a=>ffAnnSel.delete(a));
+  if(selectedAnnotation>=0){ const a=annotations[selectedAnnotation]; if(a&&!a.hidden&&!out.includes(a)) out.push(a); }
+  return out;
+}
+function _ffSelCount(){ return selectedElems.size+_ffAnnSelList().length; }
+function _ffClearSel(){
+  selectedElems.clear(); ffAnnSel.clear(); selectedAnnotation=-1;
+  if(typeof hideAnnFloat==='function') hideAnnFloat();
+}
+// An annotation's box in figure px: its two points, or the size it is drawn at.
+function _annBox(a, W, H){
+  if(a.type==='text'){
+    const fs=a.fontSize||16, mc=_rtMc(), sf=mc.font;
+    mc.font=`${gc('label-italic')?'italic':'normal'} ${gc('label-bold')?'bold':'normal'} ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
+    const w=_rtMeasure(mc, String(a.text||'')); mc.font=sf;
+    return {x:a.xf*W, y:a.yf*H, w, h:fs*1.2};
+  }
+  if(a.type==='counter') return {x:a.xf*W-8, y:a.yf*H-8, w:16, h:16};
+  if(a.type==='axes'){ const L=a.arm||24; return {x:a.xf*W-L, y:a.yf*H-L, w:2*L, h:2*L}; }
+  if(a.type==='legend') return {x:a.xf*W, y:a.yf*H, w:a._w||80, h:a._h||30};
+  const P=_annPts(a), xs=P.map(p=>p[0]*W), ys=P.map(p=>p[1]*H);
+  const x=Math.min(...xs), y=Math.min(...ys);
+  return {x, y, w:Math.max(...xs)-x, h:Math.max(...ys)-y};
+}
+// Annotations whose box can be given a width and height (two-point marks).
+const _ANN_SIZED=new Set(['line','arrow','arrow2','rect','ellipse','textbox','spotlight','ruler','inset']);
+function _annMove(a, dx, dy, W, H){
+  a._pinFresh=true;
+  a.xf+=dx/W; a.yf+=dy/H;
+  if(a.x2f!=null) a.x2f+=dx/W;
+  if(a.y2f!=null) a.y2f+=dy/H;
+}
+// Map a two-point annotation from its box onto box nb (each point keeps its place in it).
+function _annSetBox(a, nb, W, H){
+  const b=_annBox(a, W, H);
+  a._pinFresh=true;
+  const mx=v=>(nb.x+(b.w>0?(v*W-b.x)/b.w*nb.w:0))/W, my=v=>(nb.y+(b.h>0?(v*H-b.y)/b.h*nb.h:0))/H;
+  a.xf=mx(a.xf); a.yf=my(a.yf);
+  if(a.x2f!=null) a.x2f=mx(a.x2f);
+  if(a.y2f!=null) a.y2f=my(a.y2f);
+}
+function _r4(v){ return Math.round(v*1e4)/1e4; }
+// The selection as one list: each item's box, a way to move it, and a name for messages.
+// A locked object is a fixed reference: it counts for the bounds and never moves.
+function _ffSelItems(){
+  const W=canvasLogicalW||1, H=canvasLogicalH||1, items=[];
+  [...selectedElems].forEach(i=>{
+    const el=freeformElements[i]; if(!el||el.type==='connector') return;   // connectors follow their anchors
+    items.push({kind:'el', ref:el, locked:!!el.locked, name:_rtText(formatLabel(el.label)||el.name||el.text||el.type)||el.type,
+      box:()=>({x:el.x, y:el.y, w:el.w, h:el.h}), move:(dx,dy)=>{ if(el.locked) return; el.x=_r4(el.x+dx); el.y=_r4(el.y+dy); }});
   });
+  _ffAnnSelList().forEach(a=>{
+    items.push({kind:'ann', ref:a, locked:!!a.locked, name:a.type==='text'||a.type==='textbox'?`"${_rtText(a.text||'').slice(0,16)}"`:a.type,
+      box:()=>_annBox(a, W, H), move:(dx,dy)=>{ if(!a.locked) _annMove(a, dx, dy, W, H); }});
+  });
+  return items;
+}
+function _ffBounds(items){
+  const bs=items.map(it=>it.box());
+  const x=Math.min(...bs.map(b=>b.x)), y=Math.min(...bs.map(b=>b.y));
+  return {x, y, w:Math.max(...bs.map(b=>b.x+b.w))-x, h:Math.max(...bs.map(b=>b.y+b.h))-y};
+}
+// What an arrangement pushed past the canvas: named, never silently left there.
+function _ffWarnOffCanvas(items, what){
+  const W=canvasLogicalW||1, H=canvasLogicalH||1;
+  const off=items.filter(it=>{ const b=it.box(); return b.x<-0.5||b.y<-0.5||b.x+b.w>W+0.5||b.y+b.h>H+0.5; });
+  if(!off.length) return false;
+  toast(`${what}: ${off.length} of ${items.length} now reach${off.length===1?'es':''} past the canvas edge (${off.slice(0,4).map(it=>it.name).join(', ')}${off.length>4?', …':''}). They were not in one row or column? Ctrl+Z puts them back.`,'warn');
+  return true;
+}
+function _ffArranged(){
+  updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
+  if(selectedAnnotation>=0 && typeof showAnnFloat==='function') showAnnFloat(selectedAnnotation);
+}
+// ── Position and size as numbers ──────────────────────────────
+// X, Y, W, H and the angle of the selection, in canvas px or in mm at the printed size.
+// There were none: a position could only be read off the snap guides and set by dragging,
+// so "the same top edge" or "654 px wide" was a matter of a steady hand (the gaps the
+// tester aimed to make equal came out 2.8, 5.6 and 6.8 px).
+function _geoUnitK(){
+  if(gv('geo-unit')!=='mm') return 1;
+  const pf=_physFacts(); return (pf.wMm||0)/(canvasLogicalW||1) || 1;
+}
+// What the fields show and set: one object, one annotation, or the box around several.
+function _geoTarget(){
+  if(layoutMode!=='freeform') return null;
+  const items=_ffSelItems();
+  if(!items.length) return null;
+  if(items.length===1){
+    const it=items[0];
+    return it.kind==='el' ? {kind:'el', el:it.ref, items, sized:true, angle:true}
+                          : {kind:'ann', a:it.ref, items, sized:_ANN_SIZED.has(it.ref.type), angle:false};
+  }
+  return {kind:'multi', items, sized:false, angle:false};
+}
+var _geoLast=null;
+function _geoSync(force){
+  const T=_geoTarget(), k=_geoUnitK();
+  const box=T?(T.kind==='el'?{x:T.el.x, y:T.el.y, w:T.el.w, h:T.el.h}:_ffBounds(T.items)):null;
+  ['x','y','w','h','a'].forEach(key=>{
+    const inp=document.getElementById('geo-'+key); if(!inp) return;
+    inp.disabled=!T || ((key==='w'||key==='h')&&!T.sized) || (key==='a'&&!T.angle);
+    if(!force && document.activeElement===inp) return;     // never overwrite what is being typed
+    if(!T){ inp.value=''; return; }
+    if(key==='a') inp.value=T.angle?String(+(+T.el.rotation||0).toFixed(2)):'';
+    else inp.value=String(+(box[key]*k).toFixed(2));
+  });
+  // Keep shape is on for a picture (as its corner handles are) and off for the rest.
+  const ref=T?(T.kind==='el'?T.el:T.kind==='ann'?T.a:null):null;
+  if(ref!==_geoLast){ _geoLast=ref; const kp=document.getElementById('geo-keep');
+    if(kp) kp.checked=!!(ref&&(ref.type==='image'||ref.type==='aiicon')); }
+  // The arrange buttons say what they need instead of disappearing.
+  const n=_ffSelCount();
+  const need={'ab-sel1':1,'ab-sel2':2,'ab-sel3':3}, why={'ab-sel1':'Select an object or annotation first','ab-sel2':'Select two or more (Shift/⌘-click, or drag a box on empty canvas)','ab-sel3':'Select three or more (Shift/⌘-click, or drag a box on empty canvas)'};
+  Object.keys(need).forEach(c=>document.querySelectorAll('#align-bar .'+c).forEach(b=>{
+    const off=n<need[c]; b.disabled=off;
+    if(off){ if(!b.dataset.tip0) b.dataset.tip0=b.title; b.title=why[c]+' — '+b.dataset.tip0; }
+    else if(b.dataset.tip0){ b.title=b.dataset.tip0; delete b.dataset.tip0; } }));
+  const hint=document.getElementById('ab-hint');
+  if(hint) hint.textContent=n>=2?`${n} selected`:'Shift/⌘-click adds · drag a box · Ctrl+A all';
+}
+function _geoApply(key, raw){
+  const T=_geoTarget(); if(!T){ _geoSync(true); return; }
+  const v=parseFloat(raw);
+  if(!isFinite(v)){ _geoSync(true); return; }
+  if(T.kind==='el'&&T.el.locked){ toast('That object is locked — unlock it (🔒) to move or resize it','warn'); _geoSync(true); return; }
+  const px=key==='a'?v:v/_geoUnitK(), W=canvasLogicalW||1, H=canvasLogicalH||1, keep=gc('geo-keep');
+  pushUndo();
+  if(T.kind==='el'){
+    const el=T.el, ar=el.h>0?el.w/el.h:1;
+    if(key==='x') el.x=_r4(px);
+    else if(key==='y') el.y=_r4(px);
+    else if(key==='a') el.rotation=_r4(((v%360)+360)%360);
+    else if(key==='w'){ el.w=_r4(Math.max(1,px)); if(keep) el.h=_r4(el.w/ar); }
+    else if(key==='h'){ el.h=_r4(Math.max(1,px)); if(keep) el.w=_r4(el.h*ar); }
+  } else if(T.kind==='ann'){
+    const a=T.a, b=_annBox(a, W, H);
+    if(key==='x') _annMove(a, px-b.x, 0, W, H);
+    else if(key==='y') _annMove(a, 0, px-b.y, W, H);
+    else if(T.sized&&(key==='w'||key==='h')){
+      const nb={...b}, ar=b.h>0?b.w/b.h:1;
+      if(key==='w'){ nb.w=Math.max(0,px); if(keep&&b.h>0) nb.h=nb.w/ar; } else { nb.h=Math.max(0,px); if(keep&&b.w>0) nb.w=nb.h*ar; }
+      _annSetBox(a, nb, W, H);
+    }
+  } else {
+    const b=_ffBounds(T.items);
+    if(key==='x') T.items.forEach(it=>it.move(px-b.x, 0));
+    else if(key==='y') T.items.forEach(it=>it.move(0, px-b.y));
+  }
+  _ffArranged(); _geoSync(true);
+}
+// Ctrl/⌘+A: every object and every annotation that can be moved.
+function _ffSelectAll(){
+  freeformElements.forEach((_,i)=>selectedElems.add(i));
+  annotations.forEach(a=>{ if(a&&!a.hidden&&!a.locked&&a.type!=='inset') ffAnnSel.add(a); });
+  if(selectedAnnotation>=0){ selectedAnnotation=-1; hideAnnFloat(); }
+  updateFreeformElemList(); drawFreeformOverlay();
+}
+// Turn the selected objects by `delta` degrees ([ and ], the toolbar's ↻ ↺), or upright.
+function _ffRotateSel(delta, upright){
+  const els=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&!el.locked&&el.type!=='connector');
+  if(!els.length){ toast('Select an object that is not locked','warn'); return; }
+  _nudgeUndo();                                   // a burst of key presses is one step
+  els.forEach(el=>{ el.rotation=upright?0:_r4((((+el.rotation||0)+delta)%360+360)%360); });
   drawFreeformOverlay(); scheduleRender(0);
+  if(els.length===1) setStatus(`Turned to ${+(+els[0].rotation).toFixed(2)}°`);
+}
+// A click beside the figure (the dark area around the canvas) lets go of the selection,
+// as Escape does; only an empty part of the canvas itself used to.
+document.getElementById('canvas-wrap').addEventListener('mousedown', e=>{
+  if(layoutMode!=='freeform' || e.button!==0) return;
+  if(e.target.closest && e.target.closest('#ann-canvas,#fig-canvas,#ctx-toolbar,#ann-float,button,input,select,textarea,label')) return;
+  if(!selectedElems.size && !ffAnnSel.size && selectedAnnotation<0) return;
+  _ffClearSel(); updateFreeformElemList(); drawFreeformOverlay();
+});
+
+// Several items line up with each other; a single one lines up with the canvas.
+function alignElems(dir){
+  const items=_ffSelItems();
+  if(!items.length){ toast('Select objects or annotations to align — click one, Shift-click more, or drag a box around them','warn'); return; }
+  const ref=items.length===1 ? {x:0, y:0, w:canvasLogicalW||1, h:canvasLogicalH||1} : _ffBounds(items);
+  pushUndo();
+  items.forEach(it=>{
+    const b=it.box(); let dx=0, dy=0;
+    if(dir==='left') dx=ref.x-b.x;
+    else if(dir==='right') dx=ref.x+ref.w-(b.x+b.w);
+    else if(dir==='top') dy=ref.y-b.y;
+    else if(dir==='bottom') dy=ref.y+ref.h-(b.y+b.h);
+    else if(dir==='centerH') dx=ref.x+ref.w/2-(b.x+b.w/2);
+    else if(dir==='centerV') dy=ref.y+ref.h/2-(b.y+b.h/2);
+    it.move(dx, dy);
+  });
+  _ffArranged();
+  logAction('alignElems',{dir, items:items.length});
+  if(items.length===1) toast(`Aligned to the canvas (${dir.replace('center','centre ').replace(/H$/,'horizontally').replace(/V$/,'vertically')})`,'ok');
 }
 
 // Put an EXACT gap between the selected objects. Distribute could only spread three or
 // more between the two outermost ones, so with two objects selected it silently did
 // nothing, and at no count could you say "12 px between these" — the freeform editor had
 // no way to set the spacing between panels at all, only to drag them and hope.
+// The positions are not rounded: a picture 520.4 px wide followed by a 10 px gap starts
+// 10 px after it, not 9.6 or 10.4 (each gap in the file is the gap asked for).
 function spaceElems(dir){
-  const sel=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&el.type!=='connector');
-  if(sel.length<2){ toast('Select two or more objects to space them','warn'); return; }
-  const g=Math.max(0,Math.round(gi('ff-space')||0));
+  const items=_ffSelItems();
+  if(items.length<2){ toast('Select two or more objects or annotations to space them','warn'); return; }
+  const g=Math.max(0, +gv('ff-space')||0);
   pushUndo();
-  if(dir==='h'){
-    sel.sort((a,b)=>a.x-b.x);
-    let c=sel[0].x;
-    sel.forEach(el=>{ el.x=Math.round(c); c+=el.w+g; });
-  } else {
-    sel.sort((a,b)=>a.y-b.y);
-    let c=sel[0].y;
-    sel.forEach(el=>{ el.y=Math.round(c); c+=el.h+g; });
-  }
-  drawFreeformOverlay(); scheduleRender(0);
-  logAction('spaceElems',{dir, gap:g, objects:sel.length});
-  toast(`${sel.length} objects, ${g} px apart`,'ok');
+  const key=dir==='h'?'x':'y', len=dir==='h'?'w':'h';
+  items.sort((p,q)=>p.box()[key]-q.box()[key]);
+  let c=items[0].box()[key];
+  items.forEach(it=>{ const b=it.box(); if(dir==='h') it.move(c-b.x,0); else it.move(0,c-b.y); c+=b[len]+g; });
+  _ffArranged();
+  logAction('spaceElems',{dir, gap:g, objects:items.length});
+  if(!_ffWarnOffCanvas(items, `Space ${g} px`)) toast(`${items.length} items, ${g} px apart`,'ok');
 }
 
 function distributeElems(dir){
-  const _n=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&el.type!=='connector').length;
-  if(_n<3){
+  const items=_ffSelItems();
+  if(items.length<3){
     // It used to return in silence, which reads as a broken button.
-    toast(_n<2 ? 'Select three or more objects to distribute them'
+    toast(items.length<2 ? 'Select three or more objects to distribute them'
                : 'Distribute spreads three or more objects between the outermost two — for two objects, use Space to set an exact gap','warn');
     return;
   }
-  const sel=[...selectedElems].map(i=>({idx:i,el:freeformElements[i]})).filter(o=>o.el&&o.el.type!=='connector');
-  if(sel.length<3) return;
-  if(dir==='h'){
-    sel.sort((a,b)=>a.el.x-b.el.x);
-    const minX=sel[0].el.x, maxX=sel[sel.length-1].el.x+sel[sel.length-1].el.w;
-    const totalW=sel.reduce((s,{el})=>s+el.w,0);
-    const gap=(maxX-minX-totalW)/(sel.length-1);
-    let cx=minX;
-    sel.forEach(({el})=>{ el.x=Math.round(cx); cx+=el.w+gap; });
-  } else {
-    sel.sort((a,b)=>a.el.y-b.el.y);
-    const minY=sel[0].el.y, maxY=sel[sel.length-1].el.y+sel[sel.length-1].el.h;
-    const totalH=sel.reduce((s,{el})=>s+el.h,0);
-    const gap=(maxY-minY-totalH)/(sel.length-1);
-    let cy=minY;
-    sel.forEach(({el})=>{ el.y=Math.round(cy); cy+=el.h+gap; });
-  }
-  drawFreeformOverlay(); scheduleRender(0);
-}
-
-function changeZOrder(dir){
-  if(!selectedElems.size) return;
   pushUndo();
-  [...selectedElems].map(i=>freeformElements[i]).forEach(el=>{
-    if(dir==='front') el.zIndex=++_fmZCounter;
-    else if(dir==='back') el.zIndex=0;
-    else if(dir==='forward') el.zIndex+=1.5;
-    else if(dir==='backward') el.zIndex=Math.max(0,el.zIndex-1.5);
-  });
-  // Re-normalize zIndices
-  [...freeformElements].sort((a,b)=>a.zIndex-b.zIndex).forEach((e,i)=>e.zIndex=i+1);
-  _fmZCounter=freeformElements.length;
-  drawFreeformOverlay(); scheduleRender(0);
+  const key=dir==='h'?'x':'y', len=dir==='h'?'w':'h';
+  items.sort((p,q)=>p.box()[key]-q.box()[key]);
+  const bs=items.map(it=>it.box());
+  const lo=bs[0][key], hi=Math.max(...bs.map(b=>b[key]+b[len]));
+  const gap=(hi-lo-bs.reduce((s,b)=>s+b[len],0))/(items.length-1);
+  let c=lo;
+  items.forEach((it,k)=>{ const b=bs[k]; if(dir==='h') it.move(c-b.x,0); else it.move(0,c-b.y); c+=b[len]+gap; });
+  _ffArranged();
+  logAction('distributeElems',{dir, items:items.length, gap:_r4(gap)});
+  toast(`${items.length} items, ${+gap.toFixed(2)} px apart`,'ok');
 }
 
+// Same width or height as the first selected object (a picture keeps its shape).
+function matchSizeElems(dim){
+  const els=[...selectedElems].map(i=>freeformElements[i]).filter(el=>el&&el.type!=='connector');
+  if(els.length<2){ toast('Select two or more objects: the others take the size of the first one you selected','warn'); return; }
+  pushUndo();
+  const ref=els[0];
+  els.slice(1).forEach(el=>{
+    if(el.locked) return;
+    const keep=(el.type==='image'||el.type==='aiicon') && el.w>0 && el.h>0, ar=el.w/el.h;
+    if(dim==='w'){ el.w=ref.w; if(keep) el.h=_r4(ref.w/ar); }
+    else { el.h=ref.h; if(keep) el.w=_r4(ref.h*ar); }
+  });
+  _ffArranged();
+  toast(`${els.length-1} object${els.length>2?'s':''} now ${dim==='w'?ref.w.toFixed(1)+' px wide':ref.h.toFixed(1)+' px tall'}, like ${_rtText(formatLabel(ref.label)||ref.name||ref.type)}`,'ok');
+}
+
+// Stacking order for objects AND annotations. An annotation with a.z sits just below the
+// first object above it (renderFreeform draws it there); one without a.z is on top of
+// every object, as annotations always were.
+function _ffRenormZ(){
+  const list=freeformElements.map(e=>({o:e, k:'el', z:+e.zIndex||0}))
+    .concat(annotations.filter(a=>a&&a.z!=null).map(a=>({o:a, k:'ann', z:+a.z})));
+  list.sort((p,q)=>p.z-q.z || (p.k===q.k?0:p.k==='ann'?-1:1));
+  list.forEach((it,i)=>{ if(it.k==='el') it.o.zIndex=i+1; else it.o.z=i+1; });
+  const top=Math.max(0, ...freeformElements.map(e=>e.zIndex));
+  annotations.forEach(a=>{ if(a&&a.z!=null&&a.z>top) delete a.z; });   // above every object: back on the top layer
+  _fmZCounter=list.length;
+}
+function changeZOrder(dir){
+  const els=[...selectedElems].map(i=>freeformElements[i]).filter(Boolean);
+  const anns=_ffAnnSelList();
+  if(!els.length&&!anns.length){ toast('Select an object or annotation first','warn'); return; }
+  pushUndo();
+  const all=freeformElements.map(e=>+e.zIndex||0).concat(annotations.filter(a=>a&&a.z!=null).map(a=>+a.z));
+  const lo=all.length?Math.min(...all):0, elTop=freeformElements.length?Math.max(...freeformElements.map(e=>+e.zIndex||0)):0;
+  els.forEach(el=>{
+    if(dir==='front') el.zIndex=++_fmZCounter;
+    else if(dir==='back') el.zIndex=lo-1;
+    else if(dir==='forward') el.zIndex+=1.5;
+    else if(dir==='backward') el.zIndex-=1.5;
+  });
+  anns.forEach(a=>{
+    if(dir==='front') delete a.z;
+    else if(dir==='back') a.z=lo-1;
+    else if(dir==='forward'){ if(a.z!=null) a.z+=1.5; }
+    else if(dir==='backward') a.z=(a.z==null)?elTop-0.5:a.z-1.5;
+  });
+  _ffRenormZ();
+  _ffArranged();
+  if(anns.length&&(dir==='back'||dir==='backward')) toast(`${anns.length===1?'The annotation is':anns.length+' annotations are'} now behind ${dir==='back'?'every object':'the object above'} — it is drawn there in the figure and every export`,'ok');
+}
 function deleteSelectedElems(){
-  if(!selectedElems.size) return;
+  const anns=_ffAnnSelList();
+  if(!selectedElems.size&&!anns.length) return;
   pushUndo();   // the Delete key and both ✕ buttons come here; none recorded a step
   const sorted=[...selectedElems].sort((a,b)=>b-a);
   sorted.forEach(i=>freeformElements.splice(i,1));
-  selectedElems.clear(); updateFreeformElemList(); scheduleRender(0);
+  if(anns.length){ annotations=annotations.filter(a=>!anns.includes(a)); renderAnnotationList(); }
+  _ffClearSel(); updateFreeformElemList(); scheduleRender(0);
 }
 
 // Duplicate the selected element(s), offset slightly, and select the copies
@@ -27577,7 +28259,6 @@ function _popOutLosses(pbs){
   const out=[], L=im=>_rtText(formatLabel(im.label))||'?';
   const by=(what, ims)=>{ if(ims.length) out.push(`${what} on ${ims.length>1?'panels':'panel'} ${_listAnd(ims.map(L))}`); };
   const ims=pbs.map(pb=>images[pb.idx]).filter(Boolean);
-  by('the circle or ellipse clip', ims.filter(im=>(im.cropShape||'rect')!=='rect'));
   by('the flip', ims.filter(im=>im.flipH||im.flipV));
   by('the merged channels (the base image comes alone)', ims.filter(im=>im.channels&&im.channels.some(c=>c&&c.img)));
   by('the intensity bar', ims.filter(im=>im.cbar));
@@ -32169,10 +32850,25 @@ function countCellsROI(ctx,rx,ry,rw,rh){
 function updateElemPropsBar(){
   const bar=document.getElementById('elem-props-bar');
   if(!bar) return;
-  if(layoutMode!=='freeform'||selectedElems.size!==1){ bar.style.display='none'; return; }
-  const idx=[...selectedElems][0];
-  const el=freeformElements[idx]; if(!el){ bar.style.display='none'; return; }
+  if(layoutMode!=='freeform'){ bar.style.display='none'; return; }
+  // In freeform the bar stays, at a fixed height, whatever is selected: it used to appear
+  // and vanish with the selection and push the canvas down or up under the mouse, so the
+  // next click landed on a different object.
   bar.style.display='flex';
+  const idx=selectedElems.size===1?[...selectedElems][0]:-1;
+  const el=idx>=0?freeformElements[idx]:null;
+  bar.classList.toggle('ep-none', !el);
+  const em=document.getElementById('ep-empty');
+  // Never shrink back: a bar that has been taller (a picture's two rows of fields, a narrow
+  // window) keeps that height, so selecting something else does not move the canvas.
+  requestAnimationFrame(()=>{ const h=bar.offsetHeight, m=parseFloat(bar.style.minHeight)||0; if(h>m) bar.style.minHeight=h+'px'; });
+  if(!el){
+    const n=_ffSelCount();
+    if(em) em.textContent = n>1 ? `${n} items selected — position, align, space and layer them in the bar above`
+      : (selectedAnnotation>=0 ? 'Annotation selected — its colour, text and fill are in the toolbar beside it; X / Y / W / H above'
+      : 'Nothing selected — click an object to see its properties here (Shift/⌘-click or drag a box to select several)');
+    return;
+  }
   const isImg=el.type==='image'||el.type==='aiicon';
   const isText=el.type==='text';
   const isPatch=el.type==='patch';
@@ -32235,6 +32931,8 @@ function updateElemPropsBar(){
     const al=document.getElementById('ep-align'); if(al) al.value=el.align||'left';
   }
   if(isImg){
+    document.querySelectorAll('#ep-image-props .ep-clip').forEach(b=>b.classList.toggle('active', b.dataset.clip===(el.cropShape||'rect')));
+    { const r=document.getElementById('ep-clipR'); if(r){ r.value=el.clipR!=null?el.clipR:16; r.disabled=(el.cropShape!=='rounded'); } }
     document.getElementById('ep-cropT').value=el.cropT||0;
     document.getElementById('ep-cropL').value=el.cropL||0;
     document.getElementById('ep-cropB').value=el.cropB||0;

@@ -494,6 +494,9 @@ test.describe('the pointer past the edge', () => {
 test('a measurement taken by mistake: Ctrl+Z removes it, and so does its ✕ (which Ctrl+Z undoes)', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 50, w: 400, h: 300, iw: 200, ih: 150, fill: '#808080' }]);
+  // The freeform arrange and properties bars now stay above the canvas whatever is selected,
+  // so at 100% the top of the 900 px canvas is under them in a 720 px window: fit it first.
+  await page.evaluate(() => zoomToFit());
   await page.evaluate(() => { document.getElementById('measure-acc').open = true; setTool('measure-roi'); });
   const roi = async (x0, y0, x1, y1) => {
     const [a, b] = await page.evaluate(([x0, y0, x1, y1]) => {
