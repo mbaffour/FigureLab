@@ -70,6 +70,8 @@ async function buildEverything(page) {
     images[0].tag = '0 s'; images[1].tag = '30 s';
     const gelOk = runGelAnalysis(4);
     selectedPanel = 0; addLinkedInset(0.25, 0.25, 0.5, 0.5);
+    // (an inset now lands right after its parent — ux1 fluor-11; this figure keeps it last, as built before)
+    images.push(images.splice(images.findIndex(i => i && i.insetOf != null), 1)[0]); render();
     annotations.push({ type: 'ruler', x1: 30, y1: 30, x2: 90, y2: 30, rulerName: 'capsid', color: '#fff', width: 2 });
     sc('auto-row-h', true); sv('hidden-gap', 'gap'); images[2].excluded = true;
     sc('label-bg', false); sc('label-auto-color', true); sc('sb-auto-color', true); sv('tag-pos', 'bl');
@@ -132,6 +134,8 @@ test('the inset is stored once: its pixels are its parent’s', async ({ page })
   await commit(page, [{ name: 'a.png', w: 200, h: 200 }]);
   const r = await page.evaluate(() => {
     selectedPanel = 0; addLinkedInset(0.1, 0.1, 0.4, 0.4);
+    // (an inset now lands right after its parent — ux1 fluor-11; this figure keeps it last, as built before)
+    images.push(images.splice(images.findIndex(i => i && i.insetOf != null), 1)[0]); render();
     const s = serializeSession(true);
     return { parent: !!s.images[0].src, inset: 'src' in s.images[1], bound: s.images[1].insetOf === s.images[0].id };
   });
@@ -183,6 +187,8 @@ test('a share link restores the same figure after a blank cell: labels, spans, r
     sv('export-width-mm', 85); sv('fig-title', 'T'); sc('auto-row-h', true); sv('hidden-gap', 'gap');
     sc('label-bg', false); sv('tag-pos', 'bl'); labelOffsets.title = { dx: 12, dy: 3 };
     selectedPanel = 0; addLinkedInset(0.2, 0.2, 0.3, 0.3);
+    // (an inset now lands right after its parent — ux1 fluor-11; this figure keeps it last, as built before)
+    images.push(images.splice(images.findIndex(i => i && i.insetOf != null), 1)[0]); render();
     measurements.push({ type: 'roi', label: 'ROI 1', meanGray: '99' });
     onLayoutChange(); render();
   });

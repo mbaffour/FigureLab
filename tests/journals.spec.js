@@ -51,6 +51,11 @@ test('with no target journal the report is word for word the one the app gave be
     await page.goto(APP_URL);
     await page.waitForFunction(() => typeof render === 'function' && typeof _commitImage === 'function');
     await seedPanels(page, 4);
+    // The baseline was captured when every import had its scale bar switched on; imports
+    // now start with it off unless calibrated (ux1 newcomer-05), so put it back to compare
+    // like with like. The two scale-bar rows' wording changed with that fix (they name the
+    // panels and offer "No scale bar on these") and were updated in the fixture.
+    await page.evaluate(() => { images.forEach(im => { im.sbOn = true; }); renderImgList(); render(); });
     expect(await page.evaluate(() => [gv('target-journal'), _targetJournal()])).toEqual(['none', null]);
     const got = await page.evaluate(b => (new Function(b))(), body);
     expect(got, name).toEqual(BASELINE[name]);

@@ -48,7 +48,9 @@ test('the ⚠ beside an uncalibrated panel is a button that opens the calibratio
   const errors = await loadApp(page);
   await seedPanels(page, 2);
   const r = await page.evaluate(() => {
-    // every panel ships with sbOn true and no calibration, so the badge is showing
+    // An uncalibrated import no longer has its bar on (ux1 newcomer-05); a figure from an
+    // older session can, and then the badge shows.
+    images.forEach(im => { im.sbOn = true; });
     const on = images.map(im => [im.sbOn, im.umPerPx]);
     renderImgList();
     const badge = document.querySelector('#img-list .f-calib-warn');

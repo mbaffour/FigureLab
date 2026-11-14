@@ -88,6 +88,10 @@ test('the caption states a scale bar only for a panel the renderer drew one on',
   const errors = await load(page);
   const r = await page.evaluate(async () => {
     await __seed([{ name: 'uncal.png' }, { name: 'toolong.png', um: 0.01 }, { name: 'ok.png', um: 0.5 }]);
+    // Imports no longer switch an uncalibrated bar on, and a calibrated one gets a length
+    // that fits (ux1 newcomer-05/07); set the old state by hand — a figure from an older
+    // session — so the caption is still tested against a bar it must not mention.
+    images.forEach(im => { im.sbOn = true; im.sbUm = 10; im.sbUnit = 'µm'; });
     sv('cols', 3); sv('rows', 1); onLayoutChange();
     generateCaption();
     return { cap: document.getElementById('caption-out').value, sbOn: images.map(i => i.sbOn), skip: images.map(i => i._sbSkip) };

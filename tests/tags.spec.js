@@ -78,14 +78,18 @@ test('an intensity bar labels the display range in native units when raw samples
     sv('cols', '3'); sv('rows', '1'); onLayoutChange();
     images[0].lut = 'fire'; images[0].blackPt = 20; images[0].whitePt = 200; images[0].cbar = true;
     images[1].grayscale = true; images[1].cbar = true;
-    images[1].raw = { data: new Uint16Array(4), w: 2, h: 2, min: 100, max: 4000 };
+    // native samples that match the panel's pixels (100 × 100), as the decoder keeps them
+    images[1].raw = { data: new Uint16Array(100 * 100), w: 100, h: 100, min: 100, max: 4000, bps: 16, format: 1 };
     images[2].cbar = true;                                // an RGB photo: no LUT, not grayscale
     render();
     return { fire: bars(0), raw: bars(1), rgb: bars(2), pb: panelBounds.find(b => b.idx === 0),
              items: figTextItems.filter(t => t.kind === 'cbar' && t.idx === 0).map(t => t.bbox) };
   });
   expect(r.fire).toEqual(['200', '20']);                  // display units: high at the top, low at the bottom
-  expect(r.raw).toEqual(['4000', '100']);                 // full range in native units
+  // Full range in native units. The decode maps 0…max (not min…max) onto 0–255, so the
+  // untouched display range is 0–4000; this test used to expect 100 at the bottom, which
+  // was the bar's old, wrong mapping (ux1 fluor-01/08).
+  expect(r.raw).toEqual(['4000', '0']);
   expect(r.rgb).toEqual([]);
   for (const b of r.items) { expect(b.x).toBeGreaterThanOrEqual(r.pb.x); expect(b.x + b.w).toBeLessThanOrEqual(r.pb.x + r.pb.w + 0.01); }
   expect(errors).toEqual([]);
@@ -166,7 +170,10 @@ test('Same bar on all calibrated: the selected panel’s bar, or a clean value f
     undo();
     return { fromSel, fromMedian, undone: images.map(im => im.sbUm), logged: reproLog.filter(e => e.action === 'uniformScaleBars').length };
   });
-  expect(r.fromSel).toEqual([[25, true], [25, true], [25, true], [10]]);       // the uncalibrated panel is left alone
+  // Panel 3's field is 25 µm, so a 25 µm bar cannot be drawn on it (it used to be set
+  // and then silently not drawn); it gets its own 1-2-5 length and the toast names it
+  // (ux1 fluor-23). The uncalibrated panel is left alone.
+  expect(r.fromSel).toEqual([[25, true], [25, true], [5, true], [10]]);
   // Fields of view: 0.5×100 = 50 µm, 50 µm, 0.25×100 = 25 µm → median 50 → 0.18 × 50 = 9 → nice 10.
   expect(r.fromMedian.slice(0, 3)).toEqual([10, 10, 10]);
   expect(r.undone.slice(0, 3)).toEqual([1, 2, 3]);
@@ -392,7 +399,8 @@ test('each extra channel gets black/white sliders that change its range and redr
     const bpt = lv[0].querySelector('.ch-bpt'), wpt = lv[0].querySelector('.ch-wpt');
     bpt.value = '40'; bpt.dispatchEvent(new Event('input', { bubbles: true }));
     wpt.value = '30'; wpt.dispatchEvent(new Event('input', { bubbles: true }));   // below the black point → clamped above it
-    return { rows: lv.length, bp: A.channels[0].blackPt, wp: A.channels[0].whitePt, shown: lv[0].querySelector('.ch-wpt-v').textContent };
+    // the value beside the slider is now a number box you can type into (ux1 fluor-07)
+    return { rows: lv.length, bp: A.channels[0].blackPt, wp: A.channels[0].whitePt, shown: lv[0].querySelector('.ch-wpt-v').value };
   });
   expect(r.rows).toBe(1);
   expect(r.bp).toBe(40);

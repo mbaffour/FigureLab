@@ -164,10 +164,12 @@ test('the per-panel adjustment buttons are undoable', async ({ page }) => {
     im().brightness = 1.6; im().contrast = 1.4; im().gamma = 0.7; im().lut = 'green';
     const before = { br: im().brightness, ct: im().contrast, gm: im().gamma, lut: im().lut };
 
+    // On a pseudocoloured panel Grayscale switches the LUT off — it used to set a flag the
+    // LUT then hid (ux1 fluor-29) — and undo brings the LUT back.
     item.querySelector('.f-gray').click();
-    const greyOn = im().grayscale;
+    const greyOn = im().lut === 'none';
     undo();
-    const greyUndone = images[0].grayscale;
+    const greyUndone = images[0].lut !== 'green';
 
     item.querySelector('.f-inv').click();
     const invOn = images[0].invert;

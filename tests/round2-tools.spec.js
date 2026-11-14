@@ -91,10 +91,11 @@ test('R2-14: Count over a letterboxed panel counts the one object on the picture
   const m = await lastMeasure(page);
   expect(m.type).toBe('cellCount');
   expect(m.count).toBe(1);
-  // Figure px segmented: the picture's 150 rows by about 294 columns, not the 294 x 294
-  // drag (86 436 px at b1c6ec4).
-  expect(m.area).toBeGreaterThan(290 * 150);
-  expect(m.area).toBeLessThanOrEqual(300 * 150);
+  // Source px segmented — Count now runs on the image's own pixels when the panel maps
+  // to them (ux1 phage-14), as the ROI does: about 98 x 50 of the 100 x 50 picture, not
+  // the 294 x 294 drag (86 436 px at b1c6ec4).
+  expect(m.area).toBeGreaterThan(4800);
+  expect(m.area).toBeLessThanOrEqual(5000);
   expect(m.clipped).toBe(true);
   expect(m.html).toContain('extended past the panel image');
   expect(errors).toEqual([]);

@@ -108,11 +108,12 @@ test('a hidden panel does not fail the calibration, adjustment or inset lines, o
   expect(r.hidden.adjust).toMatch(/^Within normal range/);
   // no inset shown: the row says it does not apply (it used to read "None" and count as a pass)
   expect(r.hidden.insets).toBe('Does not apply — no insets');
-  expect(r.hidden.preflight).not.toContain("aren't calibrated");
-  expect(r.shown.calib).toMatch(/^1 scale bar\(s\) not calibrated/);
+  // wording since ux1 newcomer-05: the row names the panels and offers "No scale bar on these"
+  expect(r.hidden.preflight).not.toContain('switched on but no calibration');
+  expect(r.shown.calib).toMatch(/^1 scale bar\(s\) switched on without a calibration \(B\)/);
   expect(r.shown.adjust).toMatch(/^1 panel\(s\) with extreme/);
   expect(r.shown.insets).toMatch(/^1 inset\(s\) lost their parent/);
-  expect(r.shown.preflight).toContain("1 panel(s) show a scale bar but aren't calibrated");
+  expect(r.shown.preflight).toContain('1 panel(s) have a scale bar switched on but no calibration');
   expect(errors).toEqual([]);
 });
 

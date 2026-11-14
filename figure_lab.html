@@ -795,7 +795,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-primary" onclick="cropSelectedPanel()" style="width:100%;justify-content:center" title="Drag a box on one panel to trim it — non-destructive and reversible">✂ Crop a panel…</button>
     <button class="btn" onclick="startMultiCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Cut several same-size regions out of an image — each becomes its own panel">⊞ Multi-crop into panels…</button>
     <button class="btn" onclick="startBatchCrop()" style="width:100%;justify-content:center;margin-top:4px" title="Draw one crop size on the first image, then move, resize and edit that box across all images">▦ Batch crop all images…</button>
-    <button class="btn" onclick="trimBordersAll()" style="width:100%;justify-content:center;margin-top:4px" title="Strip the single-colour margin every panel arrived with — the white border around a saved plot, the black edge of a scan. Replaces each panel's crop with its content bounds; panels with no uniform border are left alone">▣ Trim borders on all panels</button>
+    <button class="btn" onclick="trimBordersAll()" style="width:100%;justify-content:center;margin-top:4px" title="Strip the white or black margin a panel arrived with — the border around a saved plot or screenshot, the black edge of a scan. Shows which panels would be cropped, and by how much, before anything changes; blots and gels start unticked">▣ Trim borders…</button>
     <button class="btn" onclick="resetScaleMatch()" style="width:100%;justify-content:center;margin-top:4px" title="Clear the crop and tilt on every panel">↺ Reset all crops</button>
 
     <div class="divider"></div>
@@ -1087,10 +1087,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="ann-tool" data-tool="measure-count" onclick="setTool('measure-count')" style="font-size:11px">🔢 Count</button>
       <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')" style="font-size:11px" title="Draw a ruler on a calibrated panel: it reads its length in nm, µm or mm from the panel's source pixels and µm/px. Name rulers below (e.g. capsid, tail) to get n, mean and SD.">⊢ Ruler</button>
     </div>
-    <div class="field" id="count-thresh-row" style="display:none;margin-top:4px">
+    <div class="field" id="count-thresh-row" style="display:none;margin-top:4px;flex-wrap:wrap;gap:4px">
       <label style="font-size:10px">Threshold</label>
       <input type="range" id="count-threshold" min="1" max="254" value="128" style="width:80px">
       <code id="count-thresh-v">128</code>
+      <select id="count-polarity" style="font-size:10px;width:auto" title="Which objects to count: brighter than the threshold (cells, colonies on a dark plate) or darker (plaques on a bacterial lawn, colonies on a light agar)">
+        <option value="bright">bright objects</option><option value="dark">dark objects (plaques)</option></select>
+      <label style="font-size:10px;display:flex;align-items:center;gap:3px" title="Count inside the ellipse drawn in your box — drag it around a dish so the black background outside the plate is left out"><input type="checkbox" id="count-ellipse"> round (a dish)</label>
     </div>
     <div id="roi-results"></div>
     <canvas id="line-profile-canvas" style="display:none"></canvas>
@@ -1112,7 +1115,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn btn-primary" onclick="checkCompliance()" style="width:100%;justify-content:center">✓ Check journal compliance</button>
     <button class="btn" onclick="runAdvancedConsistency()" style="width:100%;justify-content:center;margin-top:4px">🔍 Deep figure audit</button>
     <button class="btn" onclick="auditConsistency()" style="width:100%;justify-content:center;margin-top:4px" title="Find text sizes, fonts, stroke widths and line colours that differ across the figure, and collapse them to one value in a single undoable step">⚖ Homogenize styles</button>
-    <button class="btn" onclick="pickInsetRegion()" style="width:100%;justify-content:center;margin-top:4px" title="Draw the region of the selected panel to magnify. The inset is a new panel bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways.">⧉ Add linked inset…</button>
+    <button class="btn" onclick="pickInsetRegion()" style="width:100%;justify-content:center;margin-top:4px" title="Draw the region of the selected panel to magnify. The inset is a new panel bound to its parent: adjust the parent and the inset follows, so the two can never show the same data processed two different ways. Also on a panel's right-click menu.">⧉ Add linked inset…</button>
+    <div id="inset-target-note" style="font-size:10px;color:var(--muted);margin:2px 0 0 2px"></div>
     <div class="field" style="margin-top:4px"><label for="inset-frames" style="cursor:pointer" title="Draw each inset's region on its parent panel as an outlined box with the inset's letter — the convention readers expect">Outline inset regions on the parent</label>
       <input type="checkbox" id="inset-frames" checked onchange="scheduleRender()"></div>
     <div class="field"><label for="inset-connectors" style="cursor:pointer" title="Draw two thin lines from the outlined region on the parent to the inset panel, the way zoom-ins are conventionally linked. Only when the inset sits in another cell of the same figure.">Connect outline to inset</label>
@@ -1632,9 +1636,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <canvas id="bio-bg-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.18"></canvas>
     <!-- Colour-vision-deficiency simulation filters (display only; never applied to exported pixels) -->
     <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
-      <filter id="cvd-deuter" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter>
-      <filter id="cvd-protan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0"/></filter>
-      <filter id="cvd-tritan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0"/></filter>
+      <!-- Machado, Oliveira & Fernandes (2009), severity 1.0, applied in linear RGB as the model is defined. The old matrices were sRGB-space approximations that, applied in linear RGB, turned pure green and magenta into near-identical greys. -->
+      <filter id="cvd-deuter" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.367322 0.860646 -0.227968 0 0  0.280085 0.672501 0.047413 0 0  -0.011820 0.042940 0.968881 0 0  0 0 0 1 0"/></filter>
+      <filter id="cvd-protan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="0.152286 1.052583 -0.204868 0 0  0.114503 0.786281 0.099216 0 0  -0.003882 -0.048116 1.051998 0 0  0 0 0 1 0"/></filter>
+      <filter id="cvd-tritan" color-interpolation-filters="linearRGB"><feColorMatrix type="matrix" values="1.255528 -0.076749 -0.178779 0 0  -0.078411 0.930809 0.147602 0 0  0.004733 0.691367 0.303900 0 0  0 0 0 1 0"/></filter>
     </defs></svg>
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
       <canvas id="fig-canvas" role="img" aria-label="The figure (no alt text written yet — Export › Alt text)"></canvas>
@@ -1668,6 +1673,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="1">µm</option><option value="1000">mm</option><option value="0.001">nm</option>
       </select>
       <button class="btn btn-primary" id="calib-apply" onclick="applyCalib()" disabled>Apply</button>
+    </div>
+    <div class="inline-row" style="margin-top:4px" title="The distance between the two points in the image's own pixels. Clicks on a scale bar snap to its ends; type the number instead if you know it (e.g. a 400-px bar).">
+      <span>Pixel distance:</span>
+      <input type="number" id="calib-px" placeholder="px" min="0" step="any" style="width:80px" oninput="calibState.pxTyped=true;document.getElementById('calib-apply').disabled=!(parseFloat(this.value)>0)">
+      <span style="font-size:10px;color:var(--muted)">source px</span>
     </div>
     <div id="calib-result" style="font-size:11px;color:var(--a2);margin-top:6px"></div>
   </div>
@@ -3458,8 +3468,13 @@ async function decodeTIFF(input, page){
   }
   return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource,
            deltaT:_cal.deltaT, acqTime:_cal.acqTime, timeSource:_cal.timeSource,
+           chan:_cal.chan||null, bits:(sampleFormat===3?32:bitsPerSample),
+           // decLo/decHi: the native values the 8-bit decode shows as 0 and 255 (this
+           // file's own range: 0…max for integers, min…max for float). Kept on the raw
+           // record so display ranges can be stated and set in the file's own units.
            raw: rawArr ? { data:rawArr, w:width, h:height, bps:bitsPerSample, spp,
                            min:rawMin, max:rawMax, format:sampleFormat,
+                           decLo: sampleFormat===3 ? mn : 0, decHi: scaleMax,
                            full: sampleFormat===3 ? rawMax : (Math.pow(2,bitsPerSample)-1) } : null };
 
   function parseIFD(o){
@@ -3521,7 +3536,44 @@ function _tiffCalibration(T, le, page, T0){
     if(vx>0){ umPerPx=vx*1e6; src='ZeissLSM'; } }
   if(!umPerPx && xres>0 && resUnit===3){ umPerPx=1e4/xres; src='Resolution'; } // cm resolution
   if(!(umPerPx>1e-4 && umPerPx<1e4)){ umPerPx=0; src=''; }                    // sanity: microscopy range
-  return { umPerPx, calibSource:src, ..._tiffTime(T, T0, page, ascii) };
+  return { umPerPx, calibSource:src, chan:_omeChannel(desc, page), ..._tiffTime(T, T0, page, ascii) };
+}
+// The channel an OME-TIFF plane belongs to, from <Pixels DimensionOrder SizeZ SizeC SizeT>
+// and the <Channel Name Color> list: {name, lut} or null. Planes run in IFD order by the
+// spec's default mapping, so plane p's channel follows from where C sits in the order.
+// The colour is OME's signed RGBA integer, matched to the nearest LUT this app has.
+function _omeChannel(desc, page){
+  if(!desc||!/<Channel\b/.test(desc)) return null;
+  const px=/<Pixels\b[^>]*>/.exec(desc); if(!px) return null;
+  const at=(k,src)=>{ const m=new RegExp('\\b'+k+'\\s*=\\s*"([^"]*)"').exec(src); return m?m[1]:null; };
+  const order=(at('DimensionOrder',px[0])||'XYCZT').toUpperCase();
+  const sz={Z:+at('SizeZ',px[0])||1, C:+at('SizeC',px[0])||1, T:+at('SizeT',px[0])||1};
+  const chans=(desc.match(/<Channel\b[^>]*>/g)||[]);
+  if(!chans.length) return null;
+  let stride=1;
+  for(const d of order.slice(2)){ if(d==='C') break; stride*=sz[d]||1; }
+  const c=Math.floor((page|0)/stride)%Math.max(1,Math.min(sz.C,chans.length)||chans.length);
+  const tagC=chans[c]; if(!tagC) return null;
+  const name=(at('Name',tagC)||'').trim();
+  const col=at('Color',tagC);
+  let lut=null;
+  if(col!=null&&/^-?\d+$/.test(col.trim())){
+    const v=(+col)>>>0, r=(v>>>24)&255, g=(v>>>16)&255, b=(v>>>8)&255;
+    lut=_lutForRgb(r,g,b);
+  }
+  if(!name&&!lut) return null;
+  return {name:name||null, lut};
+}
+// The LUT whose full-intensity colour is nearest an RGB triple; null for white/grey,
+// which is a plain greyscale channel.
+function _lutForRgb(r,g,b){
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+  if(mx<1||mx-mn<mx*0.25) return null;
+  const C={blue:[0,0,255],green:[0,255,0],red:[255,0,0],magenta:[255,0,255],cyan:[0,255,255],yellow:[255,255,0],orange:[255,128,0]};
+  const n=[r/mx,g/mx,b/mx];
+  let best=null, bd=1e9;
+  for(const [k,v] of Object.entries(C)){ const d=(n[0]-v[0]/255)**2+(n[1]-v[1]/255)**2+(n[2]-v[2]/255)**2; if(d<bd){ bd=d; best=k; } }
+  return best;
 }
 
 // When was this plane acquired? Two different answers, both useful and neither
@@ -3723,7 +3775,7 @@ async function _loadTIFFFile(f, fail){
     // are a PNG data URL, but that is an internal copy, not the source. A page of a
     // multi-page file records which page, and of how many (_sourceName).
     const toImg=_tiffResToImg;
-    const calibOf=(res,p)=>({umPerPx:res.umPerPx||0, source:res.calibSource||'',
+    const calibOf=(res,p)=>({umPerPx:res.umPerPx||0, source:res.calibSource||'', chan:res.chan||null, bits:res.bits||0,
                          deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||'',
                          page:p, pages:p?total:undefined});
     const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
@@ -4021,6 +4073,17 @@ function _commitImage(img,src,name,svgSource,calib,raw){
   const cat=(calib&&calib.acqTime!=null)?calib.acqTime:null; // absolute epoch ms
   const cts=(calib&&calib.timeSource)||'';
   const cpg=(calib&&calib.page>0)?{srcPage:calib.page, srcPages:calib.pages||undefined}:{};
+  // An OME-TIFF names its channels and gives each a colour: the panel takes both, so a
+  // 3-channel file opens as DAPI / GFP-LC3 / CellMask in their own colours instead of
+  // three grey pages all called whatever the filename happens to contain.
+  const och=(calib&&calib.chan)||null;
+  const chanInit={};
+  if(och&&och.name) chanInit.chan=och.name;
+  if(och&&och.lut) chanInit.lut=och.lut;
+  // The file's bit depth, so a panel whose native samples are not kept can say that its
+  // numbers are 8-bit display values, not the file's.
+  const cbits=(raw&&raw.bps)||(calib&&calib.bits)||0;
+  if(cbits>8) chanInit.srcBits=cbits;
   // only keep native samples that actually match the committed pixels
   if(raw && (raw.w!==img.naturalWidth || raw.h!==img.naturalHeight)) raw=null;
   if(layoutMode==='freeform'){
@@ -4035,18 +4098,27 @@ function _commitImage(img,src,name,svgSource,calib,raw){
       invert:false,lut:'none',gamma:1.0,
       umPerPx:cu, sbUm:10, sbUnit:'µm', sbOn:cu>0, _metaUmPerPx:cu, _metaCalibSource:cs,
       _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts, ...cpg,
-      svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null});
+      svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null, ...chanInit});
   } else {
     const newImg = {id:Date.now()+Math.random(),img,src,name,
       svgSource:svgSource||null, isVector:!!svgSource, raw:raw||null,
       _metaUmPerPx:cu, _metaCalibSource:cs,
       _metaDeltaT:cdt, _metaAcqTime:cat, _metaTimeSource:cts, ...cpg,
-      label:nextLabel(),sbOn:true,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
+      // A scale bar only where there is a scale: switched on for a calibrated image and
+      // off for everything else (a blot, a chart screenshot, a plate photo nobody has
+      // measured yet). It used to be on for every import, so each uncalibrated panel
+      // carried a "⚠ calibrate" badge and failed the compliance check until its bar was
+      // switched off by hand. Calibrating a panel switches its bar on.
+      label:nextLabel(),sbOn:cu>0,umPerPx:cu,sbUm:10,brightness:1,contrast:1,
       cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
       captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
       rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
       borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
-      lblDX:0,lblDY:0,sbDX:0,sbDY:0};
+      lblDX:0,lblDY:0,sbDX:0,sbDY:0, ...chanInit};
+    // A calibrated import gets a bar that fits: about a fifth of the field, a round 1-2-5
+    // length in nm, µm or mm — not a fixed 10 µm, which is sub-pixel on a plate photo
+    // and wider than the whole field on a TEM image.
+    if(cu>0) _fitScaleBar(newImg);
     _importUndo();
     if(!cpg.srcPage && images.some(im=>im&&im.name===name&&!im.srcPage)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
     // A figure opened without its pixels (share link, settings-only file, oversized
@@ -4110,7 +4182,7 @@ function _decodeImageFile(f, page){
       const res=p===1?first:await decodeTIFF(buf,p-1);
       const it=await _tiffResToImg(res,f.name); if(!it) return null;
       return {img:it.img, src:it.src, name:f.name, svgSource:null, raw:res.raw||null, page:p, pages:total, pageMissing:page>total?page:0,
-        calib:{umPerPx:res.umPerPx||0, source:res.calibSource||'', deltaT:res.deltaT==null?null:res.deltaT,
+        calib:{umPerPx:res.umPerPx||0, source:res.calibSource||'', chan:res.chan||null, bits:res.bits||0, deltaT:res.deltaT==null?null:res.deltaT,
           acqTime:res.acqTime==null?null:res.acqTime, timeSource:res.timeSource||'',
           page:total>1?p:0, pages:total>1?total:undefined}};
     }catch(e){ return null; }
@@ -4333,18 +4405,55 @@ function _aspectRatio(w,h){
   const g=(a,b)=>b?g(b,a%b):a; const d=g(w,h)||1; const rw=w/d, rh=h/d;
   return (rw<=25&&rh<=25) ? `${rw}:${rh}` : (w/h).toFixed(2)+':1';
 }
+// Which channel a filename names. Fiji's "Split Channels" and most acquisition software
+// put the channel LAST ("C3-HeLa_GFP-LC3_DMSO_60x_f01_CellMask.tif"), while a cell line
+// or a construct named earlier in the name ("GFP-LC3") is the same in every file. So
+// the name is read token by token and the last token that names a channel wins; a
+// "C<n>-" prefix is not a channel. Dyes beyond the fluorescent proteins are known
+// (CellMask, WGA, MitoTracker, phalloidin, Hoechst, Alexa dyes …). A fusion token such
+// as "GFP-LC3" keeps its own name. Falls back to a match anywhere in the name for
+// names with no separators.
+const _CHAN_DEFS=[
+  {re:/^(merge|merged|composite|overlay)$/, label:'Merge', lut:null, color:'#aaa'},
+  {re:/^(phase|dic|brightfield|bright-field|bf|trans)$/, label:'BF', lut:null, color:'#999'},
+  {re:/dapi|hoechst|^nuc(lei|lear|leus)?$/, label:'DAPI', lut:'blue', color:'#48f'},
+  {re:/cellmask|cell-mask/, label:'CellMask', lut:'magenta', color:'#e5e'},
+  {re:/^wga|wga\d*$/, label:'WGA', lut:'magenta', color:'#e5e'},
+  {re:/^(membrane|mem|fm4-?64|dil|did)$/, label:'Membrane', lut:'magenta', color:'#e5e'},
+  {re:/phalloidin|^f-?actin$/, label:'Phalloidin', lut:'magenta', color:'#e5e'},
+  {re:/mitotracker|^tmrm$/, label:'MitoTracker', lut:'magenta', color:'#e5e'},
+  {re:/lysotracker/, label:'LysoTracker', lut:'magenta', color:'#e5e'},
+  {re:/^(cfp|bfp|ecfp|cerulean|mturquoise2?)$/, label:'CFP', lut:'cyan', color:'#3cc'},
+  {re:/egfp|gfp|fitc|^yfp$|^venus$|mneongreen|alexa ?488|^af488$|^488$/, label:'GFP', lut:'green', color:'#3c3'},
+  {re:/mcherry|rfp|dsred|tdtomato|mscarlet|tritc|^cy3$|alexa ?(555|568|594)|^af(555|568|594)$|^(555|568|594)$|texas/, label:'RFP', lut:'magenta', color:'#e5e'},
+  {re:/^cy5$|alexa ?647|^af647$|^647$|far.?red|^sir$/, label:'Cy5', lut:'fire', color:'#e80'},
+];
+function _chanDefOfToken(t){
+  for(const m of _CHAN_DEFS){ if(m.re.test(t)) return m; }
+  return null;
+}
 function _detectChannel(name){
-  const n=(name||'').toLowerCase();
-  const map=[
-    {re:/dapi|hoechst|nucle/,               label:'DAPI', lut:'blue',    color:'#48f'},
-    {re:/gfp|fitc|alexa ?488|488|egfp/,     label:'GFP',  lut:'green',   color:'#3c3'},
-    {re:/mcherry|rfp|dsred|tritc|cy3|555|594|texas/, label:'RFP', lut:'magenta', color:'#e5e'},
-    {re:/cy5|alexa ?647|647|far.?red/,      label:'Cy5',  lut:'fire',    color:'#e80'},
-    {re:/merge|composite|overlay/,          label:'Merge',lut:null,      color:'#aaa'},
+  const raw=String(name||'').replace(/\.ome\.tiff?$/i,'').replace(/\.[a-z0-9]{2,5}$/i,'');
+  const toks=raw.split(/[_\s.]+/).filter(Boolean);
+  if(toks.length) toks[0]=toks[0].replace(/^c\d+-/i,'');
+  for(let k=toks.length-1;k>=0;k--){
+    const tok=toks[k], tl=tok.toLowerCase();
+    // the whole token ("GFP-LC3", "alexa488"), then its hyphen-separated parts
+    let m=_chanDefOfToken(tl), viaPart=false;
+    if(!m){ for(const part of tl.split('-')){ if(part&&(m=_chanDefOfToken(part))){ viaPart=true; break; } } }
+    if(!m) continue;
+    // a fusion like "GFP-LC3" or "mCherry-Parkin": the token is the channel's name
+    const fusion=/-/.test(tok)&&(m.label==='GFP'||m.label==='RFP'||m.label==='CFP')&&/[a-z]/i.test(tok.replace(/gfp|egfp|rfp|mcherry|cfp|-/ig,''));
+    return fusion ? {...m, label:tok} : m;
+  }
+  // No separators ("cellsdapi"): the old anywhere-in-the-name match.
+  const n=raw.toLowerCase();
+  const loose=[
+    {re:/dapi|hoechst|nucle/, d:2}, {re:/gfp|fitc|alexa ?488|488|egfp/, d:10}, {re:/mcherry|rfp|dsred|tritc|cy3|555|594|texas/, d:11},
+    {re:/cy5|alexa ?647|647|far.?red/, d:12}, {re:/merge|composite|overlay/, d:0},
     // \b fails on "cells_BF.tif": an underscore is a word character. Use letter gaps.
-    {re:/phase|(^|[^a-z])dic([^a-z]|$)|bright.?field|(^|[^a-z])bf([^a-z]|$)/, label:'BF', lut:null, color:'#999'},
-  ];
-  for(const m of map){ if(m.re.test(n)) return m; }
+    {re:/phase|(^|[^a-z])dic([^a-z]|$)|bright.?field|(^|[^a-z])bf([^a-z]|$)/, d:1}];
+  for(const L of loose){ if(L.re.test(n)) return _CHAN_DEFS[L.d]; }
   return null;
 }
 function _naturalCmp(a,b){
@@ -4463,10 +4572,33 @@ function autoDetectChannels(){
   if(!images.some(Boolean)){ toast('Add images first','warn'); return; }
   pushUndo();
   let n=0;
-  images.forEach(im=>{ if(!im) return; const ch=_detectChannel(im.name); if(ch&&ch.lut){ im.lut=ch.lut; n++; }
-    else if(ch&&ch.lut===null&&/bright|phase|dic|\bbf\b/.test((im.name||'').toLowerCase())){ im.grayscale=true; n++; } });
+  const seen=new Map();          // condition → channel → [labels]
+  images.forEach(im=>{ if(!im) return;
+    const ch=_detectChannel(im.chan||im.name);
+    if(ch&&ch.lut){ im.lut=ch.lut; n++; }
+    else if(ch&&ch.lut===null&&ch.label==='BF'){ im.grayscale=true; n++; }
+    else return;
+    if(im.excluded||_derivedPanel(im)) return;
+    // The condition is the name without its channel: "C2-HeLa_GFP-LC3_DMSO_…_GFP-LC3" and
+    // "C3-HeLa_GFP-LC3_DMSO_…_CellMask" are one field; two of its files on one channel
+    // is a detection the author should check.
+    const cond=_conditionKey(im.name);
+    if(!seen.has(cond)) seen.set(cond,new Map());
+    const g=seen.get(cond), k=_chanLabel(im)||ch.label;
+    if(!g.has(k)) g.set(k,[]); g.get(k).push(_rtText(formatLabel(im.label))||'?');
+  });
   renderImgList(); if(typeof renderChList==='function') renderChList(); scheduleRender();
-  toast(n?`Assigned channels to ${n} panel${n>1?'s':''} from filenames`:'No channel names detected in filenames','ok');
+  const clash=[]; seen.forEach(g=>g.forEach((who,k)=>{ if(who.length>1) clash.push(`${who.join(' and ')} both ${k}`); }));
+  if(clash.length) toast(`Assigned channels to ${n} panel${n>1?'s':''} — check: ${clash.join('; ')} in the same field. Click a panel's channel chip in the list to rename it.`,'warn');
+  else toast(n?`Assigned channels to ${n} panel${n>1?'s':''} from filenames`:'No channel names detected in filenames','ok');
+}
+// A file name without its channel: the field (condition, position) it was taken of.
+function _conditionKey(name){
+  const raw=String(name||'').replace(/\.ome\.tiff?$/i,'').replace(/\.[a-z0-9]{2,5}$/i,'');
+  const toks=raw.split(/[_\s.]+/).filter(Boolean);
+  if(toks.length) toks[0]=toks[0].replace(/^c\d+-/i,'');
+  for(let k=toks.length-1;k>=0;k--){ const t=toks[k].toLowerCase(); if(_chanDefOfToken(t)||t.split('-').some(x=>x&&_chanDefOfToken(x))){ toks.splice(k,1); break; } }
+  return toks.join('_').toLowerCase();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4763,11 +4895,21 @@ const CMD_REGISTRY=[
   {label:'Tag panels from acquisition time', keys:'tag acquisition time timestamp deltat ome tiff datetime elapsed time-lapse', run:()=>tagPanelsFromAcquisition()},
   {label:'Channel names on panels (toggle)', keys:'tag channel names coloured DAPI GFP merge label', run:()=>{ const el=document.getElementById('tag-channels'); if(el){ pushUndo(); el.checked=!el.checked; scheduleRender(); toast(el.checked?'Empty tags show channel names':'Channel names off','ok'); } }},
   {label:'Reset all crops',          keys:'reset clear undo crop all',          run:()=>resetScaleMatch()},
-  {label:'Trim borders on all panels', keys:'trim border margin white black auto crop plot scan', run:()=>trimBordersAll()},
+  {label:'Trim borders… (white or black margins, with a preview)', keys:'trim border borders margin margins white black remove auto crop plot scan screenshot edge', run:()=>trimBordersAll()},
   {label:'Crop to same physical area (µm)', keys:'crop match physical scale um area field of view', run:()=>matchScalePhysical()},
   {label:'Crop to same pixel size',  keys:'crop match pixel size aspect ratio', run:()=>matchScalePixels()},
   {label:'Crop to fill cells',       keys:'crop fill cell aspect letterbox bars white space', run:()=>fillCellsAll()},
   {label:'Same scale bar on all calibrated panels', keys:'scale bar uniform same length all calibrated', run:()=>uniformScaleBars()},
+  {label:'Same µm/px on ticked panels (copy a calibration)', keys:'copy calibration same magnification um µm per pixel ticked panels plate photo objective', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].umPerPx>0)?selectedPanel:images.findIndex(im=>im&&im.umPerPx>0); if(i>=0) copyCalibrationToTicked(i); else toast('Calibrate a panel first','warn'); }},
+  {label:'Column and row headings — edit their text', keys:'column header headers heading headings row labels column labels edit rename text title condition channel names', run:()=>{ if(!gc('show-col-labels')&&!gc('show-row-labels')){ sc('show-col-labels',true); onLayoutChange(); } _cmdpGoto('col-label-inputs','Type each column (and row) heading here'); }},
+  {label:'Scale bars off on uncalibrated panels', keys:'scale bar off remove hide no bar uncalibrated blot gel chart photo plate warning calibrate', run:()=>scaleBarsOffUncalibrated()},
+  {label:'Auto scale-bar length (selected panel)', keys:'scale bar auto length fit fifth field nm µm mm tem', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(im=>im&&im.umPerPx>0); if(i>=0) autoScaleBar(i); else toast('Calibrate a panel first','warn'); }},
+  {label:'Auto-detect a burned-in scale bar (selected panel)', keys:'scale bar detect burned in embedded tem microscope info strip calibrate nm', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean); if(i>=0) autoDetectScaleBar(i); else toast('Add an image first','warn'); }},
+  {label:'Ruler — measure a length (nm, µm, mm)', keys:'ruler measure measurement length distance size diameter capsid tail tem plaque nm micron mm', run:()=>{ const d=document.getElementById('measure-acc'); if(d) d.open=true; setTool('ruler'); }},
+  {label:'Count objects (plaques, colonies, cells) in a region', keys:'count counting plaque plaques colony colonies cells objects particles threshold measure dark light dish', run:()=>{ const d=document.getElementById('measure-acc'); if(d) d.open=true; setTool('measure-count'); }},
+  {label:'Counter — click to number marks', keys:'counter count click tally mark number cells', run:()=>setTool('counter')},
+  {label:'Measure intensity in a region (ROI)', keys:'roi region measure intensity mean area measurement', run:()=>{ const d=document.getElementById('measure-acc'); if(d) d.open=true; setTool('measure-roi'); }},
+  {label:'Line intensity profile', keys:'profile line intensity plot measure', run:()=>{ const d=document.getElementById('measure-acc'); if(d) d.open=true; setTool('measure-line'); }},
   {label:'Sync display range by channel (from selected panel)', keys:'sync levels display range black white point channel DAPI GFP identical settings', run:()=>syncLevelsByChannel(selectedPanel>=0?selectedPanel:images.findIndex(Boolean))},
   {label:'Crop shape: rectangle',    keys:'crop clip shape rectangle square',   run:()=>_cmdCropShape('rect')},
   {label:'Crop shape: circle',       keys:'crop clip shape circle round mask',  run:()=>_cmdCropShape('circle')},
@@ -5399,7 +5541,7 @@ function _refreshPreflight(){
   // Counted over the panels the export draws, as the compliance check does: a hidden
   // panel's scale bar is never exported, so warning about it was noise.
   const uncal=_figurePanels().filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
-  if(uncal) warns.push({t:'warn',m:`${uncal} panel(s) show a scale bar but aren't calibrated (⚠).`});
+  if(uncal) warns.push({t:'warn',m:`${uncal} panel(s) have a scale bar switched on but no calibration, so no bar is drawn. <button class="btn" style="padding:0 6px;font-size:10px" onclick="scaleBarsOffUncalibrated();this.disabled=true">No scale bar on these</button> or calibrate them (⚙ › 🔬 Calibrate from image).`});
   // The same panels the compliance check names, so the two never disagree.
   const _lowPpi=_panelPpiList(dpi).filter(p=>p.ppi<PANEL_MIN_PPI);
   if(_lowPpi.length) warns.push({t:'warn',
@@ -5492,6 +5634,195 @@ function _sbLabel(im){
   return `${+(Math.round(v*1000)/1000).toFixed(3)} ${u}`;                 // trim trailing zeros
 }
 function _sbUnitFor(um){ return um<1?'nm':um>=1000?'mm':'µm'; }            // pick a clean unit for a µm length
+
+// A scale-bar length for a field `fieldUm` wide: the 1-2-5 step (…, 50, 100, 200, 500 nm,
+// 1, 2, 5 µm, …, 1, 2, 5 mm) nearest a fifth of the field, kept between a tenth and a
+// quarter of it. Returns µm.
+function _sbFitUm(fieldUm){
+  if(!(fieldUm>0)) return 0;
+  const target=fieldUm*0.2, steps=[];
+  for(let e=Math.floor(Math.log10(fieldUm*0.1))-1;e<=Math.ceil(Math.log10(fieldUm*0.25))+1;e++)
+    for(const m of [1,2,5]) steps.push(+(m*Math.pow(10,e)).toPrecision(3));
+  const ok=steps.filter(v=>v>=fieldUm*0.1-1e-12&&v<=fieldUm*0.25+1e-12);
+  const pool=ok.length?ok:steps;
+  return pool.reduce((a,b)=>Math.abs(Math.log(b/target))<Math.abs(Math.log(a/target))?b:a);
+}
+// The width a panel SHOWS, in source pixels: its crop (tilt included), turned when the
+// panel is rotated a quarter turn. The scale bar is a fraction of this — never of the
+// cell's display width, which says nothing about how many source pixels it holds.
+function _visibleSrcWidth(im){
+  if(!im||!(im.img||im._imgEl)) return 0;
+  const g=_cropGeom(im);
+  const rot=((((im.rotate||0)%180)+180)%180)!==0;
+  return rot?g.sh:g.sw;
+}
+// Give a calibrated panel a bar that fits its field (unit chosen to keep the number
+// small). Returns false when it cannot (no calibration, no picture).
+function _fitScaleBar(im){
+  if(!im||!(im.umPerPx>0)) return false;
+  const w=_visibleSrcWidth(im); if(!(w>0)) return false;
+  const um=_sbFitUm(w*im.umPerPx); if(!(um>0)) return false;
+  im.sbUm=um; im.sbUnit=_sbUnitFor(um);
+  return true;
+}
+
+// Does the panel's bar length make a readable bar: between 5 % and 50 % of the field?
+function _sbFits(im){
+  const w=_visibleSrcWidth(im)*(im.umPerPx||0);
+  return w>0&&im.sbUm>0&&im.sbUm>=w*0.05&&im.sbUm<=w*0.5;
+}
+// A panel was just calibrated: its bar goes on, and a bar length that cannot be drawn
+// sensibly on this field (the default 10 µm on a TEM image or a plate photo) is
+// replaced by one that fits. A length the author chose that fits is kept.
+function _afterCalibration(im){
+  if(!im||!(im.umPerPx>0)) return '';
+  im.sbOn=true;
+  if(_sbFits(im)) return '';
+  _fitScaleBar(im);
+  return ` · scale bar ${_sbLabel(im)}`;
+}
+// One click for the panels that show no measured scale: their scale bars off. A blot, a
+// chart screenshot or a gene map has no µm/px and needs no bar; the badge, the export
+// warning and the compliance row all offer this beside "Calibrate".
+function scaleBarsOffUncalibrated(){
+  const list=(layoutMode==='freeform'?[]:images).filter(im=>im&&im.sbOn&&!(im.umPerPx>0));
+  if(!list.length){ toast('Every panel with a scale bar switched on is calibrated','ok'); return 0; }
+  pushUndo();
+  list.forEach(im=>{ im.sbOn=false; im._sbSkip=null; });
+  renderImgList(); scheduleRender(0);
+  logAction('scaleBarsOffUncalibrated',{panels:list.length});
+  toast(`Scale bar switched off on ${list.length} uncalibrated panel${list.length>1?'s':''} (${list.map(im=>_rtText(formatLabel(im.label))||'?').join(', ')})`,'ok');
+  return list.length;
+}
+// The list's scale-bar badges, refreshed after every render: "⚠ calibrate" and "⚠ no bar"
+// used to be written when the list was built, so a bar fixed by changing its length or
+// calibrating stayed flagged until something else rebuilt the list.
+function _syncSbBadges(){
+  document.querySelectorAll('#img-list .f-sbbadge').forEach(el=>{
+    const idx=+el.dataset.sbb, im=images[idx];
+    let h='';
+    if(im&&im.sbOn&&!(im.umPerPx>0)) h=`<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate — or switch the bar off with ✕ if this image has no scale (a blot, a chart, a photo).">⚠ calibrate</button><button type="button" class="f-sb-offbtn" data-sboff="${idx}" style="font-size:9px;color:var(--muted);background:none;border:1px solid var(--border);border-radius:3px;padding:0 3px;margin-left:2px;cursor:pointer" title="No scale bar on this panel">✕ bar</button>`;
+    else if(im&&im._sbSkip) h=`<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>`;
+    if(el._h!==h){ el.innerHTML=h; el._h=h; }
+  });
+}
+
+// ── Native (16-bit) display ranges ───────────────────────────
+// A >8-bit TIFF is decoded to 8 bits for display with its own range (0…its max), and
+// the native samples are kept on .raw. Black and white points are stored as 8-bit
+// values of that decode — but every number shown to the user, every comparison and
+// every sync is made in the FILE's units (camera counts), so two panels set to
+// "0–12000" show the same counts as the same grey even when one file's brightest pixel
+// is 20 000 and the other's 65 535. The display itself is computed from the native
+// samples (applyAdjust), so a narrow window is not 47 grey steps of an 8-bit copy.
+function _rawOf(o){
+  const r=o&&(o.raw||o.dispRaw); if(!r||!r.data) return null;
+  const g=o.img||o._imgEl; if(!g) return null;
+  const w=g.naturalWidth||g.width, h=g.naturalHeight||g.height;
+  return (r.w===w&&r.h===h)?r:null;
+}
+function _rawDec(r){
+  if(r.decHi!=null) return {lo:+r.decLo||0, hi:+r.decHi||1};
+  return r.format===3 ? {lo:r.min, hi:r.max} : {lo:0, hi:r.max>0?r.max:1};
+}
+function _toNative(o, v8){ const r=_rawOf(o); if(!r) return v8; const d=_rawDec(r); return d.lo+(+v8)*(d.hi-d.lo)/255; }
+function _fromNative(o, n){ const r=_rawOf(o); if(!r) return n; const d=_rawDec(r); return ((+n)-d.lo)*255/((d.hi-d.lo)||1); }
+function _fmtCounts(v, r){ return r&&r.format===3 ? String(+(+v).toPrecision(4)) : String(Math.round(v)); }
+// The display range as text: "192–20441 (16-bit counts)" or "0–255".
+function _rangeText(o, bp, wp){
+  bp=(bp==null?(o.blackPt||0):bp); wp=(wp==null?(o.whitePt==null?255:o.whitePt):wp);
+  const r=_rawOf(o);
+  if(r) return `${_fmtCounts(_toNative(o,bp),r)}–${_fmtCounts(_toNative(o,wp),r)}`;
+  return `${+(+bp).toFixed(2)}–${+(+wp).toFixed(2)}`;
+}
+// What a panel's display range is, in words, for Methods, metadata and PANEL_HISTORY:
+// "16-bit, displayed linearly from 192 to 20441 (native values)" for a panel with its
+// samples, "8-bit display range 0–255 of a 16-bit file whose samples were not kept" when
+// the samples were lost, or plain "0–255".
+function _levelsDisclosure(o){
+  const r=_rawOf(o);
+  if(r) return `${_rawDepth(r)}, displayed linearly from ${_fmtCounts(_toNative(o,o.blackPt||0),r)} to ${_fmtCounts(_toNative(o,o.whitePt==null?255:o.whitePt),r)} (native values)`;
+  const t=`${+(+(o.blackPt||0)).toFixed(2)}–${+(+(o.whitePt==null?255:o.whitePt)).toFixed(2)}`;
+  return o.srcBits>8 ? `8-bit display range ${t} of a ${o.srcBits}-bit file whose native samples were not kept (each file scaled 0…its maximum)` : t;
+}
+// Set a panel's (or channel's) black/white point from a value in native units, clamped
+// to the 8-bit decode's ends. Returns the 8-bit value stored.
+function _setLevelNative(o, which, n){
+  const r=_rawOf(o);
+  // With the native samples kept, the window may reach past this file's own maximum
+  // (another file of the same channel is brighter): the display is computed from the
+  // samples, so a white point of 30 000 counts on a file whose brightest pixel is
+  // 20 000 is honoured, not clipped to it. Without them, the 8-bit decode's ends bound it.
+  const lim=r ? [_fromNative(o, Math.min(0,r.min)), _fromNative(o, r.format===3?Math.max(r.max,n):(r.full||65535))] : [0,255];
+  let v=_fromNative(o, n);
+  v=Math.max(which==='black'?lim[0]:lim[0]+1e-6, Math.min(which==='black'?lim[1]-1e-3:lim[1], v));
+  const wp0=(o.whitePt==null?255:o.whitePt), bp0=(o.blackPt||0);
+  if(which==='black'){ if(v>=wp0) v=wp0-Math.max(1e-3,(wp0-lim[0])*1e-4); o.blackPt=+v.toFixed(5); }
+  else { if(v<=bp0) v=bp0+Math.max(1e-3,(lim[1]-bp0)*1e-4); o.whitePt=+v.toFixed(5); }
+  o._adjCache=undefined; o._adjKey=undefined;
+  return v;
+}
+
+// The value a level control shows: native units with the samples kept, else 8-bit.
+function _levelShown(o, which){
+  const v8=which==='black'?(o.blackPt||0):(o.whitePt==null?255:o.whitePt);
+  const r=_rawOf(o);
+  if(!r) return +(+v8).toFixed(2);
+  const n=_toNative(o,v8); return r.format===3?+n.toPrecision(5):Math.round(n);
+}
+function _setLevelShown(o, which, v){
+  v=parseFloat(v); if(!isFinite(v)) return;
+  if(_rawOf(o)){ _setLevelNative(o, which, v); return; }
+  if(which==='black'){ o.blackPt=Math.max(0,Math.min(254,Math.round(v))); const w=o.whitePt==null?255:o.whitePt; if(o.blackPt>=w) o.blackPt=w-1; }
+  else { o.whitePt=Math.max(1,Math.min(255,Math.round(v))); if(o.whitePt<=(o.blackPt||0)) o.whitePt=(o.blackPt||0)+1; }
+  o._adjCache=undefined; o._adjKey=undefined;
+}
+// Black/White point rows for a panel's drawer. A number box beside each slider takes an
+// exact value (255 steps across an 88 px slider cannot be hit with a mouse); for a file
+// with native samples both are in its units, and a line says what those are.
+function _levelFieldsHtml(im){
+  const r=_rawOf(im), bp=_levelShown(im,'black'), wp=_levelShown(im,'white');
+  const max=r?Math.max(_rawDec(r).hi,wp):255, step=r&&r.format===3?'any':1;
+  const unit=r?`<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">${esc(_rawDepth(r))} file: black and white points in its own values (this file ${_fmtCounts(r.min,r)}–${_fmtCounts(r.max,r)}). Sync by channel copies these values, so matched panels show the same values as the same grey.</div>`
+    : (im.srcBits>8?`<div class="f-lv-note" style="font-size:9px;color:var(--warn);line-height:1.35;margin:-2px 0 2px">${im.srcBits}-bit file, native samples not kept: these are 8-bit display values (the file was scaled 0…its maximum). Re-import the file to set levels in its own values.</div>`:'');
+  return `<div class="field">
+          <label>Black pt</label>
+          <input type="range" class="f-bpt" min="0" max="${r?max:254}" step="${step}" value="${bp}" style="width:88px">
+          <input type="number" class="f-bpt-v" min="0" max="${r?'':254}" step="${step}" value="${bp}" style="width:${r?62:44}px" aria-label="Black point${r?' (native value)':''}">
+        </div>
+        <div class="field">
+          <label>White pt</label>
+          <input type="range" class="f-wpt" min="${r?0:1}" max="${max}" step="${step}" value="${wp}" style="width:88px">
+          <input type="number" class="f-wpt-v" min="${r?0:1}" max="${r?'':255}" step="${step}" value="${wp}" style="width:${r?62:44}px" aria-label="White point${r?' (native value)':''}">
+        </div>${unit}`;
+}
+function _bindLevelFields(root, get, after){
+  const ctl={black:[root.querySelector('.f-bpt'),root.querySelector('.f-bpt-v')], white:[root.querySelector('.f-wpt'),root.querySelector('.f-wpt-v')]};
+  const set=(which,v,from)=>{ const o=get(); if(!o) return; _setLevelShown(o,which,v);
+    for(const w of ['black','white']) ctl[w].forEach(el=>{ if(el&&el!==from) el.value=_levelShown(o,w); });
+    after(); };
+  for(const w of ['black','white']){
+    if(ctl[w][0]) ctl[w][0].addEventListener('input',e=>set(w,e.target.value,e.target));
+    if(ctl[w][1]) ctl[w][1].addEventListener('change',e=>set(w,e.target.value,e.target));
+  }
+}
+
+// A panel made from another one (a merge, a part of a split, a linked inset): it shares
+// its file's name by design.
+function _derivedPanel(im){ return !!(im&&(im.insetOf!=null||(im.channels&&im.channels.length)||im._splitOf!=null)); }
+
+// ── Channel identity ─────────────────────────────────────────
+// Which channel a panel (or a merge's extra channel) shows. A name the author typed (⚙ ›
+// Channel, or the chip in the list), or the one an OME-TIFF gave it, wins; otherwise the
+// filename names it; otherwise the LUT's usual channel. Recolouring a panel does not
+// rename it — a GFP file shown in magenta is still GFP — but the LUT change says so and
+// points at the Channel field, which is how a mis-detected file is corrected.
+function _chanLabel(o){
+  if(!o) return null;
+  const typed=String(o.chan||'').trim(); if(typed) return typed;
+  const d=_detectChannel(o.name||'');
+  return (d&&d.label&&d.label!=='Merge')?d.label:null;
+}
 
 // Panels/objects whose scale bar is switched on and calibrated but fell outside the
 // drawable range, so render() painted nothing. `_sbSkip` is set by the two renderers
@@ -5593,7 +5924,7 @@ function renderImgList(){
   const _view=_listViewState(list);
   list.innerHTML = '';
   const _keys=_panelKeys();
-  const nameCounts={}; images.forEach(im=>{ if(im) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
+  const nameCounts={}; images.forEach(im=>{ if(im&&!_derivedPanel(im)&&!im.excluded) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
   const _placed=layoutMode==='freeform' ? null : new Set(_gridPlacements().filter(p=>p.im).map(p=>p.imgIdx));
   images.forEach((im, idx) => {
     if(!im){
@@ -5625,15 +5956,24 @@ function renderImgList(){
     item.draggable = true;
     const objOpts = Object.entries(OBJECTIVES).map(([k,v])=>
       `<option value="${v}" ${im.umPerPx===v?'selected':''}>${k} (${v})</option>`).join('');
-    const _iw=(im.img&&im.img.naturalWidth)||0, _ih=(im.img&&im.img.naturalHeight)||0;
+    // An inset shows a region of its parent's picture: its row gives the region's size,
+    // not the parent's whole frame.
+    let _iw=(im.img&&im.img.naturalWidth)||0, _ih=(im.img&&im.img.naturalHeight)||0;
+    if(im.insetOf!=null&&_iw){ const g=_cropGeom(im); _iw=Math.round(g.sw); _ih=Math.round(g.sh); }
     const _asp=(_iw&&_ih)?_aspectRatio(_iw,_ih):'';
-    const _ch=_detectChannel(im.name);
-    const _dup=nameCounts[im.name]>1;
+    // The channel this panel counts as (what Sync by channel, the tag and the key use),
+    // as a chip that opens the field to rename it.
+    const _chName=(im.lut&&im.lut!=='none')||(im.channels||[]).length ? _channelName(im) : _chanLabel(im);
+    const _chDef=_chName?(_detectChannel(_chName)||null):null;
+    const _ch=_chName?{label:_chName, color:(im.lut&&im.lut!=='none'&&_LUT_SWATCH[im.lut])||(_chDef&&_chDef.color)||'#aaa'}:null;
+    // A derived panel (a merge, a split part, an inset) shares its file's name on purpose,
+    // and a hidden source is not in the figure: neither is a "duplicate".
+    const _dup=!_derivedPanel(im)&&!im.excluded&&nameCounts[im.name]>1;
     item.innerHTML = `
       <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
         <input type="checkbox" class="panel-pick" data-pick="${idx}" aria-label="Tick panel ${esc(_rtText(formatLabel(im.label))||im.name||String(idx+1))}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
-        <img class="img-thumb" src="${_safeSrc(im._thumb||im.src)}" data-thumb="${im.id}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
+        <img class="img-thumb" src="${_safeSrc(im._thumb||im.src)}" data-thumb="${im.id}" draggable="false" title="${esc(im.name||'')}"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
@@ -5644,18 +5984,18 @@ function renderImgList(){
         <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
       </div>
       <div class="img-meta" style="font-size:10px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        <span class="f-fname" title="${esc(_sourceName(im)||im.name||'')}" style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);opacity:.8">${esc(im.name||'')}</span>
         ${_isDataPanel(im)?`<span title="Drawn from its data at its cell's size — vector in SVG, redrawn at the export resolution in PNG, TIFF and PDF">${im.type==='chart'?`📊 chart · ${((im.chart&&im.chart.data&&im.chart.data.rows)||[]).length} rows`:`🧬 gene map · ${_bpLabel(Math.max(1,(im.map&&im.map.length)|0))}`}</span>`
-          :_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
+          :_iw?`<span>${im.insetOf!=null?'inset ':''}${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
         <span class="f-ppi" data-ppi="${idx}" title="Pixels per inch this panel prints at: its source pixels across the crop divided by its printed width. Below ~300 ppi the export interpolates pixels the camera never recorded, and a higher export DPI does not change that."></span>
-        ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
+        ${_ch?`<button type="button" class="f-chan-chip" data-chanchip="${idx}" title="${esc(String(im.chan||'').trim()?'Channel name (typed)':'Channel '+(_detectChannel(im.name)&&_chanLabel(im)?'from the file name':'from the LUT'))} — Sync by channel, the tag and the legend key use it. Click to rename." style="font-size:10px;color:${_ch.color};background:none;border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5;cursor:pointer">${esc(_ch.label)}</button>`:''}
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
         ${_dup?`<span title="Another panel has the same filename" style="color:var(--warn)">⚠ duplicate name</span>`:''}
         <span class="f-span-note" data-span="${idx}" style="color:var(--warn)"></span>
         <!-- The warnings sit on this wrapping line: on the button row a "⚠ calibrate" pushed
              the lock, ⚙ and × out of the 279 px card, where nobody could see them. -->
         ${_placed&&!im.excluded&&!_placed.has(idx)?`<span class="f-offgrid" style="font-size:9px;color:var(--warn);flex-shrink:0" title="The grid has no cell left for this panel, so the figure does not draw it. Add rows or columns, or use Fit grid.">⚠ outside the grid</span>`:''}
-        ${im.sbOn && !im.umPerPx ? `<button type="button" class="f-calib-warn" data-calib="${idx}" style="font-size:9px;color:var(--warn);flex-shrink:0;background:none;border:1px solid var(--warn);border-radius:3px;padding:0 4px;cursor:pointer" title="This panel's scale bar is switched on but nothing can be drawn until you set µm/px. Click to calibrate.">⚠ calibrate</button>` : ''}
-        ${im._sbSkip ? `<span style="font-size:9px;color:var(--danger);flex-shrink:0" title="${esc('Scale bar switched on but NOT drawn: '+im._sbSkip)}">⚠ no bar</span>` : ''}
+        <span class="f-sbbadge" data-sbb="${idx}" style="display:inline-flex;flex-shrink:0"></span>
       </div>
       <div class="img-settings" id="settings-${idx}">
         <button class="btn" onclick="openReplaceImage(${idx})" style="width:100%;justify-content:center;margin-bottom:4px" title="Swap in another file and keep everything else: label, crop, tilt, rotation, adjustments, LUT, scale-bar settings, tags, annotations, span and insets. Calibration comes from the new file's metadata, or is kept only when the pixel dimensions are identical.">⇄ Replace image…</button>
@@ -5675,11 +6015,12 @@ function renderImgList(){
           </select>
           <button class="btn" style="padding:2px 6px" data-autosb="${idx}">Auto</button></div>
         <button class="btn" onclick="openCalib(${idx})" style="width:100%;justify-content:center;margin-top:2px">🔬 Calibrate from image</button>
+        <button class="btn" onclick="copyCalibrationToTicked(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Give the panels ticked in the list this panel's µm/px — photos taken at the same magnification. Each gets a bar that fits its own field; Methods says where the value came from.">⇉ Same µm/px on ticked panels</button>
         <button class="btn" onclick="autoDetectScaleBar(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Scan image for an embedded scale bar">🔍 Auto-detect scale bar</button>
         <button class="btn" onclick="readTIFFMetadata(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Read µm/px calibration from TIFF/LSM metadata tags">📎 Read TIFF metadata</button>
         <div class="divider"></div>
         <div class="sec-lbl">Crop</div>
-        <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-opencrop="${idx}">✂ Open Crop Editor</button>
+        <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-opencrop="${idx}"${im.insetOf!=null?' title="This is a linked inset: its crop is the region it magnifies on its panel"':''}>${im.insetOf!=null?'⧉ Edit inset region…':'✂ Open Crop Editor'}</button>
         <button class="btn" style="width:100%;justify-content:center;margin-bottom:4px" data-openmulticrop="${idx}" title="Cut several same-size regions out of this image — each becomes its own panel">⊞ Multi-crop into panels…</button>
         <div class="sec-lbl" style="margin-top:2px">Clip shape</div>
         <div style="display:flex;gap:4px;margin-bottom:4px">
@@ -5688,10 +6029,10 @@ function renderImgList(){
           <button class="btn cs-btn" data-cropshape="circle"  style="flex:1;justify-content:center;font-size:14px${im.cropShape==='circle' ?';border-color:var(--accent);color:var(--accent)':''}" title="Circle clip">◯</button>
         </div>
         <div class="inline-row" style="font-size:10px">
-          <span>T</span><input type="number" class="f-ct" value="${im.cropT}" min="0" max="49" step="0.1">
-          <span>L</span><input type="number" class="f-cl" value="${im.cropL}" min="0" max="49" step="0.1">
-          <span>B</span><input type="number" class="f-cb" value="${im.cropB}" min="0" max="49" step="0.1">
-          <span>R</span><input type="number" class="f-cr" value="${im.cropR}" min="0" max="49" step="0.1">
+          <span>T</span><input type="number" class="f-ct" value="${+(+im.cropT).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled title="Set by the inset region — use ⧉ Edit inset region…"':''}>
+          <span>L</span><input type="number" class="f-cl" value="${+(+im.cropL).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
+          <span>B</span><input type="number" class="f-cb" value="${+(+im.cropB).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
+          <span>R</span><input type="number" class="f-cr" value="${+(+im.cropR).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Panel border (this image)</div>
@@ -5726,16 +6067,7 @@ function renderImgList(){
         <div class="sec-lbl">Adjustments <span class="help-chip" tabindex="0" role="button" aria-label="About adjustments" data-tip="Brightness/contrast lighten or stretch tones; gamma brightens midtones without clipping black or white. Keep them consistent across panels of the same experiment and report changes in your methods.">?</span></div>
         <canvas class="f-hist" width="260" height="44"
           style="width:100%;border-radius:4px;background:#111;display:block;margin-bottom:4px"></canvas>
-        <div class="field">
-          <label>Black pt</label>
-          <input type="range" class="f-bpt" min="0" max="254" step="1" value="${im.blackPt||0}" style="width:88px">
-          <code class="f-bpt-v">${im.blackPt||0}</code>
-        </div>
-        <div class="field">
-          <label>White pt</label>
-          <input type="range" class="f-wpt" min="1" max="255" step="1" value="${im.whitePt||255}" style="width:88px">
-          <code class="f-wpt-v">${im.whitePt||255}</code>
-        </div>
+        ${_levelFieldsHtml(im)}
         <div class="field">
           <label>Brightness <code class="f-br-v">${im.brightness.toFixed(2)}</code></label>
           <input type="range" class="f-br" min="0.2" max="3" step="0.05" value="${im.brightness}">
@@ -5749,7 +6081,7 @@ function renderImgList(){
           <input type="range" class="f-gm" min="0.25" max="2.5" step="0.05" value="${im.gamma||1}">
         </div>
         <div class="preset-btns">
-          <button class="f-gray">Grayscale</button>
+          <button class="f-gray" aria-pressed="${im.grayscale?'true':'false'}" title="${im.lut&&im.lut!=='none'?'Show this pseudocoloured panel in greys (switches its LUT off)':'Show in greys'}"${im.grayscale?' style="border-color:var(--accent);color:var(--accent)"':''}>Grayscale${im.grayscale?' ✓':''}</button>
           <button class="f-inv">Invert</button>
           <button class="f-reset">Reset</button>
         </div>
@@ -5776,6 +6108,8 @@ function renderImgList(){
         </label>
         <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
         <div class="divider"></div>
+        <div class="field" style="margin-bottom:2px"><label title="Which channel this panel shows. Sync by channel matches panels by it, and the channel tag and the legend key print it. Blank: read from the file name, unless the LUT says otherwise.">Channel</label>
+          <input type="text" class="f-chan" value="${esc(im.chan||'')}" placeholder="${esc(_channelName(im)||'')}" list="chan-name-list" maxlength="40" style="width:110px"></div>
         <div class="sec-lbl">Tag (shown on the panel)</div>
         <input type="text" class="f-tag" value="${esc(im.tag||'')}" placeholder="e.g. 10 min, +ATc — blank: channel names if on" style="width:100%">
         <div class="field" style="margin-top:4px"><label title="A vertical LUT bar with the display range at its ends — for pseudocoloured or grayscale intensity panels">Intensity bar</label>
@@ -5792,11 +6126,13 @@ function renderImgList(){
     const labelInput = item.querySelector('.img-label-input');
     if(_isDataPanel(im)) _dataPanelDrawer(s, idx, im);
 
-    { const cw=item.querySelector('[data-calib]');
+    { const bb=item.querySelector('.f-sbbadge');
       // The badge was a 5x14 px inert glyph: the only sign that a switched-on scale bar
-      // cannot be drawn, and it did nothing when clicked. It now opens the very dialog
-      // that fixes it — the same call the compliance check's one-click fix already makes.
-      if(cw) cw.addEventListener('click', e=>{ e.stopPropagation(); openCalib(+cw.dataset.calib); }); }
+      // cannot be drawn, and it did nothing when clicked. It opens the very dialog that
+      // fixes it — or, with ✕, switches the bar off on an image that has no scale.
+      if(bb) bb.addEventListener('click', e=>{ const t=e.target.closest('[data-calib],[data-sboff]'); if(!t) return; e.stopPropagation();
+        if(t.dataset.calib!=null) openCalib(+t.dataset.calib);
+        else { const im=images[+t.dataset.sboff]; if(im){ pushUndo(); im.sbOn=false; renderImgList(); scheduleRender(0); toast(`No scale bar on ${_rtText(formatLabel(im.label))||'this panel'}`,'ok'); } } }); }
     item.querySelector('[data-del]').addEventListener('click', ()=>{
       pushUndo();
       _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
@@ -5818,15 +6154,21 @@ function renderImgList(){
 
     // Scale bar
     item.querySelector('.f-sb-on').addEventListener('change', e=>{ images[idx].sbOn=e.target.checked; scheduleRender(); });
+    const _calDone=()=>{ const im=images[idx]; const note=_afterCalibration(im);
+      const on=item.querySelector('.f-sb-on'); if(on) on.checked=!!im.sbOn;
+      const len=item.querySelector('.f-sbum'), un=item.querySelector('.f-sbunit');
+      if(len) len.value=+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit||'µm')*1000)/1000); if(un) un.value=im.sbUnit||'µm';
+      if(note) toast(`${_rtText(formatLabel(im.label))||'Panel'} calibrated${note}`,'ok'); };
     item.querySelector('.f-obj').addEventListener('change', e=>{
       const v=parseFloat(e.target.value);
-      if(!isNaN(v)&&v>0){ images[idx].umPerPx=v; item.querySelector('.f-umppx').value=v; }
+      if(!isNaN(v)&&v>0){ images[idx].umPerPx=v; item.querySelector('.f-umppx').value=v; _calDone(); }
       scheduleRender();
     });
     item.querySelector('.f-umppx').addEventListener('input', e=>{
       images[idx].umPerPx=parseFloat(e.target.value)||0;
       item.querySelector('.f-obj').value=''; scheduleRender();
     });
+    item.querySelector('.f-umppx').addEventListener('change', ()=>{ if(images[idx].umPerPx>0){ _calDone(); scheduleRender(); } });
     item.querySelector('.f-sbum').addEventListener('input', e=>{ const im=images[idx]; const u=im.sbUnit||'µm'; im.sbUnit=u; im.sbUm=(parseFloat(e.target.value)||0)*_sbUnitFactor(u); scheduleRender(); });
     { const us=item.querySelector('.f-sbunit'); if(us) us.addEventListener('change', e=>{ const im=images[idx]; im.sbUnit=e.target.value; const inp=item.querySelector('.f-sbum'); if(inp) inp.value=+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit)*1000)/1000); scheduleRender(); }); }
 
@@ -5842,7 +6184,14 @@ function renderImgList(){
     const ctSlider = item.querySelector('.f-ctr'), ctVal = item.querySelector('.f-ct-v');
     ctSlider.addEventListener('input', e=>{ images[idx].contrast=parseFloat(e.target.value); ctVal.textContent=images[idx].contrast.toFixed(2); scheduleRender(0); });
 
-    item.querySelector('.f-gray').addEventListener('click', ()=>{ pushUndo(); images[idx].grayscale=!images[idx].grayscale; scheduleRender(0); });
+    // Grayscale is applied before a LUT, so on a pseudocoloured panel it changed nothing
+    // you could see — and the Methods then said the panel "was converted to grayscale".
+    // On a LUT panel it now switches the LUT off (the panel turns grey, the levels stay).
+    item.querySelector('.f-gray').addEventListener('click', ()=>{ pushUndo(); const im=images[idx];
+      if(im.lut&&im.lut!=='none'){ const was=LUT_INFO[im.lut]?LUT_INFO[im.lut].btn:im.lut; im.lut='none'; im.grayscale=false;
+        toast(`${_rtText(formatLabel(im.label))||'Panel'} shown in greys: ${was} LUT switched off (levels kept)`,'ok'); }
+      else im.grayscale=!im.grayscale;
+      im._adjCache=undefined; im._adjKey=undefined; renderImgList(); scheduleRender(0); });
     item.querySelector('.f-inv').addEventListener('click',  ()=>{ pushUndo(); images[idx].invert=!images[idx].invert; scheduleRender(0); });
     item.querySelector('.f-reset').addEventListener('click',()=>{
       pushUndo();
@@ -5905,26 +6254,26 @@ function renderImgList(){
     item.querySelector('[data-fliph]').addEventListener('click',()=>{ pushUndo(); images[idx].flipH=!images[idx].flipH; scheduleRender(); });
     item.querySelector('[data-flipv]').addEventListener('click',()=>{ pushUndo(); images[idx].flipV=!images[idx].flipV; scheduleRender(); });
 
-    // B/W point sliders
-    const bptSlider=item.querySelector('.f-bpt'), bptVal=item.querySelector('.f-bpt-v');
-    const wptSlider=item.querySelector('.f-wpt'), wptVal=item.querySelector('.f-wpt-v');
-    bptSlider.addEventListener('input',e=>{
-      images[idx].blackPt=parseInt(e.target.value)||0;
-      if(images[idx].blackPt>=images[idx].whitePt) images[idx].blackPt=images[idx].whitePt-1;
-      bptVal.textContent=images[idx].blackPt; scheduleRender(0);
-    });
-    wptSlider.addEventListener('input',e=>{
-      images[idx].whitePt=parseInt(e.target.value)||255;
-      if(images[idx].whitePt<=images[idx].blackPt) images[idx].whitePt=images[idx].blackPt+1;
-      wptVal.textContent=images[idx].whitePt; scheduleRender(0);
-    });
+    // B/W points: a slider and a number box each, in the file's own units (camera
+    // counts for a 16-bit file with its samples kept, else 0–255).
+    _bindLevelFields(item, ()=>images[idx], ()=>scheduleRender(0));
 
     // LUT buttons
     item.querySelectorAll('.f-lut').forEach(btn=>{
       btn.addEventListener('click',()=>{
-        images[idx].lut=btn.dataset.lut||'none';
+        const im=images[idx], was=_channelName(im);
+        im.lut=btn.dataset.lut||'none';
         item.querySelectorAll('.f-lut').forEach(b=>b.classList.remove('lut-active'));
         btn.classList.add('lut-active');
+        // A grayscale panel recoloured: Grayscale off, or the LUT would not be the point.
+        if(im.lut!=='none'&&im.grayscale) im.grayscale=false;
+        // A colour that is not the usual one for the channel the file name gives: the panel
+        // still counts as that channel for Sync by channel and the key. Say so, and where
+        // to rename it when the detection was wrong.
+        const now=_channelName(im), d=_detectChannel(im.name||'');
+        if(!String(im.chan||'').trim()&&d&&d.lut&&im.lut!=='none'&&im.lut!==d.lut)
+          toast(`${_rtText(formatLabel(im.label))||'This panel'} still counts as ${now} (from its file name) for Sync by channel and the key — if it is another channel, name it in ⚙ › Channel`,'info');
+        const chip=item.querySelector('[data-chanchip]'); if(chip) chip.textContent=now;
         scheduleRender(0);
       });
     });
@@ -5949,6 +6298,17 @@ function renderImgList(){
 
     item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
+    { const fc=item.querySelector('.f-chan');
+      if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan;
+        // The colour already carries another name in Legend key › Channel names: that name
+        // is what the key and tags print, so it follows the one just typed.
+        const rn=im.lut&&im.lut!=='none'?_keyRename(im.lut):'';
+        if(v&&rn&&rn!==v&&typeof setKeyChannelName==='function') setKeyChannelName(im.lut, v);
+        renderImgList(); scheduleRender(); }); }
+    { const cc=item.querySelector('[data-chanchip]');
+      if(cc) cc.addEventListener('click', e=>{ e.stopPropagation();
+        if(!s.classList.contains('open')){ s.classList.add('open'); gear.classList.add('active'); }
+        const fc=item.querySelector('.f-chan'); if(fc){ fc.scrollIntoView({block:'nearest'}); fc.focus(); fc.select(); } }); }
     item.querySelector('.f-cbar').addEventListener('change', e=>{ pushUndo(); images[idx].cbar=e.target.checked; scheduleRender(); });
     item.querySelector('.f-meta').addEventListener('input', e=>{ images[idx].metaNote=e.target.value; });
 
@@ -5981,13 +6341,17 @@ function renderImgList(){
         const lv=document.createElement('div');
         lv.className='ch-levels';
         lv.style.cssText='display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);margin:0 0 3px 6px';
-        lv.innerHTML=`<span title="Black point of this channel">B</span><input type="range" class="ch-bpt" min="0" max="254" step="1" value="${ch.blackPt||0}" style="flex:1;min-width:40px"><code class="ch-bpt-v" style="width:22px;text-align:right">${ch.blackPt||0}</code>`
-          +`<span title="White point of this channel">W</span><input type="range" class="ch-wpt" min="1" max="255" step="1" value="${ch.whitePt==null?255:ch.whitePt}" style="flex:1;min-width:40px"><code class="ch-wpt-v" style="width:22px;text-align:right">${ch.whitePt==null?255:ch.whitePt}</code>`;
+        const _cv=(w)=>_levelShown(ch,w);
+        const _cr=_rawOf(ch), _cmax=_cr?Math.max(_rawDec(_cr).hi,_cv('white')):255, _cst=_cr&&_cr.format!==3?1:(_cr?'any':1);
+        lv.innerHTML=`<span title="Black point of this channel${_cr?' (native values)':''}">B</span><input type="range" class="ch-bpt" min="0" max="${_cmax}" step="${_cst}" value="${_cv('black')}" style="flex:1;min-width:40px"><input type="number" class="ch-bpt-v" min="0" step="${_cst}" value="${_cv('black')}" style="width:${_cr?52:38}px;font-size:9px;padding:0 2px" aria-label="Black point of this channel">`
+          +`<span title="White point of this channel${_cr?' (native values)':''}">W</span><input type="range" class="ch-wpt" min="0" max="${_cmax}" step="${_cst}" value="${_cv('white')}" style="flex:1;min-width:40px"><input type="number" class="ch-wpt-v" min="0" step="${_cst}" value="${_cv('white')}" style="width:${_cr?52:38}px;font-size:9px;padding:0 2px" aria-label="White point of this channel">`;
         const _touch=()=>{ im2._adjCache=undefined; im2._adjKey=undefined; im2._compCache=undefined; im2._compKey=undefined; scheduleRender(); };
-        lv.querySelector('.ch-bpt').addEventListener('input',e=>{ const v=Math.min(+e.target.value,(im2.channels[ci].whitePt??255)-1); im2.channels[ci].blackPt=v; lv.querySelector('.ch-bpt-v').textContent=v; _touch(); });
-        lv.querySelector('.ch-wpt').addEventListener('input',e=>{ const v=Math.max(+e.target.value,(im2.channels[ci].blackPt||0)+1); im2.channels[ci].whitePt=v; lv.querySelector('.ch-wpt-v').textContent=v; _touch(); });
-        lv.querySelector('.ch-bpt').addEventListener('change',()=>pushUndo());
-        lv.querySelector('.ch-wpt').addEventListener('change',()=>pushUndo());
+        const _chSet=(which,v,from)=>{ _setLevelShown(im2.channels[ci],which,v);
+          ['bpt','wpt'].forEach(k=>{ const w=k==='bpt'?'black':'white'; lv.querySelectorAll(`.ch-${k},.ch-${k}-v`).forEach(el=>{ if(el!==from) el.value=_levelShown(im2.channels[ci],w); }); });
+          _touch(); };
+        ['bpt','wpt'].forEach(k=>{ const w=k==='bpt'?'black':'white';
+          lv.querySelector(`.ch-${k}`).addEventListener('input',e=>_chSet(w,e.target.value,e.target));
+          lv.querySelector(`.ch-${k}-v`).addEventListener('change',e=>_chSet(w,e.target.value,e.target)); });
         chList.appendChild(lv);
       });
     }
@@ -5998,21 +6362,29 @@ function renderImgList(){
       const f2=e.target.files[0]; if(!f2) return;
       e.target.value='';
       // One undo step: adding a channel could not be undone.
-      const addCh=(img2,src2)=>{
+      const addCh=(img2,src2,raw2,res2)=>{
         pushUndo();
         const _cbSafe=['magenta','green','cyan','yellow'];
         const _used=new Set([images[idx].lut, ...images[idx].channels.map(c=>c.lut)]);
-        const _lut=_cbSafe.find(l=>!_used.has(l))||'magenta';
-        images[idx].channels.push({name:f2.name, img:img2, src:src2, lut:_lut, blackPt:0, whitePt:255});
+        const _det=(res2&&res2.chan&&res2.chan.lut)||((_detectChannel(f2.name)||{}).lut);
+        const _lut=(_det&&!_used.has(_det))?_det:(_cbSafe.find(l=>!_used.has(l))||'magenta');
+        const ch={name:f2.name, img:img2, src:src2, lut:_lut, blackPt:0, whitePt:255};
+        // its native samples, so its levels are set in its own values like any 16-bit panel
+        if(raw2&&raw2.w===img2.naturalWidth&&raw2.h===img2.naturalHeight) ch.raw=raw2;
+        if(res2&&res2.chan&&res2.chan.name) ch.chan=res2.chan.name;
+        if(res2&&res2.bits>8) ch.srcBits=res2.bits;
+        images[idx].channels.push(ch);
         renderChList(); scheduleRender();
       };
       // Chromium's <img> cannot decode a TIFF and this path had no error handler, so
       // picking one did nothing at all. Use the decoder that opening a file uses.
       if(/\.tiff?$/i.test(f2.name)||f2.type==='image/tiff'){
+        let _res=null;
         f2.arrayBuffer().then(b=>decodeTIFF(new Uint8Array(b),0)).then(res=>{
+          _res=res;
           if(res.pages>1) toast(`Used page 1 of ${res.pages} from "${f2.name}"`,'info');
           return _tiffResToImg(res,f2.name);
-        }).then(it=>{ if(it) addCh(it.img,it.src); else toast(`"${f2.name}" could not be decoded as an image`,'err'); })
+        }).then(it=>{ if(it) addCh(it.img,it.src,_res&&_res.raw,_res); else toast(`"${f2.name}" could not be decoded as an image`,'err'); })
           .catch(err=>toast(`Couldn't open "${f2.name}" as a channel: ${(err&&err.message)||err}`,'err'));
         return;
       }
@@ -6279,22 +6651,32 @@ function matchScalePhysical(){
 // One bar length for every calibrated panel — the selected panel's, if it has one, or
 // a clean value about a fifth of the median field of view — and the bar switched on.
 // matchScalePhysical does this as a side effect of cropping; this does only the bars.
+// One bar length on every calibrated panel — from the selected panel, else a 1-2-5
+// length near a fifth of the median field. A panel on which that length could not be
+// drawn sensibly (a 43 µm-wide inset given a 40 µm bar) gets its own fitted length and
+// is named; it used to lose its bar without a word.
 function uniformScaleBars(){
-  const cal=images.filter(im=>im&&im.img&&im.umPerPx>0);
+  const cal=images.filter(im=>im&&im.img&&im.umPerPx>0&&!im.excluded);
   if(cal.length<2){ toast('Need two or more calibrated panels (set µm/px first)','warn'); return; }
   const sel=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].umPerPx>0&&images[selectedPanel].sbUm>0)?images[selectedPanel]:null;
   let um;
   if(sel) um=sel.sbUm;
   else {
-    const fovs=cal.map(im=>im.umPerPx*(im.img.naturalWidth||im.img.width)*(1-((im.cropL||0)+(im.cropR||0))/100)).sort((a,b)=>a-b);
-    um=_niceSnap(fovs[fovs.length>>1]*0.18);
+    const fovs=cal.map(im=>im.umPerPx*_visibleSrcWidth(im)).filter(v=>v>0).sort((a,b)=>a-b);
+    um=_sbFitUm(fovs[fovs.length>>1]);
   }
   if(!(um>0)){ toast('Could not choose a bar length','warn'); return; }
   pushUndo();
-  cal.forEach(im=>{ im.sbUm=um; im.sbOn=true; if(sel&&sel.sbUnit) im.sbUnit=sel.sbUnit; });
+  const own=[];
+  cal.forEach(im=>{
+    im.sbOn=true; im.sbUm=um; im.sbUnit=(sel&&sel.sbUnit)||_sbUnitFor(um);
+    if(!_sbFits(im)){ _fitScaleBar(im); own.push(`${_rtText(formatLabel(im.label))||'?'} ${_sbLabel(im)}`); }
+  });
   renderImgList(); scheduleRender(0);
-  logAction('uniformScaleBars',{panels:cal.length,um,from:sel?formatLabel(sel.label):'median'});
-  toast(`Scale bar ${_sbLabel(cal[0])} on ${cal.length} calibrated panel${cal.length>1?'s':''}${sel?` (from ${_rtText(formatLabel(sel.label))})`:''}`,'ok');
+  const lab={sbUm:um, sbUnit:(sel&&sel.sbUnit)||_sbUnitFor(um)};
+  logAction('uniformScaleBars',{panels:cal.length,um,from:sel?formatLabel(sel.label):'median',own:own.join(', ')});
+  toast(`Scale bar ${_sbLabel(lab)} on ${cal.length-own.length} calibrated panel${cal.length-own.length!==1?'s':''}${sel?` (from ${_rtText(formatLabel(sel.label))})`:''}`
+    +(own.length?` · too long or short for ${own.length}, which got their own: ${own.join(', ')} — state both lengths in the legend`:''),own.length?'warn':'ok');
 }
 
 function matchScalePixels(){
@@ -6435,21 +6817,17 @@ function resetScaleMatch(){
   toast('Crops reset','ok');
 }
 
+// Auto bar length: a 1-2-5 length near a fifth of what the panel SHOWS, in source
+// pixels × µm/px. It used to multiply the cell's display width (300 px) by the source
+// µm/px, so any image bigger than its cell got a bar several times too short (20 nm on
+// a 1 µm-wide TEM field; 2 mm on a 90 mm plate).
 function autoScaleBar(idx){
   const im=images[idx]; if(!im) return;
   if(!im.umPerPx){ toast('Set µm/px first','warn'); return; }
-  const cols=Math.max(1,gi('cols'));
-  const pw=Math.max(20,gi('panel-w'));
-  // Target bar ≈ 20% of panel width
-  const targetPx=pw*0.20;
-  const targetUm=targetPx*im.umPerPx;
-  // Round to nice number
-  const mag=Math.pow(10,Math.floor(Math.log10(targetUm)));
-  const nice=[1,2,5,10,20,50,100,200,500,1000,2000,5000];
-  const best=nice.reduce((a,b)=>Math.abs(b-targetUm/mag)<Math.abs(a-targetUm/mag)?b:a)*mag;
-  im.sbUm=best; im.sbOn=true; im.sbUnit=_sbUnitFor(best);   // pick a clean unit for the length
+  pushUndo();
+  _fitScaleBar(im); im.sbOn=true;
   renderImgList(); scheduleRender(0);
-  toast(`Auto scale bar: ${_sbLabel(im)}`,'ok');
+  toast(`Auto scale bar: ${_sbLabel(im)} (field ${_fovText(im)||'?'})`,'ok');
 }
 
 // ── Rotating a panel from the canvas ──────────────────────────────────────────
@@ -6567,6 +6945,14 @@ function applySettingsToAll(srcIdx){
 // across panels: the detected channel name, else the LUT's usual channel, else
 // "plain" for an unpseudocoloured image.
 function _levelKey(name, lut, hasChannels){
+  // A panel or channel object: the channel it was given (⚙ › Channel, OME), else the
+  // name its colour carries under Legend key › Channel names, else the file name's
+  // channel, else its LUT's channel.
+  if(name&&typeof name==='object'){ const o=name; lut=o.lut;
+    const typed=String(o.chan||'').trim(); if(typed) return typed;
+    const rn=lut&&lut!=='none'?_keyRename(lut):''; if(rn) return rn;
+    const c=_chanLabel(o); if(c) return c;
+    return (lut&&lut!=='none')?_lutChannelName(lut):'plain'; }
   if(lut&&lut!=='none') return _channelName(name, lut);
   const d=_detectChannel(name||'');
   return (d&&d.label&&d.label!=='Merge')?d.label:'plain';
@@ -6577,27 +6963,47 @@ function _levelKey(name, lut, hasChannels){
 // panel showing a different channel. This is what QuickFigures and OMERO.figure call
 // synchronising the rendering settings, and it is what "identical display settings"
 // in a legend has to mean when panels are compared. One undo step.
+//
+// For files whose native samples are kept (16-bit, float) the range is copied in the
+// FILE's units: "0–12000 counts" on the reference becomes 0–12000 counts on every other
+// panel of that channel, whatever 8-bit numbers that takes on each (every file is
+// decoded with its own 0…max range). Copying the 8-bit numbers made three GFP panels
+// read "0–255" while showing three different camera ranges. A panel that cannot be
+// matched that way — one side has native samples and the other does not — is left
+// alone and named, never matched by numbers that mean different things.
 function syncLevelsByChannel(srcIdx){
   const src=images[srcIdx]; if(!src||!src.img){ toast('Select a panel to take the levels from','warn'); return; }
   const ref=new Map();
-  const put=(key,bp,wp,gamma)=>{ if(!ref.has(key)) ref.set(key,{bp:bp||0, wp:(wp==null?255:wp), gamma}); };
-  put(_levelKey(src.name,src.lut), src.blackPt, src.whitePt, src.gamma||1);
-  (src.channels||[]).forEach(ch=>put(_levelKey(ch.name,ch.lut), ch.blackPt, ch.whitePt, null));
+  const put=(o,gamma)=>{ const key=_levelKey(o); if(ref.has(key)) return;
+    const r=_rawOf(o);
+    ref.set(key,{bp:o.blackPt||0, wp:(o.whitePt==null?255:o.whitePt), gamma,
+      native:r?{lo:_toNative(o,o.blackPt||0), hi:_toNative(o,o.whitePt==null?255:o.whitePt), fmt:r}:null}); };
+  put(src, src.gamma||1);
+  (src.channels||[]).forEach(ch=>put(ch, null));
   pushUndo();
-  let panels=0, chans=0; const touched=new Set();
+  let panels=0, chans=0; const touched=new Set(), skipped=[];
+  const apply=(o,r,who)=>{
+    const tr=_rawOf(o);
+    if(r.native&&tr){ _setLevelNative(o,'white',Math.max(r.native.hi,_toNative(o,o.blackPt||0)+1e-6)); _setLevelNative(o,'black',r.native.lo); _setLevelNative(o,'white',r.native.hi); return true; }
+    if(!r.native&&!tr){ o.blackPt=r.bp; o.whitePt=r.wp; return true; }
+    skipped.push(who); return false;
+  };
   images.forEach((im,i)=>{
     if(!im||i===srcIdx||!im.img) return;
-    const r=ref.get(_levelKey(im.name,im.lut));
+    const lbl=formatLabel(im.label)||'?';
+    const r=ref.get(_levelKey(im));
     let hit=false;
-    if(r){ im.blackPt=r.bp; im.whitePt=r.wp; if(r.gamma!=null) im.gamma=r.gamma; hit=true; panels++; }
-    (im.channels||[]).forEach(ch=>{ const rc=ref.get(_levelKey(ch.name,ch.lut)); if(rc){ ch.blackPt=rc.bp; ch.whitePt=rc.wp; ch._cropCache=undefined; ch._cropKey=undefined; hit=true; chans++; } });
-    if(hit){ im._adjCache=undefined; im._adjKey=undefined; touched.add(formatLabel(im.label)||'?'); }
+    if(r&&apply(im,r,lbl)){ if(r.gamma!=null) im.gamma=r.gamma; hit=true; panels++; }
+    (im.channels||[]).forEach(ch=>{ const rc=ref.get(_levelKey(ch)); if(rc&&apply(ch,rc,`${lbl} (${_channelName(ch)})`)){ ch._cropCache=undefined; ch._cropKey=undefined; hit=true; chans++; } });
+    if(hit){ im._adjCache=undefined; im._adjKey=undefined; touched.add(lbl); }
   });
   renderImgList(); scheduleRender(0);
-  const keys=[...ref.keys()].join(', ');
-  logAction('syncLevelsByChannel',{src:formatLabel(src.label), channels:keys, panels, extraChannels:chans});
-  if(!panels&&!chans) toast(`No other panel shows ${keys} — nothing to sync`,'warn');
-  else toast(`${keys} levels from ${_rtText(formatLabel(src.label))} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})`,'ok');
+  const keys=[...ref.keys()].filter(k=>k!=='plain').join(', ')||'this panel';
+  const what=[...ref.entries()].filter(([k])=>k!=='plain').map(([k,r])=>r.native?`${k} ${_fmtCounts(r.native.lo,r.native.fmt)}–${_fmtCounts(r.native.hi,r.native.fmt)}`:`${k} ${+(+r.bp).toFixed(2)}–${+(+r.wp).toFixed(2)}`).join(', ');
+  logAction('syncLevelsByChannel',{src:formatLabel(src.label), channels:keys, range:what, panels, extraChannels:chans, skipped:skipped.join(', ')});
+  const skipNote=skipped.length?` · not matched (one side has native samples, the other only 8-bit display values): ${skipped.join(', ')}`:'';
+  if(!panels&&!chans) toast(`No other panel shows ${keys} — nothing to sync${skipNote}`,'warn');
+  else toast(`${what} from ${_rtText(formatLabel(src.label))} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})${skipNote}`,skipped.length?'warn':'ok');
 }
 
 // Linked / "matched" panels: sync adjustments across a named comparison group,
@@ -6678,6 +7084,12 @@ const _LUT_SWATCH={blue:'#6a9cff',green:'#4ee04e',magenta:'#ff6bff',red:'#ff5a5a
   // a colour map's tag is written in its bright end, which is readable on a dark image
   viridis:'#70cf57', magma:'#fd9869', inferno:'#fb9d07', cividis:'#c4b468'};
 function _channelName(name, lut){
+  // A panel or channel object: the name its colour was given (Export › Legend key ›
+  // Channel names) wins for what is printed; else the panel's own channel (⚙ › Channel,
+  // an OME name, the file name); else its LUT's usual channel.
+  if(name&&typeof name==='object'){ const o=name, L=lut==null?o.lut:lut;
+    const rn=L&&L!=='none'?_keyRename(L):''; if(rn) return rn;
+    return _chanLabel(o)||_lutChannelName(L); }
   const r=lut&&lut!=='none'?_keyRename(lut):'';
   if(r) return r;
   const d=_detectChannel(name||'');
@@ -6694,9 +7106,9 @@ function _panelTagParts(im, lblClr){
   const el=document.getElementById('tag-channels');
   if(!(el&&el.checked)) return [];
   const parts=[], hasLut=!!(im.lut&&im.lut!=='none'), chans=im.channels||[];
-  if(hasLut||chans.length) parts.push({str:_channelName(im.name, im.lut), color:hasLut?(_LUT_SWATCH[im.lut]||lblClr):lblClr});
-  else { const d=_detectChannel(im.name||''); if(d&&d.label&&d.label!=='Merge') parts.push({str:d.label, color:lblClr}); }
-  chans.forEach(ch=>parts.push({str:_channelName(ch.name, ch.lut), color:_LUT_SWATCH[ch.lut]||lblClr}));
+  if(hasLut||chans.length) parts.push({str:_channelName(im), color:hasLut?(_LUT_SWATCH[im.lut]||lblClr):lblClr});
+  else { const c=_chanLabel(im); if(c) parts.push({str:c, color:lblClr}); }
+  chans.forEach(ch=>parts.push({str:_channelName(ch), color:_LUT_SWATCH[ch.lut]||lblClr}));
   return parts;
 }
 function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText, autoS){
@@ -6760,9 +7172,12 @@ function _drawIntensityBar(ctx, im, imgIdx, dx, dy, dw, dh, sbClr, emitText){
     ctx.restore();
   }
   const bp=im.blackPt||0, wp=(im.whitePt==null?255:im.whitePt);
-  const raw=im.raw, native=!!(raw&&raw.min!=null&&raw.max!=null&&raw.max>raw.min);
-  const toNative=v=>raw.min+(v/255)*(raw.max-raw.min);
-  const hi=_fmtBarVal(native?toNative(wp):wp), lo=_fmtBarVal(native?toNative(bp):bp);
+  // Native values through the decode's own mapping (0…file max for integers); this
+  // used to map 0–255 onto min…max, which is not what the decode does. A panel from a
+  // >8-bit file whose samples were not kept says its numbers are 8-bit display values,
+  // so matched panels never look mismatched (or the reverse) by accident.
+  const native=!!_rawOf(im);
+  const hi=_fmtBarVal(native?_toNative(im,wp):wp)+(!native&&im.srcBits>8?' (8-bit)':''), lo=_fmtBarVal(native?_toNative(im,bp):bp);
   // The figure's text size (Look › Typography), so it prints at that size at any panel width.
   const sfs=+_figTextPx().toFixed(2), font=`${sfs}px ${_barFontFamily()}`;
   emitText('cbar',imgIdx,hi, bx-3, by, font, sbClr, 'right','top',0);
@@ -6839,15 +7254,23 @@ function splitChannelRow(srcIdx){
   const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV',
     'sbOn','sbDX','sbDY','cbar','cbarDX','cbarDY','metaNote',
     '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'];
-  const mk=(src,imgEl,lut,cap,bp,wp)=>{
-    const p=_freshPanel(imgEl, src, (cap||'channel')+'.png', 'tmp');
+  // Each part is its channel's file again: its own name, its native samples (so its
+  // levels, intensity bar and measurements stay in camera counts) and its channel name.
+  // Parts used to be new 8-bit images called "DAPI.png", "GFP.png", "RFP.png" — three
+  // rows called GFP.png in a three-condition figure, and the far-red membrane dye
+  // called RFP.
+  const mk=(o,lut,bp,wp,raw)=>{
+    const cap=_channelName(o, lut);
+    const p=_freshPanel(o.img, o.src, o.name||((cap||'channel')+'.png'), 'tmp');
     p.lut=lut||'none'; p.blackPt=(bp!=null?bp:0); p.whitePt=(wp!=null?wp:255);
     p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.sbUnit=im.sbUnit; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
     for(const k of FRAME) if(im[k]!==undefined) p[k]=im[k];
+    p.raw=raw||null; if(o.chan) p.chan=o.chan; if(o.srcBits) p.srcBits=o.srcBits;
+    p._splitOf=im.id;
     return p;
   };
-  const parts=[ mk(im.src, im.img, im.lut, _lutChannelName(im.lut), im.blackPt, im.whitePt) ];
-  im.channels.forEach(ch=>parts.push(mk(ch.src, ch.img, ch.lut, _lutChannelName(ch.lut), ch.blackPt, ch.whitePt)));
+  const parts=[ mk(im, im.lut, im.blackPt, im.whitePt, im.raw||im.dispRaw) ];
+  im.channels.forEach(ch=>parts.push(mk(ch, ch.lut, ch.blackPt, ch.whitePt, ch.raw)));
   // The merge continues the original panel, so it keeps its id: a fresh one orphaned
   // any inset linked to it. The original is spliced out, so no two panels share it.
   const merge={...im, id:im.id, captionNote:'Merge',
@@ -10124,7 +10547,7 @@ function exportCSV(){
   // CropAngle + Resampling are stated as their own columns rather than folded into a
   // note: a tilted crop is the one crop that changes pixel values, so a reader
   // checking the table should not have to infer it.
-  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta';
+  const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta,DisplayRange';
   const lines=[header];
   _figurePanels().forEach((im,i)=>{
     lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(_rtText(im.label)),im.umPerPx||0,im.sbUm||0,
@@ -10141,7 +10564,10 @@ function exportCSV(){
       // Whatever acquisition time the file carried, as it was read — never inferred.
       _csvCell(im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():''),true),
       _csvCell(im.captionNote||'',true),
-      _csvCell(im.metaNote||'',true)].join(','));
+      _csvCell(im.metaNote||'',true),
+      // BlackPt/WhitePt are 8-bit display values; this says what they mean for the file
+      // (a 16-bit panel's window in its own values, linear).
+      _csvCell(_levelsDisclosure(im),true)].join(','));
   });
   dl(blobUrl(lines.join('\n')), (gv('export-name')||'figurelab')+'-metadata.csv');
   toast('CSV exported','ok');
@@ -10398,6 +10824,11 @@ function render(targetCanvas, exportScale, opts){
   _keySkipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : null);
   if(!isExport) _keyRefresh();            // the legend text, the switch and the button follow every redraw
   if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
+  // A hidden panel (the source files a merge parked, a panel hidden with 👁) is not drawn,
+  // so its full-resolution cached canvases are only memory: let them go. Its pixels and
+  // native samples stay.
+  if(!isExport) for(const im of images){ if(im&&im.excluded&&(im._adjCache||im._cropCache||im._compCache)){
+    im._adjCache=undefined; im._adjKey=undefined; im._cropCache=undefined; im._cropKey=undefined; im._compCache=undefined; im._compKey=undefined; } }
   _frameSink = [];
   _furnSink = (opts && opts.skipFurniture) ? [] : null;
   // opts.noBg: leave the figure and cell background transparent (the layered exports
@@ -11065,7 +11496,13 @@ function _cropDraw(im){
 
 function applyAdjust(im, sx, sy, sw, sh, srcOverride){
   const needLut=im.lut&&im.lut!=='none';
-  const needBW=(im.blackPt||0)>0||(im.whitePt||255)<255;
+  // A panel with its native samples may have a window past its 8-bit decode's ends
+  // (white above 255 = above this file's own maximum), so any change from 0–255 counts.
+  const _rw=_rawOf(im);
+  const needBW=_rw ? ((im.blackPt||0)!==0||(im.whitePt==null?255:im.whitePt)!==255) : ((im.blackPt||0)>0||(im.whitePt||255)<255);
+  // Levels are read from the native samples — single-channel (or LUT/greyscale shown)
+  // and untilted, where the source rect addresses the raw array directly.
+  const rawPath=!!(_rw&&needBW&&!srcOverride&&(_rw.spp<3||needLut||im.grayscale));
   const needGamma=(im.gamma||1)!==1;
   const needKey=!!(im.bgKey&&im.bgKey.on);
   // Freeform elements only gain brightness/contrast once a slider is touched, so treat
@@ -11080,7 +11517,7 @@ function applyAdjust(im, sx, sy, sw, sh, srcOverride){
   // cropAngle is part of the key: a tilted crop is handed a straightened canvas and
   // the rect degenerates to 0,0,w,h, which would otherwise collide with an untilted
   // full-frame crop of the same size and serve it the wrong pixels from cache.
-  const key=`${br}|${ct}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${needKey?`${bk.mode||'white'}:${bk.color||''}:${bk.tol||0}:${bk.feather||0}`:'0'}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}|${im.cropAngle||0}`;
+  const key=`${br}|${ct}|${im.gamma||1}|${im.lut||'none'}|${im.blackPt||0}|${im.whitePt||255}|${im.grayscale?1:0}|${im.invert?1:0}|${needKey?`${bk.mode||'white'}:${bk.color||''}:${bk.tol||0}:${bk.feather||0}`:'0'}|${Math.round(sx)}|${Math.round(sy)}|${Math.round(sw)}|${Math.round(sh)}|${im.cropAngle||0}|${rawPath?'R':''}`;
   if(im._adjKey===key && im._adjCache) return {off:true,canvas:im._adjCache};
   const c=document.createElement('canvas');
   c.width=Math.round(sw); c.height=Math.round(sh);
@@ -11089,27 +11526,47 @@ function applyAdjust(im, sx, sy, sw, sh, srcOverride){
   let f=`brightness(${br}) contrast(${ct})`;
   if(im.grayscale||needLut) f+=' grayscale(1)'; // LUTs need grayscale input
   if(im.invert) f+=' invert(1)';
-  ctx.filter=f;
-  ctx.drawImage(srcOverride||im.img,sx,sy,sw,sh,0,0,c.width,c.height);
-  ctx.filter='none';
+  if(rawPath){
+    // The window applied to the native samples, then brightness/contrast/invert as the
+    // 8-bit path applies them. Nearest sample: the canvas is the source rect at 1:1.
+    const W=c.width, H=c.height, r=_rw, lo=_toNative(im,im.blackPt||0), hi=_toNative(im,im.whitePt==null?255:im.whitePt);
+    const k=255/((hi-lo)||1), fx=sw/W, fy=sh/H, id=new ImageData(W,H), o=id.data, D=r.data;
+    for(let y=0;y<H;y++){
+      const row=Math.min(r.h-1,Math.max(0,Math.floor(sy+(y+0.5)*fy)))*r.w;
+      for(let x=0;x<W;x++){
+        const u=Math.min(r.w-1,Math.max(0,Math.floor(sx+(x+0.5)*fx)));
+        let v=(D[row+u]-lo)*k; v=v<0?0:v>255?255:Math.round(v);
+        const q=(y*W+x)*4; o[q]=o[q+1]=o[q+2]=v; o[q+3]=255;
+      }
+    }
+    if(br!==1||ct!==1||im.invert){
+      const t=document.createElement('canvas'); t.width=W; t.height=H; t.getContext('2d').putImageData(id,0,0);
+      ctx.filter=f; ctx.drawImage(t,0,0); ctx.filter='none';
+    } else ctx.putImageData(id,0,0);
+  } else {
+    ctx.filter=f;
+    ctx.drawImage(srcOverride||im.img,sx,sy,sw,sh,0,0,c.width,c.height);
+    ctx.filter='none';
+  }
   // Pixel-level: B/W clipping + LUT + gamma + background key
-  if(needBW||needLut||needGamma||needKey){
+  if((needBW&&!rawPath)||needLut||needGamma||needKey){
     const d=ctx.getImageData(0,0,c.width,c.height);
-    const bp=im.blackPt||0, wp=im.whitePt||255, range=Math.max(1,wp-bp);
+    const bp=rawPath?0:(im.blackPt||0), wp=rawPath?255:(im.whitePt||255), range=Math.max(1e-6,wp-bp);
     const lutFn=needLut?LUTS[im.lut]:null;
     const gInv=needGamma?1/(im.gamma||1):1;
     // Build gamma LUT for speed (256 entries)
     const gTab=needGamma?new Uint8Array(256):null;
     if(gTab){ for(let k=0;k<256;k++) gTab[k]=Math.round(Math.pow(k/255,gInv)*255); }
+    const doBW=needBW&&!rawPath;
     for(let i=0;i<d.data.length;i+=4){
       let v=d.data[i]; // R=G=B since grayscale
-      if(needBW) v=Math.round(Math.min(255,Math.max(0,(v-bp)*255/range)));
+      if(doBW) v=Math.round(Math.min(255,Math.max(0,(v-bp)*255/range)));
       if(lutFn){
         const [r,g,b]=lutFn(v);
         d.data[i]=needGamma?gTab[r]:r;
         d.data[i+1]=needGamma?gTab[g]:g;
         d.data[i+2]=needGamma?gTab[b]:b;
-      } else if(needBW){
+      } else if(doBW){
         const vg=needGamma?gTab[v]:v;
         d.data[i]=d.data[i+1]=d.data[i+2]=vg;
       } else if(needGamma){
@@ -11146,8 +11603,25 @@ function _applyBgKey(imgData, opt){
   }
 }
 
-// Multi-channel composite: screen-blend base + extra channels
+// A stable id for an object (an image, a canvas, a sample array), for cache keys.
+const _objIds=new WeakMap(); let _objIdN=0;
+function _objId(o){ if(!o||(typeof o!=='object'&&typeof o!=='function')) return 0; let v=_objIds.get(o); if(!v){ v=++_objIdN; _objIds.set(o,v); } return v; }
+// Multi-channel composite: screen-blend base + extra channels.
+// Cached per panel on everything it is made from. It was rebuilt on every redraw: for a
+// figure of 2048² merges that is three full-resolution canvases and three getImageData
+// copies per merge per frame — hundreds of MB of garbage each redraw, which is how a
+// tab with fifteen such panels died when the compliance check redrew it.
 function applyComposite(im, sx, sy, sw, sh, baseSrc){
+  const ck=[Math.round(sx),Math.round(sy),Math.round(sw),Math.round(sh),_objId(baseSrc),_objId(im.img),_objId(_rawOf(im)),
+    im.brightness??1,im.contrast??1,im.gamma||1,im.lut||'none',im.blackPt||0,im.whitePt==null?255:im.whitePt,im.grayscale?1:0,im.invert?1:0,
+    im.bgKey&&im.bgKey.on?JSON.stringify(im.bgKey):'',im.cropL||0,im.cropT||0,im.cropR||0,im.cropB||0,im.cropAngle||0,
+    ...(im.channels||[]).map(ch=>`${_objId(ch.img)}:${_objId(ch.raw)}:${ch.lut||'green'}:${ch.blackPt||0}:${ch.whitePt||255}`)].join('|');
+  if(im._compKey===ck&&im._compCache) return im._compCache;
+  const c=_applyCompositeUncached(im, sx, sy, sw, sh, baseSrc);
+  im._compCache=c; im._compKey=ck;
+  return c;
+}
+function _applyCompositeUncached(im, sx, sy, sw, sh, baseSrc){
   const c=document.createElement('canvas');
   c.width=Math.round(sw); c.height=Math.round(sh);
   const ctx2=c.getContext('2d');
@@ -11182,7 +11656,7 @@ function applyComposite(im, sx, sy, sw, sh, baseSrc){
       if(st){ ch._cropCache=st; ch._cropKey=`${cl}|${ct}|${cr}|${cb}|${im.cropAngle||0}`;
         chImg=st; csx=0; csy=0; csw=st.width; csh=st.height; }
     }
-    const chIm={img:chImg,brightness:1,contrast:1,grayscale:true,invert:false,
+    const chIm={img:chImg,brightness:1,contrast:1,grayscale:true,invert:false,raw:ch.raw||null,
                 lut:ch.lut||'green',blackPt:ch.blackPt||0,whitePt:ch.whitePt||255};
     const chSrc=applyAdjust(chIm,csx,csy,csw,csh);
     if(chSrc.off) ctx2.drawImage(chSrc.canvas,0,0,chSrc.canvas.width,chSrc.canvas.height,0,0,c.width,c.height);
@@ -11502,6 +11976,7 @@ function cropSelectedPanel(){
 function openCropModal(idx){
   if(mcSession.active && !_mcInternalOpen){ toast('Finish multi-crop first','warn'); return; }
   const im=images[idx]; if(!im) return;
+  if(im.insetOf!=null&&_findPanelById(im.insetOf)){ pickInsetRegion(idx); return; }
   // Convert existing crop % to normalised rect
   const l=im.cropL/100, t=im.cropT/100, r=im.cropR/100, b=im.cropB/100;
   const hasCrop=l>0.01||t>0.01||r>0.01||b>0.01;
@@ -11806,8 +12281,17 @@ function applyCropModal(){
     const {cx,cy,cw,ch,_insetOf,_insetOfId}=cropEdState;
     if(!(cw>0.02&&ch>0.02)){ toast('Draw the region to magnify first','warn'); return; }
     const pi=_insetOfId!=null?_pidx(_insetOfId):_insetOf;
-    cropEdState._insetOf=null; closeCropModal();
-    if(pi>=0&&images[pi]){ selectedPanel=pi; addLinkedInset(cx,cy,cw,ch); }
+    const ei=cropEdState._editInsetId!=null?_pidx(cropEdState._editInsetId):-1;
+    cropEdState._insetOf=null; cropEdState._editInsetId=null; closeCropModal();
+    if(ei>=0&&images[ei]){
+      // Editing an inset's region: the inset re-derives its crop from it, and the outline
+      // on the parent follows.
+      pushUndo();
+      const ins=images[ei]; ins.insetRect={x:cx,y:cy,w:cw,h:ch}; _syncInsetFromParent(ins);
+      renderImgList(); scheduleRender(0);
+      toast(`Inset ${_rtText(formatLabel(ins.label))} now magnifies ${(+(1/Math.max(cw,ch))).toFixed(1)}×`,'ok');
+    }
+    else if(pi>=0&&images[pi]){ selectedPanel=pi; addLinkedInset(cx,cy,cw,ch); }
     else toast(_PANEL_GONE,'warn');
     return;
   }
@@ -12151,23 +12635,57 @@ function trimCropBorders(){
   toast(`Trimmed to the content — ${_trimTxt(tb)}${wasTilted?' · tilt cleared':''}`,'ok');
 }
 // On every panel: replace each crop with its image's content bounds.
-function trimBordersAll(){
-  const valid=images.filter(im=>im&&im.img);
-  if(!valid.length){ toast('Add images first','warn'); return; }
-  pushUndo(); let n=0, skipped=0;
-  valid.forEach(im=>{
+// Trim borders on all panels — after showing what it would do. It used to trim every panel
+// with a uniform edge at once: the beige surround of a plate photo and the pale membrane
+// around a blot are uniform too, so a dish was cut at its rim and a blot cut into a strip
+// with its top bands sliced. Now only a near-white or near-black margin counts as a
+// border (what a saved plot, a screenshot or a scanner leaves), the panels are listed
+// with what each would lose, and blots and gels start unticked.
+let _trimPlan=null;
+function _trimIsWhiteOrBlack(img, tb){
+  // the colour of the border that was found: sample the first corner
+  try{ const c=document.createElement('canvas'); c.width=1; c.height=1; const x=c.getContext('2d'); x.drawImage(img,0,0,1,1,0,0,1,1);
+    const d=x.getImageData(0,0,1,1).data; const mn=Math.min(d[0],d[1],d[2]), mx=Math.max(d[0],d[1],d[2]);
+    return d[3]<8 || mn>=232 || mx<=24; }catch(e){ return false; }
+}
+function _trimPlanFor(list){
+  return list.map(im=>{
     const tb=_trimBounds(im.img);
-    if(!tb){ skipped++; return; }
-    if(tb.none) return;
+    if(!tb||tb.none||!_trimIsWhiteOrBlack(im.img,tb)) return null;
+    const kept=(1-tb.l-tb.r)*(1-tb.t-tb.b);
+    const blot=!!(im.gelAnalysis||(im.laneTable&&(im.laneTable.rows||[]).length)||/blot|western|gel|membrane|(^|[^a-z])wb([^a-z]|$)/i.test(im.name||''));
+    return {pid:im.id, label:_rtText(formatLabel(im.label))||'?', name:im.name||'', tb, kept, blot, tick:!blot};
+  }).filter(Boolean);
+}
+function trimBordersAll(){
+  const valid=images.filter(im=>im&&im.img&&!im.excluded&&im.insetOf==null);
+  if(!valid.length){ toast('Add images first','warn'); return; }
+  const sel=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].img)?images[selectedPanel]:null;
+  const plan=_trimPlanFor(valid);
+  if(!plan.length){ toast('No white or black margin to trim on any panel','ok'); return; }
+  _trimPlan=plan;
+  const pct=v=>`${(v*100).toFixed(1)}%`;
+  showInfoModal('Trim borders', `<p style="font-size:11px;margin-bottom:8px">A white or black margin was found on ${plan.length} panel${plan.length>1?'s':''}. Ticked panels are cropped to their content (the crop can be undone or changed later). Blots and gels start unticked, and a panel that would lose more than half its area is flagged — check them first.</p>`
+    +plan.map((p,k)=>`<label style="display:flex;gap:6px;align-items:flex-start;font-size:11px;margin:3px 0"><input type="checkbox" class="trim-pick" data-k="${k}"${p.tick?' checked':''}>
+      <span><b>${esc(p.label)}</b> ${esc(p.name)} — removes T ${pct(p.tb.t)} · L ${pct(p.tb.l)} · B ${pct(p.tb.b)} · R ${pct(p.tb.r)}, keeps ${Math.round(p.kept*100)}% of the area${p.blot?' <span style="color:var(--warn)">· a blot or gel: its membrane may be cut</span>':p.kept<0.5?' <span style="color:var(--warn)">· large trim</span>':''}</span></label>`).join('')
+    +`<div style="display:flex;gap:6px;margin-top:10px"><button class="btn btn-primary" id="trim-apply-btn" onclick="_trimApply()">Trim ticked panels</button>`
+    +(sel&&plan.some(p=>p.pid===sel.id)?`<button class="btn" onclick="_trimApply(${esc(JSON.stringify(sel.id))})">Only ${esc(_rtText(formatLabel(sel.label))||'the selected panel')}</button>`:'')+`</div>`);
+}
+function _trimApply(onlyPid){
+  const plan=_trimPlan||[]; _trimPlan=null;
+  const ticked=onlyPid!=null ? plan.filter(p=>p.pid===onlyPid)
+    : plan.filter((p,k)=>{ const cb=document.querySelector(`#info-modal-bg .trim-pick[data-k="${k}"]`); return cb?cb.checked:p.tick; });
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  if(!ticked.length){ toast('Nothing trimmed','ok'); return; }
+  pushUndo(); let n=0;
+  ticked.forEach(p=>{ const im=_findPanelById(p.pid); if(!im) return; const tb=p.tb;
     im.cropL=_cropPct(tb.l); im.cropT=_cropPct(tb.t); im.cropR=_cropPct(tb.r); im.cropB=_cropPct(tb.b);
     im.cropAngle=0;
     im._cropCache=undefined; im._cropKey=undefined; im._adjCache=undefined; im._adjKey=undefined;
-    n++;
-  });
+    n++; });
   renderImgList(); scheduleRender(0);
-  logAction('trimBorders',{panels:n, skipped});
-  toast(n?`Trimmed the borders of ${n} panel${n>1?'s':''}${skipped?` · ${skipped} had no single-colour border`:''}`
-         :'No single-colour borders to trim','ok');
+  logAction('trimBorders',{panels:n, skipped:plan.length-n});
+  toast(`Trimmed the borders of ${n} panel${n>1?'s':''} (${ticked.map(p=>p.label).join(', ')})`,'ok');
 }
 
 // ── Exact pixels ──────────────────────────────────────────────
@@ -13297,9 +13815,11 @@ function checkCompliance(){
   _shownPanels.forEach(im=>{
     if(!im.img) return;
     const lbl=_rtText(formatLabel(im.label))||'?';
-    const add=(key,bp,wp,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=`${bp||0}–${wp==null?255:wp}`; if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
-    if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)) add(_levelKey(im.name,im.lut), im.blackPt, im.whitePt, lbl);
-    (im.channels||[]).forEach(ch=>add(_levelKey(ch.name,ch.lut), ch.blackPt, ch.whitePt, lbl));
+    // In native units when the samples are kept: two 16-bit panels at 0–12000 counts
+    // match even though their 8-bit black/white points differ.
+    const add=(key,o,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=_rangeText(o); if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
+    if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)) add(_levelKey(im), im, lbl);
+    (im.channels||[]).forEach(ch=>add(_levelKey(ch), ch, lbl));
   });
   const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
   const _rangeKeys=[..._ranges.keys()].join(', ');
@@ -13327,15 +13847,16 @@ function checkCompliance(){
     {label:'Panel labels unique', ok:_dupLbls.length===0, warn:false,
       note:_dupLbls.length ? `${esc(_dupLbls.join(', '))} — the same label on more than one panel; rename one in the panel list or use Relabel A, B, C` : 'Every panel has its own label ✓'},
     {label:'Scale-bar calibration', ok:uncal===0, warn:false, info:!_shownPanels.some(im=>im.sbOn), uncounted:!_shownPanels.some(im=>im.sbOn),
-      note:uncal?`${uncal} scale bar(s) not calibrated (⚠)`:(_shownPanels.some(im=>im.sbOn)?'All calibrated ✓':'Does not apply — no panel has a scale bar switched on'),
-      fix:uncal?{a:'calibrate',t:'Calibrate'}:null},
+      note:uncal?`${uncal} scale bar(s) switched on without a calibration (${esc(_shownPanels.filter(im=>im.sbOn&&!(im.umPerPx>0)).map(im=>_rtText(formatLabel(im.label))||'?').join(', '))}) — calibrate a micrograph; a blot, gel, chart or photo with no scale needs no bar`
+        :(_shownPanels.some(im=>im.sbOn)?'All calibrated ✓':'Does not apply — no panel has a scale bar switched on'),
+      fix:uncal?{a:'calibrate',t:'Calibrate…'}:null, fix2:uncal?{a:'sboffuncal',t:'No scale bar on these'}:null},
     // A calibrated bar that falls outside the drawable range is simply not painted —
     // no bar, no label, no handle. Calibration alone therefore cannot be the test:
     // a mistyped µm/px used to ship a figure with no scale bar and a green report.
     {label:'Scale bar drawn', ok:_sbNotDrawn.length===0, warn:false,
       note:_sbNotDrawn.length
         ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}`
-        : (_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)?'Every enabled scale bar is drawn ✓':'Does not apply — no calibrated scale bar is switched on'),
+        : (_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)?(uncal?'Every calibrated scale bar is drawn (the uncalibrated ones above are not)':'Every enabled scale bar is drawn ✓'):'Does not apply — no calibrated scale bar is switched on'),
       info:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0), uncounted:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
     // Compared panels showing the same channel at different display ranges is the
@@ -13435,6 +13956,7 @@ function _auditFix(action){
       return;
     }
   }
+  else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='calibrate'){
     // The first uncalibrated panel the figure SHOWS: the report no longer counts
     // hidden ones, so opening the calibrator on one would fix nothing it flagged.
@@ -14100,19 +14622,24 @@ function _keyChannelRow(name, lut){
 function _keyImageRows(im, add){
   const nm=im.name||im.label||'', chans=(im.channels||[]).filter(ch=>ch&&ch.img);
   const hasLut=!!(im.lut&&im.lut!=='none'&&LUTS[im.lut]);
-  if(hasLut) add(_keyChannelRow(_keyChanName(nm, im.lut), im.lut));
-  else if(!chans.length){ const d=_detectChannel(nm); if(d&&d.label&&d.label!=='Merge') add(_keyChannelRow(d.label, 'grey')); }
+  if(hasLut) add(_keyChannelRow(_keyChanName(im, im.lut), im.lut));
+  else if(!chans.length){ const c=_chanLabel(im); if(c) add(_keyChannelRow(c, 'grey')); }
   chans.forEach(ch=>{
     const l=ch.lut||'green';
-    if(LUTS[l]) add(_keyChannelRow(_keyChanName(ch.name, l), l));
-    else add(_keyChannelRow(_channelName(ch.name, l), 'grey'));
+    if(LUTS[l]) add(_keyChannelRow(_keyChanName(ch, l), l));
+    else add(_keyChannelRow(_channelName(ch, l), 'grey'));
   });
 }
 // The name a channel shown in `lut` takes in the key.
-function _keyChanName(fileName, lut){
+// One path for channel names: the colour's name under Channel names, else the channel a
+// panel was given (⚙ › Channel, or its OME-TIFF), else the tag its colour's panels agree
+// on, else the file name. `o` is a panel or channel object (or, from older callers, a
+// file name).
+function _keyChanName(o, lut){
   const r=_keyRename(lut); if(r) return r;
+  const typed=o&&typeof o==='object'?String(o.chan||'').trim():''; if(typed) return typed.slice(0,60);
   const t=_keyLutTag(lut); if(t) return t;
-  return _channelName(fileName, lut);
+  return _channelName(o, lut);
 }
 // The tag typed on the figure's single-channel panels shown in `lut`, when every such
 // panel that has a tag has the same one ("CellMask" on each magenta panel); a series of
@@ -14699,6 +15226,17 @@ function drawAnnOverlay(){
   const W=annCanvas.width, H=annCanvas.height;
   gutterChips=[]; labelToggleHit=null;
   if(clipPreview||hiloPreview) _drawClipOverlay(ctx);   // under every interaction mark
+  // The last Count: its box (or dish) and a ring on every object it found, while the
+  // Count tool is in use. On screen only.
+  if(_countOverlay&&activeTool==='measure-count'){
+    const o=_countOverlay; ctx.save();
+    ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    if(o.round){ ctx.beginPath(); ctx.ellipse(o.rx+o.rw/2,o.ry+o.rh/2,o.rw/2,o.rh/2,0,0,Math.PI*2); ctx.stroke(); }
+    else ctx.strokeRect(o.rx,o.ry,o.rw,o.rh);
+    ctx.setLineDash([]); ctx.strokeStyle='#ff3b30'; ctx.lineWidth=1.2;
+    for(const [x,y] of o.pts){ ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.stroke(); }
+    ctx.restore();
+  }
 
   // Panel drag: source dimmed, drop target highlighted
   if(panelDragState && panelDragState.moved){
@@ -15096,6 +15634,11 @@ annCanvas.addEventListener('mousedown', e=>{
       sv('ann-color',a.color||'#ffffff'); sv('ann-width',a.width||2);
     } else {
       selectedPanelAnn=null; hideAnnFloat();
+      // A click on a panel, away from its marks, selects the panel — in 📌 Panel mode
+      // too. It used to select nothing, so "Add linked inset" (and every other
+      // selected-panel action) silently worked on another panel.
+      const pbSel=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
+      if(pbSel){ selectedPanel=pbSel.idx; if(typeof renderMiniGrid==='function') renderMiniGrid(); _syncInsetTargetNote(); }
     }
     drawAnnOverlay();
     return;
@@ -15703,7 +16246,11 @@ function showPanelMenu(idx, cx, cy){
       _withWaiting(()=>images.splice(idx+1,0,clone)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     if(_isDataPanel(im)) row(im.type==='chart'?'📊  Edit chart…':'🧬  Edit gene map…', ()=>{ const idx=here(); if(idx<0) return; openDataPanelEditor(idx); });
-    else row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
+    else {
+      row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
+      if(im.insetOf!=null) row('⧉  Edit inset region…', ()=>{ const idx=here(); if(idx<0) return; pickInsetRegion(idx); });
+      else row('⧉  Add linked inset…', ()=>{ const idx=here(); if(idx<0) return; selectedPanel=idx; pickInsetRegion(); });
+    }
     row('⚙  Open settings', ()=>{
       const idx=here(); if(idx<0) return;
       renderImgList();
@@ -16573,7 +17120,16 @@ function _panelPpiList(dpi){
   }
   return out;
 }
+// Which panel "Add linked inset" will use, under its button.
+function _syncInsetTargetNote(){
+  const el=document.getElementById('inset-target-note'); if(!el) return;
+  if(layoutMode==='freeform'){ el.textContent=''; return; }
+  const i=_insetTarget();
+  const t=i>=0?`Inset of: panel ${_rtText(formatLabel(images[i].label))||'?'}`:'Inset of: click a panel first';
+  if(el.textContent!==t) el.textContent=t;
+}
 function _syncPanelPpi(){
+  _syncSbBadges(); _syncInsetTargetNote();
   const els=document.querySelectorAll('.f-ppi'); if(!els.length) return;
   const dpi=getExportDPI();
   els.forEach(el=>{
@@ -17467,7 +18023,8 @@ function _complianceRowHtml(c){
   const st=c.unverified?'unv':c.ok?(c.info?'info':'ok'):c.warn?'warn':'fail';
   const icon={ok:'✓',info:'ℹ',unv:'?',warn:'⚠',fail:'✗'}[st];
   const color={ok:'var(--a2)',info:'var(--muted)',unv:'var(--muted)',warn:'var(--warn)',fail:'var(--danger)'}[st];
-  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${esc(c.fix.a)}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(c.fix.t)}</button>`:'';
+  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${esc(c.fix.a)}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'||c.fix.a==='calibrate'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(c.fix.t)}</button>`
+    +(c.fix2?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:4px" onclick="_auditFix('${esc(c.fix2.a)}')" title="One undo step; the report runs again">${esc(c.fix2.t)}</button>`:''):'';
   const src=c.src?`<span class="c-src" style="display:block;font-size:9.5px;color:var(--muted);opacity:.85">${c.unverified?'':'Source: '}${esc(c.src)}</span>`:'';
   return `<div class="compliance-row">
       <span class="c-icon" style="color:${color}">${icon}</span>
@@ -17799,22 +18356,57 @@ function _findPanelById(id){ return images.find(im=>im&&im.id===id)||null; }
 // panel actually shows — its visible crop, straightened if tilted — so the box you draw
 // is exactly the fraction insetRect stores. Until now the only region on offer was the
 // middle third.
-function pickInsetRegion(){
+// Which panel an inset is made of: the selected one, or the only panel the figure
+// shows. Never a hidden panel, and never "the first panel in the list" — that fallback
+// made an inset of a hidden source file, appended it hidden, and said nothing.
+function _insetTarget(){
+  const ok=i=>i>=0&&images[i]&&images[i].img&&!images[i].excluded&&images[i].insetOf==null;
+  if(ok(selectedPanel)) return selectedPanel;
+  const vis=images.map((im,i)=>i).filter(ok);
+  return vis.length===1?vis[0]:-1;
+}
+function _insetTargetWhyNot(){
+  const s=images[selectedPanel];
+  if(s&&s.insetOf!=null) return 'Pick the region on the parent panel, not on an inset';
+  if(s&&s.excluded) return `Panel ${_rtText(formatLabel(s.label))||''} is hidden — show it, or click the panel you want to magnify`;
+  return 'Click the panel you want to magnify first (or right-click it › ⧉ Add linked inset…)';
+}
+// What the panel SHOWS, for picking a region on it: its crop with its LUTs, levels and
+// merged channels — not the plain base channel in grey, on which the GFP puncta you want
+// to zoom in on were invisible.
+function _panelShownCanvas(src){
+  const cd=_cropDraw(src);
+  const out=document.createElement('canvas'); out.width=Math.max(1,Math.round(cd.sw)); out.height=Math.max(1,Math.round(cd.sh));
+  const x=out.getContext('2d');
+  let shown=null;
+  try{
+    if(src.channels&&src.channels.length) shown=applyComposite(src, cd.sx, cd.sy, cd.sw, cd.sh, cd.rotated?cd.img:null);
+    else { const a=applyAdjust(src, cd.sx, cd.sy, cd.sw, cd.sh, cd.rotated?cd.img:null); shown=a.off?a.canvas:null; }
+  }catch(e){ shown=null; }
+  if(shown) x.drawImage(shown,0,0,out.width,out.height);
+  else x.drawImage(cd.img, cd.sx,cd.sy,cd.sw,cd.sh, 0,0,out.width,out.height);
+  return {view:out, cd};
+}
+function pickInsetRegion(editInsetIdx){
   if(mcSession.active){ toast('Finish multi-crop first','warn'); return; }
-  const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  const editing=editInsetIdx!=null&&images[editInsetIdx]&&images[editInsetIdx].insetOf!=null;
+  const idx=editing?_pidx(images[editInsetIdx].insetOf):_insetTarget();
+  if(idx<0){ toast(editing?'This inset’s panel is gone':_insetTargetWhyNot(),'warn'); return; }
   const src=images[idx];
   if(!src||!src.img){ toast('Select a panel to magnify','warn'); return; }
-  if(src.insetOf){ toast('Pick the region on the parent panel, not on an inset','warn'); return; }
-  const cd=_cropDraw(src);
+  const {view, cd}=_panelShownCanvas(src);
   if(!(cd.sw>=2&&cd.sh>=2)){ toast('This panel shows too little to magnify','warn'); return; }
-  const view=document.createElement('canvas'); view.width=Math.round(cd.sw); view.height=Math.round(cd.sh);
-  view.getContext('2d').drawImage(cd.img, cd.sx,cd.sy,cd.sw,cd.sh, 0,0,view.width,view.height);
-  cropEdState={imgIdx:-1,_fmIdx:-1,_insetOf:idx,_insetOfId:_pidOf(idx),img:view,cx:1/3,cy:1/3,cw:1/3,ch:1/3,
+  const r=editing?images[editInsetIdx].insetRect:null;
+  cropEdState={imgIdx:-1,_fmIdx:-1,_insetOf:idx,_insetOfId:_pidOf(idx),_editInsetId:editing?_pidOf(editInsetIdx):null,img:view,
+               cx:r?r.x:1/3,cy:r?r.y:1/3,cw:r?r.w:1/3,ch:r?r.h:1/3,
                dragging:false,dx0:0,dy0:0,hasBox:true,ang:0};
-  document.getElementById('crop-modal-title').textContent=`⧉ Inset of ${formatLabel(src.label)||'this panel'}`;
-  document.getElementById('crop-modal-desc').textContent=
-    'Draw the region to magnify. The inset becomes a new panel bound to this one; lock the ratio to "this panel\'s cell" to fill its cell.';
-  document.getElementById('crop-apply-btn').textContent='⧉ Add inset';
+  document.getElementById('crop-modal-title').textContent=editing
+    ? `⧉ Region of inset ${formatLabel(images[editInsetIdx].label)||''} on ${formatLabel(src.label)||'its panel'}`
+    : `⧉ Inset of ${formatLabel(src.label)||'this panel'}`;
+  document.getElementById('crop-modal-desc').textContent=editing
+    ? 'Move or resize the region this inset magnifies; its outline on the parent follows.'
+    : 'Draw the region to magnify. The inset becomes a new panel bound to this one, placed right after it; lock the ratio to "this panel\'s cell" to fill its cell.';
+  document.getElementById('crop-apply-btn').textContent=editing?'✓ Update inset':'⧉ Add inset';
   const tr=document.getElementById('crop-tilt-row'); if(tr) tr.style.display='none';   // an inset takes its parent's tilt
   ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display='none'; });
   document.getElementById('crop-modal').classList.add('open');
@@ -17826,11 +18418,10 @@ function pickInsetRegion(){
     drawCropEd();
   });
 }
-
 function addLinkedInset(fx,fy,fw,fh){
-  const idx=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  const idx=_insetTarget();
   const src=images[idx];
-  if(!src){ toast('Select a panel to magnify','warn'); return; }
+  if(!src){ toast(_insetTargetWhyNot(),'warn'); return; }
   // Default to the middle third if no region was dragged.
   fx=(fx==null?1/3:fx); fy=(fy==null?1/3:fy); fw=(fw==null?1/3:fw); fh=(fh==null?1/3:fh);
   pushUndo();
@@ -17842,11 +18433,16 @@ function addLinkedInset(fx,fy,fw,fh){
   inset.colSpan=1; inset.rowSpan=1; inset.lblDX=0; inset.lblDY=0;
   inset.panelAnns=[];
   _syncInsetFromParent(inset);
-  images.push(inset);
+  inset.excluded=false;
+  // Next to its panel: inserted right after it. It used to go to the end of the list
+  // (after any hidden source files), so a figure of three merges got its three insets in
+  // a row of their own; now three insets and one more column give each row its zoom.
+  _withWaiting(()=>images.splice(idx+1,0,inset));
+  _growGridToFit();
   images.forEach(im=>{ if(im&&!im.label) im.label=nextLabel(); });
   onLayoutChange(); renderImgList(); scheduleRender(0);
   logAction('linkedInset',{parent:src.label||'?', magnification:+(1/Math.max(fw,fh)).toFixed(2)});
-  toast(`Inset linked to ${src.label||'the source panel'} — it follows that panel's adjustments`,'ok');
+  toast(`Inset ${_rtText(formatLabel(inset.label))} of ${_rtText(formatLabel(src.label))||'the source panel'} placed right after it — it follows that panel's adjustments. A whole column of insets: add a column (Arrange › Columns) after making them.`,'ok');
 }
 
 // Outline every inset's region on its parent, with the inset's letter — the convention
@@ -17950,10 +18546,15 @@ function _syncInsetFromParent(inset){
   // Everything that changes how the pixels are shown comes from the parent, so the two
   // panels can never display the same data two different ways.
   for(const k of ['brightness','contrast','gamma','blackPt','whitePt','grayscale','invert','lut','umPerPx','cropShape']) inset[k]=p[k];
-  inset.img=p.img; inset.src=p.src; inset.raw=p.raw;
+  // Re-derived on every frame. The caches are keyed on every setting above, so they are
+  // dropped only when the parent's picture itself changed: dropping them every frame
+  // re-processed each inset (a full-resolution composite, for an inset of a merge) on
+  // every redraw.
+  const newPic=inset.img!==p.img;
+  inset.img=p.img; inset.src=p.src; inset.raw=p.raw; inset.dispRaw=p.dispRaw;
   inset.channels=(p.channels||[]).map(c=>({...c}));
-  inset._adjCache=undefined; inset._adjKey=undefined;
-  inset._cropCache=undefined; inset._cropKey=undefined;
+  if(newPic){ inset._adjCache=undefined; inset._adjKey=undefined; inset._compCache=undefined; inset._compKey=undefined;
+    inset._cropCache=undefined; inset._cropKey=undefined; }
   return true;
 }
 // Called from render: keep every inset current, and disclose any whose parent is gone.
@@ -17989,7 +18590,7 @@ function _panelHistory(im){
   const src=im.img||im._imgEl;
   const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
   ops.push({op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims,
-    nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:'not retained (8-bit display)'});
+    nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:(im.srcBits>8?`not retained — ${im.srcBits}-bit file scaled 0…its maximum to 8 bits for display`:'not retained (8-bit display)')});
   // A panel whose file was swapped kept every setting below from the file before it.
   (im._replaced||[]).forEach(r=>ops.push({op:'replaceImage', from:r.from, to:r.to, at:r.at,
     note:`image replaced: ${r.from} → ${r.to}`}));
@@ -18007,6 +18608,9 @@ function _panelHistory(im){
   if((im.gamma||1)!==1) adj.gamma=im.gamma;
   if((im.blackPt||0)!==0) adj.blackPoint=im.blackPt;
   if((im.whitePt??255)!==255) adj.whitePoint=im.whitePt;
+  // What a 16-bit panel shows, in its own values — always, since even untouched levels
+  // are a choice of range (the decode's 0…file maximum).
+  if(_rawOf(im)||im.srcBits>8) adj.displayRange=_levelsDisclosure(im);
   if(im.grayscale) adj.grayscale=true;
   if(im.invert) adj.invert=true;
   if(Object.keys(adj).length) ops.push({op:'adjust', ...adj,
@@ -19877,6 +20481,7 @@ function openCalib(imgIdx){
   document.getElementById('calib-apply').disabled=true;
   document.getElementById('calib-result').textContent='';
   document.getElementById('calib-um').value='';
+  { const pe=document.getElementById('calib-px'); if(pe) pe.value=''; }
 
   const cc=document.getElementById('calib-canvas');
   const maxW=480, maxH=320;
@@ -19889,6 +20494,35 @@ function openCalib(imgIdx){
   ctx.drawImage(calibState.img,0,0,cc.width,cc.height);
 }
 function closeCalib(){ document.getElementById('calib-modal').classList.remove('open'); }
+// Two clicks (source px) that lie along a uniform bright or dark bar: the bar's length,
+// read off the image's own pixels, or null when the clicks are not on such a bar or
+// the found ends are further than `tol` from the clicks.
+function _calibSnap(img, x1, y1, x2, y2, tol){
+  try{
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
+    const L=Math.hypot(x2-x1,y2-y1); if(!(L>4)) return null;
+    const ux=(x2-x1)/L, uy=(y2-y1)/L, ext=Math.ceil(tol)+2, n=Math.ceil(L)+2*ext;
+    const minX=Math.max(0,Math.floor(Math.min(x1,x2)-ext-2)), minY=Math.max(0,Math.floor(Math.min(y1,y2)-ext-2));
+    const maxX=Math.min(W,Math.ceil(Math.max(x1,x2)+ext+2)), maxY=Math.min(H,Math.ceil(Math.max(y1,y2)+ext+2));
+    const bw=Math.max(1,maxX-minX), bh=Math.max(1,maxY-minY);
+    const c=document.createElement('canvas'); c.width=bw; c.height=bh;     // only the strip the line crosses
+    const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,minX,minY,bw,bh,0,0,bw,bh);
+    const d=x.getImageData(0,0,bw,bh), dw=d.width;
+    const at=t=>{ const px=Math.round(x1+ux*t)-minX, py=Math.round(y1+uy*t)-minY;
+      if(px<0||py<0||px>=dw||py>=d.height) return null; const k=(py*dw+px)*4; return (d.data[k]+d.data[k+1]+d.data[k+2])/3; };
+    const mid=at(L/2); if(mid==null) return null;
+    // the clicked span must be uniform (a bar), within a quarter of the contrast found
+    let lo=mid, hi=mid; for(let t=-ext;t<=L+ext;t++){ const v=at(t); if(v==null) continue; lo=Math.min(lo,v); hi=Math.max(hi,v); }
+    if(hi-lo<60) return null;
+    const thr=(mid>(lo+hi)/2)?(lo+hi)/2:(lo+hi)/2, inBar=v=>v!=null&&(mid>(lo+hi)/2?v>thr:v<thr);
+    for(let t=Math.ceil(L*0.1);t<=Math.floor(L*0.9);t++) if(!inBar(at(t))) return null;
+    let s0=L/2; while(s0>-ext&&inBar(at(s0-1))) s0--;
+    let s1=L/2; while(s1<L+ext&&inBar(at(s1+1))) s1++;
+    if(Math.abs(s0)>tol||Math.abs(s1-L)>tol) return null;
+    // the bar's ends are the edges of its first and last pixel
+    return (s1-s0)+1;
+  }catch(e){ return null; }
+}
 
 (function bindCalib(){
   const cc=document.getElementById('calib-canvas');
@@ -19910,12 +20544,19 @@ function closeCalib(){ document.getElementById('calib-modal').classList.remove('
     if(calibState.pts.length===2){
       const [a,b]=calibState.pts;
       ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-      const pxDist=Math.hypot((b.x-a.x)/calibState.scale,(b.y-a.y)/calibState.scale);
+      let pxDist=Math.hypot((b.x-a.x)/calibState.scale,(b.y-a.y)/calibState.scale);
+      // The dialog shows the image shrunk (a 2048-px TEM image at 320 px: one screen
+      // pixel is 6.4 image pixels), so two careful clicks on a burned-in bar were 1–2 %
+      // off. When the line runs along a uniform bar, its ends are found in the image's
+      // own pixels instead.
+      const snap=_calibSnap(calibState.img, a.x/calibState.scale, a.y/calibState.scale, b.x/calibState.scale, b.y/calibState.scale, 3/calibState.scale+2);
+      if(snap) pxDist=snap;
       document.getElementById('calib-status').textContent=
-        `Distance: ${pxDist.toFixed(1)} px (original image). Enter the real length below.`;
+        `Distance: ${pxDist.toFixed(1)} px (original image)${snap?' — snapped to the ends of the bar':''}. Enter the real length below.`;
       document.getElementById('calib-result').textContent=`Pixel distance: ${pxDist.toFixed(1)} px`;
       document.getElementById('calib-apply').disabled=false;
       calibState.pxDist=pxDist;
+      const pe=document.getElementById('calib-px'); if(pe) pe.value=+pxDist.toFixed(2);
     } else if(calibState.pts.length>2){
       calibState.pts=[{x,y}];
       document.getElementById('calib-status').textContent='Click the second point…';
@@ -19926,7 +20567,27 @@ function closeCalib(){ document.getElementById('calib-modal').classList.remove('
   });
 })();
 
+// Two plate photos taken on the same stand, two fields at one objective: one calibration
+// for all of them. It meant reading 46.2643 off one panel and typing it into the next.
+function copyCalibrationToTicked(srcIdx){
+  const src=images[srcIdx];
+  if(!src||!(src.umPerPx>0)){ toast('Calibrate this panel first','warn'); return; }
+  const ticked=_listSelection().filter(i=>i!==srcIdx&&images[i]&&images[i].img&&images[i].insetOf==null);
+  if(!ticked.length){ toast('Tick the panels taken at the same magnification (checkbox at the left of each row), then press this again','warn'); return; }
+  pushUndo();
+  const from=_rtText(formatLabel(src.label))||'?', how=_calibSourceOf(src).how;
+  const names=[];
+  ticked.forEach(i=>{ const im=images[i]; im.umPerPx=src.umPerPx; im._calibCopy={from, how, um:src.umPerPx}; _afterCalibration(im); names.push(`${_rtText(formatLabel(im.label))||'?'} (${_sbLabel(im)} bar)`); });
+  renderImgList(); scheduleRender(0);
+  logAction('copyCalibration',{from, to:names.join(', '), umPerPx:src.umPerPx});
+  toast(`${_fmtPxSize(src.umPerPx)} from ${from} → ${names.join(', ')}`,'ok');
+}
+// A pixel size with four significant figures, in nm/px below 0.1 µm (TEM) — the old
+// "0.0005 µm/px" hid a 1.4 % calibration error behind its rounding.
+function _fmtPxSize(um){ return um<0.1 ? `${+(um*1000).toPrecision(4)} nm/px` : `${+(+um).toPrecision(4)} µm/px`; }
 function applyCalib(){
+  { const t=parseFloat((document.getElementById('calib-px')||{}).value); if(t>0) calibState.pxDist=t; }
+  if(!(calibState.pxDist>0)){ toast('Click two points, or type the distance in pixels','warn'); return; }
   const umVal=parseFloat(document.getElementById('calib-um').value);
   const unit=parseFloat(document.getElementById('calib-unit').value)||1;
   if(isNaN(umVal)||umVal<=0){ toast('Enter a valid length','warn'); return; }
@@ -19939,10 +20600,10 @@ function applyCalib(){
   if(!target||target.img!==calibState.img){ closeCalib(); toast(_PANEL_GONE,'warn'); return; }
   calibState.imgIdx=ci;
   pushUndo();
-  target.umPerPx=parseFloat(umPerPx.toFixed(6));
-  document.getElementById('calib-result').textContent=
-    `✓ Set: ${umPerPx.toFixed(4)} µm/px`;
-  toast(`Scale set: ${umPerPx.toFixed(4)} µm/px`,'ok');
+  target.umPerPx=+umPerPx.toPrecision(6);
+  const note=_afterCalibration(target);
+  document.getElementById('calib-result').textContent=`✓ Set: ${_fmtPxSize(target.umPerPx)}`;
+  toast(`Scale set: ${_fmtPxSize(target.umPerPx)} (${(+calibState.pxDist).toFixed(1)} px = ${umVal} ${document.getElementById('calib-unit').selectedOptions[0].textContent})${note}`,'ok');
   closeCalib(); renderImgList(); scheduleRender(0);
 }
 
@@ -20257,13 +20918,14 @@ function generateMethodsParagraph(){
   // Linear display adjustments. Whether they were uniform comes from the caption's own
   // predicate, which also counts gamma, LUT, inversion and keying, so the "differ"
   // sentence is worded as the caption words it, not as a claim about levels alone.
-  const lin=P.filter(im=>(im.blackPt||0)>0||(im.whitePt??255)<255||(im.brightness??1)!==1||(im.contrast??1)!==1);
+  const lin=P.filter(im=>(im.blackPt||0)!==0||(im.whitePt??255)!==255||(im.brightness??1)!==1||(im.contrast??1)!==1);
   const uni=_adjustmentsUniform(P);
   if(lin.length){
     if(uni===true) S.push('Brightness, contrast and display range were adjusted linearly, with identical settings on every panel, each applied to the whole image.');
     else S.push(`Brightness, contrast or display range were adjusted linearly for ${_panelsPhrase(lin.map(nm))}, each applied to the whole image.`);
   }
   if(uni===false) S.push('Adjustment settings differ between panels'+(hasHistory?'; the per-panel values are listed in PANEL_HISTORY.txt.':'.'));
+  { const s16=_methodsBitDepth(P, nm); if(s16) S.push(s16); }
   const gam=P.filter(im=>(im.gamma||1)!==1);
   if(gam.length) S.push(`A non-linear gamma adjustment was applied to ${_listAnd(gam.map(im=>`panel ${nm(im)} (γ = ${(+im.gamma).toFixed(2)})`))}.`);
   // Pseudocolour: the panel's own LUT and those of any merged channels.
@@ -20352,6 +21014,26 @@ function generateMethodsParagraph(){
   _reuseSentences().forEach(t=>S.push(t));
   if(hasHistory) S.push('A per-panel record of every operation is provided as PANEL_HISTORY.txt.');
   return S.join(' ');
+}
+// How >8-bit images were brought to the 8-bit display: each file decoded linearly from 0
+// to its own maximum, and the display range shown in the file's values per channel —
+// the QUAREP "display range" a reviewer asks for. Panels without their native samples
+// (opened from an old session) are named as such.
+function _methodsBitDepth(P, nm){
+  const deep=[];
+  P.forEach(im=>{ [im,...(im.channels||[])].forEach((o,k)=>{ if(_rawOf(o)||o.srcBits>8) deep.push({im,o,k}); }); });
+  if(!deep.length) return '';
+  const depth=[...new Set(deep.map(d=>{ const r=_rawOf(d.o); return r?_rawDepth(r):`${d.o.srcBits}-bit`; }))];
+  const groups=new Map();
+  deep.forEach(d=>{ if(!_rawOf(d.o)) return; const key=_levelKey(d.o)==='plain'?'':_levelKey(d.o);
+    const r=_rawOf(d.o), t=`${_fmtCounts(_toNative(d.o,d.o.blackPt||0),r)}–${_fmtCounts(_toNative(d.o,d.o.whitePt==null?255:d.o.whitePt),r)}`;
+    if(!groups.has(key)) groups.set(key,new Map()); const g=groups.get(key); if(!g.has(t)) g.set(t,new Set()); g.get(t).add(nm(d.im)); });
+  const parts=[...groups].map(([key,g])=>(key?`${key} `:'')+[...g].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join(', '));
+  const lost=[...new Set(deep.filter(d=>!_rawOf(d.o)).map(d=>nm(d.im)))];
+  let t=`The ${_listAnd(depth)} images were mapped linearly to 8 bits for display`;
+  t+=parts.length?`; display ranges in native values: ${parts.join('; ')}.`:'.';
+  if(lost.length) t+=` For ${_panelsPhrase(lost)} the native samples were not available, and each file was scaled from 0 to its own maximum.`;
+  return t;
 }
 function writeMethodsParagraph(){
   const n=_methodsPanels().length;
@@ -20592,10 +21274,42 @@ function _applyFigControls(s){
 // what is rebuilt from them. A hand-kept list of fields to save had fallen behind the
 // panel — linked insets, background keying, acquisition times and the panel's id were
 // dropped — so this names only what is NOT saved, and a new field is kept by default.
-const _PANEL_TRANSIENT=new Set(['img','raw','_imgEl','src','svgSource','channels',
-  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','insetOrphaned',
+const _PANEL_TRANSIENT=new Set(['img','raw','dispRaw','rawRec','dispRawRec','_imgEl','src','svgSource','channels',
+  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','insetOrphaned','_compCache','_compKey',
   '_chartStat','_chartKey','_chartCache','_genemapStat','_genemapKey','_genemapCache','_dpKey','_thumb']);
-const _CHANNEL_TRANSIENT=new Set(['img','raw','src','_adjCache','_adjKey','_cropCache','_cropKey']);
+const _CHANNEL_TRANSIENT=new Set(['img','raw','rawRec','src','_adjCache','_adjKey','_cropCache','_cropKey']);
+// ── Native samples in a saved session ─────────────────────────
+// A 16-bit panel saved and reopened used to come back as its 8-bit display PNG: levels,
+// densitometry and the intensity bar silently fell back to display values. A bundled
+// session file (Save session, the session library) now carries each file's native
+// samples once — a merge's channels and the panels split from it point at the same
+// record — as base64 of the typed array. Autosave does not: it lives in browser storage,
+// which a few 16-bit images would fill.
+let _rawSaveIds=null, _rawLoadPool=null;
+function _u8ToB64(u8){ let out=''; for(let i=0;i<u8.length;i+=0x8000) out+=String.fromCharCode.apply(null, u8.subarray(i,i+0x8000)); return btoa(out); }
+function _b64ToU8(b64){ const bin=atob(b64), u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return u8; }
+function _rawRecord(raw){
+  if(!_rawSaveIds||!raw||!raw.data) return undefined;
+  if(_rawSaveIds.has(raw)) return {ref:_rawSaveIds.get(raw)};
+  const id=_rawSaveIds.size+1; _rawSaveIds.set(raw,id);
+  const {data, ...meta}=raw;
+  return {id, ...meta, type:data instanceof Float32Array?'f32':'u16',
+    b64:_u8ToB64(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))};
+}
+function _rawFromRecord(r){
+  if(!r||typeof r!=='object') return null;
+  if(r.ref!=null) return (_rawLoadPool&&_rawLoadPool.get(r.ref))||null;
+  try{
+    const u8=_b64ToU8(String(r.b64||''));
+    const data=r.type==='f32'?new Float32Array(u8.buffer):new Uint16Array(u8.buffer);
+    if(!(r.w>0&&r.h>0)||data.length!==r.w*r.h) return null;
+    const {b64, type, id, ...meta}=r, raw={...meta, data};
+    if(_rawLoadPool&&id!=null) _rawLoadPool.set(id, raw);
+    return raw;
+  }catch(e){ return null; }
+}
+// Run fn with native samples written into the session it serializes.
+function _withRawSave(fn){ _rawSaveIds=new Map(); try{ return fn(); } finally{ _rawSaveIds=null; } }
 // Facts about the file's pixels. When a saved record is put back onto a file dropped
 // later, these are read off that file, never the record: a share link or a
 // settings-only save has no pixels to vouch for them.
@@ -20628,10 +21342,11 @@ function _panelRecord(im, mode){
   // A linked inset's pixels are its parent's, re-derived on every render: storing them
   // again doubled the file. An orphaned inset keeps its own.
   const derived=im.insetOf!=null && images.some(p=>p&&p.id===im.insetOf);
-  if(mode==='bundle' && !derived){ r.src=im.src; if(im.svgSource) r.svgSource=im.svgSource; }
+  if(mode==='bundle' && !derived){ r.src=im.src; if(im.svgSource) r.svgSource=im.svgSource;
+    const rr=_rawRecord(im.raw), dr=_rawRecord(im.dispRaw); if(rr) r.rawRec=rr; if(dr) r.dispRawRec=dr; }
   r.channels=(derived||mode==='share')?[]:(im.channels||[]).map(c=>{
     const o={}; for(const k of Object.keys(c)) if(!_CHANNEL_TRANSIENT.has(k)&&c[k]!==undefined) o[k]=c[k];
-    if(mode==='bundle') o.src=c.src; return o; });
+    if(mode==='bundle'){ o.src=c.src; const cr=_rawRecord(c.raw); if(cr) o.rawRec=cr; } return o; });
   if(mode==='share'){
     for(const k of _PANEL_FROM_FILE) if(!_PANEL_IDENTITY.has(k)) delete r[k];
     delete r.gelAnalysis;      // densitometry is a measurement of pixels the link does not carry
@@ -20736,8 +21451,12 @@ function _panelFromRecord(d){
   const im=_recNumbers({...d}, _REC_NUM);
   if(im.id==null) im.id=Date.now()+Math.random();
   if(im.borderC!=null&&!/^#[0-9a-f]{3,8}$/i.test(String(im.borderC))) delete im.borderC;
-  im.channels=Array.isArray(d.channels)?d.channels.map(c=>_recNumbers({...c},['blackPt','whitePt'])):[];
+  im.channels=Array.isArray(d.channels)?d.channels.map(c=>{ const o=_recNumbers({...c},['blackPt','whitePt']);
+    if(o.rawRec){ const r=_rawFromRecord(o.rawRec); if(r) o.raw=r; } delete o.rawRec; return o; }):[];
   im.panelAnns=Array.isArray(d.panelAnns)?d.panelAnns:[];
+  if(im.rawRec){ const r=_rawFromRecord(im.rawRec); if(r) im.raw=r; }
+  if(im.dispRawRec){ const r=_rawFromRecord(im.dispRawRec); if(r) im.dispRaw=r; }
+  delete im.rawRec; delete im.dispRawRec;
   return im;
 }
 // Put a panel into the grid cell its record was saved in — if that cell is still empty;
@@ -20885,7 +21604,7 @@ function serializeSession(bundleImages, mode){
 }
 function saveJSON(bundleImages){
   const _bundle = bundleImages!==false;
-  const state = serializeSession(bundleImages);
+  const state = _bundle ? _withRawSave(()=>serializeSession(bundleImages)) : serializeSession(bundleImages);
   const suffix = _bundle ? '-session.json' : '-settings.json';
   dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+suffix);
   toast(_bundle ? 'Session saved (images bundled)' : 'Settings saved (lightweight — re-drop images on load)','ok');
@@ -20971,6 +21690,7 @@ function applySession(s,_opts){
       if(Array.isArray(s.images)){
         const recs=_splitSharedIds(s.images);
         const byId=new Map(); recs.forEach(d=>{ if(d&&d.id!=null) byId.set(d.id,d); });
+        _rawLoadPool=new Map();
         images=recs.map((d,i)=>{
           if(!d) return null;                          // a blank cell keeps its place
           const im=_panelFromRecord(d);
@@ -20990,6 +21710,7 @@ function applySession(s,_opts){
           _pendingPanels.push({slot:i, rec:d, inset:!!parent});
           return null;
         });
+        _rawLoadPool=null;
         syncLinkedInsets();
         renderImgList();
         const waiting=_pendingPanels.filter(p=>!p.inset);
@@ -22074,12 +22795,23 @@ function _hiddenLeavesGap(){
 }
 // .gapOf maps a cell position to the hidden panel holding it, so the editing view can
 // say whose cell it is.
+// A hidden panel holds a cell only when it was hidden IN the figure (👁): the source files
+// a Merge channels parks never were in it. They used to come back as gaps the moment
+// headings went on — a 4 × 3 figure jumped to 7 × 3 with nine "hidden" cells. And on
+// Auto, a gap after the last shown panel keeps nothing aligned, so it is not kept.
+function _isParked(im){
+  if(!im||!im.excluded) return false;
+  if(im._parked) return true;
+  // a figure saved before sources were marked: a hidden file that a merge shows
+  return images.some(m=>m&&m!==im&&!m.excluded&&m.channels&&m.channels.length&&(m.name===im.name||m.channels.some(c=>c&&c.name===im.name)));
+}
 const _gridOrder = () => {
   const gap=_hiddenLeavesGap(), out=[]; out.gapOf={};
   images.forEach((im,i)=>{
-    if(im && im.excluded){ if(gap){ out.gapOf[out.length]=i; out.push(-1); } }
+    if(im && im.excluded){ if(gap && !_isParked(im)){ out.gapOf[out.length]=i; out.push(-1); } }
     else out.push(i);
   });
+  if(gv('hidden-gap')!=='gap') while(out.length && out[out.length-1]===-1 && out.gapOf[out.length-1]!=null){ delete out.gapOf[out.length-1]; out.pop(); }
   return out;
 };
 // A file written before the option existed was drawn closed up. If it hides any panel
@@ -22132,9 +22864,22 @@ const _figurePanels = () => _gridPlacements().filter(p=>p.im).map(p=>p.im);
 function togglePanelExcluded(idx){
   const im=images[idx]; if(!im) return;
   pushUndo();
+  const _grid=layoutMode!=='freeform', cols=Math.max(1,gi('cols')), from=Math.max(1,gi('rows'));
+  // only a grid that was exactly full shrinks: one with room to spare was sized on purpose
+  const tight=_grid&&from>1&&_gridPlacements(cols,from-1).unplaced>0;
   im.excluded=!im.excluded;
+  if(!im.excluded) delete im._parked;            // shown by hand: it is in the figure now
+  // Hiding the last row's panels used to leave a row of blank cells under its heading;
+  // a grid that is now a whole row too tall shrinks, and showing them grows it back.
+  let note='';
+  if(_grid){
+    let rows=from;
+    if(im.excluded&&tight){ while(rows>1&&!_gridPlacements(cols,rows-1).unplaced) rows--; }
+    if(rows!==from){ sv('rows',rows); onLayoutChange(); note=` · grid now ${cols} × ${rows}`; }
+    if(!im.excluded) _growGridToFit();
+  }
   renderImgList(); renderMiniGrid(); scheduleRender(0);
-  toast(`${im.label||('Panel '+(idx+1))} ${im.excluded?'hidden from the figure'+_hideOutcome():'shown again'}`,'ok');
+  toast(`${im.label||('Panel '+(idx+1))} ${im.excluded?'hidden from the figure'+_hideOutcome():'shown again'}${note}`,'ok');
 }
 // Keep only what is currently selected in the list; everything else is hidden,
 // not deleted.
@@ -22219,7 +22964,7 @@ function mergeTickedPanels(){
   // fallback cannot take the green a later GFP file needs. A base with none stays grey,
   // as when you add a channel to a LUT-less panel.
   const luts=sel.map(i=>{ const s=images[i];
-    return (s.lut&&s.lut!=='none') ? s.lut : ((_detectChannel(s.name)||{}).lut||null); });
+    return (s.lut&&s.lut!=='none') ? s.lut : ((_detectChannel(s.chan||s.name)||{}).lut||null); });
   const used=new Set(luts.filter(Boolean)), cbSafe=['magenta','green','cyan','yellow'];
   for(let k=1;k<luts.length;k++) if(!luts[k]){
     luts[k]=cbSafe.find(c=>!used.has(c))||'magenta'; used.add(luts[k]); }
@@ -22237,15 +22982,23 @@ function mergeTickedPanels(){
     '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'])
     if(base[k]!==undefined) p[k]=base[k];
   p.lut=luts[0]; p.blackPt=base.blackPt||0; p.whitePt=base.whitePt??255;
+  // Every channel keeps its file's native samples and channel name, so its levels stay
+  // in camera counts, Sync by channel matches it to the single-channel panels, and a
+  // Split gives the files back rather than 8-bit copies. The merge's own .raw stays
+  // empty — a measurement on a merge must not read only its first channel — and the
+  // base's samples are kept for display as dispRaw.
   p.channels=sel.slice(1).map((i,k)=>{ const s=images[i];
-    return {name:s.name, img:s.img, src:s.src, lut:luts[k+1], blackPt:s.blackPt||0, whitePt:s.whitePt??255}; });
-  p.captionNote='Merge'; p.raw=null;
+    const c={name:s.name, img:s.img, src:s.src, lut:luts[k+1], blackPt:s.blackPt||0, whitePt:s.whitePt??255, raw:s.raw||null};
+    if(s.chan) c.chan=s.chan; if(s.srcBits) c.srcBits=s.srcBits;
+    return c; });
+  p.captionNote='Merge'; p.raw=null; p.dispRaw=base.raw||base.dispRaw||null;
+  if(base.chan) p.chan=base.chan; if(base.srcBits) p.srcBits=base.srcBits;
   // The merge continues the base, so it takes the base's letter and the hidden base a
   // fresh one. Letters stay unique (PANEL_HISTORY marks hidden panels by letter) and a
   // figure that is now one panel is not lettered D.
   const fresh=nextLabel();
   if(base.label){ p.label=base.label; base.label=fresh; } else p.label=fresh;
-  sel.forEach(i=>{ images[i].excluded=true; });
+  sel.forEach(i=>{ images[i].excluded=true; images[i]._parked=true; });
   _withWaiting(()=>images.splice(sel[sel.length-1]+1,0,p));
   document.querySelectorAll('#img-list .panel-pick:checked').forEach(cb=>{ cb.checked=false; });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
@@ -29076,9 +29829,10 @@ function handleMeasureTool(e, phase){
     ctx2.clearRect(0,0,W,H);
     ctx2.save();
     ctx2.strokeStyle='#f5a623'; ctx2.lineWidth=1.5; ctx2.setLineDash([4,3]);
-    if(activeTool==='measure-roi'){
-      ctx2.strokeRect(Math.min(x,_roiDrawState.x0),Math.min(y,_roiDrawState.y0),
-                      Math.abs(x-_roiDrawState.x0),Math.abs(y-_roiDrawState.y0));
+    if(activeTool==='measure-roi'||activeTool==='measure-count'){
+      const bx=Math.min(x,_roiDrawState.x0), by=Math.min(y,_roiDrawState.y0), bw=Math.abs(x-_roiDrawState.x0), bh=Math.abs(y-_roiDrawState.y0);
+      if(activeTool==='measure-count'&&gc('count-ellipse')){ ctx2.beginPath(); ctx2.ellipse(bx+bw/2,by+bh/2,bw/2,bh/2,0,0,Math.PI*2); ctx2.stroke(); }
+      else ctx2.strokeRect(bx,by,bw,bh);
     } else {
       ctx2.beginPath(); ctx2.moveTo(_roiDrawState.x0,_roiDrawState.y0); ctx2.lineTo(x,y); ctx2.stroke();
     }
@@ -29487,6 +30241,11 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
 // which reads this too, so the CSV and the Methods can never disagree about provenance.
 function _calibSourceOf(im){
   if(!im||!(im.umPerPx>0)) return {kind:'none', how:'', text:'uncalibrated'};
+  // copied from another panel (⇉ Same µm/px on ticked panels), and not changed since
+  if(im._calibCopy&&Math.abs(im.umPerPx-im._calibCopy.um)<1e-12){
+    const how=`copied from panel ${im._calibCopy.from}${im._calibCopy.how?` (${im._calibCopy.how})`:''}`;
+    return {kind:'copy', how, text:how};
+  }
   const known=im._metaUmPerPx!==undefined&&im._metaUmPerPx!==null;
   const fromMeta=known&&im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
   const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:known?'set by hand':'';
@@ -29978,7 +30737,10 @@ function exportMeasurements(){
 // storage is full. Optional — toggle in the Session panel.
 // ═══════════════════════════════════════════════════════════════
 const AUTOSAVE_KEY='fl-autosave-v2';
-let _autosaveTimer=null, _autosaveDebounce=null, _autosaveWarned=false;
+let _autosaveTimer=null, _autosaveDebounce=null, _autosaveWarned=false, _autosaveTold=false;
+// Characters of pixel data (data URLs) an autosave tries to keep; browser storage holds
+// about 5 M characters in all.
+const _AUTOSAVE_PIXEL_BUDGET=3.5e6;
 function autosaveEnabled(){ try{ return localStorage.getItem('fl-autosave-enabled')!=='0'; }catch(e){ return true; } }
 function setAutosaveEnabled(on){
   try{ localStorage.setItem('fl-autosave-enabled', on?'1':'0'); }catch(e){}
@@ -29999,7 +30761,16 @@ function autosaveNow(){
   // Panels still waiting for their file are in s as records without pixels; the copy is
   // marked partial so the recovery bar says those files have to be dropped again.
   const waiting=_pendingPanels.filter(p=>!p.inset).map(p=>(p.rec&&p.rec.name)||'(unnamed)');
-  try{ put(waiting.length?{t, bundle:'partial', unstored, waiting, s}:{t, bundle:true, s}); }
+  // Browser storage holds a few MB. Pixels past that budget are dropped largest first
+  // BEFORE writing, from their known sizes: the old loop re-serialized the whole figure
+  // (tens of MB of JSON) once per panel until one fitted, every few seconds of editing,
+  // which on a figure of large microscopy images used up the tab's memory.
+  { const recs=s.images.map((d,i)=>[i,_recPixels(d)]).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]);
+    let total=recs.reduce((n,x)=>n+x[1],0);
+    for(const [i,sz] of recs){ if(total<=_AUTOSAVE_PIXEL_BUDGET) break;
+      const d=s.images[i]; delete d.src; delete d.svgSource; (d.channels||[]).forEach(c=>{ delete c.src; });
+      unstored.push(d.name||'(unnamed)'); total-=sz; } }
+  try{ put((waiting.length||unstored.length)?{t, bundle:'partial', unstored, waiting, s}:{t, bundle:true, s}); }
   catch(e){
     // Storage is full. Keep every panel's record and drop pixels, largest first, until
     // it fits. It used to fall back to settings-only for every image, and recovery then
@@ -30018,8 +30789,12 @@ function autosaveNow(){
     }
   }
   const key=unstored.join('\u0000');
-  if(key && key!==_autosaveUnstored)
-    toast(`Autosave cannot hold the pixels of ${unstored.length} image${unstored.length>1?'s':''} (${unstored.slice(0,3).join(', ')}${unstored.length>3?`, and ${unstored.length-3} more`:''}; too large for browser storage). Every panel's settings are kept; after a crash you would drop ${unstored.length>1?'those files':'that file'} again.`,'warn');
+  // Said once per session, then kept in the status bar: the banner used to come back over
+  // the status bar after edits whenever the list of unstored files changed order.
+  if(key && !_autosaveUnstored && !_autosaveTold){
+    _autosaveTold=true;
+    toast(`Autosave cannot hold the pixels of ${unstored.length} image${unstored.length>1?'s':''} (${unstored.slice(0,3).join(', ')}${unstored.length>3?`, and ${unstored.length-3} more`:''}; too large for browser storage). Every panel's settings are kept; after a crash you would drop ${unstored.length>1?'those files':'that file'} again. Save session (Ctrl+S) keeps everything.`,'warn');
+  }
   _autosaveUnstored=key;
   const el=document.getElementById('autosave-status');
   if(el) el.textContent='Autosaved '+new Date(t).toLocaleTimeString()+(unstored.length?` (${unstored.length} image${unstored.length>1?'s':''} not stored)`:'');
@@ -30095,7 +30870,7 @@ async function saveToLibrary(){
   if(!name) return;
   // The entry this figure is saved as: the reuse check knows its own saved copy by it.
   const id=_uid(); _reuse.libId=id;
-  try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:serializeSession(true)});
+  try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:_withRawSave(()=>serializeSession(true))});
     toast(`Saved "${name}" to your sessions`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not save session (storage error)','err'); }
 }
@@ -30106,7 +30881,7 @@ async function loadFromLibrary(id){
 }
 async function overwriteLibrary(id){
   try{ const rec=await _dbGet(id); if(!rec) return; render();
-    _reuse.libId=rec.id; rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=serializeSession(true);
+    _reuse.libId=rec.id; rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=_withRawSave(()=>serializeSession(true));
     await _dbPut(rec); toast(`Updated "${rec.name}"`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not update','err'); }
 }
@@ -30358,98 +31133,149 @@ function exportReproLog(){
 // ═══════════════════════════════════════════════════════════════
 // CELL COUNTING (threshold-based ROI)
 // ═══════════════════════════════════════════════════════════════
+// Count objects in a box (or the ellipse inside it, for a dish). Bright or dark objects
+// — plaques are dark on a light lawn, and counting only "≥ threshold" made the whole
+// lawn one object. On a panel that maps to its source pixels the count runs on those
+// (the native samples above 8 bits, else the file's own 8-bit pixels before any display
+// adjustment), so a 1-mm plaque is not 3 figure pixels merged with its neighbour, and a
+// calibrated panel gets areas and each object's equivalent diameter in µm or mm. The
+// box and the objects found are drawn over the figure until the next count.
+let _countOverlay=null;
 function countCellsROI(ctx,rx,ry,rw,rh){
   const thresh=parseInt(document.getElementById('count-threshold').value)||128;
+  const dark=(document.getElementById('count-polarity')||{}).value==='dark';
+  const round=gc('count-ellipse');
+  const ell={cx:rx+rw/2, cy:ry+rh/2, ax:rw/2, ay:rh/2};
+  const inEll=(fx,fy)=>!round||(((fx-ell.cx)/ell.ax)**2+((fy-ell.cy)/ell.ay)**2<=1);
   // Cut to the picture first (_measureClip): the background bars around a letterboxed
   // panel were thresholded with it, and white bars counted as objects.
   const clip=_measureClip(rx,ry,rw,rh);
   if(clip&&clip.empty){ _measureMissed('Cell Count'); return; }
   if(clip){ rx=clip.x; ry=clip.y; rw=clip.w; rh=clip.h; }
-  const on=clip&&clip.on;
+  const on0=clip&&clip.on, on=(fx,fy)=>(!on0||on0(fx,fy))&&inEll(fx,fy);
   const {im,map,raw}=clip ? _measureCtxOf(clip) : _measureCtx(rx,ry);
-  let W,H,mask,rawThresh=0,usedRaw=false,clipped=!!(clip&&clip.clipped),inPx=0;
-  if(raw){
-    // Segment the native samples at the panel's own resolution. The slider is 0–255,
-    // so scale it onto the raw range — the equivalent level is reported to the user.
-    // Clamp to the VISIBLE crop window, never to the whole source image, or a selection
-    // over the letterbox would count objects the user cropped out of the figure.
+  let W,H,mask,valid,rawThresh=0,src='',clipped=!!(clip&&clip.clipped),inPx=0,x0=0,y0=0;
+  const fg=dark?(v,t)=>v<t:(v,t)=>v>=t;
+  const srcImg=im&&(im.img||im._imgEl);
+  if(map&&(raw||srcImg)){
+    // Source pixels: clamp to the VISIBLE crop window, never to the whole source image,
+    // or a selection over the letterbox would count objects the user cropped out.
     const [u0,v0]=map.toSrc(rx,ry), [u1,v1]=map.toSrc(rx+rw,ry+rh);
+    const iw=raw?raw.w:(srcImg.naturalWidth||srcImg.width), ih=raw?raw.h:(srcImg.naturalHeight||srcImg.height);
     const lx0=Math.max(0,Math.floor(map.sx)), ly0=Math.max(0,Math.floor(map.sy));
-    const lx1=Math.min(raw.w-1,Math.ceil(map.sx+map.sw)-1), ly1=Math.min(raw.h-1,Math.ceil(map.sy+map.sh)-1);
-    const x0=Math.max(lx0,Math.floor(Math.min(u0,u1))), x1=Math.min(lx1,Math.ceil(Math.max(u0,u1))-1);
-    const y0=Math.max(ly0,Math.floor(Math.min(v0,v1))), y1=Math.min(ly1,Math.ceil(Math.max(v0,v1))-1);
+    const lx1=Math.min(iw-1,Math.ceil(map.sx+map.sw)-1), ly1=Math.min(ih-1,Math.ceil(map.sy+map.sh)-1);
+    x0=Math.max(lx0,Math.floor(Math.min(u0,u1))); const x1=Math.min(lx1,Math.ceil(Math.max(u0,u1))-1);
+    y0=Math.max(ly0,Math.floor(Math.min(v0,v1))); const y1=Math.min(ly1,Math.ceil(Math.max(v0,v1))-1);
     if(x1>=x0&&y1>=y0){
-      W=x1-x0+1; H=y1-y0+1; usedRaw=true;
+      W=x1-x0+1; H=y1-y0+1;
       clipped = clipped || W*H < Math.floor((rw*map.kx)*(rh*map.ky))-1;
-      rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1);
-      mask=new Uint8Array(W*H);
-      for(let y=0;y<H;y++) for(let x=0;x<W;x++)
-        mask[y*W+x]=raw.data[(y0+y)*raw.w+(x0+x)]>=rawThresh?1:0;
+      let val;
+      if(raw){ rawThresh=raw.min+(thresh/255)*((raw.max-raw.min)||1); src='raw'; val=(x,y)=>raw.data[(y0+y)*raw.w+(x0+x)]; }
+      else {
+        const c=document.createElement('canvas'); c.width=W; c.height=H;
+        const cx=c.getContext('2d',{willReadFrequently:true}); cx.drawImage(srcImg,x0,y0,W,H,0,0,W,H);
+        const d=cx.getImageData(0,0,W,H).data; src='source';
+        rawThresh=thresh; val=(x,y)=>{ const k=(y*W+x)*4; return (d[k]+d[k+1]+d[k+2])/3; };
+      }
+      mask=new Uint8Array(W*H); valid=new Uint8Array(W*H);
+      // a source pixel is in the selection when its centre, mapped to the figure, is
+      const fxOf=u=>map.dx+(u-map.sx)/map.kx, fyOf=v=>map.dy+(v-map.sy)/map.ky;
+      for(let y=0;y<H;y++){ const fy=fyOf(y0+y+0.5);
+        for(let x=0;x<W;x++){ const fx=fxOf(x0+x+0.5);
+          if(!on(fx,fy)) continue; valid[y*W+x]=1; inPx++;
+          mask[y*W+x]=fg(val(x,y),rawThresh)?1:0; } }
+      if(!inPx){ _measureMissed('Cell Count'); return; }
     }
   }
-  if(!usedRaw){
+  if(!src){
     const X0=Math.round(rx), Y0=Math.round(ry);
     const idata=ctx.getImageData(X0,Y0,Math.max(1,Math.round(rw)),Math.max(1,Math.round(rh)));
-    const d=idata.data; W=idata.width; H=idata.height;
-    // Build binary mask (above threshold = foreground); a pixel off a shaped or turned
-    // picture is background, never foreground.
-    mask=new Uint8Array(W*H);
+    const d=idata.data; W=idata.width; H=idata.height; x0=X0; y0=Y0;
+    // Build binary mask; a pixel off a shaped or turned picture (or outside the dish) is
+    // background, never foreground.
+    mask=new Uint8Array(W*H); valid=new Uint8Array(W*H);
     for(let i=0;i<d.length;i+=4){
       const k=i/4;
-      if(on && !on(X0+(k%W)+0.5, Y0+Math.floor(k/W)+0.5)) continue;
-      inPx++;
+      if(!on(X0+(k%W)+0.5, Y0+Math.floor(k/W)+0.5)) continue;
+      valid[k]=1; inPx++;
       const gray=(d[i]+d[i+1]+d[i+2])/3;
-      mask[k]=gray>=thresh?1:0;
+      mask[k]=fg(gray,thresh)?1:0;
     }
-    if(on){ if(!inPx){ _measureMissed('Cell Count'); return; } if(inPx<W*H) clipped=true; }
+    if(!inPx){ _measureMissed('Cell Count'); return; }
+    if((on0||round)&&inPx<W*H&&on0) clipped=true;
   }
-  // Connected-component labeling (4-connectivity flood fill)
-  const labels=new Int32Array(W*H);
-  let count=0;
+  // Connected-component labelling (4-connectivity flood fill), with each object's size
+  // and centre.
+  // Round (a dish): an object cut by the ellipse — the dish's rim, dark against the lawn,
+  // or a plaque only partly inside — is left out and counted separately. A box counts
+  // everything in it, as it always has.
+  const labels=new Int32Array(W*H), sizes=[], cxs=[], cys=[];
+  let count=0, edgeN=0, lab=0;
+  const isEdge=(cx,cy,cur)=>cx===0||cy===0||cx===W-1||cy===H-1||!valid[cur-1]||!valid[cur+1]||!valid[cur-W]||!valid[cur+W];
   for(let y=0;y<H;y++){
     for(let x=0;x<W;x++){
       const p=y*W+x;
       if(mask[p]&&!labels[p]){
-        count++;
-        // BFS flood fill
-        const q=[p]; labels[p]=count;
+        lab++;
+        let n=0, sx=0, sy=0, edge=false;
+        const q=[p]; labels[p]=lab;
         while(q.length){
           const cur=q.pop();
-          const cx=cur%W, cy=Math.floor(cur/W);
-          [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]].forEach(([nx,ny])=>{
-            if(nx>=0&&nx<W&&ny>=0&&ny<H){
-              const np=ny*W+nx;
-              if(mask[np]&&!labels[np]){ labels[np]=count; q.push(np); }
-            }
-          });
+          const cx=cur%W, cy=(cur-cx)/W; n++; sx+=cx; sy+=cy;
+          if(!edge&&isEdge(cx,cy,cur)) edge=true;
+          if(cx>0&&mask[cur-1]&&!labels[cur-1]){ labels[cur-1]=lab; q.push(cur-1); }
+          if(cx<W-1&&mask[cur+1]&&!labels[cur+1]){ labels[cur+1]=lab; q.push(cur+1); }
+          if(cy>0&&mask[cur-W]&&!labels[cur-W]){ labels[cur-W]=lab; q.push(cur-W); }
+          if(cy<H-1&&mask[cur+W]&&!labels[cur+W]){ labels[cur+W]=lab; q.push(cur+W); }
         }
+        if(edge&&round){ edgeN++; continue; }
+        count++; sizes.push(n); cxs.push(sx/n+0.5); cys.push(sy/n+0.5);
       }
     }
   }
-  const area=(!usedRaw&&on)?inPx:W*H;      // pixels actually segmented (source px on the raw path)
+  const onSrc=!!src&&src!=='';
+  const area=inPx;                            // pixels actually segmented (source px when onSrc)
   const fgPx=mask.reduce((s,v)=>s+v,0);
   const umPerPx=im?.umPerPx||0;
   // µm/px is calibrated in SOURCE pixels — only convert when we segmented those.
-  const areaUm=(umPerPx>0&&usedRaw)?(fgPx*umPerPx*umPerPx).toFixed(1):null;
-  const noAreaUm=umPerPx>0&&!usedRaw;
+  const cal=umPerPx>0&&onSrc;
+  const areaUm=cal?(fgPx*umPerPx*umPerPx).toFixed(1):null;
+  const noAreaUm=umPerPx>0&&!onSrc;
+  // each object's equivalent diameter (the circle of the same area)
+  let diaTxt='';
+  if(count){
+    const dia=sizes.map(n=>2*Math.sqrt(n/Math.PI)*(cal?umPerPx:1)).sort((a,b)=>a-b);
+    const mean=dia.reduce((a,b)=>a+b,0)/dia.length, sd=dia.length>1?Math.sqrt(dia.reduce((a,b)=>a+(b-mean)**2,0)/(dia.length-1)):0;
+    const med=dia[dia.length>>1];
+    const u=cal?(mean>=1000?'mm':'µm'):(onSrc?'source px':'figure px'), k=cal&&mean>=1000?1/1000:1;
+    const f=v=>(+(v*k).toPrecision(3)).toString();
+    diaTxt=`Equivalent diameter: ${f(mean)} ± ${f(sd)} ${u} (mean ± SD; median ${f(med)}; ${count} objects)`;
+  }
+  // what was counted, over the figure: the selection and a mark on each object
+  const toFig=onSrc ? ((x,y)=>[map.dx+(x0+x-map.sx)/map.kx, map.dy+(y0+y-map.sy)/map.ky]) : ((x,y)=>[x0+x, y0+y]);
+  _countOverlay={rx:ell.cx-ell.ax, ry:ell.cy-ell.ay, rw:ell.ax*2, rh:ell.ay*2, round, pts:cxs.map((x,k)=>toFig(x,cys[k]))};
   const res=document.getElementById('roi-results');
   res.className='show';
-  res.innerHTML=`<b>Cell Count</b> (threshold ≥${thresh}${usedRaw?` → raw ${_fmtRaw(rawThresh,raw)}`:''})<br>
-    Objects detected: <b>${count}</b><br>
-    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${usedRaw?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
+  const how=src==='raw'?`raw ${_fmtRaw(rawThresh,raw)}`:'';
+  res.innerHTML=`<b>Count</b> (${dark?'darker than':'at or above'} ${thresh}${how?` → ${how}`:''}${round?' · inside the ellipse':''})<br>
+    Objects detected: <b>${count}</b>${edgeN?` <span style="color:var(--muted);font-size:10px">(+${edgeN} cut by the ellipse's edge — the rim — not counted)</span>`:''}<br>
+    ${diaTxt?diaTxt+'<br>':''}
+    Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${onSrc?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
-    ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — figure pixels can't be mapped back to calibrated source pixels for this panel.</span><br>`:''}
+    ${noAreaUm?`<span style="color:var(--warn,#c98a00);font-size:10px">µm² unavailable — figure pixels can't be mapped back to calibrated source pixels for this panel (it is turned or tilted).</span><br>`:''}
     ${clipped?`<span style="color:var(--warn,#c98a00);font-size:10px">Selection extended past the panel image — only the part on the picture was counted, not the background around it.</span><br>`:''}
-    <span style="color:var(--muted);font-size:10px">Adjust threshold slider for different sensitivity</span>
-    ${usedRaw?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
-         :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
+    <span style="color:var(--muted);font-size:10px">Move the threshold, or switch bright/dark objects, and count again. Touching objects count as one.</span>
+    ${src==='raw'?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Thresholded on ${_rawDepth(raw)} raw samples at source resolution. Still a simple intensity threshold — use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`
+       :src==='source'?`<div style="font-size:9px;color:var(--ok,#3dd68c);margin-top:4px;line-height:1.3">✓ Counted on the image's own pixels at source resolution, before display adjustments. Still a simple intensity threshold — check the marks on the figure.</div>`
+       :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ Threshold applied to the 8-bit display, not raw data.${esc(_adjustedPanelNote(im))} Use dedicated segmentation (e.g. FIJI) for quantitative counts.</div>`}`;
   pushUndo();
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
-    count,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',
-    source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
+    count,edgeObjects:edgeN,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',polarity:dark?'dark':'bright',roi:round?'ellipse':'rect',
+    source:src==='raw'?`raw ${_rawDepth(raw)}`:src==='source'?'source pixels (8-bit)':'8-bit display'});
   _renderMeasList();
-  logAction('cellCount',{count,threshold:thresh});
+  logAction('cellCount',{count,threshold:thresh,polarity:dark?'dark':'bright',roi:round?'ellipse':'rect'});
+  drawAnnOverlay();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -30724,62 +31550,94 @@ function initAIQuickPrompts(){
 // ═══════════════════════════════════════════════════════════════
 // AUTO SCALE BAR DETECTION
 // ═══════════════════════════════════════════════════════════════
-function autoDetectScaleBar(imgIdx){
-  const im=images[imgIdx]; if(!im) return;
-  const c=document.createElement('canvas');
-  const sc=Math.min(1,800/im.img.naturalWidth);
-  c.width=Math.round(im.img.naturalWidth*sc);
-  c.height=Math.round(im.img.naturalHeight*sc);
-  const ctx=c.getContext('2d');
-  ctx.drawImage(im.img,0,0,c.width,c.height);
-  const W=c.width, H=c.height;
-  const d=ctx.getImageData(0,0,W,H).data;
-  // Scan bottom 20% of image for a horizontal bright/dark bar
-  const scanTop=Math.round(H*0.75);
-  let bestRow=-1, bestLen=0, bestX=0, bestVal=0;
-  for(let y=scanTop;y<H-2;y++){
-    // Look for a row with a long uniform-intensity horizontal run
-    let runLen=1, runX=0;
-    const firstV=(d[(y*W)*4]+d[(y*W)*4+1]+d[(y*W)*4+2])/3;
-    // Prefer very bright (white) or very dark (black) bars
-    if(firstV>220||firstV<30){
-      for(let x=1;x<W;x++){
-        const v=(d[(y*W+x)*4]+d[(y*W+x)*4+1]+d[(y*W+x)*4+2])/3;
-        const refV=(d[(y*W+runX)*4]+d[(y*W+runX)*4+1]+d[(y*W+runX)*4+2])/3;
-        if(Math.abs(v-refV)<25){ runLen++; }
-        else { if(runLen>bestLen){ bestLen=runLen; bestRow=y; bestX=runX; bestVal=refV; } runLen=1; runX=x; }
+// Find a burned-in scale bar: a bright (or dark) run that stands out from the pixels on
+// both sides of it, in the bottom third of the image, at least two rows thick and
+// shorter than 90 % of the width — the info strip a TEM writes under the image is a
+// full-width dark band, not a bar. The run is measured again on the full-resolution
+// row, and the dialog asks what length it is, in nm, µm or mm or typed.
+// (It used to throw "refV is not defined" before showing anything, and offered µm only.)
+function _findBurnedBar(img){
+  const W0=img.naturalWidth||img.width, H0=img.naturalHeight||img.height;
+  const sc=Math.min(1,1000/W0);
+  const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(W0*sc)); c.height=Math.max(1,Math.round(H0*sc));
+  const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(img,0,0,c.width,c.height);
+  const W=c.width, H=c.height, d=ctx.getImageData(0,0,W,H).data;
+  const L=(x,y)=>{ const k=(y*W+x)*4; return (d[k]+d[k+1]+d[k+2])/3; };
+  // A bar is the odd one out in its row (white on a dark strip, black on a light
+  // image): its value is far from the row's median, which rules out the background
+  // runs between a bar and its label.
+  const runsOf=y=>{ const out=[]; let x0=0, ref=L(0,y);
+    const row=[]; for(let x=0;x<W;x+=Math.max(1,W>>7)) row.push(L(x,y)); row.sort((a,b)=>a-b);
+    const med=row[row.length>>1];
+    for(let x=1;x<=W;x++){ const v=x<W?L(x,y):-999;
+      if(x<W&&Math.abs(v-ref)<30) continue;
+      if(x-x0>=Math.max(4,W*0.02)&&x-x0<W*0.9&&Math.abs(ref-med)>=60){
+        const left=x0>0?L(x0-1,y):null, right=x<W?L(x,y):null;
+        const cl=left==null?0:Math.abs(ref-left), cr=right==null?0:Math.abs(ref-right);
+        if(Math.min(left==null?cr:cl, right==null?cl:cr)>=60) out.push({x0, x1:x, v:ref, y});
       }
-      if(runLen>bestLen){ bestLen=runLen; bestRow=y; bestX=runX; bestVal=refV; }
+      x0=x; ref=x<W?v:0; }
+    return out; };
+  let best=null;
+  for(let y=Math.floor(H*0.66);y<H-1;y++){
+    for(const r of runsOf(y)){
+      // the same run one row down (a bar has thickness; a single bright row is noise)
+      const nb=runsOf(y+1).find(q=>Math.abs(q.x0-r.x0)<=2&&Math.abs(q.x1-r.x1)<=2&&Math.abs(q.v-r.v)<30);
+      if(!nb) continue;
+      if(!best||(r.x1-r.x0)>(best.x1-best.x0)) best=r;
     }
   }
-  if(bestLen<W*0.03){ toast('No scale bar detected — try calibrating manually','warn'); return; }
-  // Estimate physical size from the run length in original pixels
-  const barPxOrig=Math.round(bestLen/sc);
-  // Suggest µm values based on common bar lengths
-  const suggestions=[1,2,5,10,20,25,50,100,200,500];
-  const modal=document.createElement('div');
-  modal.className='modal-bg open';
-  // By id: the choice is made in a dialog, after which the panel may not be at imgIdx.
+  if(!best) return null;
+  // Measure the run again on the full-resolution row.
+  const yF=Math.min(H0-1,Math.round((best.y+0.5)/sc)), x0F=Math.max(0,Math.floor(best.x0/sc)-4), x1F=Math.min(W0,Math.ceil(best.x1/sc)+4);
+  const rc=document.createElement('canvas'); rc.width=x1F-x0F; rc.height=1;
+  const rx=rc.getContext('2d',{willReadFrequently:true}); rx.drawImage(img,x0F,yF,x1F-x0F,1,0,0,x1F-x0F,1);
+  const rd=rx.getImageData(0,0,x1F-x0F,1).data, at=i=>(rd[i*4]+rd[i*4+1]+rd[i*4+2])/3;
+  const mid=Math.round((best.x0+best.x1)/2/sc)-x0F, ref=at(Math.max(0,Math.min(x1F-x0F-1,mid)));
+  let a=mid, b=mid; while(a>0&&Math.abs(at(a-1)-ref)<30) a--; while(b<x1F-x0F-1&&Math.abs(at(b+1)-ref)<30) b++;
+  return {px:b-a+1, x:x0F+a, y:yF, bright:ref>127};
+}
+function autoDetectScaleBar(imgIdx){
+  const im=images[imgIdx]; if(!im||!im.img) return;
+  const bar=_findBurnedBar(im.img);
+  if(!bar){ toast('No scale bar found in the bottom third of the image — use 🔬 Calibrate from image and click its ends','warn'); return; }
   const pid=_pidOf(imgIdx);
-  const btnRow=suggestions.map(s=>`<button class="btn" style="margin:2px" onclick="applyScaleDetect(_pidx(${esc(JSON.stringify(pid))}),${barPxOrig},${s});this.closest('.modal-bg').remove()">${s} µm</button>`).join('');
-  modal.innerHTML=`<div class="modal" style="max-width:420px;padding:22px">
-    <div style="font-weight:600;margin-bottom:10px">Scale Bar Detected</div>
+  const pick=[['nm',[10,20,50,100,200,500]],['µm',[1,2,5,10,20,50,100,200,500]],['mm',[1,2,5,10]]];
+  const btns=pick.map(([u,vals])=>`<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px"><span style="font-size:10px;color:var(--muted);width:24px">${u}</span>`
+    +vals.map(v=>`<button class="btn sbd-pick" style="margin:1px;padding:1px 7px" data-um="${v*_sbUnitFactor(u)}">${v} ${u}</button>`).join('')+'</div>').join('');
+  const modal=document.createElement('div');
+  modal.className='modal-bg open'; modal.id='sbdetect-modal';
+  modal.innerHTML=`<div class="modal" style="max-width:460px;padding:22px">
+    <div style="font-weight:600;margin-bottom:10px">Scale bar found</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
-      Found a ${barPxOrig}px horizontal bar in the bottom quarter of the image.<br>
-      What physical length does it represent?
+      A ${bar.bright?'bright':'dark'} bar <b>${bar.px} px</b> long (measured on the full-resolution image, row ${bar.y}).<br>
+      What length does it show?
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:14px">${btnRow}</div>
-    <button class="btn" onclick="this.closest('.modal-bg').remove()" style="width:100%;justify-content:center">Cancel</button>
+    ${btns}
+    <div class="inline-row" style="margin:6px 0 12px">
+      <span style="font-size:11px">Other:</span>
+      <input type="number" class="sbd-val" min="0" step="any" style="width:70px">
+      <select class="sbd-unit" style="width:auto"><option value="nm">nm</option><option value="µm" selected>µm</option><option value="mm">mm</option></select>
+      <button class="btn btn-primary sbd-ok">Apply</button>
+    </div>
+    <button class="btn sbd-cancel" style="width:100%;justify-content:center">Cancel</button>
   </div>`;
+  const done=um=>{ if(um>0) applyScaleDetect(_pidx(pid), bar.px, um); modal.remove(); };
+  modal.querySelectorAll('.sbd-pick').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.um)));
+  modal.querySelector('.sbd-ok').addEventListener('click',()=>{ const v=parseFloat(modal.querySelector('.sbd-val').value);
+    if(!(v>0)){ toast('Type the bar’s length','warn'); return; } done(v*_sbUnitFactor(modal.querySelector('.sbd-unit').value)); });
+  modal.querySelector('.sbd-cancel').addEventListener('click',()=>modal.remove());
   document.body.appendChild(modal);
 }
 function applyScaleDetect(imgIdx,barPx,um){
   const im=images[imgIdx]; if(!im){ toast(_PANEL_GONE,'warn'); return; }
   pushUndo();
-  im.umPerPx=um/barPx; im.sbUm=um; im.sbOn=true;
-  logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx.toFixed(4)});
+  im.umPerPx=+(um/barPx).toPrecision(6); im.sbUm=um; im.sbUnit=_sbUnitFor(um); im.sbOn=true;
+  // the burned-in bar's own length, unless it is too long or short to redraw on the crop
+  if(!_sbFits(im)) _fitScaleBar(im);
+  logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx});
   renderImgList(); scheduleRender(0);
-  toast(`Scale set: ${im.umPerPx.toFixed(4)} µm/px (${um} µm bar)`,'ok');
+  toast(`Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)})}) · scale bar ${_sbLabel(im)}`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -30947,7 +31805,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
       im.grayscale?'grayscale':'',
       im.umPerPx?`${im.umPerPx.toFixed(4)}µm/px`:'',
       `B:${im.brightness.toFixed(2)} C:${im.contrast.toFixed(2)} G:${(im.gamma||1).toFixed(2)}`,
-      `Levels:${im.blackPt||0}-${im.whitePt||255}`,
+      `Levels:${_levelsDisclosure(im).replace(/[–—]/g,'-')}`,
       im.captionNote||'',
     ].filter(Boolean).join(', ');
   });
@@ -31640,5 +32498,6 @@ _syncAIModelUI();
   if(sl&&lbl) sl.addEventListener('input',()=>{ lbl.textContent=sl.value; });
 })();
 </script>
+<datalist id="chan-name-list"><option value="DAPI"><option value="Hoechst"><option value="GFP"><option value="mCherry"><option value="RFP"><option value="CellMask"><option value="WGA"><option value="Phalloidin"><option value="MitoTracker"><option value="Cy5"><option value="BF"></datalist>
 </body>
 </html>

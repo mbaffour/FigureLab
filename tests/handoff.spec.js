@@ -104,6 +104,8 @@ async function buildFigure(page) {
     const cols = document.querySelectorAll('#col-label-inputs input');
     if (cols[0]) { cols[0].value = '*E. coli* WT'; cols[0].dispatchEvent(new Event('input')); }
     selectedPanel = 0; addLinkedInset(0.2, 0.2, 0.3, 0.3);                        // linked inset
+    // (an inset now lands right after its parent — ux1 fluor-11; this figure keeps it last, as built before)
+    images.push(images.splice(images.findIndex(i => i && i.insetOf != null), 1)[0]); render();
     render();
   });
 }

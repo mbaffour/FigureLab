@@ -94,7 +94,9 @@ test('Trim borders on all panels sets each crop to its content, skips the unbord
   `);
   const r = await page.evaluate(() => {
     images[0].cropAngle = 5;                       // a stale tilt: a border is axis-aligned
+    // it previews first (ux1 newcomer-04): the white-margined panel is listed and ticked
     trimBordersAll();
+    _trimApply();
     const after = images.map(im => [im.cropL, im.cropT, im.cropR, im.cropB, im.cropAngle || 0]);
     const last = reproLog[reproLog.length - 1];
     undo();
@@ -340,7 +342,7 @@ test('the inset picker opens the crop editor over the parent’s visible crop an
     };
     cropEdState.cx = 0.5; cropEdState.cy = 0; cropEdState.cw = 0.5; cropEdState.ch = 0.5; cropEdState.hasBox = true;
     applyCropModal();
-    const inset = images[2];
+    const inset = images[1];                         // placed right after its parent (ux1 fluor-11)
     const after = {
       count: images.length, closed: !document.getElementById('crop-modal').classList.contains('open'),
       rect: inset && inset.insetRect, of: inset && inset.insetOf === images[0].id,
