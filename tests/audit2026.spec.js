@@ -451,7 +451,14 @@ test('FL-8: SVG export declares the printed width it was asked for', async ({ pa
   });
   expect(r.freeIn).toBeCloseTo(r.logicalW / 96, 3);       // unchanged with no target
   expect(r.tgtIn * 25.4).toBeCloseTo(183, 1);             // used to ignore the setting
-  expect(r.tgtVb).toEqual(r.freeVb);                      // the vector layer is untouched
+  // The vector layer keeps the figure's logical coordinates. The viewBox is the raster's
+  // whole-pixel size divided by the export scale (so one user unit is exactly S pixels
+  // for pictures and vectors alike), which differs from the logical width by under half
+  // a unit and by a different rounding at each scale — so compare to the logical size,
+  // not the two exports to each other.
+  expect(Math.abs(r.freeVb[0] - r.logicalW)).toBeLessThan(0.5);
+  expect(Math.abs(r.tgtVb[0] - r.logicalW)).toBeLessThan(0.5);
+  expect(Math.abs(r.tgtVb[1] / r.tgtVb[0] - r.freeVb[1] / r.freeVb[0])).toBeLessThan(1e-3);
   expect(errors).toEqual([]);
 });
 
