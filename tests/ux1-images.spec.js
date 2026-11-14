@@ -206,6 +206,32 @@ test.describe('fluor-02/03/15/17 channel identity', () => {
     expect(errors).toEqual([]);
   });
 
+  test('one channel name everywhere: ⚙ › Channel reaches the key, and a key Channel name the drawer contradicts follows it', async ({ page }) => {
+    // The legend key's per-colour Channel names and the panel's own Channel field are one
+    // path: the key prints a typed panel channel, and typing one updates a different
+    // per-colour name so the tag, key and drawer never disagree.
+    const errors = await loadApp(page);
+    const f = n => [tiff16([field(32, 32, 100, 3000, 4000)], { w: 32, h: 32 }), n];
+    await drop(page, [f('x_DAPI.tif'), f('x_membrane_GFP.tif')]);
+    await page.evaluate(() => { images[0].lut = 'blue'; images[1].lut = 'magenta'; renderImgList(); render(); });
+    const row = await openDrawer(page, 1);
+    await row.locator('.f-chan').fill('CellMask');
+    await row.locator('.f-chan').dispatchEvent('change');
+    let r = await page.evaluate(() => _keyText());
+    expect(r).toContain('CellMask (magenta)');
+    await page.evaluate(() => setKeyChannelName('magenta', 'WGA'));
+    // the drawer stays open across the list rebuild
+    const row2 = page.locator('#img-list .img-item').nth(1);
+    if (!(await row2.locator('.img-settings').evaluate(e => e.classList.contains('open')))) await row2.locator('[data-gear]').click();
+    await row2.locator('.f-chan').fill('CellMask');
+    await row2.locator('.f-chan').dispatchEvent('change');
+    r = await page.evaluate(() => [_keyText(), _keyRename('magenta'), _levelKey(images[1])]);
+    expect(r[0]).toContain('CellMask (magenta)');
+    expect(r[1]).toBe('CellMask');
+    expect(r[2]).toBe('CellMask');
+    expect(errors).toEqual([]);
+  });
+
   test('an OME-TIFF’s channel names and colours name and colour its pages', async ({ page }) => {
     // Old build: three grey pages, all tagged GFP from the file name, OME names ignored.
     const errors = await loadApp(page);
