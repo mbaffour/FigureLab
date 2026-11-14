@@ -544,7 +544,9 @@ test('newcomer-15 / newcomer-16: a tutorial gives your own figure back in one st
   await page.evaluate(() => { images[0].captionNote = 'MY FIGURE'; images.forEach((im, i) => im.label = 'XYZ'[i]); render(); });
   page.on('dialog', d => d.accept());
   await page.evaluate(() => startTutorial(TUTORIALS.find(t => t.setup && t.id !== 'basics').id));
-  await page.waitForFunction(() => !images.some(im => im && im.captionNote === 'MY FIGURE'));
+  // wait for the tutorial to be RUNNING: its setup swaps the images before it finishes, and
+  // an abort before _tut is set is a no-op (the tutorial then starts over the dialog)
+  await page.waitForFunction(() => !images.some(im => im && im.captionNote === 'MY FIGURE') && _tut && document.getElementById('tour-ov'));
   await page.evaluate(() => _tutAbort());                      // Esc / end of the tutorial
   await expect(page.locator('#confirm-modal-bg')).toBeVisible();
   await expect(page.locator('#confirm-modal-bg')).toContainText('Bring your own figure back?');
