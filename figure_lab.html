@@ -625,7 +625,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="hidden-gap-note" style="font-size:10px;color:var(--muted);line-height:1.4;margin:-2px 0 4px"></div>
     <button class="btn" style="width:100%;justify-content:center;font-size:11px;margin:3px 0 0" onclick="insertBlankCell()" title="Leave a grid position empty — after the selected panel, or at the end — to hold a place for a schematic added later or to align a ragged row. It is background in the export.">▭ Insert blank cell</button>
     <div class="inline-row" style="margin:3px 0 5px">
-      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. Spanning panels are counted as one cell.">⊞ Fit grid to panels</button>
+      <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitGridToPanels()" title="Set rows × columns to hold every visible panel with the fewest empty cells, landscape and compact — 6 panels → 3 × 2, 8 → 4 × 2, 9 → 3 × 3. A spanning panel counts every cell it covers, so no panel is left without a cell.">⊞ Fit grid to panels</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="fitPanelsToContent()" title="Match the panel shape to your images so they fill the cell — a 4:3 crop in a square cell leaves white bars above and below">⤢ Fit panels to images</button>
       <button class="btn" style="flex:1;justify-content:center;font-size:11px" onclick="tightenSpacing()" title="Close the gaps and margins around the panels">⇲ Tighten spacing</button>
     </div>
@@ -1213,7 +1213,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;gap:5px">
       <button class="btn" onclick="saveJSON(true)" style="flex:1;justify-content:center" title="Bundled session — includes your images, so it reloads the whole figure with no re-dropping (larger file)">💾 Save (bundled)</button>
       <label class="btn" style="flex:1;justify-content:center;cursor:pointer" title="Load a saved session file (bundled or lightweight) and continue where you left off">
-        📂 Load<input type="file" accept=".json" style="display:none" onchange="loadJSON(this)">
+        📂 Load<input type="file" id="session-load-input" accept=".json,.figlab,application/json" style="display:none" onchange="loadJSON(this)">
       </label>
     </div>
     <button class="btn adv" onclick="saveJSON(false)" style="width:100%;justify-content:center;margin-top:4px" title="Lightweight session — settings only (no image data, small file). Re-drop the same images after loading.">🪶 Save (settings only)</button>
@@ -4024,7 +4024,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
 // image's own undo step, up to the 12 rows multi-crop stops at. Past that the panels
 // left without a cell are counted in a warning and marked in the list. A drop
 // gathers its growth into one toast (_gridGrowBatch is set by addFiles).
-let _gridGrowBatch=0, _gridGrowNote=null;
+let _gridGrowBatch=0, _gridGrowNote=null, _lastUnplaced=0;
 function _growGridToFit(){
   if(layoutMode==='freeform') return;
   const cols=Math.max(1,gi('cols')), from=Math.max(1,gi('rows'));
@@ -5137,8 +5137,11 @@ function esOpenTemplates(){
     .find(x=>/Templates/i.test((x.querySelector('summary')||{}).textContent||''));
   if(d){ if(_isNarrow()) toggleSidebar(true); d.open=true; d.scrollIntoView({behavior:'smooth',block:'nearest'}); }
 }
+// The welcome card's "Load a session" used to click the first .json input in the
+// sidebar — the Templates importer — so a saved session was read as a template list
+// and nothing opened ("Import failed: Expected array", or nothing at all).
 function esLoadSession(){
-  const i=document.querySelector('.sidebar input[type="file"][accept=".json"]');
+  const i=document.getElementById('session-load-input');
   if(i) i.click(); else toast('Open the Export panel to load a session','warn');
 }
 (function initEmptyState(){ if(typeof updateEmptyState==='function') updateEmptyState(); })();
@@ -6201,11 +6204,34 @@ function _fitGrid(n){
   }
   return {cols:best.cols,rows:best.rows};
 }
+// The grid for the panels in `order`, spans included. A spanning panel used to count
+// as one cell, so a 1-big + 3-small figure (A 2 × 2, D 2 × 1) was "fitted" to 2 × 2:
+// A's span then filled the grid and B–D were silently not drawn. Each panel now counts
+// the cells it covers, the grid is at least as wide as the widest span, and rows are
+// added until every panel has a cell and no span is cut short.
+function _fitGridSpans(order){
+  const held=i=>{ const im=images[i]; return {cs:Math.max(1,(im&&im.colSpan)||1), rs:Math.max(1,(im&&im.rowSpan)||1)}; };
+  const S=order.map(held), cells=S.reduce((s,q)=>s+q.cs*q.rs,0);
+  if(!S.some(q=>q.cs>1||q.rs>1)) return _fitGrid(order.length);
+  let {cols,rows}=_fitGrid(cells);
+  cols=Math.max(cols, ...S.map(q=>q.cs)); rows=Math.max(rows, ...S.map(q=>q.rs));
+  const fits=(c,r)=>{ const P=_gridPlacements(c,r); return !P.unplaced&&!P.some(p=>p.want); };
+  // the smallest grid (fewest cells, then the squarest) of the widths near the fit that holds them all
+  let best=null;
+  for(let c=cols;c<=cols+3;c++){
+    let r=Math.max(rows,Math.ceil(cells/c));
+    while(r<=60&&!fits(c,r)) r++;
+    if(r>60) continue;
+    const score=c*r+0.4*Math.abs(c-r);
+    if(!best||score<best.score) best={cols:c,rows:r,score};
+  }
+  return best?{cols:best.cols,rows:best.rows}:{cols,rows};
+}
 function fitGridToPanels(){
   if(layoutMode==='freeform'){ toast('The grid applies to grid mode','warn'); return; }
-  const n=_gridOrder().length;   // hidden panels count when they keep their cell
+  const order=_gridOrder(), n=order.length;   // hidden panels count when they keep their cell
   if(!n){ toast('Add images first','warn'); return; }
-  const {cols,rows}=_fitGrid(n);
+  const {cols,rows}=_fitGridSpans(order);
   if(cols===gi('cols')&&rows===gi('rows')){ toast(`Already ${cols} × ${rows} for ${n} panel${n>1?'s':''}`,'ok'); return; }
   pushUndo();
   sv('cols',cols); sv('rows',rows); onLayoutChange();
@@ -10604,7 +10630,15 @@ function render(targetCanvas, exportScale, opts){
   // With rows hugging their panels ph is one height per row; interpolated as-is it
   // printed "panel 300×90,45px".
   const _rowHs=Array.isArray(ph)?ph:[ph];
-  setStatus(`${Math.min(images.length,cols*rows)} panel(s) · ${totalW}×${totalH}px`,
+  // The panels the figure DRAWS. min(images, cells) counted hidden panels and ones a
+  // span pushed out of the grid, so "4 panel(s)" sat over a figure that drew one.
+  const _plc=_gridPlacements(cols,rows), _drawn=_plc.filter(p=>p.im).length, _out=_plc.unplaced;
+  if(_out>0&&!(_lastUnplaced>0)){
+    const placed=new Set(_plc.map(p=>p.imgIdx)), lost=_gridOrder().filter(i=>!placed.has(i)&&images[i]).map(i=>_rtText(formatLabel(images[i].label))||_sourceName(images[i])||'?');
+    toast(`${_out} panel${_out>1?'s':''} (${lost.join(', ')}) ${_out>1?'have':'has'} no cell in the ${cols} × ${rows} grid and ${_out>1?'are':'is'} not drawn — add rows or columns, or press ⊞ Fit grid to panels`,'warn');
+  }
+  _lastUnplaced=_out;
+  setStatus(`${_drawn} panel(s)${_out?` · ${_out} not drawn (no cell)`:''} · ${totalW}×${totalH}px`,
     new Set(_rowHs).size>1 ? `gap ${gH}h ${gV}v · panel ${pw}px wide · rows ${_rowHs.join(' / ')} px tall`
                            : `gap ${gH}h ${gV}v · panel ${pw}×${_rowHs[0]}px`);
 
@@ -20150,13 +20184,29 @@ function saveJSON(bundleImages){
   toast(_bundle ? 'Session saved (images bundled)' : 'Settings saved (lightweight — re-drop images on load)','ok');
 }
 
+// What a FigureLab JSON file is, from its shape: a session (bundled or settings only),
+// a templates list, or something else. The session loader and the template importer
+// both ask, so each opens the other's file instead of failing on it.
+function _flJsonKind(o){
+  if(Array.isArray(o)) return o.length&&o.every(t=>t&&typeof t==='object'&&typeof t.name==='string'&&('cols' in t||'mode' in t)) ? 'templates' : 'other';
+  if(o&&typeof o==='object'&&['images','layout','style','freeformElements','layoutMode'].some(k=>k in o)) return 'session';
+  return 'other';
+}
+function _loadSessionText(text, fname){
+  let o;
+  try{ o=JSON.parse(text); }
+  catch(err){ toast(`${fname||'That file'} is not a FigureLab session — it is not JSON text (${err.message})`,'err'); return false; }
+  const kind=_flJsonKind(o);
+  if(kind==='templates'){ _importTemplateArray(o); return true; }
+  if(kind!=='session'){ toast(`${fname||'That file'} is JSON, but not a FigureLab session (no layout, images or style in it) — nothing was changed`,'err'); return false; }
+  try{ applySession(o,{origin:'file'}); return true; }
+  catch(err){ toast('Could not load: '+err.message,'err'); return false; }
+}
 function loadJSON(input){
   const f=input.files[0]; if(!f) return;
   const reader=new FileReader();
-  reader.onload=e=>{
-    try{ applySession(JSON.parse(e.target.result),{origin:'file'}); }
-    catch(err){ toast('Could not load: '+err.message,'err'); }
-  };
+  reader.onload=e=>_loadSessionText(e.target.result, f.name);
+  reader.onerror=()=>toast(`Could not read ${f.name}`,'err');
   reader.readAsText(f); input.value='';
 }
 // Apply a parsed session object — shared by file-load, autosave-restore, the session
@@ -25426,17 +25476,25 @@ function importTemplates(input){
   const f=input.files[0]; if(!f) return;
   const r=new FileReader();
   r.onload=e=>{
-    try{
-      const arr=JSON.parse(e.target.result);
-      if(!Array.isArray(arr)) throw new Error('Expected array');
-      const existing=getSavedTemplates();
-      const names=new Set(existing.map(t=>t.name));
-      arr.forEach(t=>{ if(!names.has(t.name)) existing.push(t); });
-      localStorage.setItem('figurelab_templates',JSON.stringify(existing));
-      renderSavedTemplates(); toast(`Imported ${arr.length} template(s)`,'ok');
-    }catch(err){ toast('Import failed: '+err.message,'err'); }
+    let arr;
+    try{ arr=JSON.parse(e.target.result); }
+    catch(err){ toast(`${f.name} is not a templates file — it is not JSON text`,'err'); return; }
+    // A saved session picked here is opened as the session it is, not refused as
+    // "Expected array" — the importer and the session loader both take either file.
+    if(_flJsonKind(arr)==='session'){ applySession(arr,{origin:'file'}); toast(`${f.name} is a saved session, so it was opened as one (Ctrl+Z goes back)`,'ok'); return; }
+    if(!Array.isArray(arr)){ toast(`${f.name} is not a templates file (FigureLab writes templates as a list) — nothing was imported`,'err'); return; }
+    _importTemplateArray(arr);
   };
   r.readAsText(f); input.value='';
+}
+function _importTemplateArray(arr){
+  try{
+    const existing=getSavedTemplates();
+    const names=new Set(existing.map(t=>t.name));
+    arr.forEach(t=>{ if(!names.has(t.name)) existing.push(t); });
+    localStorage.setItem('figurelab_templates',JSON.stringify(existing));
+    renderSavedTemplates(); toast(`Imported ${arr.length} template(s)`,'ok');
+  }catch(err){ toast('Import failed: '+err.message,'err'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
