@@ -336,7 +336,9 @@ test('F18 labels past Z never repeat, and compliance flags a duplicated label', 
   expect(errors).toEqual([]);
 });
 
-test('F10 images dropped with a CSV all land in the current grid; the chart waits on the canvas', async ({ page }) => {
+// Since ux1 (blot-02, phage-03) the chart is a grid panel after the images, not an object
+// waiting on the hidden freeform canvas, and a CSV alone no longer switches the layout.
+test('F10 images dropped with a CSV all land in the current grid, the chart as a panel after them', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(async () => {
     window.__toasts = []; const o = window.toast; window.toast = function (m, k) { window.__toasts.push({ m: String(m), k }); return o.apply(this, arguments); };
@@ -350,21 +352,23 @@ test('F10 images dropped with a CSV all land in the current grid; the chart wait
     return { mode: layoutMode, grid: images.filter(Boolean).map(i => i.name),
              ffImages: freeformElements.filter(e => e.type === 'image').length,
              charts: freeformElements.filter(e => e.type === 'chart').length,
+             chartPanel: images.filter(im => im && im.type === 'chart').length,
              modal: !!document.querySelector('#chart-modal.open'), toasts: window.__toasts.map(t => t.m) };
   });
   expect(r.mode).toBe('grid');                          // was flipped to freeform mid-drop
-  expect(r.grid).toEqual(['many_00.png', 'many_01.png', 'many_02.png', 'many_03.png']);
+  expect(r.grid).toEqual(['many_00.png', 'many_01.png', 'many_02.png', 'many_03.png', 'data.csv']);
   expect(r.ffImages).toBe(0);                           // was 2 images on the hidden canvas
-  expect(r.charts).toBe(1);
+  expect(r.charts).toBe(0);
+  expect(r.chartPanel).toBe(1);
   expect(r.modal).toBe(false);
-  expect(r.toasts.some(m => /chart.*freeform/i.test(m))).toBe(true);
-  // A drop of only a CSV still opens it as a chart, as before.
+  expect(r.toasts.some(m => /added to the grid as panels/i.test(m))).toBe(true);
+  // A drop of only a CSV opens its editor, and stays in the grid.
   const s = await page.evaluate(async () => {
     await addFiles([new File(['x,y\na,1\n'], 'only.csv', { type: 'text/csv' })]);
     await new Promise(r => setTimeout(r, 300));
     return { mode: layoutMode, modal: !!document.querySelector('#chart-modal.open') };
   });
-  expect(s).toEqual({ mode: 'freeform', modal: true });
+  expect(s).toEqual({ mode: 'grid', modal: true });
   expect(errors).toEqual([]);
 });
 

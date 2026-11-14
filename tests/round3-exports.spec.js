@@ -543,6 +543,7 @@ test('lab sample colours are reserved: a series off the palette never takes a co
     loadLabStyle({ settings: { sample_palette: { 'ΔmotA': '#E69F00' } } }, 'p.json');
     document.getElementById('lab-style-summary')?.closest('.modal-bg')?.remove();
     const out = {};
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); 
     for (const kind of ['groupedBar', 'line', 'box']) {
       addChartElement('bar'); closeChartModal();
       const el = freeformElements[freeformElements.length - 1];

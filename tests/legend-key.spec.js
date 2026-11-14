@@ -104,7 +104,7 @@ test('a chart figure keys each series with its own marker and line, not a square
   const errors = await loadApp(page);
   await page.evaluate(HELPERS);
   const r = await page.evaluate(async () => {
-    addChartElement('line'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('line'); closeChartModal();
     const el = freeformElements[freeformElements.length - 1];
     el.chart.data = { columns: ['t', 'WT', 'KO'], rows: [[0, 1, 2], [1, 2, 3], [2, 4, 3]], source: 'demo', sourceName: '' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2];
@@ -146,7 +146,7 @@ test('a freeform figure keys its images and gene map, and the key placed on it s
   const r = await page.evaluate(async () => {
     const images0 = _figureKey().map(k => [k.name, k.color]);
     const text0 = document.getElementById('key-text').value;
-    addGenemapElement('linear'); closeGenemapModal(); render();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addGenemapElement('linear'); closeGenemapModal(); render();
     const rows = _figureKey().map(k => [k.name, k.marker, k.glyph || null]);
     setKeyOnFigure(true); render();
     const placed = annotations.filter(a => a.type === 'legend');
@@ -178,9 +178,9 @@ test('the legend text follows a rename, a colour change, a hidden panel and a ch
     images[1].lut = 'magenta'; out.recoloured = txt();             // GFP shown in magenta
     images[1].name = 'b_mCherry.tif'; out.renamed = txt();         // the file is renamed
     images[0].excluded = true; out.hidden = txt();                 // DAPI panel hidden
-    // a chart: rename a series, change its palette
+    // a chart, added to the grid as a panel (ux1): rename a series, change its palette
     addChartElement('bar'); closeChartModal();
-    const el = freeformElements[freeformElements.length - 1];
+    const el = images[images.length - 1];
     el.chart.data = { columns: ['Strain', 'WT', 'KO'], rows: [['a', 1, 2], ['b', 2, 3]], source: 'demo', sourceName: '' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2]; el.chart.kind = 'groupedBar';
     el._chartKey = ''; el._chartStat = null;
@@ -195,9 +195,10 @@ test('the legend text follows a rename, a colour change, a hidden panel and a ch
   expect(r.recoloured).toBe('DAPI (blue); GFP (magenta); BF.');
   expect(r.renamed).toBe('DAPI (blue); RFP (magenta); BF.');
   expect(r.hidden).toBe('RFP (magenta); BF.');
-  expect(r.chart).toBe('WT (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRenamed).toBe('Wild type (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRecoloured).toBe('Wild type (blue, filled bars); KO (red, filled bars).');
+  // The chart is a panel of the same grid, so the key keys it after the image panels.
+  expect(r.chart).toBe('RFP (magenta); BF; WT (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRenamed).toBe('RFP (magenta); BF; Wild type (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRecoloured).toBe('RFP (magenta); BF; Wild type (blue, filled bars); KO (red, filled bars).');
   expect(errors).toEqual([]);
 });
 

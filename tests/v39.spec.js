@@ -285,7 +285,7 @@ const GB = fs.readFileSync(path.join(__dirname, 'fixtures', 'sample_plasmid.gb')
 /** Add a gene map (the modal opens on insert; close it) and return its index. */
 async function addMap(page, topology, mutate) {
   return page.evaluate(({ topology, mutate }) => {
-    addGenemapElement(topology);
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addGenemapElement(topology);
     closeGenemapModal();
     const i = freeformElements.length - 1;
     if (mutate) new Function('el', mutate)(freeformElements[i]);
@@ -468,16 +468,17 @@ test('_parseGenBank reads the LOCUS, topology and FEATURES table, and nothing el
   expect(errors).toEqual([]);
 });
 
+// Dropped on the grid (the default layout) it is a gene map panel since ux1 (phage-03).
 test('a dropped GenBank file becomes a gene map', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(async (txt) => {
     const f = new File([txt], 'pFL-TEST.gb', { type: 'text/plain' });
     addFiles([f]);
     await new Promise(res => setTimeout(res, 300));
-    const el = freeformElements[freeformElements.length - 1];
-    document.getElementById('genemap-modal').classList.remove('open');
+    const el = images.find(im => im && im.type === 'genemap');
+    closeGenemapModal();
     return el && { type: el.type, bp: el.map.length, topo: el.map.topology,
-                   n: el.map.features.length, title: el.map.style.title, images: images.length };
+                   n: el.map.features.length, title: el.map.style.title, images: images.filter(im => im && !im.type).length };
   }, GB);
   expect(r.type).toBe('genemap');
   expect(r.bp).toBe(3210);

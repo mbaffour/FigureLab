@@ -162,7 +162,7 @@ const PAPER_STYLE = {
 test('lab style: font, sizes, colours and sample colours applied; unused keys listed; one undo step; saved', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(async (style) => {
-    addChartElement('bar'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('bar'); closeChartModal();
     const el = freeformElements[freeformElements.length - 1];
     el.chart.data = { columns: ['Strain', 'MG1655', 'MG1655 + WT', 'other'], rows: [['a', 1, 2, 3], ['b', 2, 3, 4]], source: 'demo', sourceName: '' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2, 3]; el.chart.kind = 'groupedBar';
@@ -218,7 +218,7 @@ test('lab style: a one-series bar chart of strains takes the colours by category
   await loadApp(page);
   const r = await page.evaluate(async (style) => {
     loadLabStyle(style, 'paper_style.json');
-    addChartElement('bar'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('bar'); closeChartModal();
     const el = freeformElements[freeformElements.length - 1];
     el.chart.data = { columns: ['Strain', 'CFU'], rows: [['MG1655', 5], ['ΔbshC', 3], ['x', 1]], source: 'demo', sourceName: '' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1]; el.chart.kind = 'bar';

@@ -677,7 +677,7 @@ test('F21: a session saved before format marks opens with them off; new figures 
 test('F22: chart category rotation and legend width count drawn characters, not marks', async ({ page }) => {
   const errors = await setup(page, 0);
   const r = await page.evaluate(() => {
-    addChartElement('bar');
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('bar');
     const el = freeformElements[freeformElements.length - 1];
     const run = (cats) => { el.chart.data = { columns: ['Group', 'Value'], rows: cats.map((c, i) => [c, 3 + i]), source: 'demo', sourceName: '' };
       el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1]; el._chartKey = null; el._chartStat = null;

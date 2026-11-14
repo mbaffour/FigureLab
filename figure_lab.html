@@ -3748,9 +3748,9 @@ function _loadSVGFile(f, fail, done){
 // the moment they read their file, so the images before the CSV became grid panels
 // (now out of sight) and the ones after it freeform objects, with the chart editor
 // open mid-import. Now the images go first, all into the layout you are in, and
-// the data files after them. In the grid they are added to the freeform canvas
-// without switching to it, and one toast says where they went. A drop of data files
-// alone switches and opens its editor, as it always has.
+// the data files after them. In the grid each chart or gene map is a panel after the
+// images, and one toast says so; on the freeform canvas they are objects. A drop of
+// data files alone opens the editor on what it made.
 const _fileKind = f => {
   const n=(f.name||'').toLowerCase();
   if(/\.(gb|gbk|genbank|fasta|fa|fna)$/.test(n)) return 'seq';
@@ -3778,7 +3778,7 @@ async function addFiles(fileList){
     }
     if(holdMode && charts+maps){
       const what=[charts?`${charts} chart${charts>1?'s':''}`:'', maps?`${maps} gene map${maps>1?'s':''}`:''].filter(Boolean).join(' and ');
-      toast(`${pics.length} image${pics.length>1?'s':''} added to the grid; ${what} from the same drop ${charts+maps>1?'are':'is'} on the freeform canvas — switch Layout to Freeform to place ${charts+maps>1?'them':'it'}`,'ok');
+      toast(`${pics.length} image${pics.length>1?'s':''} and ${what} added to the grid as panels — double-click a chart or gene map to edit it`,'ok');
     }
   } finally { if(outerStep) _importStep=null; }
 }
@@ -5237,7 +5237,8 @@ function _refreshPreflight(){
         ? '<b>Layered</b>: every panel is its own layer (its picture, letter, scale bar and labels) for Illustrator, Affinity or Inkscape. '
         : '<b>Flat</b>: one picture of the figure. ')
       +'Labels, scale bars & annotations export as <b>vector</b> — sharp at any zoom.'
-      +(_vp.vector.length?` Imported SVG panel${_vp.vector.length>1?'s':''} ${_vp.vector.map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} stay <b>vector</b>.`:'')
+      +(_vp.vector.some(v=>!v.data)?` Imported SVG panel${_vp.vector.filter(v=>!v.data).length>1?'s':''} ${_vp.vector.filter(v=>!v.data).map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} stay <b>vector</b>.`:'')
+      +(_vp.vector.some(v=>v.data)?` Chart and gene map panel${_vp.vector.filter(v=>v.data).length>1?'s':''} ${_vp.vector.filter(v=>v.data).map(v=>esc(_rtText(formatLabel(v.im.label))||'?')).join(', ')} ${_vp.vector.filter(v=>v.data).length>1?'are':'is'} written as <b>vector</b>.`:'')
       +_vp.raster.map(r=>` Panel ${esc(_rtText(formatLabel(r.im.label))||'?')} was imported as SVG but is written as <b>pixels</b>: ${esc(r.why.join('; '))}.`).join('')
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
@@ -5486,7 +5487,7 @@ function renderImgList(){
       <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
         <input type="checkbox" class="panel-pick" data-pick="${idx}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
         <span class="drag-handle" title="Drag to reorder">⠿</span>
-        <img class="img-thumb" src="${_safeSrc(im.src)}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
+        <img class="img-thumb" src="${_safeSrc(im._thumb||im.src)}" data-thumb="${im.id}" draggable="false"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
         <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
@@ -5500,7 +5501,8 @@ function renderImgList(){
         <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
       </div>
       <div class="img-meta" style="font-size:10px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-        ${_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
+        ${_isDataPanel(im)?`<span title="Drawn from its data at its cell's size — vector in SVG, redrawn at the export resolution in PNG, TIFF and PDF">${im.type==='chart'?`📊 chart · ${((im.chart&&im.chart.data&&im.chart.data.rows)||[]).length} rows`:`🧬 gene map · ${_bpLabel(Math.max(1,(im.map&&im.map.length)|0))}`}</span>`
+          :_iw?`<span>${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
         <span class="f-ppi" data-ppi="${idx}" title="Pixels per inch this panel prints at: its source pixels across the crop divided by its printed width. Below ~300 ppi the export interpolates pixels the camera never recorded, and a higher export DPI does not change that."></span>
         ${_ch?`<span title="Channel detected from filename" style="color:${_ch.color};border:1px solid ${_ch.color};border-radius:3px;padding:0 4px;line-height:1.5">${_ch.label}</span>`:''}
         ${im.group?`<span title="Match group" style="color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:0 4px;line-height:1.5">⇉ ${esc(im.group)}</span>`:''}
@@ -5640,6 +5642,7 @@ function renderImgList(){
     const s = item.querySelector('.img-settings');
     const gear = item.querySelector('[data-gear]');
     const labelInput = item.querySelector('.img-label-input');
+    if(_isDataPanel(im)) _dataPanelDrawer(s, idx, im);
 
     { const cw=item.querySelector('[data-calib]');
       // The badge was a 5x14 px inert glyph: the only sign that a switched-on scale bar
@@ -5654,7 +5657,7 @@ function renderImgList(){
       pushUndo();
       const clone = {...images[idx], id:Date.now()+Math.random(), label:nextLabel(),
         channels:(images[idx].channels||[]).map(ch=>({...ch})),
-        panelAnns:(images[idx].panelAnns||[]).map(a=>({...a})), _adjCache:undefined,_adjKey:undefined};
+        panelAnns:(images[idx].panelAnns||[]).map(a=>({...a})), ..._dataPanelCopy(images[idx]), _adjCache:undefined,_adjKey:undefined};
       _withWaiting(()=>images.splice(idx+1, 0, clone));
       renderImgList(); renderMiniGrid(); scheduleRender();
     });
@@ -10324,7 +10327,11 @@ function render(targetCanvas, exportScale, opts){
         // Apply crop to get source rect. A tilted crop resolves to a straightened
         // canvas plus a full-frame rect, so everything below is identical either way.
         if(_omit && _omit.has(imgIdx)) continue;
-        const _cd=_cropDraw(im);
+        // A chart or gene map panel fills its cell and is drawn from its data below, at
+        // whatever scale this render is — never a picture of it enlarged.
+        const _plot=_isDataPanel(im);
+        if(_plot && !isExport) _dataPanelRefresh(im);
+        const _cd=_plot ? {img:im.img, sx:0, sy:0, sw:apw, sh:aph, rotated:false} : _cropDraw(im);
         const sx=_cd.sx, sy=_cd.sy, sw=_cd.sw, sh=_cd.sh;
         if(sw<1||sh<1){ if(!_noBg){ ctx.fillStyle=bgColor; ctx.fillRect(px,py,apw,aph); } continue; }
         // Contain-fit. A quarter turn swaps which way the picture lies, so the fit has
@@ -10337,7 +10344,7 @@ function render(targetCanvas, exportScale, opts){
         // (w|cos t| + h|sin t|) x (w|sin t| + h|cos t|). At 0 deg that is w x h and at
         // 90 deg it is h x w, so the two cases the buttons produce are unchanged, and a
         // freely rotated panel is contained by its cell instead of overflowing it.
-        const _rad=((im.rotate||0))*Math.PI/180;
+        const _rad=_plot?0:((im.rotate||0))*Math.PI/180;
         let _ca=Math.abs(Math.cos(_rad)), _sa=Math.abs(Math.sin(_rad));
         if(_ca<1e-9) _ca=0; if(_sa<1e-9) _sa=0;        // cos(90 deg) is 6e-17, not 0
         // _panelFitScale is the same formula, used for each panel's printed ppi.
@@ -10377,7 +10384,7 @@ function render(targetCanvas, exportScale, opts){
         }
         // Apply adjustments (or composite if extra channels)
         let srcImg;
-        if(_vecHole){ /* nothing to process: the picture is written as vector */ }
+        if(_vecHole||_plot){ /* nothing to process: written as vector, or drawn from its data */ }
         else if(im.channels && im.channels.length>0){
           srcImg=applyComposite(im, sx, sy, sw, sh, _cd.rotated?_cd.img:null);
         } else {
@@ -10385,7 +10392,9 @@ function render(targetCanvas, exportScale, opts){
           srcImg=adj.off?adj.canvas:null;
         }
         // Draw with rotate/flip transforms
-        if(im.rotate||im.flipH||im.flipV){
+        if(_plot){
+          if(!_vecHole) _dataPanelDraw(ctx, im, dx, dy, dw, dh);
+        } else if(im.rotate||im.flipH||im.flipV){
           ctx.save();
           ctx.translate(dx+dw/2, dy+dh/2);
           ctx.rotate((im.rotate||0)*Math.PI/180);
@@ -13425,6 +13434,7 @@ function cloneImageForUndo(im){
     // Deep-copied: a lane edit must not rewrite the snapshot it is undone to.
     gelAnalysis:im.gelAnalysis?JSON.parse(JSON.stringify(im.gelAnalysis)):im.gelAnalysis,
     laneTable:im.laneTable?JSON.parse(JSON.stringify(im.laneTable)):im.laneTable,
+    ..._dataPanelCopy(im),
     _adjCache:undefined, _adjKey:undefined};
 }
 function cloneElemForUndo(el){
@@ -13846,7 +13856,10 @@ function _figureKey(){
       else if(el.type==='chart'&&el.chart) _keyChartRows(el, add);
       else if(el.type==='genemap'&&el.map) _keyGenemapRows(el, add);
     });
-  } else _figurePanels().forEach(im=>_keyImageRows(im, add));
+  } else _figurePanels().forEach(im=>{
+    if(im.type==='chart'){ if(im.chart) _keyChartRows(im, add); }
+    else if(im.type==='genemap'){ if(im.map) _keyGenemapRows(im, add); }
+    else _keyImageRows(im, add); });
   return rows;
 }
 // The channel rows alone, as {name,color} (the shape the channel key had before it
@@ -15213,6 +15226,7 @@ annCanvas.addEventListener('dblclick', e=>{
   if(lb){ setLabelOff(lb.kind,lb.idx,0,0); hoverLabel=null; scheduleRender(0); toast('Label position reset','ok'); return; }
   const pb=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
   if(!pb) return;
+  if(_isDataPanel(images[pb.idx])){ openDataPanelEditor(pb.idx); return; }
   if(images[pb.idx].locked){ toast('Panel is locked — unlock to add text','warn'); return; }
   const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
   const rect=annCanvas.getBoundingClientRect();
@@ -15259,10 +15273,11 @@ function showPanelMenu(idx, cx, cy){
       pushUndo();
       const clone={...im,id:Date.now()+Math.random(),label:nextLabel(),
         channels:(im.channels||[]).map(ch=>({...ch})),
-        panelAnns:(im.panelAnns||[]).map(a=>({...a})),_adjCache:undefined,_adjKey:undefined};
+        panelAnns:(im.panelAnns||[]).map(a=>({...a})),..._dataPanelCopy(im),_adjCache:undefined,_adjKey:undefined};
       _withWaiting(()=>images.splice(idx+1,0,clone)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
-    row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
+    if(_isDataPanel(im)) row(im.type==='chart'?'📊  Edit chart…':'🧬  Edit gene map…', ()=>{ const idx=here(); if(idx<0) return; openDataPanelEditor(idx); });
+    else row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
     row('⚙  Open settings', ()=>{
       const idx=here(); if(idx<0) return;
       renderImgList();
@@ -15901,7 +15916,7 @@ function _panelEffPpi(idx, dpi){
     fit=Math.max(el.w/sw, el.h/sh);
   } else {
     const im=images[idx];
-    if(!im||!im.img||im.isVector) return null;
+    if(!im||!im.img||im.isVector||_isDataPanel(im)) return null;   // a chart has no pixels to print
     const b=panelBounds.find(p=>p.idx===idx);
     if(!b) return null;
     // _cropGeom, not _cropDraw: same sw/sh, without building the straightened canvas.
@@ -17366,7 +17381,7 @@ async function exportSubmissionPackage(){
     }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
     // Per-chart Source Data CSVs — the exact user data behind each plotted chart
     // (a mandatory requirement at Nature/EMBO). Writes the retained rows verbatim.
-    (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart&&e.chart.data&&(e.chart.data.rows||[]).length).forEach((el,ci)=>{
+    _figureCharts().filter(e=>e.chart.data&&(e.chart.data.rows||[]).length).forEach((el,ci)=>{
       const D=el.chart.data;
       const q=v=>_csvCell(v);
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
@@ -17947,10 +17962,20 @@ function _svgVectorPlan(){
   const out={vector:[], raster:[]};
   if(layoutMode==='freeform') return out;
   _figurePanels().forEach(im=>{
+    if(_isDataPanel(im)){ out.vector.push({im, why:[], data:true}); return; }   // a chart is drawn as vector
     const why=_svgPanelVectorWhy(im); if(!why) return;
     (why.length?out.raster:out.vector).push({im, why});
   });
   return out;
+}
+// A chart or gene map panel as vector, in the box the figure draws it in (b: its
+// panelBounds entry). A nested <svg> clips it to that box, as the canvas does.
+function _dataPanelSVG(im, b){
+  const f2=v=>(+v).toFixed(2), buf=[];
+  im.w=b.dw; im.h=b.dh;
+  if(im.type==='chart') _chartDraw(im, _chartEmitSVG(buf)); else _genemapDraw(im, _chartEmitSVG(buf));
+  return `<!-- Panel ${_xmlComment(_rtText(im.label||'?'))}: ${im.type==='chart'?'chart':'gene map'} drawn from its data, as vector -->`
+    +`<svg x="${f2(b.dx)}" y="${f2(b.dy)}" width="${f2(b.dw)}" height="${f2(b.dh)}" viewBox="0 0 ${f2(b.dw)} ${f2(b.dh)}" overflow="hidden">${buf.join('')}</svg>`;
 }
 // The figure's title and alt text as the SVG's own <title> and <desc>, which screen
 // readers announce for an SVG; nothing when neither is written.
@@ -18516,7 +18541,8 @@ function _exportLayeredSVG(name, dpi){
         defs.push(`<clipPath id="${cid}">${shape}</clipPath>`);
         body+=img(p.canvas, p.r, ` clip-path="url(#${cid})"`);
       }
-      if(L.vecIdx.has(p.idx)){
+      if(L.vecIdx.has(p.idx) && _isDataPanel(im)) body+=_dataPanelSVG(im, b);
+      else if(L.vecIdx.has(p.idx)){
         body+=`<!-- Panel ${_xmlComment(_rtText(im.label||'?'))}: ${_xmlComment(_sourceName(im)||'SVG')}, written as vector -->`;
         const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(im.svgSource);
         const t=`translate(${f2(b.dx+b.dw/2)} ${f2(b.dy+b.dh/2)})${im.rotate?` rotate(${+im.rotate})`:''}${(im.flipH||im.flipV)?` scale(${im.flipH?-1:1} ${im.flipV?-1:1})`:''}`;
@@ -18654,6 +18680,7 @@ function _exportFlatSVG(name, dpi, canvas){
   // colour goes first: the raster that used to supply it has a hole there now.
   const bgC=gv('bg-color')||'#ffffff';
   const gridVec=vecPanels.map(({im,b})=>{
+    if(_isDataPanel(im)) return `<rect x="${f2(b.ix)}" y="${f2(b.iy)}" width="${f2(b.iw)}" height="${f2(b.ih)}" fill="${esc(bgC)}"/>`+_dataPanelSVG(im, b);
     const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(im.svgSource);
     const t=`translate(${f2(b.dx+b.dw/2)} ${f2(b.dy+b.dh/2)})${im.rotate?` rotate(${+im.rotate})`:''}${(im.flipH||im.flipV)?` scale(${im.flipH?-1:1} ${im.flipV?-1:1})`:''}`;
     return `<!-- Panel ${_xmlComment(_rtText(im.label||'?'))}: ${_xmlComment(_sourceName(im)||'SVG')}, written as vector -->`
@@ -19319,7 +19346,7 @@ function _captionText(){
 function _methodsPanels(){
   return layoutMode==='freeform'
     ? freeformElements.filter(e=>e&&e.type==='image')
-    : _figurePanels();
+    : _figurePanels().filter(im=>!_isDataPanel(im));
 }
 function _listAnd(a){ return a.length<2 ? (a[0]||'') : a.slice(0,-1).join(', ')+' and '+a[a.length-1]; }
 function _panelsPhrase(names){ return (names.length===1?'panel ':'panels ')+_listAnd(names); }
@@ -19517,7 +19544,9 @@ function _buildStructuralAltText(){
   const title=(gv('fig-title')||'').trim();
   if(title) parts.push(`Figure titled "${_rtText(title)}".`);
   if(layoutMode==='grid'){
-    const n=images.filter(Boolean).length;
+    const nc=images.filter(im=>im&&im.type==='chart').length, ng=images.filter(im=>im&&im.type==='genemap').length;
+    const n=images.filter(Boolean).length-nc-ng;
+    if(nc||ng) parts.push(`The grid holds ${[nc?`${nc} chart${nc!==1?'s':''}`:'',ng?`${ng} gene map${ng!==1?'s':''}`:''].filter(Boolean).join(' and ')} as panels.`);
     if(n){ parts.push(`A ${gi('cols')}×${gi('rows')} panel grid of ${n} image panel${n!==1?'s':''}`+
       (images.some(im=>im&&im.umPerPx>0)?', some with scale bars':'')+'.'); }
   } else {
@@ -19657,7 +19686,8 @@ function _applyFigControls(s){
 // panel — linked insets, background keying, acquisition times and the panel's id were
 // dropped — so this names only what is NOT saved, and a new field is kept by default.
 const _PANEL_TRANSIENT=new Set(['img','raw','_imgEl','src','svgSource','channels',
-  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','insetOrphaned']);
+  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','insetOrphaned',
+  '_chartStat','_chartKey','_chartCache','_genemapStat','_genemapKey','_genemapCache','_dpKey','_thumb']);
 const _CHANNEL_TRANSIENT=new Set(['img','raw','src','_adjCache','_adjKey','_cropCache','_cropKey']);
 // Facts about the file's pixels. When a saved record is put back onto a file dropped
 // later, these are read off that file, never the record: a share link or a
@@ -19788,7 +19818,7 @@ function _splitSharedIds(list){
 // Numbers a panel's settings drawer writes into its fields. A record arrives from a file
 // or a share link, so one that is not a number is read as one (or dropped), never written
 // into the drawer's markup as text.
-const _REC_NUM=['umPerPx','sbUm','cropT','cropL','cropB','cropR','borderW','borderInset','colSpan','rowSpan',
+const _REC_NUM=['plotW','plotH','umPerPx','sbUm','cropT','cropL','cropB','cropR','borderW','borderInset','colSpan','rowSpan',
   'rotate','blackPt','whitePt','brightness','contrast','gamma','cropAngle'];
 function _recNumbers(o, keys){
   keys.forEach(k=>{ const v=o[k]; if(v==null||typeof v==='number') return;
@@ -20020,6 +20050,8 @@ function applySession(s,_opts){
         images=recs.map((d,i)=>{
           if(!d) return null;                          // a blank cell keeps its place
           const im=_panelFromRecord(d);
+          // A chart or gene map panel is its data: nothing to wait for, never a file to drop.
+          if(_isDataPanel(d)){ _dataPanelRefresh(im, true); return im; }
           if(d.src){
             const img=new Image(); img.onload=()=>scheduleRender(); img.src=d.src; im.img=img;
             im.channels.forEach(c=>{ if(c.src){ const ci=new Image(); ci.onload=()=>scheduleRender(); ci.src=c.src; c.img=ci; } });
@@ -20062,7 +20094,7 @@ function applySession(s,_opts){
 // so the script runs alone; the error metric and its exact formula are named in
 // a comment, and significance marks are flagged as author-supplied (never a
 // computed p-value) — this is what makes the generated code honest.
-function _charts(){ return (typeof freeformElements!=='undefined'?freeformElements:[]).filter(e=>e.type==='chart'&&e.chart); }
+function _charts(){ return _figureCharts(); }
 function _errNote(err){
   if(err==='sd')  return 'Error bars: SD, sample standard deviation (ddof=1, i.e. n-1 denominator).';
   if(err==='sem') return 'Error bars: SEM = SD/sqrt(n), SD with ddof=1 (n-1 denominator).';
@@ -23629,9 +23661,118 @@ function _drawChartElement(el, ctx, isExport){
   }
 }
 
-// Add a chart to the freeform canvas and open its editor.
+// ── Charts and gene maps as grid panels ─────────────────────────
+// A chart or a gene map used to live only on the freeform canvas, and "Add bar chart" (or
+// a CSV or GenBank file) in a grid switched the whole figure to freeform without a word:
+// the grid vanished from view, and the lane table, headings, automatic letters and spans
+// with it. In the grid it is now a panel like an image: it takes a cell or a span, gets
+// the next letter, is keyed by the legend key, and is drawn from its data at its cell's
+// size in every render — a 600 dpi PNG, TIFF or PDF redraws its lines and text at 600 dpi
+// rather than enlarging a screen picture, and both SVG modes write it as vector. On the
+// freeform canvas a chart is still an object, as before.
+//   type      'chart' | 'genemap'   (an image panel has none)
+//   chart/map the same data a freeform chart or gene map carries
+//   plotW/H   its own shape: what a row that hugs its panels is sized from
+//   w/h       the cell it was last drawn in (the editor's bp-per-pixel and the scripts read it)
+var _dataPanelEdit=null;   // id of the grid panel whose chart / gene map the editor has open
+function _isDataPanel(im){ return !!(im&&(im.type==='chart'||im.type==='genemap')); }
+function _dataPanelDraw(ctx, im, x, y, w, h){
+  if(im.type==='chart'?!im.chart:!im.map) return;
+  im.w=w; im.h=h;
+  ctx.save(); ctx.translate(x,y);
+  ctx.beginPath(); ctx.rect(0,0,w,h); ctx.clip();
+  if(im.type==='chart') _chartDraw(im, _chartEmitCanvas(ctx)); else _genemapDraw(im, _chartEmitCanvas(ctx));
+  ctx.restore();
+}
+// The panel's own picture at its own shape: what the list thumbnail, the row hug and the
+// tools that read a panel's pixels see. Never what the figure draws — render() draws the
+// data again at the cell's size. Rebuilt whenever the data changes, whoever changed it.
+function _dataPanelRefresh(im, force){
+  if(!_isDataPanel(im)) return false;
+  const key=JSON.stringify([im.type, im.chart||im.map||null, im.plotW, im.plotH, gv('sample-colours')]);
+  if(!force && im._dpKey===key && im.img) return false;
+  const w=Math.max(40,Math.round(+im.plotW||360)), h=Math.max(40,Math.round(+im.plotH||260));
+  const c=document.createElement('canvas'); c.width=w*2; c.height=h*2;
+  c.naturalWidth=c.width; c.naturalHeight=c.height;
+  im._chartKey=''; im._chartStat=null;              // an edit made anywhere recomputes the stats
+  const w0=im.w, h0=im.h;
+  const x=c.getContext('2d'); x.scale(2,2); _dataPanelDraw(x, im, 0, 0, w, h);
+  if(w0>0){ im.w=w0; im.h=h0; }                     // keep the size it is drawn at in the figure
+  im.img=c; im._dpKey=key;
+  try{ im._thumb=c.toDataURL('image/png'); }catch(e){ im._thumb=''; }
+  const t=document.querySelector(`img[data-thumb="${im.id}"]`); if(t) t.src=_safeSrc(im._thumb);
+  return true;
+}
+// Deep copies of a data panel's data, for a duplicate or an undo step (never shared).
+function _dataPanelCopy(im){
+  const o={};
+  if(im&&im.chart) o.chart=JSON.parse(JSON.stringify(im.chart));
+  if(im&&im.map) o.map=JSON.parse(JSON.stringify(im.map));
+  if(_isDataPanel(im)){ o._chartStat=null; o._chartKey=''; }
+  return o;
+}
+// A chart or gene map panel's ⚙ drawer: its editor first, then only what applies to it
+// (border, span, tag, caption and metadata notes). The picture tools — replace, scale bar,
+// crop, clip, orientation, adjustments, LUT, channels — act on pixels it does not have,
+// so they are hidden (their fields stay in the drawer, out of sight, for its wiring).
+const _DATA_PANEL_SECTIONS=new Set(['Panel border (this image)','Panel span (grid mode)','Tag (shown on the panel)','Caption note (not rendered)','Metadata note']);
+function _dataPanelDrawer(box, idx, im){
+  if(!box) return;
+  let keep=false;
+  [...box.children].forEach(n=>{
+    if(n.classList.contains('sec-lbl')){ const t=(n.childNodes[0]&&n.childNodes[0].textContent||'').trim(); keep=_DATA_PANEL_SECTIONS.has(t); }
+    if(!keep && !n.classList.contains('divider')) n.style.display='none';
+  });
+  [...box.querySelectorAll(':scope > .divider')].forEach(d=>{ const nx=d.nextElementSibling; if(!nx||nx.style.display==='none') d.style.display='none'; });
+  const b=document.createElement('button');
+  b.className='btn'; b.style.cssText='width:100%;justify-content:center;margin-bottom:4px';
+  b.textContent=im.type==='chart'?'📊 Edit chart data and style…':'🧬 Edit gene map…';
+  b.title='Open the editor for this panel (or double-click the panel on the figure)';
+  b.addEventListener('click',()=>openDataPanelEditor(idx));
+  box.insertBefore(b, box.firstChild);
+}
+// A new chart or gene map panel at the end of the grid, which grows to hold it.
+function _addDataPanel(type, payload, w, h, name){
+  const im={id:Date.now()+Math.random(), type, name:name||(type==='chart'?'chart':'gene map'), src:'',
+    label:nextLabel(), sbOn:false, umPerPx:0, sbUm:10, brightness:1, contrast:1,
+    cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',blackPt:0,whitePt:255,
+    captionNote:'',metaNote:'',grayscale:false,invert:false,lut:'none',channels:[],panelAnns:[],
+    rotate:0,flipH:false,flipV:false,gamma:1.0,locked:false,
+    borderW:0,borderC:'#ffffff',borderInset:0,colSpan:1,rowSpan:1,
+    lblDX:0,lblDY:0,sbDX:0,sbDY:0, plotW:w, plotH:h};
+  if(type==='chart') im.chart=payload; else im.map=payload;
+  _dataPanelRefresh(im, true);
+  _importUndo();
+  images.push(im);
+  _growGridToFit();
+  selectedPanel=images.length-1;
+  renderImgList(); if(typeof renderMiniGrid==='function') renderMiniGrid(); scheduleRender(0);
+  return im;
+}
+// Open the chart or gene-map editor on a grid panel.
+function openDataPanelEditor(idx){
+  const im=images[idx]; if(!_isDataPanel(im)) return false;
+  _dataPanelEdit=im.id; selectedPanel=idx;
+  if(im.type==='chart') openChartModal(); else openGenemapModal();
+  return true;
+}
+// The grid panel the editor has open, if it is of this type.
+function _editedDataPanel(type){
+  if(layoutMode==='freeform'||_dataPanelEdit==null) return null;
+  const im=images.find(p=>p&&p.id===_dataPanelEdit);
+  return (im&&im.type===type)?im:null;
+}
+// Every chart in the figure the layout shows: freeform chart objects, or the grid's chart
+// panels (each sized as it is drawn) — for the scripts and the source-data files.
+function _figureCharts(){
+  if(layoutMode==='freeform') return (freeformElements||[]).filter(e=>e&&e.type==='chart'&&e.chart);
+  return _figurePanels().filter(im=>im.type==='chart'&&im.chart).map(im=>{
+    if(!(im.w>0)){ im.w=+im.plotW||360; im.h=+im.plotH||260; }
+    return im; });
+}
+
+// Add a chart and open its editor: a panel in the grid, an object on the freeform canvas.
 function addChartElement(kind){
-  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
   const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
   const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
   const w=(kind==='heatmap'||kind==='survival')?420:360, h=(kind==='survival')?300:260;
@@ -23657,6 +23798,13 @@ function addChartElement(kind){
     ch.mapping.xCol=0; ch.mapping.yCols=[1]; ch.style.showPoints=(kind==='violin');
     ch.axes.y.title='Expression';
   }
+  if(layoutMode!=='freeform'){
+    const im=_addDataPanel('chart', ch, w, h, (kind||'bar')+' chart');
+    logAction('chartAdd',{kind:kind||'bar'});
+    toast(`${kind||'bar'} chart added to the grid as panel ${_rtText(formatLabel(im.label))||'?'} — double-click it to edit its data again`,'ok');
+    openDataPanelEditor(images.indexOf(im));
+    return;
+  }
   addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
     chart:ch, label:(kind||'bar')+' chart'});
   const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
@@ -23665,9 +23813,10 @@ function addChartElement(kind){
   openChartModal();
 }
 
-// Load a dropped/selected CSV/TSV file into a new chart element. Resolves true once the
-// chart is added. opts.holdMode (a drop that also held images, in the grid) adds it to
-// the freeform canvas without switching to it or opening the editor over the grid.
+// Load a dropped/selected CSV/TSV file into a new chart: a panel in the grid (it used to
+// switch the figure to freeform), an object on the freeform canvas. Resolves true once
+// the chart is added. opts.holdMode (a drop that also held images) adds it without
+// opening the editor over the figure.
 function _loadDataFile(f, fail, opts){
   const hold=!!(opts&&opts.holdMode);
   return new Promise(settle=>{
@@ -23681,14 +23830,19 @@ function _loadDataFile(f, fail, opts){
     const firstRow=parsed.rows[0]||[];
     let xCol=firstRow.findIndex(v=>typeof v!=='number'); if(xCol<0) xCol=0;
     const yCols=parsed.columns.map((_,i)=>i).filter(i=>i!==xCol && parsed.rows.some(r=>typeof r[i]==='number'));
-    if(layoutMode!=='freeform' && !hold){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
-    // Held in the grid, canvasLogicalW is the GRID figure's width, not the canvas's.
-    const W=(!hold&&canvasLogicalW)||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
-    const H=(!hold&&canvasLogicalH)||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=380,h=280, ch=_defaultChart('bar');
     ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name};
     ch.mapping={xCol, yCols:yCols.length?yCols:[Math.min(1,parsed.columns.length-1)], seriesCol:null, errCol:null};
     if(yCols.length>1) ch.kind='groupedBar';
+    if(layoutMode!=='freeform'){
+      const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
+      logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
+      toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid`,'ok');
+      if(!hold) openDataPanelEditor(images.indexOf(im));
+      added=true; return;
+    }
     addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:(f.name||'chart')});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
@@ -23706,6 +23860,8 @@ function _loadDataFile(f, fail, opts){
 
 // ── Chart editor modal ─────────────────────────────────────────
 function _selectedChartEl(){
+  const dp=_editedDataPanel('chart'); if(dp) return dp;
+  if(layoutMode!=='freeform') return null;
   if(selectedElems.size!==1) return null;
   const el=freeformElements[[...selectedElems][0]];
   return (el&&el.type==='chart')?el:null;
@@ -23715,7 +23871,7 @@ function openChartModal(){
   _chartModalSync();
   document.getElementById('chart-modal').classList.add('open');
 }
-function closeChartModal(){ document.getElementById('chart-modal').classList.remove('open'); }
+function closeChartModal(){ document.getElementById('chart-modal').classList.remove('open'); _dataPanelEdit=null; }
 
 // Populate the modal from the selected chart.
 function _chartModalSync(){
@@ -23795,6 +23951,7 @@ function applyChartModal(){
   el._chartKey=''; el._chartStat=null;       // force stats recompute
   el.label=el.label||(ch.kind+' chart');
   closeChartModal(); updateElemPropsBar(); scheduleRender(0);
+  if(_isDataPanel(el)) renderImgList();
   toast('Chart updated','ok');
 }
 // Significance annotations (user-entered marks — never computed).
@@ -24194,13 +24351,19 @@ function _drawGenemapElement(el, ctx, isExport){
 }
 
 function addGenemapElement(topology){
-  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
   const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
   const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
   const circ=topology==='circular';
   const w=circ?380:520, h=circ?380:190;
   const map=_defaultGenemap();
   if(circ) map.topology='circular';
+  if(layoutMode!=='freeform'){
+    const im=_addDataPanel('genemap', map, w, h, (circ?'circular':'linear')+' gene map');
+    logAction('genemapAdd',{topology:circ?'circular':'linear'});
+    toast(`Gene map added to the grid as panel ${_rtText(formatLabel(im.label))||'?'}`,'ok');
+    openDataPanelEditor(images.indexOf(im));
+    return;
+  }
   addFreeformElement({type:'genemap', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
     map, label:(circ?'circular':'linear')+' gene map'});
   const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
@@ -24364,14 +24527,21 @@ function _loadGeneFile(f, fail, opts){
     const isFasta=/^\s*>/.test(txt) && !/^LOCUS/im.test(txt);
     const parsed=isFasta?_parseFASTA(txt):_parseGenBank(txt);
     if(!parsed.length){ (fail||toast)(`"${f.name}" had no readable LOCUS length or sequence`,'err'); return; }
-    if(layoutMode!=='freeform' && !hold){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
-    const W=(!hold&&canvasLogicalW)||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
-    const H=(!hold&&canvasLogicalH)||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
+    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const circ=parsed.topology==='circular';
     const w=circ?380:560, h=circ?380:200;
     const map=_defaultGenemap();
     map.length=parsed.length; map.topology=parsed.topology; map.features=parsed.features;
     map.style.title=parsed.name||f.name;
+    if(layoutMode!=='freeform'){
+      const im=_addDataPanel('genemap', map, w, h, parsed.name||f.name);
+      logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
+      toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)}) — gene map panel ${_rtText(formatLabel(im.label))||'?'} in the grid`,'ok');
+      _gbImportNotes(parsed);
+      if(!hold) openDataPanelEditor(images.indexOf(im));
+      added=true; return;
+    }
     addFreeformElement({type:'genemap', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
       map, label:(parsed.name||f.name)});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
@@ -24391,6 +24561,8 @@ function _loadGeneFile(f, fail, opts){
 
 // ── Gene-map editor modal ───────────────────────────────────────
 function _selectedGenemapEl(){
+  const dp=_editedDataPanel('genemap'); if(dp) return dp;
+  if(layoutMode!=='freeform') return null;
   if(selectedElems.size!==1) return null;
   const el=freeformElements[[...selectedElems][0]];
   return (el&&el.type==='genemap')?el:null;
@@ -24400,7 +24572,7 @@ function openGenemapModal(){
   _genemapModalSync();
   document.getElementById('genemap-modal').classList.add('open');
 }
-function closeGenemapModal(){ document.getElementById('genemap-modal').classList.remove('open'); }
+function closeGenemapModal(){ document.getElementById('genemap-modal').classList.remove('open'); _dataPanelEdit=null; }
 
 function _genemapModalSync(){
   const el=_selectedGenemapEl(); if(!el) return;
@@ -24444,7 +24616,8 @@ function applyGenemapModal(){
     fontSize:Math.max(6,parseInt(gv('gm-fontsize'),10)||12),
     showRuler:gc('gm-ruler'), showLabels:gc('gm-labels'), strandRows:gc('gm-strandrows')};
   el._genemapCache=null;
-  el.label=(el.map.style.title||el.label||'gene map');
+  if(_isDataPanel(el)){ if(el.map.style.title) el.name=el.map.style.title; renderImgList(); }
+  else el.label=(el.map.style.title||el.label||'gene map');
   logAction('genemapEdit',{features:parsed.features.length, bp:len, topology:el.map.topology});
   updateFreeformElemList(); scheduleRender(0); _genemapModalStat();
   if(parsed.bad.length) toast(`Skipped ${parsed.bad.length} unreadable row(s): ${parsed.bad.slice(0,5).join(', ')}`,'warn');
@@ -25556,7 +25729,7 @@ function _dupPanels(){
     });
   } else {
     images.forEach((im,i)=>{
-      if(im&&im.img&&(im.img.naturalWidth||im.img.width)) out.push({label:im.label||`Panel ${i+1}`, img:im.img, src:im});
+      if(im&&im.img&&!_isDataPanel(im)&&(im.img.naturalWidth||im.img.width)) out.push({label:im.label||`Panel ${i+1}`, img:im.img, src:im});
     });
   }
   return out;
@@ -28395,7 +28568,7 @@ function _s1Reasons(im){
 function _s1Selected(im){ return typeof im.s1==='boolean' ? im.s1 : _s1Reasons(im).length>0; }
 function _s1Panels(){
   if(layoutMode==='freeform') return [];
-  return _figurePanels().filter(im=>im&&(im.img||im._imgEl));
+  return _figurePanels().filter(im=>im&&(im.img||im._imgEl)&&!_isDataPanel(im));
 }
 
 // The geometry the sheet draws, in source pixels — kept apart from the drawing so it can

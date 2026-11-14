@@ -408,6 +408,8 @@ test('CSV parser handles delimiters, quotes, embedded newlines, escapes, BOM, nu
   expect(errors).toEqual([]);
 });
 
+// A CSV dropped on the grid (the default layout) is a chart panel since ux1 (blot-02,
+// phage-03): it used to switch the figure to freeform. Still never an image panel.
 test('a dropped CSV creates a chart, not an image panel', async ({ page }) => {
   const errors = await loadApp(page);
   await page.evaluate(async () => {
@@ -416,11 +418,11 @@ test('a dropped CSV creates a chart, not an image panel', async ({ page }) => {
     addFiles([f]);
     await new Promise(res => setTimeout(res, 120));   // FileReader is async
   });
-  await page.waitForFunction(() => freeformElements.some(e => e.type === 'chart'));
+  await page.waitForFunction(() => images.some(e => e && e.type === 'chart'));
   const r = await page.evaluate(() => {
     closeChartModal();
-    const ch = freeformElements.find(e => e.type === 'chart');
-    return { images: images.length, rows: ch.chart.data.rows.length, cols: ch.chart.data.columns.length,
+    const ch = images.find(e => e && e.type === 'chart');
+    return { images: images.filter(im => im && !im.type).length, rows: ch.chart.data.rows.length, cols: ch.chart.data.columns.length,
              source: ch.chart.data.source, logged: reproLog.some(e => e.action === 'chartImport') };
   });
   expect(r.images).toBe(0);            // no failed <img> panel
@@ -502,7 +504,7 @@ test('log axis drops non-positive values with a visible warning, never clamps', 
 test('FigureLab never computes a p-value: no such function, marks are user strings', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
-    addChartElement('bar'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('bar'); closeChartModal();
     const el = freeformElements[0];
     _chartAddSig();
     const an = el.chart.annos[0];
@@ -523,7 +525,7 @@ test('FigureLab never computes a p-value: no such function, marks are user strin
 
 test('chart survives undo/redo and session round-trip with no cached canvases', async ({ page }) => {
   const errors = await loadApp(page);
-  await page.evaluate(() => { addChartElement('groupedBar'); closeChartModal(); render(); });
+  await page.evaluate(() => { document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('groupedBar'); closeChartModal(); render(); });
   const r = await page.evaluate(() => {
     const el = freeformElements[0];
     el._chartCache && (el._chartCache.__mark = 1);   // ensure a live cache exists
@@ -567,7 +569,7 @@ test('chart rotates and hit-tests like any other element', async ({ page }) => {
 
 test('dragging a chart does not recompute its stats', async ({ page }) => {
   const errors = await loadApp(page);
-  await page.evaluate(() => { addChartElement('bar'); closeChartModal(); render(); });
+  await page.evaluate(() => { document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('bar'); closeChartModal(); render(); });
   const r = await page.evaluate(() => {
     const el = freeformElements[0];
     render();                                  // warm the cache
@@ -1137,7 +1139,7 @@ test('Kaplan–Meier step function matches a hand-computed reference incl. censo
 test('survival computes no inference: no log-rank function anywhere', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
-    addChartElement('survival'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('survival'); closeChartModal();
     const globals = Object.keys(window).filter(k => /logrank|log_rank|coxph|hazard.*ratio|survdiff/i.test(k));
     const el = freeformElements[0];
     const stat = _chartStatsCached(el);
@@ -1154,7 +1156,7 @@ test('survival computes no inference: no log-rank function anywhere', async ({ p
 test('heatmap builds a matrix with the true numeric range for the colourbar', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
-    addChartElement('heatmap'); closeChartModal();
+    document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); addChartElement('heatmap'); closeChartModal();
     const el = freeformElements[0];
     el.chart.data = { columns: ['g', 's1', 's2'], rows: [['A', -2, 5], ['B', 0, 3]], source: 't' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2];
