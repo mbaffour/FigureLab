@@ -13508,7 +13508,7 @@ function snapshotState(opts){
     measurements:JSON.parse(JSON.stringify(measurements)),
     notes:gv('fig-notes'), caption:gv('caption-out'), methods:gv('methods-out'), altText:_figAltText,
     labelOffsets:JSON.parse(JSON.stringify(labelOffsets)), reproLog:reproLog.map(e=>({...e})),
-    reuseRun:_reuse.lastRun?JSON.parse(JSON.stringify(_reuse.lastRun)):null };
+    reuseRun:_reuse.lastRun?JSON.parse(JSON.stringify(_reuse.lastRun)):null, reuseFig:{figUid:_reuse.figUid, libId:_reuse.libId} };
   return snap;
 }
 function restoreState(s){
@@ -13526,6 +13526,8 @@ function restoreState(s){
     _setAltText(s.fig.altText||'');
     if(Array.isArray(s.fig.reproLog)) reproLog=s.fig.reproLog.map(e=>({...e}));
     if('reuseRun' in s.fig) _reuse.lastRun=s.fig.reuseRun?JSON.parse(JSON.stringify(s.fig.reuseRun)):null;
+    // Ctrl+Z across a Load gives back the figure's identity with its run (own-copy rule).
+    if(s.fig.reuseFig){ _reuse.figUid=s.fig.reuseFig.figUid||_reuse.figUid; _reuse.libId=s.fig.reuseFig.libId??null; }
     _syncFigureLists();
   }
   if(s.reuseDecisions && JSON.stringify(s.reuseDecisions)!==JSON.stringify(_reuse.decisions)){
@@ -19870,7 +19872,7 @@ function _resetFigureState(opts){
   _pendingPanels=[];
   // Reuse decisions and the last cross-figure run belong to the figure; a style file
   // applied to the panels on screen keeps them, as it keeps the log.
-  if(!opts.keepImages) _reuse={decisions:{}, lastRun:null};
+  if(!opts.keepImages) _reuse={decisions:{}, lastRun:null, figUid:null, libId:null};
   // A style file applied to the panels on screen is not a new figure; its log goes on.
   if(!opts.keepImages) reproLog=[];
   selectedPanel=-1; selectedAnnotation=-1; selectedPanelAnn=null; selectedElems.clear();
@@ -19922,7 +19924,7 @@ function serializeSession(bundleImages, mode){
     captionText:gv('caption-out'), methodsText:gv('methods-out'),
     altText:_figAltText,
     // Reuse decisions and the last cross-figure check (findings as text, no pixels).
-    imageReuse:{decisions:_reuse.decisions, lastRun:_reuse.lastRun},
+    imageReuse:{decisions:_reuse.decisions, lastRun:_reuse.lastRun, figUid:(images.length||freeformElements.length)?_xdFigId():_reuse.figUid, libId:_reuse.libId},
     labelOffsets,
     layoutMode,
     freeformElements: freeformElements.map(el=>{
@@ -25958,7 +25960,10 @@ function runDuplicateScan(){
   // Decisions are per pair of panels (an internal repeat: the panel with itself).
   const _dp=_dupPanels(), _pk=_dp.map(p=>_xdPanelKey(p));
   const _wkey=(i,j)=>`w|${[_pk[i],_pk[j]].sort().join('|')}`;
-  const _isDiff=k=>_reuse.decisions[k]&&_reuse.decisions[k].verdict==='different';
+  const _isDiff=k=>{ const d=_reuseLive(k); return !!(d&&d.verdict!=='intentional'); };
+  // The decision names its panels by id and key; its sentence is written with their
+  // letters at caption time.
+  const _wInfo=(i,j)=>({aId:_dp[i].src&&_dp[i].src.id, aKey:_pk[i], bId:_dp[j].src&&_dp[j].src.id, bKey:_pk[j], letterA:_dp[i].label, letterB:_dp[j].label});
   let _hiddenN=0;
   const _reported=new Set();
   r.hits.forEach(h=>_reported.add(h.a+'|'+h.b));
@@ -25973,7 +25978,7 @@ function runDuplicateScan(){
     : _hits.length
     ? _hits.map(h=>`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
         <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> are ${(h.score*100).toFixed(1)}% similar${h.tf==='as-is'?'':` (${h.tf})`}
-        — confirm these are different acquisitions<br>${_reuseButtonsHtml(_wkey(h.ia,h.ib),{scope:'within', a:h.a, b:h.b, what:'whole panel'+(h.tf==='as-is'?'':', '+h.tf), sentence:`The image in panel ${h.b} is reused from panel ${h.a}.`})}</span></div>`).join('')
+        — confirm these are different acquisitions<br>${_reuseButtonsHtml(_wkey(h.ia,h.ib),{scope:'within', a:h.a, b:h.b, what:'whole panel'+(h.tf==='as-is'?'':', '+h.tf), ..._wInfo(h.ia,h.ib), tpl:'The image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
     : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`;
   const skip = r.skipped.length
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>Not compared (too uniform to judge): ${esc(r.skipped.join(', '))}</span></div>` : '';
@@ -25990,7 +25995,7 @@ function runDuplicateScan(){
         — ${g.patches>1?`${g.patches} adjoining patches`:'one patch'} at ${(g.score*100).toFixed(1)}% correlation<br>
         <span style="display:inline-flex;gap:6px;margin-top:4px">${_rdupEvidence(panels,g)}</span><br>
         <span style="font-size:10px;color:var(--muted)">Boxed regions match. Repeated texture, an inset you placed on purpose, or shared background can also trigger this — the check finds candidates, it does not judge them.</span><br>
-        ${_reuseButtonsHtml(_wkey(g.panelA,g.panelB),{scope:'within', a:g.a, b:g.b, what:g.same?'repeated region within the panel':'region', sentence:g.same?`A region of panel ${g.a} is repeated within the panel.`:`Part of the image in panel ${g.b} is reused from panel ${g.a}.`})}</span></div>`).join('')
+        ${_reuseButtonsHtml(_wkey(g.panelA,g.panelB),{scope:'within', a:g.a, b:g.b, what:g.same?'repeated region within the panel':'region', ..._wInfo(g.panelA,g.panelB), tpl:g.same?'A region of panel {A} is repeated within the panel.':'Part of the image in panel {B} is reused from panel {A}.'})}</span></div>`).join('')
       + (_regs.length>12?`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${_regs.length-12} more region matches not shown</span></div>`:'')
     : rr.patches<2
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>No regions were checked</b> — not enough textured image area to tile.</span></div>`
@@ -26046,9 +26051,14 @@ function runDuplicateScan(){
 //     pairs; survivors get full patch correlation. Every match implies a transform
 //     (flip/rotation, scale, offset); matches that agree on one are a candidate. A
 //     whole-image 32×32 comparison adds the plain "same picture" candidate.
-//  3. Confirm: the candidate transform is refined (scale ±, offset ±) by normalised
+//  3. Align: the candidate transform is refined (scale ±, offset ±) by normalised
 //     cross-correlation over the whole region the two images share, at matched
-//     resolution. Only that score decides a finding — the shortlist only nominates.
+//     resolution. A score ≥ 0.80 means the two LOOK alike — it measures layout, and two
+//     different blots of one lane layout reach 0.95 — so it only admits the candidate.
+//  4. Verify (_xdVerify): the same acquisition or only the same composition? Fine detail
+//     cell by cell, and what the coarse picture leaves unexplained under any brightness
+//     mapping. Only that decides a finding; "similar layout" and "periodic pattern" pairs
+//     are listed apart and never counted as reuse.
 // Scales 0.45–2.2× and the 8 right-angle flips/rotations are searched. An arbitrary
 // rotation angle, a warp, or a copy smaller than ~24 working pixels is not.
 // ═══════════════════════════════════════════════════════════════
@@ -26060,10 +26070,10 @@ const _XD_SMIN=0.45, _XD_SMAX=2.2;  // scale range searched (other / this)
 const _XD_GATE=0.70;    // min |cosine| between 4×4 block descriptors to compute a full patch NCC
 const _XD_PT=0.72;      // min |NCC| for a patch match
 const _XD_MININ=4;      // patch matches that must agree on one transform to make a candidate
-const _XD_T=0.80;       // min NCC over the shared region for a FINDING. Measured: true copies
-                        // (8 transforms, 0.6–1.7×, gamma/contrast/LUT) confirm at ≥0.93;
-                        // unrelated textures of the same statistics, refined the same way,
-                        // stayed below 0.35. 0.80 sits in the empty band.
+const _XD_T=0.80;       // min NCC over the shared region to VERIFY a candidate. True copies
+                        // (8 transforms, 0.45–2.2×, gamma/LUT, JPEG 5, blur σ 4, noise σ 25)
+                        // align at ≥0.88; but different acquisitions of one layout reach
+                        // 0.90–0.98, so this score admits, _xdVerify decides.
 // Named from this figure's panel to the other image: "the other image is this panel …".
 const _XD_TF=['same orientation','rotated 90° clockwise','rotated 180°','rotated 90° anticlockwise',
   'mirrored left–right','mirrored, then rotated 90° clockwise','flipped top–bottom','mirrored, then rotated 90° anticlockwise'];
@@ -26106,8 +26116,11 @@ function _xdLuma(src, crop, maxEdge){
   cx.imageSmoothingEnabled=true; cx.imageSmoothingQuality='high';
   try{ cx.drawImage(src,sx,sy,sw,sh,0,0,w,h); }catch(e){ return null; }
   const d=cx.getImageData(0,0,w,h).data;
+  // The equal-weight mean of R, G and B, not perceptual luma: luma weighs blue at 7%, so a
+  // DAPI image exported in blue read as "blank" and was never compared (an exact copy
+  // passed). The mean keeps every channel and is still linear for a LUT baked into RGB.
   const L=new Float32Array(w*h);
-  for(let i=0;i<w*h;i++) L[i]=0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2];
+  for(let i=0;i<w*h;i++) L[i]=(d[i*4]+d[i*4+1]+d[i*4+2])/3;
   cv.width=cv.height=0;
   return {L,w,h,gx:w/sw,gy:h/sh,W:sw,H:sh};
 }
@@ -26150,7 +26163,10 @@ function _xdStats(L){ let s=0,ss=0; for(let i=0;i<L.length;i++){ s+=L[i]; ss+=L[
 //              all of it (white noise keeps 1/16; any real picture keeps far more)
 function _xdFeatureless(base, thumb){
   const st=_xdStats(base.L);
-  if(st.sd<2) return 'blank or uniform (no variation to compare)';
+  // Blank means no range at all, judged on the image's own values: a dim channel image
+  // (max 30 of 255) still has structure, and the smooth and noise tests below are relative.
+  { const v=Float32Array.from(base.L).sort(), lo=v[Math.floor(v.length*0.01)], hi=v[Math.floor(v.length*0.99)];
+    if(st.sd<0.4||hi-lo<3) return 'blank or uniform (no variation to compare)'; }
   const N=32; let lap=0, lsum=0; const hp=new Float32Array(N*N);
   for(let y=0;y<N;y++) for(let x=0;x<N;x++){
     const v=thumb, i=y*N+x;
@@ -26176,18 +26192,27 @@ function _xdThumb(base){
   for(let i=0;i<N*N;i++) t[i]=c[i]?t[i]/c[i]:0;
   return t;
 }
-// A content fingerprint of the WHOLE source image (not the crop), so a decision follows
-// the image, not the crop, and the same file reached from the library or from disk is
-// one image. 16×16 luminance, each cell above or below the median: 256 bits as hex.
-function _xdFingerprint(src){
-  const N=16, c=document.createElement('canvas'); c.width=N; c.height=N;
-  const cx=c.getContext('2d',{willReadFrequently:true}); cx.imageSmoothingQuality='high';
-  try{ cx.drawImage(src,0,0,N,N); }catch(e){ return ''; }
-  const d=cx.getImageData(0,0,N,N).data, v=[];
-  for(let i=0;i<N*N;i++) v.push(0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2]);
-  const med=[...v].sort((a,b)=>a-b)[N*N>>1];
-  let hex=''; for(let i=0;i<N*N;i+=4){ let n=0; for(let j=0;j<4;j++) n=n*2+(v[i+j]>med?1:0); hex+=n.toString(16); }
-  return hex+':'+(src.naturalWidth||src.width)+'x'+(src.naturalHeight||src.height);
+// A content hash of the WHOLE source image (not the crop): 64 bits from two independent
+// 32-bit lanes over the RGB of every pixel (every n-th row and column of an image over 4
+// megapixels, read without smoothing so the samples are source pixels), plus its size.
+// The old 16×16 above-median fingerprint was all zeros for any blot on a clipped white
+// background, so a verdict on one blot hid an exact copy of another (T1-04).
+function _xdHash(src){
+  const iw=src.naturalWidth||src.width, ih=src.naturalHeight||src.height;
+  if(!iw||!ih) return '';
+  const st=Math.max(1,Math.ceil(Math.sqrt(iw*ih/4e6))), w=Math.ceil(iw/st), h=Math.ceil(ih/st);
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const cx=c.getContext('2d',{willReadFrequently:true}); cx.imageSmoothingEnabled=false;
+  try{ cx.drawImage(src,0,0,w,h); }catch(e){ return ''; }
+  const d=cx.getImageData(0,0,w,h).data; c.width=c.height=0;
+  let a=0x811c9dc5, b=0x9747b28c;
+  for(let i=0;i<d.length;i+=4){
+    for(let j=0;j<3;j++){ const v=d[i+j];
+      a=Math.imul(a^v,0x01000193);                                   // FNV-1a
+      b=Math.imul(b^v,0x5bd1e995); b^=b>>>13; }                      // a Murmur-style mix
+  }
+  const hx=n=>(n>>>0).toString(16).padStart(8,'0');
+  return hx(a)+hx(b)+':'+iw+'x'+ih;
 }
 
 // Keypoints of one level: local maxima of smoothed |Laplacian|, strongest first, spaced.
@@ -26244,9 +26269,9 @@ function _xdPrepare(src, crop, side){
   for(let l=0;l<9;l++){
     const o=oct[l>>2]; if(!o) break;
     const lv=_xdLevel(o, Math.pow(2,-(l&3)/4)); if(!lv) continue;
-    kps.push(..._xdPatches(lv, l, Math.max(12,Math.round(100*Math.pow(2,-l/2))), Math.max(1.5,0.2*sd), side==='this'));
+    kps.push(..._xdPatches(lv, l, Math.max(12,Math.round(100*Math.pow(2,-l/2))), Math.max(0.3,0.2*sd), side==='this'));
   }
-  return {W:base.W, H:base.H, oct, thumb, sd, kps};
+  return {W:base.W, H:base.H, oct, thumb, sd, kps, src, crop};
 }
 
 // Shortlist: candidate transforms (k, s, tx, ty, sign) mapping this panel's points to the
@@ -26391,30 +26416,345 @@ function _xdConfirm(A,B,c0){
     rectA, rectB, fracA:rectA.w*rectA.h, fracB:rectB.w*rectB.h,
     rectApx:{x:rx0,y:ry0,w:rx1-rx0,h:ry1-ry0}, rectBpx:{x:qx0,y:qy0,w:qx1-qx0,h:qy1-qy0}};
 }
-// All findings for one pair, best first; overlapping duplicates of one finding dropped.
+// ── Same acquisition, or only the same layout? ────────────────
+// The coarse score above measures composition: two different blots with one lane layout
+// correlated at 0.95, two plaque plates at 0.90 (the dish), two cell fields behind one
+// letterbox, label and scale bar at 0.97. What tells one acquisition from another is the
+// detail no two acquisitions share — sensor noise, grain, the exact edge of each band and
+// cell — and how much of the coarse picture is left unexplained once any brightness
+// mapping (gamma, LUT, inversion) is allowed. So a candidate the coarse score accepts is
+// verified at the smaller image's own resolution, both images resampled onto one grid:
+//  fine — a difference of Gaussians (σ 0.6–1.5 px) compared cell by cell (16 px),
+//         each cell searched ±3 px and required to beat its own position shifted 3 px
+//         (a band edge or a grid line matches along itself; noise does not). Cells whose
+//         own content is one-dimensional, flat, or burned-in furniture (saturated
+//         patches: letterbox, label, scale bar) say nothing and are left out.
+//  coarse — at σ 3 px, B is predicted from A by the best pointwise mapping (any LUT);
+//         the variance it leaves unexplained, overall and cell by cell. A copy leaves
+//         almost none (≤0.031, ≥80% of cells, even after JPEG quality 5, blur σ 4 or
+//         noise σ 25); different blots of one layout, also with one side noisier or
+//         softer, left ≥0.034 with ≤79% of cells, two plates ≥0.08, consecutive frames
+//         10 px apart 0.26. The cut sits between: ≤0.032 and ≥80% of cells.
+// Classes, decided in this order:
+//  identical — the fine detail agrees in ≥80% of the cells that can tell, or the pixels
+//              agree outright (NCC ≥ 0.998, for images with no fine detail at all)
+//  same      — the coarse picture is the same and the fine detail is LOST on one side
+//              (blurred away or buried in added noise): a degraded copy
+//  near      — both sides carry fine detail and it differs, but the coarse picture
+//              matches very closely (≤0.02 unexplained): consecutive frames, a
+//              re-exposure, a compressed re-save
+//  periodic  — a lattice or grid: shifted by a period it matches itself, so a match
+//              says nothing about which field it is (not reported as reuse)
+//  layout    — alike at a glance only (not reported as reuse)
+const _XDV={cap:250000, floor:0.25, s1:0.6, s2:1.5, cell:16, R:3, D:3, agree:0.8, disagree:0.35,
+  sC:3, uMax:0.032, uCell:0.1, uFrac:0.8, uNear:0.02, uNearFrac:0.8, uSame2:0.025};
+// Separable Gaussian, mirrored at the edges.
+function _xdGauss(I,w,h,s){
+  const r=Math.max(1,Math.ceil(3*s)), k=new Float32Array(2*r+1); let ks=0;
+  for(let i=-r;i<=r;i++){ k[i+r]=Math.exp(-i*i/(2*s*s)); ks+=k[i+r]; }
+  for(let i=0;i<k.length;i++) k[i]/=ks;
+  const m=(v,n)=>{ v=v<0?-v:v; v=v>=n?2*n-2-v:v; return v<0?0:v>=n?n-1:v; };
+  const t=new Float32Array(w*h), o=new Float32Array(w*h);
+  for(let y=0;y<h;y++){ const row=y*w; for(let x=0;x<w;x++){ let a=0; for(let i=-r;i<=r;i++) a+=k[i+r]*I[row+m(x+i,w)]; t[row+x]=a; } }
+  for(let y=0;y<h;y++){ for(let x=0;x<w;x++){ let a=0; for(let i=-r;i<=r;i++) a+=k[i+r]*t[m(y+i,h)*w+x]; o[y*w+x]=a; } }
+  return o;
+}
+// One image drawn onto the common grid through a canvas transform (src-crop pixels →
+// grid), smoothing on, so the finer image is area-averaged down to the coarser one.
+function _xdRenderOn(src,crop,M,w,h){
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+  const x=cv.getContext('2d',{willReadFrequently:true});
+  x.imageSmoothingEnabled=true; x.imageSmoothingQuality='high';
+  const iw=src.naturalWidth||src.width, ih=src.naturalHeight||src.height, c=crop||{};
+  x.setTransform(M[0],M[1],M[2],M[3],M[4],M[5]);
+  try{ x.drawImage(src,-(c.cropL||0)/100*iw,-(c.cropT||0)/100*ih); }catch(e){ return null; }
+  const d=x.getImageData(0,0,w,h).data; cv.width=cv.height=0;
+  const L=new Float32Array(w*h), ok=new Uint8Array(w*h), sat=new Uint8Array(w*h);
+  for(let i=0;i<w*h;i++){ L[i]=(d[4*i]+d[4*i+1]+d[4*i+2])/3; ok[i]=d[4*i+3]>=250?1:0; sat[i]=(L[i]>=253.5||L[i]<=1.5)?1:0; }
+  // Furniture: a saturated pixel inside a saturated patch (6 of its 8 neighbours) — a
+  // letterbox, a label, a scale bar, a clipped background. A pixel clipped by noise is
+  // alone and stays.
+  const fur=new Uint8Array(w*h);
+  for(let y=1;y<h-1;y++) for(let xx=1;xx<w-1;xx++){ const i=y*w+xx; if(!sat[i]) continue;
+    const n=sat[i-w-1]+sat[i-w]+sat[i-w+1]+sat[i-1]+sat[i+1]+sat[i+w-1]+sat[i+w]+sat[i+w+1]; if(n>=6) fur[i]=1; }
+  return {L,ok,fur};
+}
+// Both images of a candidate on one grid: this panel's shared region, sampled at the
+// coarser image's own pixel pitch (capped at _XDV.cap samples).
+function _xdAlign(A,B,f){
+  const r=f.rectApx; let d=Math.max(1,1/f.s);
+  if(r.w*r.h/(d*d)>_XDV.cap) d*=Math.sqrt(r.w*r.h/(d*d)/_XDV.cap);
+  const w=Math.floor(r.w/d), h=Math.floor(r.h/d);
+  if(w<16||h<16) return null;
+  const p0=_xdMap(0,0,A.W,A.H,f.k), px=_xdMap(1,0,A.W,A.H,f.k), py=_xdMap(0,1,A.W,A.H,f.k);
+  const a=f.s*(px[0]-p0[0]), b=f.s*(px[1]-p0[1]), c=f.s*(py[0]-p0[0]), e=f.s*(py[1]-p0[1]);
+  const ex=f.s*p0[0]+f.tx, ey=f.s*p0[1]+f.ty;
+  // B = [a c; b e]·P + (ex,ey), P = r0 + d·o  →  invert for the canvas transform B → o.
+  const A11=d*a, A12=d*c, A21=d*b, A22=d*e, e1=a*r.x+c*r.y+ex, e2=b*r.x+e*r.y+ey;
+  const det=A11*A22-A12*A21; if(!det) return null;
+  const i11=A22/det, i12=-A12/det, i21=-A21/det, i22=A11/det;
+  const IA=_xdRenderOn(A.src,A.crop,[1/d,0,0,1/d,-r.x/d,-r.y/d],w,h);
+  const IB=_xdRenderOn(B.src,B.crop,[i11,i21,i12,i22,-(i11*e1+i12*e2),-(i21*e1+i22*e2)],w,h);
+  if(!IA||!IB) return null;
+  const bad=new Uint8Array(w*h); let nOk=0;
+  for(let i=0;i<w*h;i++){ bad[i]=(!IA.ok[i]||!IB.ok[i]||IA.fur[i]||IB.fur[i])?1:0; if(!bad[i]) nOk++; }
+  return {w,h,d,IA,IB,bad,nOk};
+}
+// Pixels within `rad` of a bad one are bad too (prefix sums).
+function _xdDilate(bad,w,h,rad){
+  const P=new Int32Array((w+1)*(h+1));
+  for(let y=0;y<h;y++){ let rs=0; for(let x=0;x<w;x++){ rs+=bad[y*w+x]; P[(y+1)*(w+1)+x+1]=P[y*(w+1)+x+1]+rs; } }
+  const m=new Uint8Array(w*h);
+  for(let y=0;y<h;y++){ const y0=Math.max(0,y-rad), y1=Math.min(h,y+rad+1);
+    for(let x=0;x<w;x++){ const x0=Math.max(0,x-rad), x1=Math.min(w,x+rad+1);
+      m[y*w+x]=(P[y1*(w+1)+x1]-P[y0*(w+1)+x1]-P[y1*(w+1)+x0]+P[y0*(w+1)+x0])?0:1; } }
+  return m;   // 1 = usable
+}
+// The fine band, cell by cell.
+function _xdFine(G){
+  const {w,h,IA,IB}=G, sg=G.sg;
+  const a1=_xdGauss(IA.L,w,h,_XDV.s1), a2=_xdGauss(IA.L,w,h,_XDV.s2), b1=_xdGauss(IB.L,w,h,_XDV.s1), b2=_xdGauss(IB.L,w,h,_XDV.s2);
+  const ba=new Float32Array(w*h), bb=new Float32Array(w*h);
+  for(let i=0;i<w*h;i++){ ba[i]=a1[i]-a2[i]; bb[i]=sg*(b1[i]-b2[i]); }
+  const m=_xdDilate(G.bad,w,h,Math.ceil(2*_XDV.s2)), S=_XDV.cell, R=_XDV.R, D=_XDV.D;
+  const corr=(X,Y,x0,y0,ox,oy)=>{ let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0;
+    for(let y=y0;y<y0+S;y++){ const yy=y+oy; if(yy<0||yy>=h) continue;
+      for(let x=x0;x<x0+S;x++){ const xx=x+ox; if(xx<0||xx>=w) continue; const i=y*w+x, j=yy*w+xx;
+        if(!m[i]||!m[j]) continue; const p=X[i], q=Y[j]; n++; sx+=p; sy+=q; sxx+=p*p; syy+=q*q; sxy+=p*q; } }
+    if(n<S*S*0.5) return null;
+    const va=sxx/n-(sx/n)**2, vb=syy/n-(sy/n)**2;
+    return {c:(va>0&&vb>0)?(sxy/n-sx*sy/(n*n))/Math.sqrt(va*vb):0, sa:Math.sqrt(Math.max(0,va)), sb:Math.sqrt(Math.max(0,vb))}; };
+  let tex=0, inf=0, agree=0, unbal=0;
+  // At most 240 cells, spread evenly: enough to tell "most" from "few", and the time
+  // per candidate stays flat however large the images are.
+  const all=[]; for(let y0=0;y0+S<=h;y0+=S) for(let x0=0;x0+S<=w;x0+=S) all.push([x0,y0]);
+  const step=Math.max(1,all.length/240);
+  for(let ci=0;ci<all.length;ci+=step){
+    const [x0,y0]=all[Math.floor(ci)];
+    const z=corr(ba,bb,x0,y0,0,0); if(!z) continue;
+    const hi=Math.max(z.sa,z.sb), lo=Math.min(z.sa,z.sb);
+    if(hi<_XDV.floor) continue;                         // flat on both sides
+    tex++;
+    if(lo/hi<0.3){ unbal++; continue; }                 // detail lost (blur) or swamped (noise) on one side
+    // One-dimensional content (an edge, a band, a grid line) matches along itself and
+    // cannot identify an acquisition.
+    let self=-1; for(const [dx,dy] of [[D,0],[-D,0],[0,D],[0,-D]]){ const q=corr(ba,ba,x0,y0,dx,dy); if(q&&q.c>self) self=q.c; }
+    if(self>=0.5) continue;
+    inf++;
+    let best=-2, bo=[0,0];
+    for(let oy=-R;oy<=R;oy++) for(let ox=-R;ox<=R;ox++){ const q=corr(ba,bb,x0,y0,ox,oy); if(q&&q.c>best){ best=q.c; bo=[ox,oy]; } }
+    let alt=0; for(const [dx,dy] of [[D,0],[-D,0],[0,D],[0,-D]]){ const q=corr(ba,bb,x0,y0,bo[0]+dx,bo[1]+dy); if(q&&q.c>alt) alt=q.c; }
+    if(best>=0.5 && best-alt>=0.2) agree++;
+  }
+  return {tex, inf, agree, unbal, f:inf?agree/inf:null};
+}
+// The aligned pair box-averaged 2×2 until it has at most `max` samples; a sample is bad
+// if any of its pixels is. f is the total factor.
+function _xdHalveGrid(G, max){
+  let {w,h,IA,IB,bad}=G, f=1;
+  while(w*h>max && w>=64 && h>=64){
+    const w2=w>>1, h2=h>>1, half=I=>{ const o=new Float32Array(w2*h2); for(let y=0;y<h2;y++) for(let x=0;x<w2;x++){ const i=2*y*w+2*x; o[y*w2+x]=(I[i]+I[i+1]+I[i+w]+I[i+w+1])*0.25; } return o; };
+    const b2=new Uint8Array(w2*h2); for(let y=0;y<h2;y++) for(let x=0;x<w2;x++){ const i=2*y*w+2*x; b2[y*w2+x]=bad[i]|bad[i+1]|bad[i+w]|bad[i+w+1]; }
+    IA={L:half(IA.L)}; IB={L:half(IB.L)}; bad=b2; w=w2; h=h2; f*=2;
+  }
+  return {...G, w, h, IA, IB, bad, f};
+}
+// What the best pointwise mapping A → B (any LUT) leaves unexplained at σ = _XDV.sC:
+// overall, and the share of textured cells where it explains nearly everything. Two ways,
+// the smaller wins: map the blurred images (blur, noise and compression average out), or
+// map the pixels and blur the residual (a strong gamma does not commute with a blur at a
+// sharp, high-contrast edge such as a dish rim). Also the raw-pixel NCC, for images with
+// no fine detail at all (a clean, noise-free picture).
+function _xdCoarse(G0){
+  // The raw-pixel NCC on the full grid: averaging first would smooth the noise away and
+  // make two near-noiseless acquisitions read as the same pixels.
+  let n=0,sx=0,sy=0,sxx=0,syy=0,sxy=0;
+  { const {w,h,IA,IB,bad}=G0;
+    for(let i=0;i<w*h;i++) if(!bad[i]){ const p=IA.L[i], q=IB.L[i]; n++; sx+=p; sy+=q; sxx+=p*p; syy+=q*q; sxy+=p*q; } }
+  if(n<256) return null;
+  const va=sxx/n-(sx/n)**2, vb=syy/n-(sy/n)**2, raw=(va>0&&vb>0)?G0.sg*(sxy/n-sx*sy/(n*n))/Math.sqrt(va*vb):0;
+  // σ 3 px leaves nothing finer than ~2 px, so a large grid is box-halved for the rest.
+  const G=_xdHalveGrid(G0, 60000), sC=_XDV.sC/G.f;
+  const {w,h,IA,IB,bad}=G;
+  n=0; for(let i=0;i<w*h;i++) if(!bad[i]) n++;
+  // Residual of B against the per-bin mean of B given A (48 bins of A).
+  const resid=(Av,Bv)=>{
+    let lo=Infinity, hi=-Infinity; for(let i=0;i<w*h;i++) if(!bad[i]){ if(Av[i]<lo) lo=Av[i]; if(Av[i]>hi) hi=Av[i]; }
+    const NB=48, sm=new Float64Array(NB), cnt=new Float64Array(NB), span=hi-lo+1e-9;
+    const bin=v=>Math.min(NB-1,Math.max(0,Math.floor((v-lo)/span*NB)));
+    for(let i=0;i<w*h;i++) if(!bad[i]){ const k=bin(Av[i]); sm[k]+=Bv[i]; cnt[k]++; }
+    const E=new Float32Array(w*h); for(let i=0;i<w*h;i++) if(!bad[i]){ const k=bin(Av[i]); E[i]=Bv[i]-sm[k]/cnt[k]; }
+    return E;
+  };
+  const Bb=_xdGauss(IB.L,w,h,sC);
+  const E1=resid(_xdGauss(IA.L,w,h,sC),Bb);
+  // Masked pixels are zero in the residual before blurring, so a mask edge adds nothing.
+  const E2=_xdGauss(resid(IA.L,IB.L),w,h,sC);
+  let sb=0,sbb=0; for(let i=0;i<w*h;i++) if(!bad[i]){ sb+=Bb[i]; sbb+=Bb[i]*Bb[i]; }
+  const vB=sbb/n-(sb/n)**2; if(!(vB>0)) return {raw, U:1, cells:0, frac:0};
+  const C=Math.max(Math.round(16/G.f),Math.min(Math.round(40/G.f),Math.floor(Math.min(w,h)/6))), sdg=Math.sqrt(vB);
+  const score=E=>{
+    let se=0; for(let i=0;i<w*h;i++) if(!bad[i]) se+=E[i]*E[i];
+    let cells=0, good=0;
+    for(let y0=0;y0+C<=h;y0+=C) for(let x0=0;x0+C<=w;x0+=C){
+      let k=0,s1=0,s2=0,ee=0;
+      for(let y=y0;y<y0+C;y++) for(let x=x0;x<x0+C;x++){ const i=y*w+x; if(bad[i]) continue; k++; s1+=Bb[i]; s2+=Bb[i]*Bb[i]; ee+=E[i]*E[i]; }
+      if(k<C*C*0.5) continue;
+      const v=s2/k-(s1/k)**2; if(Math.sqrt(Math.max(0,v))<Math.max(0.15*sdg,1)) continue;   // a flat cell says nothing
+      cells++; if(ee/k/v<=_XDV.uCell) good++;
+    }
+    return {U:se/n/vB, cells, frac:cells?good/cells:0};
+  };
+  const a=score(E1), b=score(E2), best=(b.U<a.U)?b:a;
+  return {raw, ...best};
+}
+// Is this picture a lattice or a grid? Autocorrelation of its band-passed content (FFT,
+// ≤128 px): strong peaks off the origin in two different directions.
+function _xdFft(re,im,n,inv){
+  for(let i=1,j=0;i<n;i++){ let bit=n>>1; for(;j&bit;bit>>=1) j^=bit; j^=bit; if(i<j){ [re[i],re[j]]=[re[j],re[i]]; [im[i],im[j]]=[im[j],im[i]]; } }
+  for(let len=2;len<=n;len<<=1){ const ang=2*Math.PI/len*(inv?1:-1), wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){ let cr=1, ci=0;
+      for(let j=0;j<len/2;j++){ const a=i+j, b=a+len/2, tr=re[b]*cr-im[b]*ci, ti=re[b]*ci+im[b]*cr;
+        re[b]=re[a]-tr; im[b]=im[a]-ti; re[a]+=tr; im[a]+=ti; const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr; } } }
+}
+function _xdPeriodic(L,w,h,bad){
+  // Box-averaged to ≤96 px on the long side first, then band-passed there.
+  const g=Math.max(1,Math.ceil(Math.max(w,h)/96)), sw=Math.floor(w/g), sh=Math.floor(h/g);
+  if(sw<24||sh<24) return false;
+  const D=new Float32Array(sw*sh), okD=new Uint8Array(sw*sh);
+  for(let y=0;y<sh;y++) for(let x=0;x<sw;x++){ let t=0, b0=0;
+    for(let yy=0;yy<g;yy++) for(let xx=0;xx<g;xx++){ const i=(y*g+yy)*w+x*g+xx; t+=L[i]; b0|=bad[i]; }
+    D[y*sw+x]=t/(g*g); okD[y*sw+x]=b0?0:1; }
+  const a=_xdGauss(D,sw,sh,0.8), b=_xdGauss(D,sw,sh,4);
+  const N=256, re=new Float64Array(N*N), im=new Float64Array(N*N), mr=new Float64Array(N*N), mi=new Float64Array(N*N);
+  let s=0, c=0;
+  const v=new Float64Array(sw*sh), ok=new Uint8Array(sw*sh);
+  for(let y=0;y<sh;y++) for(let x=0;x<sw;x++){ const i=y*sw+x; if(!okD[i]) continue; v[i]=a[i]-b[i]; ok[i]=1; s+=v[i]; c++; }
+  // A lattice fills its frame. When most of the frame is masked (a clipped white
+  // background around a blot's bands), the few overlapping pixels make spurious repeats.
+  if(c<400||c<0.5*sw*sh) return false;
+  const mean=s/c;
+  for(let y=0;y<sh;y++) for(let x=0;x<sw;x++) if(ok[y*sw+x]){ re[y*N+x]=v[y*sw+x]-mean; mr[y*N+x]=1; }
+  const fft2=(R,I,inv)=>{ const tr=new Float64Array(N), ti=new Float64Array(N);
+    for(let y=0;y<N;y++){ const o=y*N; for(let x=0;x<N;x++){ tr[x]=R[o+x]; ti[x]=I[o+x]; } _xdFft(tr,ti,N,inv); for(let x=0;x<N;x++){ R[o+x]=tr[x]; I[o+x]=ti[x]; } }
+    for(let x=0;x<N;x++){ for(let y=0;y<N;y++){ tr[y]=R[y*N+x]; ti[y]=I[y*N+x]; } _xdFft(tr,ti,N,inv); for(let y=0;y<N;y++){ R[y*N+x]=tr[y]; I[y*N+x]=ti[y]; } } };
+  // Autocorrelation of the values and of the mask, so each shift is normalised by the
+  // pixels it actually overlaps.
+  fft2(re,im,false); fft2(mr,mi,false);
+  for(let i=0;i<N*N;i++){ re[i]=re[i]*re[i]+im[i]*im[i]; im[i]=0; mr[i]=mr[i]*mr[i]+mi[i]*mi[i]; mi[i]=0; }
+  fft2(re,im,true); fft2(mr,mi,true);
+  const at=(dx,dy)=>{ const i=((dy+N)%N)*N+((dx+N)%N); return mr[i]>c*0.5?re[i]/mr[i]:0; };
+  const r0=at(0,0); if(!(r0>0)) return false;
+  const mx=Math.floor(sw/4), my=Math.floor(sh/4), peaks=[];
+  // A repeat is a peak that recurs at twice its shift (a lattice repeats; two band rows of a
+  // blot, or two similar cells, match once).
+  const near2=(dx,dy)=>{ let b=-1; for(let yy=-1;yy<=1;yy++) for(let xx=-1;xx<=1;xx++) b=Math.max(b,at(2*dx+xx,2*dy+yy)/r0); return b; };
+  for(let dy=0;dy<=my;dy++) for(let dx=-mx;dx<=mx;dx++){
+    if(dx*dx+dy*dy<16||(dy===0&&dx<0)) continue;           // half-plane: ±shift is one peak
+    const r=at(dx,dy)/r0; if(r<0.6) continue;
+    let top=true; for(let yy=-1;yy<=1&&top;yy++) for(let xx=-1;xx<=1;xx++) if((xx||yy)&&at(dx+xx,dy+yy)/r0>r){ top=false; break; }
+    if(top && near2(dx,dy)>=0.5) peaks.push([dx,dy,r]);
+  }
+  // Two repeats in directions at least 30° apart: a two-dimensional lattice or grid. A blot
+  // repeats along its lanes, in one direction only.
+  for(let i=0;i<peaks.length;i++) for(let j=i+1;j<peaks.length;j++){
+    const [x1,y1]=peaks[i], [x2,y2]=peaks[j], cr=Math.abs(x1*y2-x2*y1), n1=Math.hypot(x1,y1), n2=Math.hypot(x2,y2);
+    if(cr>=0.5*n1*n2) return true;
+  }
+  return false;
+}
+// Verify one coarse candidate. Returns the class and the measurements behind it.
+function _xdVerify(A,B,f){
+  if(!A.src||!B.src) return {cls:'layout', why:'no pixels'};
+  const G=_xdAlign(A,B,f); if(!G) return {cls:'layout', why:'too small to verify'};
+  G.sg=f.inverted?-1:1;
+  const co=_xdCoarse(G);
+  const out={U:co?+co.U.toFixed(4):null, uFrac:co?+co.frac.toFixed(3):null, raw:co?+co.raw.toFixed(4):null, grid:[G.w,G.h,+G.d.toFixed(2)]};
+  if(co && co.raw>=0.998) return {...out, cls:'identical'};
+  // Every counted class needs the coarse picture to match (identical and "same" ≤0.032
+  // unexplained, "near" ≤0.02), so a candidate that fails it is only alike, and neither
+  // the fine stage nor the periodicity test is needed to say so. Which "alike" word fits
+  // is settled once per pair, for the entry shown (_xdAlikeKind).
+  const coarseSame=!!co && co.U<=_XDV.uMax && co.cells>=4 && co.frac>=_XDV.uFrac;
+  if(!coarseSame) return {...out, cls:'layout', kindLater:true};
+  // A lattice's fine detail is the lattice itself when its noise is low, so periodicity is
+  // decided before the fine band is believed.
+  const periodic=_xdPeriodic(G.IA.L,G.w,G.h,G.bad);
+  out.periodic=periodic;
+  if(periodic) return {...out, cls:'periodic'};
+  const fine=_xdFine(G);
+  out.fine={n:fine.inf, f:fine.f==null?null:+fine.f.toFixed(3), tex:fine.tex, unbal:fine.unbal};
+  if(fine.inf>=8 && fine.f>=_XDV.agree) return {...out, cls:'identical'};
+  // Both sides carry their own fine detail (few cells where one side lost it) and it
+  // differs: two acquisitions. Then only a very close coarse match is "nearly identical" —
+  // two different low-noise blots of one layout left 0.034 unexplained.
+  const fineDiffers=fine.inf>=8 && fine.inf>=0.3*fine.tex && fine.unbal<0.2*fine.tex && fine.f<=_XDV.disagree;
+  if(fineDiffers) return {...out, cls:(co.U<=_XDV.uNear && co.frac>=_XDV.uNearFrac)?'near':'layout'};
+  // Fine detail lost on one side but still present, and different, in a good number of
+  // cells: blur, extra noise and compression all look like this, and so did two different
+  // blots of one layout with one side blurred (0.0307 unexplained). Then the coarse match
+  // must be closer; true copies measured ≤0.0236 here, except cells at JPEG quality 5.
+  if(fine.inf>=25 && fine.f<=0.1 && co.U>_XDV.uSame2) return {...out, cls:'layout'};
+  return {...out, cls:'same'};
+}
+// Similar layout, or a periodic pattern? Asked once, for the pair's one "alike" entry.
+function _xdAlikeKind(A,B,f){
+  if(!f.verify||!f.verify.kindLater) return;
+  const G=_xdAlign(A,B,f);
+  if(G&&_xdPeriodic(G.IA.L,G.w,G.h,G.bad)){ f.cls='periodic'; f.verify.periodic=true; }
+  f.verify.kindLater=false;
+}
+
+// Every verified candidate for one pair: findings (identical, same, near) best first,
+// overlapping duplicates of one finding dropped; plus at most one "alike" entry (similar
+// layout or periodic) when nothing was found and the two share most of their frames.
+const _XD_RANK={identical:4, same:3, near:2, periodic:1, layout:0};
+const _xdIsFinding=f=>f.cls==='identical'||f.cls==='same'||f.cls==='near';
 function _xdComparePair(A,B){
-  const out=[];
+  const out=[], alike=[];
+  const iou=(r,q)=>{ const x0=Math.max(r.x,q.x), y0=Math.max(r.y,q.y), x1=Math.min(r.x+r.w,q.x+q.w), y1=Math.min(r.y+r.h,q.y+q.h);
+    const i=Math.max(0,x1-x0)*Math.max(0,y1-y0); return i/(r.w*r.h+q.w*q.h-i||1); };
+  const better=(f,g)=>(_XD_RANK[f.cls]-_XD_RANK[g.cls])||(f.score-g.score);
   for(const c of _xdCandidates(A,B)){
     const f=_xdConfirm(A,B,c); if(!f) continue;
-    const iou=(r,q)=>{ const x0=Math.max(r.x,q.x), y0=Math.max(r.y,q.y), x1=Math.min(r.x+r.w,q.x+q.w), y1=Math.min(r.y+r.h,q.y+q.h);
-      const i=Math.max(0,x1-x0)*Math.max(0,y1-y0); return i/(r.w*r.h+q.w*q.h-i||1); };
+    const v=_xdVerify(A,B,f); f.cls=v.cls; f.verify=v;
+    // Alike candidates are all kept: only one is shown, chosen below.
+    if(!_xdIsFinding(f)){ alike.push(f); continue; }
     const dup=out.findIndex(o=>iou(o.rectA,f.rectA)>0.3);
-    if(dup<0) out.push(f); else if(f.score>out[dup].score) out[dup]=f;
+    if(dup<0) out.push(f); else if(better(f,out[dup])>0) out[dup]=f;
   }
-  return out.sort((x,y)=>(y.score*Math.sqrt(y.fracA))-(x.score*Math.sqrt(x.fracA))).slice(0,3);
+  const found=out.sort((x,y)=>better(y,x)||((y.score*Math.sqrt(y.fracA))-(x.score*Math.sqrt(x.fracA)))).slice(0,3);
+  if(found.length) return found;
+  const al=alike.filter(f=>f.fracA>=0.6&&f.fracB>=0.6).sort((x,y)=>(y.score-x.score));
+  // A grid's alignments overlap different parts of it; any of the best three that shows
+  // the lattice makes the pair periodic.
+  for(const f of al.slice(0,3)){ _xdAlikeKind(A,B,f); if(f.cls==='periodic') return [f]; }
+  return al.slice(0,1);
 }
-// What a finding says in words.
+// What a finding says in words. The class leads: "identical" only when the fine detail
+// agrees; a transform (flip, scale, inversion) is named only for a verified finding.
+const _XD_CLASS={
+  same:'the same image, with its finest detail lost in one copy (blurred, noisy or compressed)',
+  near:'nearly identical — the same field, but the finest detail differs (consecutive frames, a re-exposure, or a heavily compressed re-save)',
+  layout:'similar layout — not counted as reuse',
+  periodic:'periodic pattern — cannot be told apart by this check'};
 function _xdDescribe(f, aName, bName){
+  if(f.cls==='layout'||f.cls==='periodic') return _XD_CLASS[f.cls];
   const parts=[];
   const whole=f.fracA>0.97&&f.fracB>0.97;
-  if(whole && f.k===0 && Math.abs(f.s-1)<0.02 && f.score>0.995 && !f.inverted) return 'identical image';
+  if(f.cls==='identical' && whole && f.k===0 && Math.abs(f.s-1)<0.02 && f.score>0.995 && !f.inverted) return 'identical image';
   if(f.k) parts.push(_XD_TF[f.k]);
   if(Math.abs(f.s-1)>=0.03) parts.push(`${f.s.toFixed(2)}× scale (the other image is ${f.s>1?'larger':'smaller'})`);
   if(f.inverted) parts.push('contrast inverted');
   if(whole) parts.unshift('the whole image');
   else parts.push(`overlapping region ~${Math.round(f.fracA*100)}% of ${aName} and ~${Math.round(f.fracB*100)}% of ${bName||'the other image'}`);
-  return parts.join(', ');
+  const where=parts.join(', ');
+  return (f.cls==='same'||f.cls==='near')?`${_XD_CLASS[f.cls]}; ${where}`:where;
 }
+// Why a pair is listed as alike but not counted — one line, for the dialog and reports.
+const _XD_ALIKE_WHY={
+  layout:'These look alike at a glance; their fine detail differs, so they are different acquisitions.',
+  periodic:'A lattice or grid matches itself when shifted by one period, so this check cannot tell two fields of it apart. Compare them by eye.'};
 
 // The run. `panels` and `others` are lists of {label, load:async()=>({src, crop}), key,
 // id?, fig?}. Panels are this figure's; with `within` the list is compared with itself.
@@ -26425,7 +26765,7 @@ async function _xdRun(panels, others, ui){
   ui=ui||{};
   const t0=performance.now(); let tY=performance.now();
   const yieldNow=async()=>{ if(performance.now()-tY>24){ await new Promise(r=>setTimeout(r,0)); tY=performance.now(); } return !!ui.cancelled||!!(ui.stale&&ui.stale()); };
-  const res={findings:[], skipped:[], excluded:[], compared:0, total:others?others.length:0,
+  const res={findings:[], alike:[], skipped:[], excluded:[], compared:0, total:others?others.length:0,
     panelsCompared:0, panelsTotal:panels.length, pairs:0, pairsSkipped:0, cancelled:false, ms:0, keypoints:0};
   const prepA=[];
   for(const p of panels){
@@ -26460,7 +26800,7 @@ async function _xdRun(panels, others, ui){
         budget--; res.pairs++;
         if(await yieldNow()){ res.cancelled=true; break; }
         for(const f of _xdComparePair(P,Q)){
-          res.findings.push({...f, a:panels[i], b:o, aSrc:P.thumbSrc, aCrop:P.crop, bSrc:got.src, bCrop:got.crop});
+          (_xdIsFinding(f)?res.findings:res.alike).push({...f, a:panels[i], b:o, aSrc:P.thumbSrc, aCrop:P.crop, bSrc:got.src, bCrop:got.crop});
         }
       }
       if(res.cancelled){ others.slice(j+1).forEach(x=>res.skipped.push({label:x.label, why:'not reached — cancelled'})); break; }
@@ -26474,7 +26814,7 @@ async function _xdRun(panels, others, ui){
       res.pairs++;
       if(await yieldNow()){ res.cancelled=true; break; }
       // Q is prepared as "this" (it has the transformed descriptors) but compared as is.
-      for(const f of _xdComparePair(P,Q)) res.findings.push({...f, a:panels[i], b:panels[j], aSrc:P.thumbSrc, aCrop:P.crop, bSrc:Q.thumbSrc, bCrop:Q.crop});
+      for(const f of _xdComparePair(P,Q)) (_xdIsFinding(f)?res.findings:res.alike).push({...f, a:panels[i], b:panels[j], aSrc:P.thumbSrc, aCrop:P.crop, bSrc:Q.thumbSrc, bCrop:Q.crop});
     }
     res.compared=res.panelsCompared;
   }
@@ -26485,32 +26825,86 @@ async function _xdRun(panels, others, ui){
 // ── Reuse decisions: part of the figure ───────────────────────
 // A finding is a candidate, not a verdict. The author says which it is: an intentional
 // reuse (the same control shown in two figures — allowed, but ASM and Nature require it
-// to be stated, so it becomes a sentence in the caption and the Methods), or different
-// images (remembered for that pair, so a re-run does not ask again). Undecided findings
-// stay open, and the compliance report counts them. Saved with the figure, one undo step
-// per decision, cleared at a figure boundary.
-let _reuse={decisions:{}, lastRun:null};
+// to be stated, so it becomes a sentence in the caption and the Methods), different
+// images, or — for a nearly identical pair — the same field in different acquisitions
+// (remembered for that pair, so a re-run does not ask again). Undecided findings stay
+// open, and the compliance report counts them. Saved with the figure, one undo step per
+// decision, cleared at a figure boundary.
+//
+// A decision belongs to the exact pair it was made on: the panel's id, the content hash
+// of its source image and its crop, the other image's hash and crop, and the transform.
+// When the panel's image is replaced or re-cropped, or the panel is deleted, the decision
+// no longer applies: it writes nothing into the caption, hides nothing, is named as
+// retired, and the pair is examined afresh. Its sentence is written from the panel's id
+// at caption time, so after panels are swapped it names the panel's current letter.
+const _xdNewUid=()=>'f_'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+// figUid: this figure's identity, kept by save and load; libId: the library entry it was
+// opened from or saved as. Together with identical pixels they decide what "this figure
+// saved earlier" is (T1-07).
+// A blank figure has no identity yet (so it serialises exactly like a fresh page); it gets
+// one the first time it is saved with images or checked (_xdFigId).
+let _reuse={decisions:{}, lastRun:null, figUid:null, libId:null};
+function _xdFigId(){ return _reuse.figUid||(_reuse.figUid=_xdNewUid()); }
+const _XD_VERDICTS=['intentional','different','acquisition'];
 function _reuseLoad(o){
   const d=(o&&o.decisions&&typeof o.decisions==='object')?o.decisions:{}, clean={};
-  for(const [k,v] of Object.entries(d)) if(v&&(v.verdict==='intentional'||v.verdict==='different')) clean[k]=JSON.parse(JSON.stringify(v));
-  _reuse={decisions:clean, lastRun:(o&&o.lastRun&&typeof o.lastRun==='object')?JSON.parse(JSON.stringify(o.lastRun)):null};
+  for(const [k,v] of Object.entries(d)) if(v&&_XD_VERDICTS.includes(v.verdict)) clean[k]=JSON.parse(JSON.stringify(v));
+  _reuse={decisions:clean, lastRun:(o&&o.lastRun&&typeof o.lastRun==='object')?JSON.parse(JSON.stringify(o.lastRun)):null,
+    figUid:(o&&typeof o.figUid==='string'&&o.figUid)||null, libId:(o&&typeof o.libId==='string')?o.libId:null};
 }
-function _reuseSentences(){
-  return Object.values(_reuse.decisions).filter(d=>d.verdict==='intentional'&&(d.sentence||'').trim()).map(d=>d.sentence.trim());
-}
-// A panel's identity for a decision: its id and the content of its whole source image, so
-// a re-crop keeps the decision and a replaced image does not inherit it.
+// A panel's identity for a decision: its id, the content hash of its whole source image,
+// and the crop that selects the compared region.
 const _xdFpCache=new WeakMap();
 function _xdFp(img){
   if(!img||typeof img!=='object') return '';
   if(_xdFpCache.has(img)) return _xdFpCache.get(img);
-  const f=_xdFingerprint(img); _xdFpCache.set(img,f); return f;
+  const f=_xdHash(img); _xdFpCache.set(img,f); return f;
 }
-function _xdPanelKey(p){ return `${p.src&&p.src.id!=null?p.src.id:''}@${_xdFp(p.img)}`; }
+function _xdCropSig(c){ c=c||{}; return ['cropL','cropR','cropT','cropB','cropAngle'].map(k=>(+c[k]||0).toFixed(2)).join(','); }
+function _xdPanelKey(p){ return `${p.src&&p.src.id!=null?p.src.id:''}@${_xdFp(p.img)}#${_xdCropSig(p.src)}`; }
 function _xdThisPanels(){
   return _dupPanels().map(p=>({label:p.label, id:p.src&&p.src.id, src:p.src, img:p.img, fp:_xdFp(p.img), key:_xdPanelKey(p),
-    load:async()=>({src:p.img, crop:p.src})}));
+    srcUrl:p.src&&p.src.src, crop:_xdCropSig(p.src), load:async()=>({src:p.img, crop:p.src})}));
 }
+// The panel's current letter by id, and whether the decision still matches it.
+function _reuseState(d){
+  if(!d.aKey) return {ok:true, legacy:true};      // a decision from an earlier version
+  const now=new Map(_xdThisPanels().map(p=>[String(p.id),p]));
+  const A=now.get(String(d.aId)), B=d.scope==='within'?now.get(String(d.bId)):null;
+  if(!A||(d.scope==='within'&&!B)) return {ok:false, why:`panel ${!A?d.letterA:d.letterB} was deleted`};
+  if(A.key!==d.aKey) return {ok:false, why:`the image or crop of panel ${A.label} changed`};
+  if(d.scope==='within'&&B.key!==d.bKey) return {ok:false, why:`the image or crop of panel ${B.label} changed`};
+  return {ok:true, A:A.label, B:B&&B.label};
+}
+// The sentence for a live intentional decision, with the panels' current letters.
+function _reuseSentence(d, st){
+  st=st||_reuseState(d);
+  if(!st.ok) return '';
+  if(st.legacy) return (d.sentence||'').trim();
+  if(d.edited){
+    let t=String(d.sentence||'');
+    // An edited sentence keeps its words; a letter that moved with its panel follows it.
+    const sub=(t0,from,to)=>from&&to&&from!==to?t0.replace(new RegExp(`\\bpanel ${from.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'g'),`panel ${to}`):t0;
+    t=sub(t,d.letterA,st.A); if(d.scope==='within') t=sub(t,d.letterB,st.B);
+    return t.trim();
+  }
+  return String(d.tpl||d.sentence||'').replace(/\{A\}/g,st.A).replace(/\{B\}/g,st.B||'').trim();
+}
+function _reuseSentences(){
+  return Object.values(_reuse.decisions).filter(d=>d.verdict==='intentional').map(d=>_reuseSentence(d)).filter(Boolean);
+}
+// Decisions that no longer apply (image replaced, re-cropped, panel deleted), and edited
+// sentences whose panel has a new letter — the compliance row and the package name them.
+function _reuseRetired(){
+  return Object.values(_reuse.decisions).map(d=>({d, st:_reuseState(d)})).filter(x=>!x.st.ok)
+    .map(x=>({verdict:x.d.verdict, a:x.d.letterA||x.d.a, b:x.d.scope==='within'?(x.d.letterB||x.d.b):x.d.b, why:x.st.why}));
+}
+function _reuseRelettered(){
+  return Object.values(_reuse.decisions).filter(d=>d.verdict==='intentional'&&d.edited).map(d=>({d, st:_reuseState(d)}))
+    .filter(x=>x.st.ok&&!x.st.legacy&&(x.st.A!==x.d.letterA||(x.d.scope==='within'&&x.st.B!==x.d.letterB)));
+}
+// A decision that applies: by key, and only while it still matches its panels.
+function _reuseLive(key){ const d=_reuse.decisions[key]; return d&&_reuseState(d).ok?d:null; }
 // Info for the decision buttons, by key, so no JSON has to live in an HTML attribute.
 const _reuseInfo=new Map();
 function _reuseDecide(key, verdict){
@@ -26520,15 +26914,21 @@ function _reuseDecide(key, verdict){
   pushUndo();
   if(!verdict) delete _reuse.decisions[key];
   else _reuse.decisions[key]={verdict, scope:info.scope||'cross', a:info.a||'', b:info.b||'', what:info.what||'',
-    sentence:verdict==='intentional'?((prev&&prev.sentence)||info.sentence||''):'', at:new Date().toISOString()};
+    aId:info.aId, aKey:info.aKey, bId:info.bId, bKey:info.bKey, otherKey:info.otherKey||'', letterA:info.letterA||'', letterB:info.letterB||'',
+    tpl:info.tpl||'', edited:!!(prev&&prev.edited), sentence:(prev&&prev.edited)?prev.sentence:'', at:new Date().toISOString()};
   logAction('reuseDecision',{verdict:verdict||'open', a:info.a, b:info.b, scope:info.scope});
-  _reuseRefreshTexts(verdict==='intentional'?_reuse.decisions[key].sentence:'');
+  const d=_reuse.decisions[key];
+  _reuseRefreshTexts(verdict==='intentional'?_reuseSentence(d):'');
   _reuseRepaint(key);
 }
 function _reuseSetSentence(key, text){
-  const d=_reuse.decisions[key]; if(!d||d.verdict!=='intentional'||d.sentence===text) return;
-  pushUndo(); d.sentence=String(text||'');
-  _reuseRefreshTexts(d.sentence);
+  const d=_reuse.decisions[key]; if(!d||d.verdict!=='intentional') return;
+  const st=_reuseState(d); text=String(text||'');
+  if(_reuseSentence(d,st)===text.trim()) return;
+  pushUndo(); d.sentence=text; d.edited=true;
+  // The letters the edited words refer to are the ones on screen now.
+  if(st.ok&&!st.legacy){ d.letterA=st.A; if(d.scope==='within') d.letterB=st.B; }
+  _reuseRefreshTexts(_reuseSentence(d));
 }
 // The caption and Methods carry the sentences through their own generators. A box that
 // still holds FigureLab's text is rewritten; one the author has edited is left alone and
@@ -26545,13 +26945,14 @@ function _reuseRefreshTexts(sentence, quiet){
 }
 function _reuseButtonsHtml(key, info){
   _reuseInfo.set(key, info);
-  const d=_reuse.decisions[key], v=d&&d.verdict;
-  const k=esc(key);
+  const d=_reuseLive(key), v=d&&d.verdict;
+  const k=esc(key), b=(on,extra)=>`padding:1px 8px;font-size:10px${on?extra:''}`;
   return `<span class="xd-dec" data-xd-key="${k}" style="display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:4px">
-    <button class="btn" style="padding:1px 8px;font-size:10px${v==='intentional'?';border-color:var(--a2);color:var(--a2)':''}" data-xd-act="intentional" title="The same image on purpose (a shared control, say). A sentence stating the reuse goes into the caption and the Methods — journals require reuse to be stated.">${v==='intentional'?'✓ ':''}Intentional reuse — say so in the legend</button>
-    <button class="btn" style="padding:1px 8px;font-size:10px${v==='different'?';border-color:var(--muted)':''}" data-xd-act="different" title="These are different images. Remembered for this pair, so it is not listed again.">${v==='different'?'✓ ':''}Different images</button>
+    <button class="btn" style="${b(v==='intentional',';border-color:var(--a2);color:var(--a2)')}" data-xd-act="intentional" title="The same image on purpose (a shared control, say). A sentence stating the reuse goes into the caption and the Methods — journals require reuse to be stated.">${v==='intentional'?'✓ ':''}Intentional reuse — say so in the legend</button>
+    ${info.cls==='near'?`<button class="btn" style="${b(v==='acquisition',';border-color:var(--muted)')}" data-xd-act="acquisition" title="The same field in different acquisitions (consecutive frames, a re-exposure). Nothing is written into the legend. Remembered for this pair.">${v==='acquisition'?'✓ ':''}Same field, different acquisitions</button>`:''}
+    <button class="btn" style="${b(v==='different',';border-color:var(--muted)')}" data-xd-act="different" title="These are different images. Remembered for this pair (these exact pixels), so it is not listed again.">${v==='different'?'✓ ':''}Different images</button>
     ${v?`<button class="btn" style="padding:1px 8px;font-size:10px" data-xd-act="open" title="Undo the decision and leave this finding open">Reopen</button>`:''}
-    ${v==='intentional'?`<input type="text" class="xd-sentence" value="${esc(d.sentence||'')}" style="flex:1 1 100%;font-size:10.5px;padding:2px 4px" title="The sentence written into the caption and the Methods — edit the figure names">`:''}
+    ${v==='intentional'?`<input type="text" class="xd-sentence" value="${esc(_reuseSentence(d))}" style="flex:1 1 100%;font-size:10.5px;padding:2px 4px" title="The sentence written into the caption and the Methods — edit the figure names. Panel letters follow the panels.">`:''}
   </span>`;
 }
 // One delegated handler for every decision control, in either dialog.
@@ -26574,59 +26975,91 @@ function _reuseRepaint(key){
   });
   if(typeof _xdRenderSummary==='function') _xdRenderSummary();
 }
-// Open findings of the last cross-figure run: listed and not yet decided.
+// Open findings of the last cross-figure run: listed and not decided by a decision that
+// still applies.
 function _reuseOpen(){
   const r=_reuse.lastRun; if(!r) return [];
-  return (r.findings||[]).filter(f=>!_reuse.decisions[f.key]);
+  return (r.findings||[]).filter(f=>!_reuseLive(f.key));
 }
+// The panels as the run saw them, letter by letter: a replaced image, a new crop, a
+// deleted panel, or panels swapped into each other's letters all make the run stale.
 function _reusePanelsChanged(){
-  const r=_reuse.lastRun; if(!r||!Array.isArray(r.panelKeys)) return false;
-  const now=_xdThisPanels().map(p=>p.key).sort().join(','), then=[...r.panelKeys].sort().join(',');
-  return now!==then;
+  const r=_reuse.lastRun; if(!r) return false;
+  const now=_xdThisPanels().map(p=>`${p.label}=${p.key}`).join('|');
+  if(Array.isArray(r.panelMap)) return now!==r.panelMap.join('|');
+  return true;   // a run from an earlier version: its keys cannot be checked
 }
 // The compliance report's one row.
 function _reuseComplianceRow(){
   const r=_reuse.lastRun, label='Image reuse across figures';
   if(!r) return {label, ok:true, info:true, uncounted:true, note:'Not run — 🧬 Check against other figures… compares each panel with your other figures and image files (flips, rotations, 0.45–2.2× scale, overlapping crops)'};
   const when=new Date(r.at).toLocaleString([], {dateStyle:'medium', timeStyle:'short'});
+  const self=r.selfPairs?`; ${r.selfPairs} pair${r.selfPairs===1?'':'s'} of a panel with its own saved copy skipped (${(r.selfList||[]).slice(0,4).join(', ')}${(r.selfList||[]).length>4?', …':''})`:'';
   const what=`${r.panels} panel${r.panels===1?'':'s'} × ${r.compared} image${r.compared===1?'':'s'} compared ${when}`
-    +(r.skipped&&r.skipped.length?`; ${r.skipped.length} skipped`:'')+(r.excluded&&r.excluded.length?`; ${r.excluded.length} too featureless to compare`:'');
-  if(r.cancelled) return {label, ok:false, warn:true, note:`Cancelled before it finished — ${what}. Run it again to complete it.`};
-  if(_reusePanelsChanged()) return {label, ok:false, warn:true, note:`The panels have changed since the check ran (${what}) — run it again`};
+    +(r.skipped&&r.skipped.length?`; ${r.skipped.length} skipped`:'')+(r.excluded&&r.excluded.length?`; ${r.excluded.length} too featureless to compare`:'')
+    +self+((r.notes||[]).length?`; ${r.notes.map(n=>`${n.label}: ${n.why}`).join('; ')}`:'');
+  const alike=(r.alike||[]).length?` ${(r.alike||[]).length} pair${r.alike.length===1?'':'s'} only alike in layout (not counted).`:'';
+  const retired=_reuseRetired(), rel=_reuseRelettered();
+  const warnTail=(retired.length?` ${retired.length} decision${retired.length>1?'s':''} retired: ${retired.map(x=>`${x.a} ↔ ${x.b} — ${x.why}`).join('; ')} — run 🧬 Check against other figures… again.`:'')
+    +(rel.length?` Check the edited reuse sentence${rel.length>1?'s':''}: ${rel.map(x=>`panel ${x.d.letterA} is now panel ${x.st.A}`).join('; ')}.`:'');
+  if(r.cancelled) return {label, ok:false, warn:true, note:`Cancelled before it finished — ${what}. Run it again to complete it.${warnTail}`};
+  if(!r.pairs) return {label, ok:false, warn:true, note:`Nothing was compared — ${what}. No pair of a panel and an image could be compared, so this is not a clean result.${warnTail}`};
+  if(_reusePanelsChanged()) return {label, ok:false, warn:true, note:`The panels have changed since the check ran (${what}) — run it again.${warnTail}`};
   const open=_reuseOpen().length, done=(r.findings||[]).length-open;
-  if(open) return {label, ok:false, warn:true, note:`${open} open finding${open>1?'s':''} — decide each in 🧬 Check against other figures… (${what})`};
-  return {label, ok:true, note:`${(r.findings||[]).length?`${done} finding${done>1?'s':''}, each decided`:'No reuse found'} — ${what}. A clean result is not a guarantee.`};
+  if(open) return {label, ok:false, warn:true, note:`${open} open finding${open>1?'s':''} — decide each in 🧬 Check against other figures… (${what}).${alike}${warnTail}`};
+  if(retired.length||rel.length) return {label, ok:false, warn:true, note:`${warnTail.trim()} (${what})`};
+  return {label, ok:true, note:`${(r.findings||[]).length?`${done} finding${done>1?'s':''}, each decided`:'No reuse found'} — ${what}.${alike} A clean result is not a guarantee.`};
 }
+const _XD_VERDICT_TXT={intentional:'INTENTIONAL REUSE, stated', different:'marked DIFFERENT IMAGES by the author', acquisition:'marked SAME FIELD, DIFFERENT ACQUISITIONS by the author'};
 // For the submission package: what was compared, what was found, what was decided.
 function _reuseReportText(){
   const L=['IMAGE REUSE CHECK', `FigureLab v${APP_VERSION} — written ${new Date().toISOString()}`, ''];
-  L.push('Compares the source pixels (as imported, greyscale, before display adjustments) of each');
-  L.push('panel with the images the author supplied: other figures from the session library,');
-  L.push('session files and image files. Detects identical copies, the 8 flips/rotations,');
-  L.push('re-scaled copies (0.45-2.2x) and overlapping crops. It compares only what it was given:');
-  L.push('it does not search published papers, does not detect AI-generated images, and a clean');
-  L.push('result is not a guarantee.', '');
+  L.push('Compares the source pixels (as imported, before display adjustments) of each panel');
+  L.push('with the images the author supplied: other figures from the session library, session');
+  L.push('files and image files. Finds copies flipped or rotated by right angles, re-scaled');
+  L.push('(0.45-2.2x) and overlapping crops, then verifies each candidate on its fine detail:');
+  L.push('a reuse is the same pixels, not the same composition. Pairs that only look alike (the');
+  L.push('same lane layout, the same dish, the same framing) are listed apart and not counted.');
+  L.push('It compares only what it was given: it does not search published papers, does not');
+  L.push('detect AI-generated images, and a clean result is not a guarantee.', '');
   const r=_reuse.lastRun;
   if(!r) L.push('Across figures: NOT RUN for this figure.');
   else {
     L.push(`Across figures: run ${r.at}${r.cancelled?' (CANCELLED — incomplete)':''}`);
     L.push(`  ${r.panels} of ${r.panelsTotal} panels compared with ${r.compared} of ${r.total} images (${r.pairs} pairs, ${r.ms} ms).`);
+    if(!r.pairs) L.push('  NOTHING WAS COMPARED: no pair of a panel and an image could be compared.');
     (r.excluded||[]).forEach(x=>L.push(`  Not compared (featureless): ${x.label} — ${x.why}`));
     (r.skipped||[]).forEach(x=>L.push(`  Skipped: ${x.label} — ${x.why}`));
+    (r.notes||[]).forEach(x=>L.push(`  Note: ${x.label} — ${x.why}`));
+    if(r.selfPairs) L.push(`  Skipped as this figure's own saved copy (same figure, same panel, identical pixels): ${(r.selfList||[]).join('; ')}`);
     if(r.pairsSkipped) L.push(`  ${r.pairsSkipped} panel-image pairs over the work cap were not compared.`);
     if(_reusePanelsChanged()) L.push('  NOTE: the panels have changed since this run.');
-    if(!(r.findings||[]).length) L.push('  No reuse found.');
+    if(!(r.findings||[]).length&&r.pairs) L.push('  No reuse found.');
     (r.findings||[]).forEach(f=>{
-      const d=_reuse.decisions[f.key];
-      L.push(`  - ${f.a} <-> ${f.b}: ${f.desc}; correlation ${f.score.toFixed(3)} — ${d?(d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+d.sentence+'"':'marked DIFFERENT IMAGES by the author'):'OPEN (not decided)'}`);
+      const d=_reuseLive(f.key);
+      L.push(`  - ${f.a} <-> ${f.b}: ${f.desc}; correlation ${f.score.toFixed(3)} — ${d?(d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+_reuseSentence(d)+'"':_XD_VERDICT_TXT[d.verdict]):'OPEN (not decided)'}`);
     });
+    if((r.alike||[]).length){
+      L.push('  Alike only in layout or pattern — NOT counted as reuse (fine detail differs, or a periodic pattern):');
+      r.alike.forEach(f=>L.push(`    ${f.a} <-> ${f.b}: ${f.desc}`));
+    }
   }
-  const within=Object.values(_reuse.decisions).filter(d=>d.scope==='within');
+  const within=Object.values(_reuse.decisions).filter(d=>d.scope==='within'&&_reuseState(d).ok);
   if(within.length){
     L.push('', 'Within this figure (🧬 Duplication check), decided by the author:');
-    within.forEach(d=>L.push(`  - ${d.a} <-> ${d.b}${d.what?' ('+d.what+')':''}: ${d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+d.sentence+'"':'marked DIFFERENT IMAGES'}`));
+    within.forEach(d=>{ const st=_reuseState(d); L.push(`  - ${st.A||d.a} <-> ${st.B||d.b}${d.what?' ('+d.what+')':''}: ${d.verdict==='intentional'?'INTENTIONAL REUSE, stated: "'+_reuseSentence(d,st)+'"':_XD_VERDICT_TXT[d.verdict].replace(' by the author','')}`); });
+  }
+  const retired=_reuseRetired();
+  if(retired.length){
+    L.push('', 'Decisions RETIRED because the image they were made on changed (not applied, nothing stated):');
+    retired.forEach(x=>L.push(`  - ${x.a} <-> ${x.b} (was ${x.verdict}): ${x.why}. The pair is examined again on the next run.`));
   }
   return L.join('\n')+'\n';
+}
+// A run made with this figure's current panels drops decisions that no longer apply to
+// any panel: their pairs have just been examined afresh.
+function _reusePruneRetired(scope){
+  for(const [k,d] of Object.entries(_reuse.decisions)) if(d.scope===scope&&!_reuseState(d).ok) delete _reuse.decisions[k];
 }
 
 // ── The cross-figure dialog ───────────────────────────────────
@@ -26638,11 +27071,11 @@ function closeCrossFigureCheck(){
 }
 function openCrossFigureCheck(){
   closeCrossFigureCheck();
-  _xdUI={lib:[], files:[], token:null, findings:[]};
+  _xdUI={lib:[], files:[], token:null, findings:[], alike:[]};
   const m=document.createElement('div'); m.id='xdup-modal-bg'; m.className='modal-bg open';
   m.innerHTML=`<div class="modal" style="max-width:780px;width:96vw;padding:20px;max-height:88vh;overflow-y:auto">
     <div style="font-weight:600;font-size:14px;margin-bottom:4px">🧬 Check against other figures</div>
-    <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Journals screen for the same micrograph or blot in two figures of a paper (ASM with Imagetwin, the Science journals and MDPI with Proofig, Nature for duplication across figures). This compares each panel of this figure with images from your other figures and finds identical copies, flipped or rotated copies (all 8 right-angle orientations), re-scaled copies (0.45–2.2×) and overlapping crops of the same field. It compares <b>source pixels</b> — the images as imported, in greyscale, before any brightness, contrast, gamma or LUT you set here — so a copy shown differently is still found. Nothing leaves this computer.</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Journals screen for the same micrograph or blot in two figures of a paper (ASM with Imagetwin, the Science journals and MDPI with Proofig, Nature for duplication across figures). This compares each panel of this figure with images from your other figures and finds identical copies, flipped or rotated copies (all 8 right-angle orientations), re-scaled copies (0.45–2.2×) and overlapping crops of the same field. It compares <b>source pixels</b> — the images as imported, before any brightness, contrast, gamma or LUT you set here — so a copy shown differently is still found. A match is verified on the <b>fine detail</b> (noise, grain, the exact edge of each band and cell): two different blots with one lane layout look alike but are not reuse, and are listed apart. Nothing leaves this computer.</div>
     <div style="font-size:11px;font-weight:600;margin:4px 0">Figures in your session library</div>
     <div id="xdup-lib" style="font-size:11px;max-height:150px;overflow-y:auto">Reading the library…</div>
     <div style="font-size:11px;font-weight:600;margin:10px 0 4px">Session files and image files</div>
@@ -26657,7 +27090,7 @@ function openCrossFigureCheck(){
     <div id="xdup-prog" style="display:none;height:6px;background:var(--border);border-radius:3px;margin-top:6px;overflow:hidden"><div id="xdup-prog-bar" style="height:100%;width:0;background:var(--accent)"></div></div>
     <div id="xdup-viewer"></div>
     <div id="xdup-results" style="margin-top:8px"></div>
-    <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:10px;border-top:1px solid var(--border);padding-top:8px"><b>What this cannot do.</b> It compares only the images you give it here; it cannot search published papers (Proofig and Imagetwin compare against their own databases of the literature), and it does not detect AI-generated images. It searches right-angle flips and rotations and scales of 0.45–2.2×, not arbitrary angles or warps. Blank, saturated, smoothly graded and pure-noise images are excluded and named — correlation on them means nothing. A clean result is not a guarantee; it is a chance to catch an accidental reuse before a reviewer does.</div>
+    <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:10px;border-top:1px solid var(--border);padding-top:8px"><b>What this cannot do.</b> It compares only the images you give it here; it cannot search published papers (Proofig and Imagetwin compare against their own databases of the literature), and it does not detect AI-generated images. It searches right-angle flips and rotations and scales of 0.45–2.2×, not arbitrary angles or warps. Blank, saturated, smoothly graded and pure-noise images are excluded and named — correlation on them means nothing. Lattices and grids (EM crystals, hemocytometer squares) match themselves when shifted by a period and are listed as a periodic pattern, not judged. A copy whose fine detail is destroyed (noise σ ≈ 50, or a low-contrast blot under JPEG quality 5 or noise σ 25) can only be listed as similar layout; two blots of one layout whose every band matches within a few percent and that carry almost no noise can be listed as nearly identical. A clean result is not a guarantee; it is a chance to catch an accidental reuse before a reviewer does.</div>
     <button class="btn" onclick="closeCrossFigureCheck()" style="width:100%;justify-content:center;margin-top:12px">Close</button>
   </div>`;
   document.body.appendChild(m);
@@ -26669,17 +27102,27 @@ function openCrossFigureCheck(){
   _xdLoadLibrary();
   if(_reuse.lastRun) _xdRenderSummary();
 }
-// Library figures, each ticked unless it holds exactly this figure's images (this figure
-// saved earlier: every panel would "match" itself).
+// Is a saved figure THIS figure saved earlier? Its identity must be this figure's (the
+// library entry it was opened from or saved as, or the figure id it carries) AND every
+// image in it must be one of this figure's panels — same id, identical pixels, same crop.
+// A figure built from last week's figure keeps its panel ids, so ids alone said "own
+// copy" and hid an image the two figures really share (T1-07).
+function _xdIsThisFigure(data, libId, imgs){
+  const ident=(libId!=null&&libId===_reuse.libId)||!!(data&&data.imageReuse&&data.imageReuse.figUid&&data.imageReuse.figUid===_xdFigId());
+  if(!ident||!imgs.length) return {self:false, related:ident};
+  const mine=new Map(_xdThisPanels().map(p=>[String(p.id),p]));
+  const all=imgs.every(i=>{ const p=mine.get(String(i.id)); return p&&p.srcUrl===i.srcUrl&&p.crop===_xdCropSig(i.crop); });
+  return {self:all, related:!all};
+}
+// Library figures, each ticked unless it is this figure saved earlier.
 async function _xdLoadLibrary(){
   const el=document.getElementById('xdup-lib'); if(!el||!_xdUI) return;
   let recs=[]; try{ recs=await _dbAll(); }catch(e){ el.textContent='The session library is not available in this browser.'; return; }
   if(!_xdUI) return;
-  const mine=new Set(_dupPanels().map(p=>p.src&&p.src.src).filter(Boolean));
   _xdUI.lib=recs.sort((a,b)=>b.savedAt-a.savedAt).map(r=>{
     const imgs=_xdFigureImages(r.data||{}, r.name);
-    const self=imgs.length>0 && imgs.every(i=>mine.has(i.srcUrl));
-    return {id:r.id, name:r.name, imgs, self, on:!self&&imgs.length>0, noPix:_xdNoPixels(r.data||{})};
+    const t=_xdIsThisFigure(r.data||{}, r.id, imgs);
+    return {id:r.id, name:r.name, imgs, self:t.self, related:t.related, on:!t.self&&imgs.length>0, noPix:_xdNoPixels(r.data||{})};
   });
   _xdRenderLib();
 }
@@ -26688,12 +27131,12 @@ function _xdRenderLib(){
   if(!_xdUI.lib.length){ el.innerHTML='<span style="color:var(--muted)">No figures saved in the library yet (☰ Session library → Save). You can still drop session files or images below.</span>'; return; }
   el.innerHTML=_xdUI.lib.map((r,i)=>`<label style="display:flex;gap:6px;align-items:center;padding:2px 0">
     <input type="checkbox" data-xd-lib="${i}" ${r.on?'checked':''} ${r.imgs.length?'':'disabled'}>
-    <span><b>${esc(r.name)}</b> — ${r.imgs.length} image${r.imgs.length===1?'':'s'}${r.noPix?` · ${r.noPix} saved without pixels (not comparable)`:''}${r.self?' · <i>the same images as this figure — unticked</i>':''}</span></label>`).join('');
+    <span><b>${esc(r.name)}</b> — ${r.imgs.length} image${r.imgs.length===1?'':'s'}${r.noPix?` · ${r.noPix} saved without pixels (not comparable)`:''}${r.self?' · <i>this figure saved earlier: the same images as this figure — unticked</i>':''}${r.related?' · <i>this figure was opened from or saved as this entry, but its images differ now — compared, so an image kept from it is reported. If it is only an earlier version of this figure, untick it.</i>':''}</span></label>`).join('');
   el.querySelectorAll('[data-xd-lib]').forEach(cb=>cb.onchange=()=>{ _xdUI.lib[+cb.dataset.xdLib].on=cb.checked; });
 }
 // The images a saved figure holds, with the crop it showed them at.
 function _xdFigureImages(data, figName){
-  const out=[], crop=d=>({cropL:d.cropL||0,cropR:d.cropR||0,cropT:d.cropT||0,cropB:d.cropB||0});
+  const out=[], crop=d=>({cropL:d.cropL||0,cropR:d.cropR||0,cropT:d.cropT||0,cropB:d.cropB||0,cropAngle:d.cropAngle||0});
   (Array.isArray(data.images)?data.images:[]).forEach((d,i)=>{
     if(d&&d.src) out.push({label:`${figName} · panel ${d.label||i+1}`, fig:figName, panel:d.label||String(i+1), id:d.id, srcUrl:d.src, crop:crop(d)});
   });
@@ -26713,8 +27156,8 @@ async function _xdAddFiles(list){
       let data=null; try{ data=JSON.parse(await f.text()); }catch(e){}
       if(!data||typeof data!=='object'){ toast(`${n} is not a FigureLab session file`,'warn'); continue; }
       const imgs=_xdFigureImages(data, n.replace(/\.(json|figlab)$/i,''));
-      const noPix=_xdNoPixels(data);
-      _xdUI.files.push({name:n, kind:'session', imgs, noPix});
+      const noPix=_xdNoPixels(data), t=_xdIsThisFigure(data, null, imgs);
+      _xdUI.files.push({name:n, kind:'session', imgs, noPix, self:t.self});
       if(!imgs.length) toast(`${n} has no images saved in it${noPix?' (saved as settings only)':''} — nothing to compare`,'warn');
     } else if(/\.tiff?$/.test(low)||f.type==='image/tiff'){
       _xdUI.files.push({name:n, kind:'tiff', file:f});
@@ -26727,7 +27170,7 @@ async function _xdAddFiles(list){
 function _xdRenderFiles(){
   const el=document.getElementById('xdup-files'); if(!el||!_xdUI) return;
   el.innerHTML=_xdUI.files.map((f,i)=>`<div style="display:flex;gap:6px;align-items:center;padding:1px 0">
-    <span style="flex:1">${esc(f.name)} — ${f.kind==='session'?`session, ${f.imgs.length} image${f.imgs.length===1?'':'s'}${f.noPix?` (${f.noPix} saved without pixels)`:''}`:f.kind==='tiff'?'TIFF image':'image'}</span>
+    <span style="flex:1">${esc(f.name)} — ${f.kind==='session'?`session, ${f.imgs.length} image${f.imgs.length===1?'':'s'}${f.noPix?` (${f.noPix} saved without pixels)`:''}${f.self?' · <i>this figure saved earlier — its panels are not compared with themselves</i>':''}`:f.kind==='tiff'?'TIFF image':'image'}</span>
     <button class="icon-btn del" data-xd-rm="${i}" title="Remove from the comparison">×</button></div>`).join('');
   el.querySelectorAll('[data-xd-rm]').forEach(b=>b.onclick=()=>{ _xdUI.files.splice(+b.dataset.xdRm,1); _xdRenderFiles(); });
 }
@@ -26739,18 +27182,18 @@ function _xdImgFromUrl(url){
 function _xdOthers(){
   const out=[];
   for(const r of _xdUI.lib) if(r.on) for(const i of r.imgs)
-    out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, kind:'library', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
+    out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, srcUrl:i.srcUrl, cropSig:_xdCropSig(i.crop), selfFig:r.self?`“${r.name}” in the library`:'', kind:'library', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
   for(const f of _xdUI.files){
     if(f.kind==='session') for(const i of f.imgs)
-      out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, kind:'session', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
-    else if(f.kind==='image') out.push({label:f.name, fig:f.name, kind:'file', load:async()=>{
+      out.push({label:i.label, fig:i.fig, panel:i.panel, id:i.id, srcUrl:i.srcUrl, cropSig:_xdCropSig(i.crop), selfFig:f.self?f.name:'', kind:'session', load:async()=>({src:await _xdImgFromUrl(i.srcUrl), crop:i.crop})});
+    else if(f.kind==='image') out.push({label:f.name, fig:f.name, kind:'file', cropSig:_xdCropSig(null), load:async()=>{
       const u=URL.createObjectURL(f.file); const im=await _xdImgFromUrl(u); URL.revokeObjectURL(u); return {src:im}; }});
-    else out.push({label:f.name, fig:f.name, kind:'file', load:async()=>{
+    else out.push({label:f.name, fig:f.name, kind:'file', cropSig:_xdCropSig(null), load:async()=>{
       // The app's own TIFF decoder; page 1 of a stack (the result names it).
       const t=await decodeTIFF(new Uint8Array(await f.file.arrayBuffer()),0);
       const c=document.createElement('canvas'); c.width=t.width; c.height=t.height;
       c.getContext('2d').putImageData(new ImageData(t.rgba,t.width,t.height),0,0);
-      if((t.pages||1)>1) f.note=`page 1 of ${t.pages} compared`;
+      if((t.pages||1)>1) f.note=`page 1 of ${t.pages} compared — the other pages were not`;
       return {src:c}; }});
   }
   return out;
@@ -26769,38 +27212,50 @@ async function _xdStart(){
     if(_xdUI!==ui) return;
     bar.style.width=`${Math.round(100*i/Math.max(1,n))}%`; st.textContent=`Comparing with ${lbl} (${i+1} of ${n})…`; }};
   ui.token=token;
-  // Library self-copies: a library panel with this panel's id and the same pixels is this
-  // figure saved earlier — skipped and counted, never a finding.
-  let selfPairs=0;
+  // This figure's own saved copy: a pair is skipped only when the saved figure IS this
+  // figure (identity and every image, _xdIsThisFigure) and the pair is the same panel id
+  // with identical pixels and crop. Every skip is counted and named.
+  const selfList=[];
   others.forEach(o=>{
     const ld=o.load;
     o.load=async()=>{ const g=await ld(); if(g&&g.src) o.fp=_xdFp(g.src); return g; };
-    o.skipWith=p=>{ if(o.id!=null&&p.id===o.id&&o.fp&&o.fp===p.fp){ selfPairs++; return true; } return false; };
+    o.skipWith=p=>{ if(o.selfFig&&o.id!=null&&String(p.id)===String(o.id)&&o.srcUrl===p.srcUrl&&o.cropSig===p.crop){ selfList.push(`${p.label} ↔ ${o.label}`); return true; } return false; };
   });
   const res=await _xdRun(panels, others, token);
   if(_xdUI!==ui){ return; }       // closed while running
   ui.token=null; run.disabled=false; cancel.style.display='none'; prog.style.display='none';
   st.textContent=res.cancelled?'Cancelled — incomplete.':`Done in ${(res.ms/1000).toFixed(1)} s.`;
-  res.selfPairs=selfPairs;
+  res.selfPairs=selfList.length; res.selfList=selfList;
+  res.selfWhere=[...new Set(others.filter(o=>o.selfFig).map(o=>o.selfFig))];
   _xdFinish(res, panels, others);
 }
+// The key of a cross-figure finding: this panel (id, pixels, crop), the other image
+// (pixels, crop), the transform and the region — so a verdict covers exactly this pair.
+function _xdFindingKey(f){
+  const o=f.b, r=f.rectA, q=v=>Math.round(v*20);
+  return `x|${f.a.key}|${o.fp||''}#${o.cropSig||''}|k${f.k}|s${f.s.toFixed(2)}|${q(r.x)},${q(r.y)},${q(r.w)},${q(r.h)}`;
+}
 function _xdFinish(res, panels, others){
+  // Decisions on pairs whose panel has since changed have just been re-examined.
+  if(!res.cancelled) _reusePruneRetired('cross');
+  const src=o=>o.panel&&o.kind!=='file'?`panel ${o.panel} of “${o.fig}”`:`“${o.fig}”`;
   _xdUI.findings=res.findings.map(f=>{
-    const o=f.b;
-    const key=`x|${f.a.key}|${o.fp||''}`;
+    const o=f.b, key=_xdFindingKey(f);
     return {...f, key, aLabel:f.a.label, bLabel:f.b.label, desc:_xdDescribe(f, `panel ${f.a.label}`),
-      sentence:`The image in panel ${f.a.label} is reused from ${o.panel&&o.kind!=='file'?`panel ${o.panel} of “${o.fig}”`:`“${o.fig}”`}${f.k?`, ${_XD_TF[f.k]}`:''}${Math.abs(f.s-1)>=0.03?', at a different magnification':''}.`};
+      tpl:`The image in panel {A} is reused from ${src(o)}${f.k?`, ${_XD_TF[f.k]}`:''}${Math.abs(f.s-1)>=0.03?', at a different magnification':''}.`};
   });
+  _xdUI.alike=res.alike.map(f=>({...f, aLabel:f.a.label, bLabel:f.b.label, desc:_xdDescribe(f, `panel ${f.a.label}`)}));
   const tiffNotes=(_xdUI.files||[]).filter(f=>f.note).map(f=>({label:f.name, why:f.note}));
   _reuse.lastRun={at:new Date().toISOString(), panels:res.panelsCompared, panelsTotal:res.panelsTotal,
     compared:res.compared, total:res.total, pairs:res.pairs, pairsSkipped:res.pairsSkipped, ms:res.ms,
-    cancelled:res.cancelled, selfPairs:res.selfPairs||0,
+    cancelled:res.cancelled, selfPairs:res.selfPairs||0, selfList:res.selfList||[], selfWhere:res.selfWhere||[],
     skipped:res.skipped.map(s=>({label:s.label, why:s.why})), excluded:res.excluded.map(s=>({label:s.label, why:s.why})),
-    notes:tiffNotes, panelKeys:panels.map(p=>p.key),
-    findings:_xdUI.findings.map(f=>({key:f.key, a:f.aLabel, b:f.bLabel, desc:f.desc, score:+f.score.toFixed(4), k:f.k, s:+f.s.toFixed(4),
-      fracA:+f.fracA.toFixed(3), fracB:+f.fracB.toFixed(3), rectA:f.rectA, rectB:f.rectB}))};
+    notes:tiffNotes, panelMap:panels.map(p=>`${p.label}=${p.key}`),
+    findings:_xdUI.findings.map(f=>({key:f.key, a:f.aLabel, aId:f.a.id, b:f.bLabel, cls:f.cls, desc:f.desc, score:+f.score.toFixed(4), k:f.k, s:+f.s.toFixed(4),
+      fracA:+f.fracA.toFixed(3), fracB:+f.fracB.toFixed(3), rectA:f.rectA, rectB:f.rectB})),
+    alike:_xdUI.alike.map(f=>({a:f.aLabel, b:f.bLabel, cls:f.cls, desc:f.desc, score:+f.score.toFixed(4)}))};
   logAction('crossFigureDupScan',{panels:res.panelsCompared, images:res.compared, of:res.total, pairs:res.pairs,
-    findings:res.findings.length, skipped:res.skipped.length, excluded:res.excluded.length, cancelled:res.cancelled, ms:res.ms});
+    findings:res.findings.length, alike:res.alike.length, skipped:res.skipped.length, excluded:res.excluded.length, selfPairs:res.selfPairs||0, cancelled:res.cancelled, ms:res.ms});
   if(typeof scheduleAutosave==='function') scheduleAutosave();
   _xdRenderSummary();
 }
@@ -26817,31 +27272,47 @@ function _xdEvidence(src, crop, rect, W){
   x.strokeRect(rect.x*w+1, rect.y*h+1, Math.max(2,rect.w*w-2), Math.max(2,rect.h*h-2));
   const u=c.toDataURL(); c.width=c.height=0; return u;
 }
+// The info a finding's decision buttons carry (ids, keys, the sentence template).
+function _xdCrossInfo(f){
+  return {scope:'cross', cls:f.cls, a:`panel ${f.aLabel}`, b:f.bLabel, what:f.desc, aId:f.a.id, aKey:f.a.key, letterA:f.aLabel,
+    otherKey:`${f.b.fp||''}#${f.b.cropSig||''}`, tpl:f.tpl};
+}
 function _xdRenderSummary(){
   const el=document.getElementById('xdup-results'); if(!el||!_xdUI) return;
   const r=_reuse.lastRun; if(!r){ el.innerHTML=''; return; }
-  const live=_xdUI.findings.length?_xdUI.findings:null;
+  const live=_xdUI.findings.length||_xdUI.alike.length?_xdUI.findings:null;
   const list=live||[];
-  const diff=f=>_reuse.decisions[f.key]&&_reuse.decisions[f.key].verdict==='different';
-  const hidden=_xdUI.showHidden?[]:(live?list:(r.findings||[])).filter(diff);
-  const shown=(live?list:[]).map((f,i)=>({f,i})).filter(({f})=>_xdUI.showHidden||!diff(f));
-  const head=`<div class="cc-row ${r.cancelled?'cc-warn':'cc-pass'}" style="font-size:11px"><span class="cc-icon">${r.cancelled?'⚠':'ℹ'}</span><span>
+  const hid=f=>{ const d=_reuseLive(f.key); return d&&(d.verdict==='different'||d.verdict==='acquisition'); };
+  const hidden=_xdUI.showHidden?[]:(live?list:(r.findings||[])).filter(hid);
+  const shown=(live?list:[]).map((f,i)=>({f,i})).filter(({f})=>_xdUI.showHidden||!hid(f));
+  const retired=_reuseRetired();
+  const head=`<div class="cc-row ${r.cancelled||!r.pairs?'cc-warn':'cc-pass'}" style="font-size:11px"><span class="cc-icon">${r.cancelled||!r.pairs?'⚠':'ℹ'}</span><span>
     ${r.cancelled?'<b>Cancelled</b> — the comparison is incomplete. ':''}Compared <b>${r.panels} of ${r.panelsTotal}</b> panels with <b>${r.compared} of ${r.total}</b> images (${r.pairs} pairs, ${(r.ms/1000).toFixed(1)} s).
     ${r.skipped.length?` <b>${r.skipped.length} skipped</b>: ${r.skipped.slice(0,8).map(s=>`${esc(s.label)} — ${esc(s.why)}`).join('; ')}${r.skipped.length>8?`; and ${r.skipped.length-8} more`:''}.`:''}
     ${r.excluded.length?` <b>${r.excluded.length} not compared</b> (featureless): ${r.excluded.map(s=>`${esc(s.label)} — ${esc(s.why)}`).join('; ')}.`:''}
     ${r.pairsSkipped?` ${r.pairsSkipped} pairs over the ${_XDUP_CAPS.pairs}-comparison limit were not compared.`:''}
-    ${r.selfPairs?` ${r.selfPairs} pair${r.selfPairs>1?'s':''} of a panel with its own saved copy in the library skipped.`:''}
-    ${(r.notes||[]).map(n=>` ${esc(n.label)}: ${esc(n.why)}.`).join('')}</span></div>`;
-  const rows=shown.map(({f,i})=>`<div class="cc-row ${_reuse.decisions[f.key]?'cc-pass':'cc-fail'}" style="align-items:flex-start"><span class="cc-icon">${_reuse.decisions[f.key]?'✓':'✗'}</span><span style="flex:1">
+    ${r.selfPairs?` ${r.selfPairs} pair${r.selfPairs>1?'s':''} of a panel with its own saved copy ${(r.selfWhere||[]).some(w=>/in the library/.test(w))?'in the library':'in '+esc((r.selfWhere||[]).join(', '))} skipped (this figure saved earlier: same figure, same panel, identical pixels): ${esc((r.selfList||[]).join('; '))}.`:''}
+    ${(r.notes||[]).map(n=>` ${esc(n.label)}: ${esc(n.why)}.`).join('')}
+    ${retired.length?` <b>${retired.length} earlier decision${retired.length>1?'s':''} retired</b> — ${retired.map(x=>`${esc(x.a)} ↔ ${esc(x.b)}: ${esc(x.why)}`).join('; ')}.`:''}</span></div>`;
+  const rows=shown.map(({f,i})=>{ const d=_reuseLive(f.key); return `<div class="cc-row ${d?'cc-pass':'cc-fail'}" style="align-items:flex-start"><span class="cc-icon">${d?'✓':'✗'}</span><span style="flex:1">
       <b>Panel ${esc(f.aLabel)}</b> ↔ <b>${esc(f.bLabel)}</b> — ${esc(f.desc)} · correlation ${(f.score*100).toFixed(1)}%<br>
       <span style="display:inline-flex;gap:6px;margin-top:4px;cursor:zoom-in" onclick="_xdView(${i})" title="Open side by side, larger">
         <img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,140)}" style="max-width:140px;border:1px solid var(--border);border-radius:3px">
         <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,140)}" style="max-width:140px;border:1px solid var(--border);border-radius:3px"></span><br>
-      ${_reuseButtonsHtml(f.key,{scope:'cross', a:`panel ${f.aLabel}`, b:f.bLabel, what:f.desc, sentence:f.sentence})}</span></div>`).join('');
+      ${_reuseButtonsHtml(f.key,_xdCrossInfo(f))}</span></div>`; }).join('');
+  const alike=(live?_xdUI.alike:[]);
+  const alikeRows=alike.length?`<div style="font-size:11px;font-weight:600;margin:10px 0 4px">Alike at a glance — not counted as reuse</div>`+alike.map(f=>`<div class="cc-row" data-xd-alike style="align-items:flex-start"><span class="cc-icon">ℹ</span><span style="flex:1">
+      <b>Panel ${esc(f.aLabel)}</b> ↔ <b>${esc(f.bLabel)}</b> — ${esc(f.desc)}<br><span style="font-size:10px;color:var(--muted)">${esc(_XD_ALIKE_WHY[f.cls]||'')}</span><br>
+      <span style="display:inline-flex;gap:6px;margin-top:4px"><img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,110)}" style="max-width:110px;border:1px solid var(--border);border-radius:3px"> <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,110)}" style="max-width:110px;border:1px solid var(--border);border-radius:3px"></span></span></div>`).join(''):'';
+  const nAlike=live?alike.length:(r.alike||[]).length;
   const none=!live&&(r.findings||[]).length
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${_reuseOpen().length} open finding(s) from the last run (${esc(new Date(r.at).toLocaleString())}). Run it again to see them side by side.</span></div>`
-    : (!list.length?`<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No reuse found among what was compared. A clean result is not a guarantee — see below for what this cannot see.</span></div>`:'');
-  el.innerHTML=head+rows+none+(hidden.length?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px">${hidden.length} pair${hidden.length>1?'s':''} you marked “different images” ${hidden.length>1?'are':'is'} not listed. ${live?`<button class="btn" style="padding:0 6px;font-size:10px" onclick="_xdUI.showHidden=true;_xdRenderSummary()">Show</button>`:''}</div>`:'');
+    : (list.length?'':!r.pairs
+      ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span><b>Nothing was compared</b> — no pair of a panel and an image could be compared (see above). This is not a clean result.</span></div>`
+      : nAlike
+      ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No reuse found among what was compared. ${nAlike} pair${nAlike>1?'s':''} look${nAlike>1?'':'s'} alike at a glance but not in the fine detail (listed below) — not counted as reuse. A clean result is not a guarantee.</span></div>`
+      : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No reuse found among what was compared. A clean result is not a guarantee — see below for what this cannot see.</span></div>`);
+  el.innerHTML=head+rows+none+(hidden.length?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px">${hidden.length} pair${hidden.length>1?'s':''} you marked “different images” ${hidden.length>1?'are':'is'} not listed. ${live?`<button class="btn" style="padding:0 6px;font-size:10px" onclick="_xdUI.showHidden=true;_xdRenderSummary()">Show</button>`:''}</div>`:'')+alikeRows;
 }
 // Side by side, larger, both regions outlined.
 function _xdView(i){
@@ -26862,34 +27333,46 @@ function _xdView(i){
 // another, or the same field cropped differently and resized, slips between them. This
 // runs the cross-figure engine over the figure's own panel pairs and appends what it
 // finds to the report — nothing already listed above is repeated.
+function _xdWithinKey(a,b){ return `w|${[a.key,b.key].sort().join('|')}`; }
 async function _dupScaleSection(modal, reported){
   const sec=modal.querySelector('[data-xd-scale]'); if(!sec) return;
   const panels=_xdThisPanels();
-  const byId=new Map(panels.map(p=>[p.id,p]));
-  let insetPairs=0;
+  let insetPairs=0, already=0;
   const ui={cancelled:false, stale:()=>!sec.isConnected, skipPair:(a,b)=>{
     // A linked inset IS a magnified crop of its parent, by construction and on purpose.
     if((a.src&&a.src.insetOf!=null&&a.src.insetOf===b.id)||(b.src&&b.src.insetOf!=null&&b.src.insetOf===a.id)){ insetPairs++; return true; }
-    return reported.has(a.label+'|'+b.label)||reported.has(b.label+'|'+a.label);
+    if(reported.has(a.label+'|'+b.label)||reported.has(b.label+'|'+a.label)){ already++; return true; }
+    return false;
   }};
   modal._xdToken=ui;
   const res=await _xdRun(panels,null,ui);
   if(!sec.isConnected) return;
   const rows=[], hiddenN={n:0};
   res.findings.forEach(f=>{
-    const key=`w|${[f.a.key,f.b.key].sort().join('|')}`;
-    if(_reuse.decisions[key]&&_reuse.decisions[key].verdict==='different'){ hiddenN.n++; return; }
+    // Within one figure the two panels are the pair; the larger one's letter goes first.
+    const key=_xdWithinKey(f.a,f.b), d=_reuseLive(key);
+    if(d&&(d.verdict==='different'||d.verdict==='acquisition')){ hiddenN.n++; return; }
+    const desc=_xdDescribe(f,f.a.label,f.b.label);
     rows.push(`<div class="cc-row cc-fail" style="align-items:flex-start"><span class="cc-icon">✗</span><span>
-      <b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> show the same field — ${esc(_xdDescribe(f,f.a.label,f.b.label))} · correlation ${(f.score*100).toFixed(1)}%<br>
+      <b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> show the same field — ${esc(desc)} · correlation ${(f.score*100).toFixed(1)}%<br>
       <span style="display:inline-flex;gap:6px;margin-top:4px"><img src="${_xdEvidence(f.aSrc,f.aCrop,f.rectA,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"> <img src="${_xdEvidence(f.bSrc,f.bCrop,f.rectB,150)}" style="max-width:150px;border:1px solid var(--border);border-radius:3px"></span><br>
-      ${_reuseButtonsHtml(key,{scope:'within', a:f.a.label, b:f.b.label, what:_xdDescribe(f,f.a.label,f.b.label), sentence:`The image in panel ${f.b.label} is reused from panel ${f.a.label}${Math.abs(f.s-1)>=0.03?' at a different magnification':''}.`})}</span></div>`);
+      ${_reuseButtonsHtml(key,{scope:'within', cls:f.cls, a:f.a.label, b:f.b.label, what:desc, aId:f.a.id, aKey:f.a.key, bId:f.b.id, bKey:f.b.key, letterA:f.a.label, letterB:f.b.label,
+        tpl:`The image in panel {B} is reused from panel {A}${Math.abs(f.s-1)>=0.03?' at a different magnification':''}.`})}</span></div>`);
   });
+  const alikeRows=res.alike.map(f=>`<div class="cc-row" data-xd-alike><span class="cc-icon">ℹ</span><span><b>${esc(f.a.label)}</b> and <b>${esc(f.b.label)}</b> — ${esc(_xdDescribe(f,f.a.label,f.b.label))}. ${esc(_XD_ALIKE_WHY[f.cls]||'')}</span></div>`);
   const notes=[];
   if(res.excluded.length) notes.push(`Not compared (featureless): ${res.excluded.map(x=>`${esc(x.label)} — ${esc(x.why)}`).join('; ')}`);
   if(res.pairsSkipped) notes.push(`${res.pairsSkipped} panel pairs over the ${_XDUP_CAPS.pairs}-comparison limit were not compared`);
   if(insetPairs) notes.push(`${insetPairs} linked inset${insetPairs>1?'s':''} not compared with ${insetPairs>1?'their parents':'its parent'} — an inset is a declared magnified crop`);
   if(hiddenN.n) notes.push(`${hiddenN.n} pair${hiddenN.n>1?'s':''} you marked “different images” not listed`);
-  sec.innerHTML=(rows.length?rows.join(''):`<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations)</span></div>`)
+  // Zero pairs is not a pass: say why nothing was left to compare.
+  const head=rows.length?rows.join('')
+    : !res.pairs
+    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No pairs left to compare at other scales${already?` (all ${already} pair${already>1?'s':''} already listed above)`:''}${insetPairs?`${already?'; ':' ('}${insetPairs} inset pair${insetPairs>1?'s':''} skipped${already?'':')'}`:''}${res.excluded.length?' — featureless panels are named below':''}.</span></div>`
+    : alikeRows.length
+    ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations); ${alikeRows.length} pair${alikeRows.length>1?'s':''} alike at a glance only, below.</span></div>`
+    : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No re-scaled or partly overlapping copies between panels (${res.pairs} pair${res.pairs===1?'':'s'} compared at 0.45–2.2×, all flips and rotations)</span></div>`;
+  sec.innerHTML=head+alikeRows.join('')
     +notes.map(n=>`<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>${n}</span></div>`).join('');
 }
 
@@ -26968,7 +27451,7 @@ function runAdvancedConsistency(){
   // 7. Duplicated panels — the only check here that compares pixels, not settings
   // A pair the author marked "different images" in the 🧬 report is not raised again here.
   const _dpk=_dupPanels().map(p=>_xdPanelKey(p));
-  const _diff=(i,j)=>{ const d=_reuse.decisions[`w|${[_dpk[i],_dpk[j]].sort().join('|')}`]; return !!(d&&d.verdict==='different'); };
+  const _diff=(i,j)=>{ const d=_reuseLive(`w|${[_dpk[i],_dpk[j]].sort().join('|')}`); return !!(d&&d.verdict!=='intentional'); };
   let _decidedN=0;
   const dup=_panelSimilarityScan();
   const dupHits=dup.hits.filter(h=>_diff(h.ia,h.ib)?(_decidedN++,false):true);
@@ -28008,18 +28491,20 @@ async function saveToLibrary(){
   if(!images.length && !(typeof freeformElements!=='undefined'&&freeformElements.length)){ toast('Add a figure first','warn'); return; }
   const name=(prompt('Name this session:', gv('fig-title')||gv('export-name')||'My figure')||'').trim();
   if(!name) return;
-  try{ render(); await _dbPut({id:_uid(), name, savedAt:Date.now(), thumb:_sessionThumb(), data:serializeSession(true)});
+  // The entry this figure is saved as: the reuse check knows its own saved copy by it.
+  const id=_uid(); _reuse.libId=id;
+  try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:serializeSession(true)});
     toast(`Saved "${name}" to your sessions`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not save session (storage error)','err'); }
 }
 async function loadFromLibrary(id){
   try{ const rec=await _dbGet(id); if(!rec){ toast('Session not found','warn'); return; }
-    applySession(rec.data,{silent:true, origin:'library'}); toast(`Opened "${rec.name}"`,'ok');
+    applySession(rec.data,{silent:true, origin:'library'}); _reuse.libId=rec.id; toast(`Opened "${rec.name}"`,'ok');
   }catch(e){ toast('Could not open session','err'); }
 }
 async function overwriteLibrary(id){
   try{ const rec=await _dbGet(id); if(!rec) return; render();
-    rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=serializeSession(true);
+    _reuse.libId=rec.id; rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=serializeSession(true);
     await _dbPut(rec); toast(`Updated "${rec.name}"`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not update','err'); }
 }
