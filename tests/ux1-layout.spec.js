@@ -425,3 +425,46 @@ test('phage-20 / freeform-11: Pop out keeps the freeform charts, scale bars, cro
   expect(u.ruler).toEqual(before.ruler);
   expect(errors).toEqual([]);
 });
+
+test('the ways in: double-click, the drawer and the right-click menu open a chart panel\'s editor; the gel dialog removes MW labels', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  await page.evaluate(() => { addChartElement('bar'); closeChartModal(); render(); });
+  const centre = await page.evaluate(() => { const b = panelBounds.find(p => p.idx === 1); return [b.x + b.w / 2, b.y + b.h / 2]; });
+  await gesture(page, 'dblclick', [centre]);
+  await expect(page.locator('#chart-modal')).toHaveClass(/open/);
+  await page.evaluate(() => closeChartModal());
+  await page.evaluate(() => { renderImgList(); document.querySelector('[data-gear="1"]').click(); });
+  await page.locator('#settings-1 button', { hasText: 'Edit chart data and style' }).click();
+  await expect(page.locator('#chart-modal')).toHaveClass(/open/);
+  await page.evaluate(() => closeChartModal());
+  // the drawer hides the picture tools a chart has no pixels for
+  expect(await page.locator('#settings-1 .f-sb-on').isVisible()).toBe(false);
+  await page.evaluate(([x, y]) => { const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + x * r.width / canvasLogicalW, clientY: r.top + y * r.height / canvasLogicalH })); }, centre);
+  await page.locator('#panel-ctx-menu div', { hasText: 'Edit chart' }).click();
+  await expect(page.locator('#chart-modal')).toHaveClass(/open/);
+  await page.evaluate(() => closeChartModal());
+  // the gel dialog's Remove MW labels button
+  await page.evaluate(BLOT);
+  const n = await page.evaluate(async () => {
+    images = []; render(); await __blot(4, 'A.png'); runGelAnalysis(0); gelSetLadder(0, 0, '50'); gelPlaceMWLabels(0);
+    openGelAnalysis(0); return annotations.filter(a => a.mw).length; });
+  expect(n).toBe(1);
+  await page.locator('button', { hasText: 'Remove MW labels' }).click();
+  expect(await page.evaluate(() => annotations.filter(a => a.mw).length)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('charts-20: in freeform, the Label field sets a chart\'s letter and the Elements list follows a renamed picture', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 40, y: 40, w: 300, h: 200, label: 'A' }]);
+  await page.evaluate(() => { addChartElement('bar'); closeChartModal(); selectedElems.clear(); selectedElems.add(0); updateElemPropsBar(); });
+  await page.locator('#ep-label').fill('D');
+  expect(await page.locator('#fm-elem-list').innerText()).toContain('D');
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(1); updateElemPropsBar(); });
+  await page.locator('#ep-label').fill('B');
+  const r = await page.evaluate(() => ({ letter: freeformElements[1].letter, name: freeformElements[1].label }));
+  expect(r).toEqual({ letter: 'B', name: 'bar chart' });
+  expect(errors).toEqual([]);
+});

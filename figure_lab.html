@@ -24927,7 +24927,7 @@ function relabelPanels(){
     // Pictures, charts and gene maps are the panels; in reading order (rows of objects
     // whose tops are within half the smaller one's height, then left to right). A chart's
     // letter is drawn at its top-left in the figure's letter style; its name is kept.
-    const imgs=freeformElements.filter(e=>e&&['image','aiicon','chart','genemap'].includes(e.type));
+    const imgs=freeformElements.filter(e=>e&&['image','chart','genemap'].includes(e.type));   // not the decorative icons
     if(!imgs.length){ toast('No panels (pictures, charts, gene maps) to relabel','warn'); return; }
     pushUndo();
     const rows=[];
@@ -29648,7 +29648,8 @@ function updateElemPropsBar(){
   // The "Label" field is a panel label — hide it for text objects (they use their own content)
   const lw=document.getElementById('ep-label-wrap'); if(lw) lw.style.display=isText?'none':'flex';
   // Populate fields
-  const lbl=document.getElementById('ep-label'); if(lbl) lbl.value=el.label||'';
+  // A chart's or gene map's panel letter is its own field (its label is its name in the list).
+  const lbl=document.getElementById('ep-label'); if(lbl) lbl.value=((isChart||isGenemap)?el.letter:el.label)||'';
   const op=document.getElementById('ep-opacity'); if(op){ op.value=el.opacity??1; document.getElementById('ep-opacity-v').textContent=Math.round((el.opacity??1)*100)+'%'; }
   const col=document.getElementById('ep-color'); if(col) col.value=el.color||(isText?'#111111':'#5b8dee');
   if(isText){
@@ -29687,7 +29688,9 @@ function updateElemProp(prop, val){
   const idx=[...selectedElems][0];
   const el=freeformElements[idx]; if(!el) return;
   if(/^crop[TLBR]$/.test(prop) && (el.type==='image'||el.type==='aiicon')){ _ffCropKeepScale(el, prop, val); scheduleRender(0); return; }
+  if(prop==='label'&&(el.type==='chart'||el.type==='genemap')){ el.letter=val; scheduleRender(0); return; }
   el[prop]=val;
+  if(prop==='label') updateFreeformElemList();       // the Elements list names it by its label
   scheduleRender(0);
 }
 // A freeform crop used to keep the object's box and stretch what was left of the picture
