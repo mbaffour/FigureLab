@@ -11238,7 +11238,7 @@ function render(targetCanvas, exportScale, opts){
   // Chart and gene-map words: recorded and left off the pixels only when asked (opts.dataText,
   // the PDF's gate or the PowerPoint's), never on screen and never for the SVG, which writes them itself.
   _dataTextSkip = (opts && opts.dataText) ? (typeof opts.dataText==='function' ? opts.dataText : ()=>true) : null;
-  _dataTextS = S; _dataTextClip = null;
+  _dataTextS = S; _dataTextClip = null; _dataSeq = 0; _dataOcc = [];
   if(!isExport) _keyRefresh();            // the legend text, the switch and the button follow every redraw
   if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
   // A hidden panel (the source files a merge parked, a panel hidden with 👁) is not drawn,
@@ -15341,6 +15341,7 @@ function _keyStandaloneStyle(){ return _keyAutoStyle(); }
 function _drawLegend(ctx, x, y, a){
   const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
   a._w=L.w; a._h=L.h;
+  _dataOccAdd(ctx, x, y, L.w, L.h);
   ctx.save();
   _keyDraw(_keyEmitCanvas(ctx, _keyTextItems, _keySkipText), x, y, L, _keyAnnStyle(a));
   ctx.restore();
@@ -15825,6 +15826,8 @@ function _tbLayout(a, W, H){
     overflow: inkTop<by-0.5 || inkBot>by+bh+0.5 || raw.some(l=>l.w>bw+0.5)};
 }
 function drawAnnotationSingle(ctx, a, W, H){
+  if(_dataTextSkip&&a&&a.x2f!=null&&(((a.type==='rect'||a.type==='ellipse')&&a.fill&&(a.fillOpacity??0.3)>=0.5)||(a.type==='textbox'&&a.fill!==false&&(a.fillOpacity??0.6)>=0.5)))
+    _dataOccAdd(ctx, Math.min(a.xf,a.x2f)*W, Math.min(a.yf,a.y2f)*H, Math.abs(a.x2f-a.xf)*W, Math.abs(a.y2f-a.yf)*H);
   if(a.type==='legend'){ _drawLegend(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='axes'){ _drawAxes(ctx, a.xf*W, a.yf*H, a); return; }
   if(a.type==='textbox'){
@@ -18020,6 +18023,7 @@ function _syncPanelPpi(){
   });
 }
 function _syncPhysReadout(){
+  _zoomRehold();
   const el=document.getElementById('phys-readout'); if(!el) return;
   const f=_physFacts();
   // The smallest text the figure prints, whatever drew it (letters, headings, charts,
@@ -18062,7 +18066,7 @@ function renderExportCanvas(dpi, opts){
     toast(`Export capped to ~60MP (effective ${capDpi} DPI)`, 'warn');
   }
   const off=document.createElement('canvas');
-  try{ render(off, scale, opts); } finally { _dataTextSkip=null; _dataTextClip=null; }   // chart words go to text for this render only
+  try{ render(off, scale, opts); _dataTextOcclude(); } finally { _dataTextSkip=null; _dataTextClip=null; }   // chart words go to text for this render only
   // Expose the ACTUAL scale and resolution so metadata writers embed the true
   // physical size — both when the cap shrank the canvas below the requested DPI and
   // when a printed width was chosen (where scale*96 is unrelated to the real DPI).
@@ -20833,7 +20837,7 @@ function _layerGrid(dpi, o){
   try{
     annotations=[];
     off=document.createElement('canvas');
-    try{ render(off, S, {...ro, omitPanels:fb}); } finally { _dataTextSkip=null; _dataTextClip=null; }
+    try{ render(off, S, {...ro, omitPanels:fb}); _dataTextOcclude(); } finally { _dataTextSkip=null; _dataTextClip=null; }
     items=figTextItems.slice(); frames=_lastFrames.slice(); furn=_lastFurn.slice(); cells=_lastCells;
     off.getContext('2d').setTransform(1,0,0,1,0,0);      // the cuts below are in device pixels
     // Device px → user units. The writers give the SVG a viewBox of exactly the render's
@@ -20875,7 +20879,7 @@ function _layerGrid(dpi, o){
     if(fb.size){
       base=document.createElement('canvas');
       annotations=insets;
-      try{ render(base, S, {...ro, noShapeClip:false, omitPanels:layIdx}); } finally { _dataTextSkip=null; _dataTextClip=null; }
+      try{ render(base, S, {...ro, noShapeClip:false, omitPanels:layIdx}); _dataTextOcclude(); } finally { _dataTextSkip=null; _dataTextClip=null; }
       baseItems=figTextItems.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&fb.has(it.idx));
       items=items.concat(figTextItems.filter(it=>it.kind==='data'));   // a flattened chart's words
       baseFrames=_lastFrames.filter(f=>fb.has(f.parentIdx));
@@ -23989,6 +23993,17 @@ function _zoomMargins(){
   cc.style.width=w+'px'; cc.style.flexShrink='0';
   cc.style.margin=`${Math.round(h*ex)}px ${Math.round(w*ex)}px`;
 }
+// The width and margins a zoom holds are for the canvas as it was: after a render that
+// changed its size (a panel added, the canvas W / H typed) or a window resize, they are
+// worked out again, so the box stays the size of what is drawn.
+function _zoomRehold(){
+  if(zoom===1) return;
+  const fc=document.getElementById('fig-canvas'); if(!fc) return;
+  const k=fc.width+'x'+fc.height+'@'+window.innerWidth+'x'+window.innerHeight;
+  if(_zoomRehold._k===k) return; _zoomRehold._k=k;
+  _zoomMargins();
+}
+window.addEventListener('resize', ()=>{ if(typeof _zoomRehold==='function') _zoomRehold(); });
 function adjustZoom(delta){ _zoomAbout(zoom+delta); }
 function resetZoom(){ zoom=1; applyZoom(); }
 
@@ -24916,6 +24931,7 @@ function renderFreeform(canvas, ctx, S, opts){
   sorted.forEach(el=>{
     if(_ffOnly && !_ffOnly.has(el)) return;
     _drawBelow(el.zIndex);
+    if(_dataTextSkip&&(el.type==='image'||el.type==='aiicon'||el.type==='patch'||el.type==='chart'||el.type==='genemap')&&(el.opacity??1)>=0.5) _dataOccAdd(ctx, el.x, el.y, el.w, el.h);
     ctx.save();
     ctx.globalAlpha=el.opacity??1;
     // Connectors carry absolute geometry — draw before the rotation transform and skip it.
@@ -26994,7 +27010,21 @@ function _chartStatsCached(el){
 // render. A word stays in the picture when it is turned by an angle the writer cannot
 // set, drawn translucent, inside the plot's clip, or reaching past its grid cell (where
 // the picture cuts it off and the text would not be).
-var _dataTextSkip=null, _dataTextS=1, _dataTextClip=null;
+var _dataTextSkip=null, _dataTextS=1, _dataTextClip=null, _dataSeq=0, _dataOcc=[];
+// What is painted over a chart's words afterwards (a placed key, a filled box, a picture or a
+// patch above it). A word taken out of the picture would be laid on top of it in the PDF —
+// over the key's chip — so a word an opaque thing covers stays hidden, as in the PNG.
+function _dataOccAdd(ctx, x, y, w, h){
+  if(!_dataTextSkip||!(w>0&&h>0)) return;
+  const m=ctx.getTransform(), S=_dataTextS||1;
+  const P=[[x,y],[x+w,y],[x,y+h],[x+w,y+h]].map(([u,v])=>[(m.a*u+m.c*v+m.e)/S,(m.b*u+m.d*v+m.f)/S]);
+  const xs=P.map(p=>p[0]), ys=P.map(p=>p[1]);
+  _dataOcc.push({seq:++_dataSeq, l:Math.min(...xs), r:Math.max(...xs), t:Math.min(...ys), b:Math.max(...ys)});
+}
+function _dataTextOcclude(){
+  if(!_dataOcc.length) return;
+  figTextItems=figTextItems.filter(it=>it.kind!=='data'||!it._box||!_dataOcc.some(o=>o.seq>it._seq&&o.l<it._box.r&&o.r>it._box.l&&o.t<it._box.b&&o.b>it._box.t));
+}
 function _dataTextOut(ctx, inClip, str, x, y, font, fill, align, baseline, rot){
   if(!_dataTextSkip || inClip || !String(str??'').trim() || ctx.globalAlpha<0.999) return false;
   const m=ctx.getTransform(), S=_dataTextS||1;
@@ -27007,18 +27037,18 @@ function _dataTextOut(ctx, inClip, str, x, y, font, fill, align, baseline, rot){
     font:String(font).replace(/(\d+(?:\.\d+)?)px/, (+fs.toFixed(3))+'px'), fill, align:align||'left', baseline:baseline||'alphabetic',
     rot:deg?1:0, rotDeg:deg};
   const R=_rtDrawRuns(it.str); if(R) it.runs=R;
-  if(_dataTextClip){
-    // The word's box in figure units, against the cell it is cut to.
-    const mc=_rtMc(); mc.font=it.font; const w=R?_rtLayout(mc,R,it.font).w:mc.measureText(it.str).width;
+  // The word's box in figure units: against the cell it is cut to, and for what covers it later.
+  { const mc=_rtMc(); mc.font=it.font; const w=R?_rtLayout(mc,R,it.font).w:mc.measureText(it.str).width;
     const x0=it.align==='center'?-w/2:(it.align==='right'||it.align==='end')?-w:0;
     const up=it.baseline==='top'?0:it.baseline==='middle'?fs*0.6:fs, dn=it.baseline==='top'?fs*1.25:it.baseline==='middle'?fs*0.6:fs*0.3;
     const t=deg*Math.PI/180, c=Math.cos(t), s2=Math.sin(t), C=_dataTextClip;
-    for(const [u,v] of [[x0,-up],[x0+w,-up],[x0,dn],[x0+w,dn]]){
-      const px=it.x+u*c-v*s2, py=it.y+u*s2+v*c;
-      if(px<C.x-0.5||px>C.x+C.w+0.5||py<C.y-0.5||py>C.y+C.h+0.5) return false;
-    }
+    const P=[[x0,-up],[x0+w,-up],[x0,dn],[x0+w,dn]].map(([u,v])=>[it.x+u*c-v*s2, it.y+u*s2+v*c]);
+    if(C&&P.some(([px,py])=>px<C.x-0.5||px>C.x+C.w+0.5||py<C.y-0.5||py>C.y+C.h+0.5)) return false;
+    const xs=P.map(p=>p[0]), ys=P.map(p=>p[1]);
+    Object.defineProperty(it,'_box',{value:{l:Math.min(...xs), r:Math.max(...xs), t:Math.min(...ys), b:Math.max(...ys)}, enumerable:false});
   }
   if(!_dataTextSkip(it)) return false;
+  Object.defineProperty(it,'_seq',{value:++_dataSeq, enumerable:false});
   figTextItems.push(it);
   return true;
 }
@@ -33822,7 +33852,7 @@ function _epReserveHeight(bar){
   const sets=panes.map(p=>[p]).concat([[pane('ep-image-props'),pane('ep-icon-props'),pane('ep-ai-props')].filter(Boolean)]);
   for(const set of sets){ panes.forEach(q=>q.style.display='none'); set.forEach(q=>q.style.display='flex'); mx=Math.max(mx, bar.offsetHeight); }
   panes.forEach((p,i)=>p.style.display=saved[i]); if(none) bar.classList.add('ep-none');
-  bar.style.minHeight=Math.max(parseFloat(mh)||0, mx)+'px';
+  bar.style.minHeight=Math.max(parseFloat(mh)||0, Math.min(mx, Math.round(window.innerHeight*0.3)))+'px';   // a phone keeps most of its height for the canvas
 }
 function updateElemPropsBar(){
   const bar=document.getElementById('elem-props-bar');

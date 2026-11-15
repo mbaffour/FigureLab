@@ -256,6 +256,21 @@ test.describe('freeform editing', () => {
     expect(errors).toEqual([]);
   });
 
+  test('freeform2-05: below 100 % the zoom box follows a canvas that changes size afterwards (grid too)', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedPanels(page, 4);
+    await page.evaluate(() => { sv('cols', '2'); sv('rows', '2'); onLayoutChange(); render(); });
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    await page.getByRole('button', { name: 'Zoom out' }).click();
+    await page.evaluate(() => { sv('cols', '4'); sv('rows', '1'); onLayoutChange(); render(); });
+    const r = await page.evaluate(() => { const fc = document.getElementById('fig-canvas'), cc = document.getElementById('canvas-container');
+      return { held: parseFloat(cc.style.width), off: cc.offsetWidth, canvasCss: fc.offsetWidth, shown: fc.getBoundingClientRect().width, zoom }; });
+    expect(r.zoom).toBeLessThan(1);
+    expect(Math.abs(r.held - r.canvasCss)).toBeLessThanOrEqual(1);
+    expect(Math.abs(r.shown - r.canvasCss * r.zoom)).toBeLessThanOrEqual(2);
+    expect(errors).toEqual([]);
+  });
+
   test('freeform2-06: Crop% typed in the bar keeps the box\'s top-left corner (crop first, then place, works by numbers)', async ({ page }) => {
     const errors = await loadApp(page);
     await seedFreeform(page, [{ type: 'image', x: 744, y: 332, w: 194, h: 259, iw: 600, ih: 800 }, { type: 'image', x: 20, y: 20, w: 500, h: 400, iw: 1200, ih: 960 }]);
@@ -494,6 +509,37 @@ test.describe('PDF and PowerPoint text', () => {
     expect(r.items).toContain('gfp');
     for (const w of ['pTet', 'gfp', 'OD', '600']) expect(r.grid).toContain(w);
     expect(r.onScreen).toBe(0);                       // an on-screen render records nothing extra
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-03 / 2-10: a chart or gene-map word under a placed key (or a filled box) stays hidden in the PDF, not printed over the key', async ({ page }) => {
+    const errors = await loadApp(page);
+    await page.evaluate(H);
+    const r = await page.evaluate(async () => {
+      document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform');
+      freeformElements.length = 0;
+      addChartElement('line'); closeChartModal();
+      addGenemapElement('linear'); closeGenemapModal();
+      const ch = freeformElements.find(e => e.type === 'chart'), gm = freeformElements.find(e => e.type === 'genemap');
+      Object.assign(ch, { x: 20, y: 20, w: 520, h: 360 }); Object.assign(gm, { x: 20, y: 420, w: 700, h: 200 });
+      render(); const W = canvasLogicalW, Hh = canvasLogicalH;
+      setKeyOnFigure(true); render();                    // Export › Legend key › Place the key on the figure
+      const key0 = annotations.find(a => a.type === 'legend'); key0.xf = 560 / W; key0.yf = 560 / Hh;
+      annotations.push({ type: 'rect', xf: 30 / W, yf: 430 / Hh, x2f: 105 / W, y2f: 520 / Hh, fill: true, fillColor: '#ffffff', fillOpacity: 1, color: '#000000', width: 1 });
+      render();
+      renderExportCanvas(150, { skipLabels: _pdfCanTypeset, dataText: _pdfCanTypeset });
+      const key = annotations.find(a => a.type === 'legend'), kb = { l: key.xf * W, t: key.yf * Hh, r: key.xf * W + key._w, b: key.yf * Hh + key._h };
+      const words = figTextItems.filter(t => t.kind === 'data');
+      const under = words.filter(t => t._box && t._box.l < kb.r && t._box.r > kb.l && t._box.t < kb.b && t._box.b > kb.t).map(t => t.str);
+      const shown = __pdfShown(await __pdf(true));
+      render();
+      return { under, keyW: key._w, shown };
+    });
+    expect(r.keyW).toBeGreaterThan(20);
+    expect(r.shown).not.toContain('5 kb');               // under the key
+    expect(r.under).toEqual([]);
+    expect(r.shown).not.toContain('pTet');               // under the white box
+    expect(r.shown).toContain('gfp');                    // a word nothing covers stays text
     expect(errors).toEqual([]);
   });
 
