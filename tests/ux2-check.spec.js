@@ -493,6 +493,21 @@ test('ISSUES/freeform2-19: a letter size below the drawn minimum shows the size 
   expect(errors).toEqual([]);
 });
 
+// newcomer2-07: Fit brought letters into Nature's 5–7 pt at a whole px, 6.9 pt.
+test('newcomer2-07: Fit puts letters at Nature\'s 7 pt, not a pixel under it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  await page.locator('#target-journal').selectOption('nature');
+  await page.evaluate(() => { sv('label-pt', '9'); render(); checkCompliance(); });
+  await page.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' }).getByRole('button', { name: /Fit/ }).click();
+  const r = await page.evaluate(() => { render(); const k = _physFacts().ptPerPx; const L = figTextItems.find(t => t.kind === 'panel');
+    const row = __row('Text size'); __close(); return { pt: L.fs * k, field: gv('label-pt'), row }; });
+  expect(r.pt.toFixed(1)).toBe('7.0');
+  expect(r.field).toBe('7');
+  expect(r.row.icon).toBe('✓');
+  expect(errors).toEqual([]);
+});
+
 // freeform2-24 / ISSUES guide note: until a printed width is chosen, mm and pt are at
 // 1 px = 1/96 in, which nobody could tell from the pt fields. The Typography readout now
 // says how wide the figure prints at that scale and that the points are at that size.

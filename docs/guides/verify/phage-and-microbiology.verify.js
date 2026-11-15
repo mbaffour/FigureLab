@@ -373,22 +373,32 @@ const { step, expect, btn } = L;
     return `${st.w} mm, ${st.f}`;
   });
 
-  await step(T, 'Text contrast: Look › untick Background; TEM ⚙ › Black pt 10000; Check › ✓ Check journal compliance passes', async () => {
-    await L.openSection(T, 'Look');
-    await p.locator('#label-bg').uncheck();
+  // ux2 (phage2-04, ISSUES): the old way (untick Background, darken the TEM) left the black
+  // 'D' on the dark 10⁰ spot and the check passed anyway. Contrast is now measured under each
+  // letter's strokes, and the report's Auto contrast button picks black or white per panel,
+  // darkens the chips and adds one where a picture (the spot assay) is too mixed for either.
+  await step(T, 'Text contrast: TEM ⚙ › Black pt 10000; Check › ✓ Check journal compliance › the row\'s Auto contrast button; it passes', async () => {
     const it = await settings(0);
     await it.locator('input.f-bpt-v').fill('10000'); await it.locator('input.f-bpt-v').press('Enter');
     await p.waitForTimeout(400);
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
-    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    let rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const tc = rep.locator('.compliance-row', { hasText: 'Text contrast' });
+    let did = '';
+    if (await tc.getByRole('button', { name: 'Auto contrast' }).count()) {
+      await tc.getByRole('button', { name: 'Auto contrast' }).click();
+      await p.waitForTimeout(500);
+      did = await p.locator('#toast').textContent();
+    }
+    rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const txt = await rep.innerText();
     const contrast = (txt.match(/Text contrast\n([^\n]*)/) || [])[1] || '';
     const size = (txt.match(/Text size\n([^\n]*)/) || [])[1] || '';
     const title = await p.locator('#im-title').innerText();
     await p.keyboard.press('Escape');
     expect(/✓/.test(contrast), 'Text contrast: ' + contrast);
-    return title + ' · ' + size.slice(0, 80);
+    return title + ' · ' + size.slice(0, 80) + (did ? ' · toast: ' + did.slice(0, 120) : '');
   });
 
   await step(T, 'screenshot: the finished figure', async () => {

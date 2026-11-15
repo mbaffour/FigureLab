@@ -927,7 +927,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="checkbox" id="label-bg" checked onchange="if(!this.checked&&!gc('label-auto-color')){ sc('label-auto-color',true); toast('Auto contrast is on: without a chip, each letter is drawn white or black from the picture under it','ok'); } scheduleRender()" title="A dark chip behind each letter. Without it, Auto contrast (switched on when you untick this) keeps a letter from vanishing into a white chart or a bright section."></div>
     <div class="field"><label for="label-pt" title="Panel letter size in points at the printed size (Export › Printed width) — what journals specify. It stays this size in print when the printed width, the canvas or a panel changes; the px beside it follow.">Size</label>
       <input type="number" id="label-pt" value="" min="3" max="72" step="0.5" oninput="scheduleRender()" style="width:52px" aria-label="Panel letter size in points"> pt
-      <input type="number" id="label-size" value="18" min="6" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
+      <input type="number" id="label-size" value="18" min="7" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
     <div class="field"><label>Color</label>
       <input type="color" id="label-color" value="#ffffff" oninput="scheduleRender()"></div>
     <div class="field look-grid-part"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag, whichever reads better on the image beneath — so a white letter never lands on a white histology section. With Background ticked it makes the chip dark enough for a white letter to read at 4.5:1 on any picture.">Auto contrast</label>
@@ -15429,11 +15429,12 @@ function setKeyOnFigure(on){
   if(on) _ckKeyMakeRoom(true);
 }
 // Export › Legend key › Where: every key the figure carries goes there (and is placed
-// automatically again, even one that was dragged). One undo step.
+// automatically again, even one that was dragged). With no key on the figure yet, choosing
+// a place puts it there. One undo step.
 function setKeyWhere(where){
   where=where||'auto';
   const keys=annotations.filter(a=>a&&a.type==='legend');
-  if(!keys.length){ return; }   // remembered in the field for the next time the key is placed
+  if(!keys.length){ setKeyOnFigure(true); return; }
   pushUndo();
   keys.forEach(a=>{ a.auto=true; a.where=where; a._room=null; });
   logAction('keyWhere',{where});
@@ -15626,7 +15627,8 @@ function _keyEmptyWhy(){
 function _keySyncUI(){
   const sw=document.getElementById('key-on-figure'); if(sw) sw.checked=_keyPlaced();
   { const k=annotations.find(a=>a&&a.type==='legend'), ws=document.getElementById('key-where');
-    if(k&&ws&&document.activeElement!==ws&&ws.value!==(k.where||'auto')) ws.value=k.where||'auto'; }
+    const want=k?(k.where||'auto'):'auto';
+    if(ws&&document.activeElement!==ws&&ws.value!==want) ws.value=want; }
   const lbl={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF',svg:'SVG'}[_keyFmt||'png']||'PNG';
   const b=document.getElementById('key-dl-btn'); if(b){ const t=`⬇ Download key (${lbl})`; if(b.textContent!==t) b.textContent=t; }
   _keyNamesUI();
@@ -17869,11 +17871,17 @@ function _typeSync(){
   pair('axis', 'axis-pt', 'axis-fs', 13, v=>_kForLogicalW(_typeLogicalW(v)));
   const W=_typeLogicalW(gf('axis-fs')), k=_kForLogicalW(W);
   pair('label', 'label-pt', 'label-size', 18, ()=>k);
+  // Letters are drawn no smaller than 7 px; a smaller size typed in either field shows the
+  // size they are drawn at (4 pt read 4.65 pt here while the page and the report had 5.4).
+  if(num('label-size')!=null&&num('label-size')<7){ sv('label-size',7); sv('label-pt', r2(7*k)); _ty.label={pt:num('label-pt'), px:7}; }
   const tp=num('text-pt')||TEXT_PT_DEFAULT;
   _ty.k=k; _ty.W=W; _ty.textPx=tp/k;
   const ro=document.getElementById('type-readout');
   if(ro){ const mm=getTargetWidthMm(), f=v=>(+v).toFixed(1).replace(/\.0$/,'');
-    const t=`1 pt = ${f(1/k)} px here (${mm>0?`${f(mm)} mm printed width`:'no printed width chosen: 1 px prints at 1/96 in'}) · text ${f(tp)} pt = ${f(tp/k)} px`;
+    // Without a printed width every size in pt (and mm) is at 1 px = 1/96 in: say how wide
+    // that prints the figure, so 8 pt typed now is not mistaken for 8 pt in the journal.
+    const freeMm=mm>0?0:W*25.4/96;
+    const t=`1 pt = ${f(1/k)} px here (${mm>0?`${f(mm)} mm printed width`:`no printed width chosen: 1 px prints at 1/96 in, so this figure prints ${Math.round(freeMm)} mm wide and its points are at that size — choose Export › Printed width first to set type for the journal`}) · text ${f(tp)} pt = ${f(tp/k)} px`;
     if(ro.textContent!==t) ro.textContent=t; }
   return _ty;
 }
@@ -18425,7 +18433,9 @@ function _journalTextReport(J, ptPerPx){
 function _journalTextStep(J){
   const k=_physFacts().ptPerPx; if(!(k>0)) return null;
   const lo=J.ptMin!=null?J.ptMin/k:0, hi=J.ptMax!=null?J.ptMax/k:Infinity;
-  const fit=v=>{ if(v<lo-1e-9) v=Math.ceil(lo-1e-9); if(v>hi+1e-9) v=Math.floor(hi+1e-9); return Math.max(1,v); };
+  // to 1/100 px, not whole px: a whole px lands up to a pixel inside the range, which at
+  // Nature's 7 pt maximum printed letters at 6.9 pt (newcomer2-07)
+  const fit=v=>{ if(v<lo-1e-9) v=Math.round(lo*100)/100; if(v>hi+1e-9) v=Math.round(hi*100)/100; return Math.max(1,v); };
   const T=_figTextSizes(), kinds=new Set(T.map(t=>t.kind));
   const st={label:null, axis:null, text:null, maps:[], anns:[], clash:false, letterFloor:false, k};
   // Chart, gene-map, bar text and the key: the figure's text size, in points.
