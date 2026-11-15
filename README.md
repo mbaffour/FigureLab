@@ -31,6 +31,8 @@ A figure assembled and exported entirely in the browser (via **✨ Load example 
 
 ## Quick Start
 
+**Step-by-step guides** for western blots, fluorescence, phage and microbiology figures, charts, freeform figures and journal submission, plus tips and troubleshooting, are in [docs/guides](docs/guides/README.md). Every step in them was checked by a script that drives the app (`docs/guides/verify/`).
+
 1. Open `figure_lab.html` in your browser (Chrome or Firefox recommended)
 2. Drag images onto the drop zone, or click to browse
 3. Adjust the grid layout, labels, and scale bars
@@ -284,6 +286,7 @@ display pixels = (µm length ÷ µm/px) × (display width ÷ original width)
 
 ### Unreleased — since v3.18.0
 
+- **User guides.** [docs/guides](docs/guides/README.md) has a guide per kind of figure (western blot, fluorescence, phage and microbiology, charts, freeform, journal submission), tips and tricks, and troubleshooting. Each step was followed through the visible interface by a script on inputs with known answers (198 steps); the scripts are in `docs/guides/verify/` so the guides can be re-checked after any change.
 **Usability round 1.** Six people's worth of real figures (western blots, four-channel fluorescence, a phage characterisation figure, a charts-heavy figure, a freeform graphical abstract, and a first-timer's Nature submission and revision) were built through the visible interface only, and every place that was hard, slow or wrong was written down: 222 findings, 18 of them blockers and 73 hard. The fixes below each have a test that fails on the build the testers used.
 
 - **Charts and gene maps are grid panels.** In a grid, Add bar chart (or a dropped CSV or GenBank file) adds a lettered panel that spans, keys, saves and undoes like any other, and is redrawn at the export resolution (vector in SVG). It no longer switches the whole figure to freeform. Pop out to free layout keeps what is already on the freeform canvas, places each panel at its grid size with its scale bar, turns lane tables and headings into text, names what freeform cannot draw before it starts, and one Undo reverts it.
