@@ -5280,7 +5280,7 @@ function _cmdpScore(item,q){
   return s;
 }
 // Rows whose command adds content to the figure.
-function _cmdpAdds(item){ return /^(Add|Insert|Starter:|Flow:|Canvas:)\b/.test(item.label||''); }
+function _cmdpAdds(item){ return /^(?:(?:Add|Insert)\b|Starter:|Flow:|Canvas:)/.test(item.label||''); }
 const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and',
   'switch','pick','choose','apply','go','show','find','open']);
 // Open the selected panel's settings (else the first panel's) at one of its controls —
@@ -22147,14 +22147,21 @@ function _nativeRangeGroups(P, nm){
 //   {uni:null|true|false, byChannel, drift:["TFEB-GFP: A 300–10000, B 300–12000", …]}
 function _uniformity(shown){
   if(shown.length<2||!shown.some(im=>_captionAdjustments(im).length>0)) return {uni:null, byChannel:false, drift:[]};
-  const groups=new Map();
-  shown.forEach(im=>{ const k=_levelKey(im); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(im); });
+  // Every channel shown: each panel, and each channel merged into one (a merge's GFP is
+  // compared with the GFP panels, by range — as the compliance check's row does).
+  const groups=new Map(), put=(k,e)=>{ if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(e); };
+  const who=im=>_rtText(formatLabel(im.label))||_sourceName(im)||'?';
+  shown.forEach(im=>{ put(_levelKey(im),{o:im, im, full:true});
+    (im.channels||[]).forEach(c=>{ if(c&&c.img) put(_levelKey(c),{o:c, im, full:false}); }); });
   const byChannel=groups.size>=2&&[...groups.values()].some(g=>g.length>=2);
   if(!byChannel) return {uni:shown.every(im=>_sameAdjustments(im,shown[0])), byChannel, drift:[]};
   const drift=[];
-  groups.forEach((g,k)=>{ if(g.every(im=>_sameAdjustments(im,g[0]))) return;
+  groups.forEach((g,k)=>{
+    const full=g.filter(e=>e.full);
+    const same=full.every(e=>_sameAdjustments(e.o,full[0].o))&&new Set(g.map(e=>_rangeText(e.o))).size<=1;
+    if(same) return;
     const name=k==='plain'?'unpseudocoloured panels':k, rng=new Map();
-    g.forEach(im=>{ const t=_rangeText(im); if(!rng.has(t)) rng.set(t,[]); rng.get(t).push(_rtText(formatLabel(im.label))||_sourceName(im)||'?'); });
+    g.forEach(e=>{ const t=_rangeText(e.o); if(!rng.has(t)) rng.set(t,[]); const w=who(e.im)+(e.full?'':' (merge)'); if(!rng.get(t).includes(w)) rng.get(t).push(w); });
     drift.push(rng.size>1 ? `${name}: ${[...rng].map(([t,w])=>`${w.join(', ')} ${t}`).join('; ')}` : name); });
   return {uni:!drift.length, byChannel, drift};
 }
@@ -22240,8 +22247,15 @@ function _genKeep(kind){
 let _genSyncT=null, _genSyncDue=0;
 function _scheduleGenSync(){ const now=Date.now(); if(!_genSyncT) _genSyncDue=now+1500;
   clearTimeout(_genSyncT); _genSyncT=setTimeout(_syncGeneratedText, Math.max(0, Math.min(600, _genSyncDue-now))); }
+let _genSyncWait=0;
 function _syncGeneratedText(){
   clearTimeout(_genSyncT); _genSyncT=null;
+  // Not while a loaded figure is still decoding its pictures: the text written for a
+  // half-loaded figure (no scale bars yet) would be taken as the baseline, and flagged
+  // as out of date once loading finished. Waits up to ~10 s.
+  if(_genSyncWait<25&&images.some(im=>im&&im.img&&!(im.img.complete&&(im.img.naturalWidth||im.img.width)))){
+    _genSyncWait++; _genSyncT=setTimeout(_syncGeneratedText,400); return; }
+  _genSyncWait=0;
   for(const kind of _GEN_KINDS){
     const note=document.getElementById(kind+'-stale'), box=String(_genBox(kind)).trim(), gen=_genText[kind];
     if(!box){ if(note) note.style.display='none'; continue; }
@@ -22339,7 +22353,9 @@ function _dataCaption(el){
     if(yt||xt) d+=` of ${yt||'the values'}${xt?` against ${xt}`:''}`;
     // the groups a bar or box chart compares, else the series plotted
     let pl=null; try{ pl=_chartPlotted(el); }catch(e){ pl=null; }
-    const cats=pl&&!pl.numericX?[...new Set(pl.rows.map(r=>_rtText(String(r.x??''))).filter(Boolean))]:[];
+    // by the names the chart shows ("shown as" in Names & colours), as the legend and the key do
+    const shownAs=k=>{ const v=ch.names&&ch.names[k]; return _rtText(String(v!=null&&String(v).trim()?v:k)); };
+    const cats=pl&&!pl.numericX?[...new Set(pl.rows.map(r=>shownAs(String(r.x??''))).filter(Boolean))]:[];
     if(cats.length>1&&cats.length<=12) d+=` for ${_listAnd(cats)}`;
     else if(ys.length) d+=` (${ys.length>1?'series':'values'}: ${_listAnd(ys.slice(0,8))}${ys.length>8?', …':''})`;
     if(pl&&pl.ylog) d+=', on a log scale';
@@ -22526,8 +22542,14 @@ function generateMethodsParagraph(){
     (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') say(ch,k,im); });
   });
   if(luts.size) S.push(`Images were pseudocoloured with lookup tables: ${[...luts].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join('; ')}.`);
-  { const grey=luts.size?P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&_levelKey(im)!=='plain'):[];
-    if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>_capChanName(im)))])} in greyscale, without a lookup table.`); }
+  // Only a channel that is pseudocoloured on another panel (the same channel by its file
+  // or ⚙ › Channel name), named as it is there — not any unpseudocoloured picture whose
+  // file name happens to carry a channel word.
+  { const coloured=new Map();
+    P.forEach(im=>[im,...(im.channels||[])].forEach(o=>{ const k=o.lut||(o===im?'none':'green'); if(k==='none') return;
+      const c=_chanLabel(o); if(c&&!coloured.has(c)) coloured.set(c,_capChanName(o)); }));
+    const grey=P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&!_isDataPanel(im)&&coloured.has(_chanLabel(im)));
+    if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>coloured.get(_chanLabel(im))))])} in greyscale, without a lookup table.`); }
   P.filter(im=>im.channels&&im.channels.some(c=>c.img)).forEach(im=>{
     // The base image plus each channel that has pixels; a channel without them is not drawn.
     const n=1+im.channels.filter(c=>c.img).length;
@@ -34793,6 +34815,7 @@ var _pageCtx = null;
 async function exportMultiPagePDF(opts){
   opts = opts || {};
   if(!images.length){ toast('Add images first','warn'); return; }
+  _syncGeneratedText();   // the PDF's Subject is the alt text: an untouched one follows the figure first
   const cols   = Math.max(1, gi('cols'));
   const rows   = Math.max(1, gi('rows'));
   const rpp    = Math.max(1, gi('pdf-rows-per-page') || 2);

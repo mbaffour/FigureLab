@@ -44,6 +44,9 @@ test('newcomer2-16: journal names, abbreviations and "journal X" phrasing reach 
   for (const [q, re] of Object.entries(want)) { const t = await top(page, q); if (!re.test(t[0] || '')) bad.push(`${q} -> ${t[0]}`); }
   // a fragment never puts an "Add …" row first
   for (const q of ['pl', 'plo', 'plos', 'bo', 'hea']) { const t = await top(page, q); if (/^(Add|Insert|Starter:|Flow:)/.test(t[0] || '')) bad.push(`${q} -> ${t[0]}`); }
+  // nor among the letters-in-order guesses offered when nothing matches ("strtr" guessed the starters)
+  for (const q of ['strtr', 'prsm', 'flwch']) { const g = await page.evaluate((q) => { openCmdPalette(); _cmdpRender(q); const l = _cmdpFiltered.map(c => c.label); closeCmdPalette(); return l; }, q);
+    g.filter(l => /^(Add|Insert|Starter:|Flow:|Canvas:)/.test(l)).forEach(l => bad.push(`guess ${q} -> ${l}`)); }
   expect(bad).toEqual([]);
   // whole words still add: "box plot" is the box plot
   expect((await top(page, 'box plot'))[0]).toBe('Add box plot');
@@ -280,7 +283,13 @@ test('fluor2-04 / fluor2-05: caption and Methods give display ranges in the file
     const c = images[3]; images[1].channels = [{ img: c.img, raw: c.raw, lut: 'magenta', name: c.name, blackPt: c.blackPt, whitePt: c.whitePt }];
     images[0].lut = 'none'; render(); return generateMethodsParagraph(); });
   expect(merged).not.toMatch(/0–255 display scale/);
-  expect(merged).toMatch(/Panel A shows \S+ in greyscale, without a lookup table/);
+  // a merged channel off its channel's range is named too (it used to read as uniform)
+  const mdrift = await page.evaluate(() => { _setLevelNative(images[1].channels[0], 'white', 5000); images[1]._adjCache = undefined; render();
+    return { cap: _captionText(), meth: generateMethodsParagraph() }; });
+  expect(mdrift.cap).toMatch(/Display settings differ between panels of the same channel \(Membrane: .*B \(merge\) 150–5000/);
+  expect(mdrift.cap).not.toContain('Each channel was displayed with the same settings');
+  expect(mdrift.meth).toMatch(/differ between panels of the same channel \(Membrane: .*B \(merge\) 150–5000/);
+  expect(merged).toMatch(/Panel A shows TFEB-GFP in greyscale, without a lookup table/);
   expect(errors).toEqual([]);
 });
 
@@ -301,6 +310,9 @@ test('phage2-07 / phage-29: an EM pixel size reads in nm, and a chart in a grid 
   expect(cap).toContain('(0.4 nm per pixel)');                // was "(0.0004 µm per pixel)"
   expect(meth).toContain('(0.4 nm per pixel)');
   expect(cap).toContain('(B) Bar chart of CFU/mL for WT and dfliC, on a log scale. Mean ± SD, n = 3 per point. Data from cfu.csv.');  // was "(B) Panel B."
+  // the names the chart shows (Names & colours › shown as), as in its legend
+  const shown = await page.evaluate(() => { images.find(im => im.type === 'chart').chart.names = { dfliC: 'Δ*fliC*' }; render(); return _captionText(); });
+  expect(shown).toContain('for WT and ΔfliC, on a log scale');
   expect(errors).toEqual([]);
 });
 
