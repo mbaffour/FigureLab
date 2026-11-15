@@ -386,3 +386,124 @@ test('ISSUES fluorescence: ≡ Same bar on all calibrated keeps the length just 
   expect(r.um).toBeLessThan(10);
   expect(errors).toEqual([]);
 });
+
+// ── Count, the measurements CSV, crop fields, Trim borders and Batch crop ─────────────
+const PLATE = async (page) => {
+  await page.evaluate(MICRO);
+  // 900 px, 100 µm/px: black around a light lawn, six dark 20-px plaques and two on the rim
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 900; c.height = 900; const x = c.getContext('2d');
+    x.fillStyle = '#000'; x.fillRect(0, 0, 900, 900); x.fillStyle = '#ddd'; x.beginPath(); x.arc(450, 450, 400, 0, 7); x.fill(); x.fillStyle = '#555';
+    [[300, 300], [600, 300], [450, 450], [300, 600], [600, 600], [450, 700]].forEach(([a, b]) => { x.beginPath(); x.arc(a, b, 10, 0, 7); x.fill(); });
+    const src = c.toDataURL('image/png');
+    await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, 'plate_B.jpg', null, { umPerPx: 100, source: 'test' }); res(); }; img.src = src; });
+    sv('cols', 1); sv('rows', 1); onLayoutChange(); render(); });
+};
+async function dragOnFigure(page, x0, y0, x1, y1) {
+  await page.evaluate(([x0, y0, x1, y1]) => {
+    const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+    const P = (fx, fy) => ({ bubbles: true, clientX: r.left + fx * r.width / canvasLogicalW, clientY: r.top + fy * r.height / canvasLogicalH, button: 0 });
+    c.dispatchEvent(new MouseEvent('mousedown', { ...P(x0, y0), buttons: 1 }));
+    c.dispatchEvent(new MouseEvent('mousemove', { ...P(x1, y1), buttons: 1 }));
+    c.dispatchEvent(new MouseEvent('mouseup', { ...P(x1, y1), buttons: 0 }));
+  }, [x0, y0, x1, y1]);
+}
+
+test('phage2-02/03 Count: clicking "round (a dish)" ticks it, and the CSV carries the panel, the settings, the rim count and every diameter', async ({ page }) => {
+  // Old build: the words were a label for the Threshold slider, so clicking them did
+  // nothing and the count ran on the whole box; the CSV had no panel, no diameters, no
+  // rim count and no polarity or region, so a wrong count could not be told apart.
+  const errors = await loadApp(page);
+  await PLATE(page);
+  await page.locator('#measure-acc summary').click();
+  await page.locator('#measure-acc [data-tool="measure-count"]').click();
+  await page.locator('#count-polarity').selectOption('dark');
+  await page.getByText('round (a dish)').click();
+  await expect(page.locator('#count-ellipse')).toBeChecked();
+  const pb = await page.evaluate(() => { const b = panelBounds[0]; return [b.ix, b.iy, b.iw, b.ih]; });
+  const [x, y, w, h] = pb;
+  await dragOnFigure(page, x + w * 50 / 900, y + h * 50 / 900, x + w * 850 / 900, y + h * 850 / 900);
+  const csv = await page.evaluate(() => { let t = ''; const d = window.dl, b = window.blobUrl;
+    window.dl = () => {}; window.blobUrl = s => { t = s; return 'blob:x'; };
+    try { document.getElementById('export-measurements-btn').click(); } finally { window.dl = d; window.blobUrl = b; } return t; });
+  const rows = csv.split('\n').filter(l => !l.startsWith('#')).map(l => JSON.parse('[' + l + ']'));
+  const col = n => rows[1][rows[0].indexOf(n)];
+  expect(col('Count')).toBe('6');
+  expect(col('Panel')).toBe('A');
+  expect(col('Objects')).toBe('dark (plaques)');
+  expect(col('Region')).toBe('ellipse (round, a dish)');
+  const rim = await page.locator('#roi-results').textContent();
+  expect(rim).toContain(`+${col('Cut by the rim (not counted)')} cut by the ellipse`);
+  expect(col('Diameter unit')).toBe('mm');
+  expect(+col('Diameter mean')).toBeGreaterThan(1.8);
+  expect(+col('Diameter mean')).toBeLessThan(2.3);
+  expect(col('Object diameters').split(' ').length).toBe(6);
+  expect(errors).toEqual([]);
+});
+
+test('phage2-15 R in a crop box renders and keeps the value; the boxes say they are % of the image', async ({ page }) => {
+  // Old build: after Tab the cursor sat in the next box and R replaced its value with
+  // nothing; the four boxes were marked only T, L, B, R.
+  const errors = await loadApp(page);
+  await drop(page, [[tiff16([field(64, 64, 200, 3000, 4000)], { w: 64, h: 64, desc: IJ(), umPerPx: 0.1 }), 'spots.tif']]);
+  const row = await openDrawer(page, 0);
+  await row.locator('.f-ct').fill('10');
+  await row.locator('.f-ct').press('Tab');
+  await expect(row.locator('.f-cl')).toBeFocused();
+  await page.keyboard.press('r');
+  await expect(row.locator('.f-cl')).toHaveValue('0');
+  expect(await page.evaluate(() => images[0].cropT)).toBe(10);
+  await expect(row.locator('.img-settings')).toContainText('Crop % cut from each edge');
+  expect(await row.locator('.f-cr').getAttribute('title')).toContain('% of the image');
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES trim: a fluorescence field on black starts unticked in Trim borders; a screenshot is still ticked', async ({ page }) => {
+  // Old build: the DAPI and GFP fields started ticked, about to lose up to 55 % of the
+  // field to a "margin" that was their own black background.
+  const errors = await loadApp(page);
+  const N = 256, a = new Uint16Array(N * N).fill(0);
+  for (let y = 90; y < 200; y++) for (let x = 40; x < 170; x++) a[y * N + x] = 3000;
+  await drop(page, [[tiff16([a], { w: N, h: N, desc: IJ(), umPerPx: 0.1 }), 'C1-cells_DAPI.tif']]);
+  await page.evaluate(MICRO);
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 300; c.height = 200; const x = c.getContext('2d');
+    x.fillStyle = '#fff'; x.fillRect(0, 0, 300, 200); x.fillStyle = '#246'; x.fillRect(40, 30, 200, 120);
+    const src = c.toDataURL('image/png');
+    await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, 'screenshot.png'); res(); }; img.src = src; }); render(); });
+  await page.evaluate(() => { document.getElementById('crop-acc').open = true; });
+  await page.locator('#crop-acc button', { hasText: 'Trim borders…' }).click();
+  const modal = page.locator('#info-modal-bg');
+  await expect(modal).toContainText('C1-cells_DAPI.tif');
+  await expect(modal).toContainText('black background');
+  const ticks = await modal.locator('.trim-pick').evaluateAll(els => els.map(e => e.checked));
+  expect(ticks).toEqual([false, true]);
+  expect(errors).toEqual([]);
+});
+
+test('blot2-06/07 Batch crop: typed boxes keep every typed value in either order, and the next scan keeps X', async ({ page }) => {
+  // Old build: Y typed before H came back as 0; H typed before Y was cut to the room
+  // below the old Y (860 → 680); every next scan opened centred, so X had to be retyped;
+  // the status kept saying "Draw to set crop size" after a typed box.
+  const errors = await loadApp(page);
+  await page.evaluate(MICRO);
+  await page.evaluate(async () => { for (const n of ['blot1.png', 'blot2.png', 'blot3.png']) await _micro({ name: n, w: 900, h: 1040, bg: '#eee', blob: '#333', blobs: 12 }); });
+  await page.evaluate(() => startBatchCrop());
+  await expect(page.locator('#crop-modal')).toHaveClass(/open/);
+  const typePx = async (k, v) => { await page.locator('#crop-px-' + k).fill(String(v)); };
+  const box = () => page.evaluate(() => { const s = cropEdState; return [s.cx * 900, s.cy * 1040, s.cw * 900, s.ch * 1040].map(Math.round); });
+  // Y first, then H (ISSUES order)
+  await typePx('x', 0); await typePx('y', 120); await typePx('w', 900); await typePx('h', 150);
+  expect(await box()).toEqual([0, 120, 900, 150]);
+  await expect(page.locator('#batch-crop-hint')).not.toContainText('Draw to set crop size');
+  // a box at Y 360, then a taller H typed before the new Y (blot2-06 order)
+  await typePx('y', 360); await typePx('h', 860); await typePx('y', 100);
+  expect(await box()).toEqual([0, 100, 900, 860]);
+  await typePx('w', 600); await typePx('x', 136);
+  expect(await box()).toEqual([136, 100, 600, 860]);
+  await page.locator('#crop-apply-btn').click();
+  // the next scan opens with the same box
+  await expect(page.locator('#crop-modal-title')).toContainText('(2 / 3)');
+  expect(await box()).toEqual([136, 100, 600, 860]);
+  expect(errors).toEqual([]);
+});

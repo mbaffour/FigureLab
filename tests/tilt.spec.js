@@ -679,12 +679,15 @@ test('exact pixels: the fields read the crop in source pixels and typing one mov
     setCropPx('w', 400); setCropPx('h', 300); setCropPx('x', 100); setCropPx('y', 50);
     const box = [cropEdState.cx, cropEdState.cy, cropEdState.cw, cropEdState.ch];
     setCropPx('w', 5000);                                         // clamped to the image
-    const clampedW = cropEdState.cw;
-    return { read, box, clampedW };
+    const clampedW = cropEdState.cw, movedX = cropEdState.cx;
+    return { read, box, clampedW, movedX };
   });
   expect(r.read).toEqual(['200', '300', '400', '150']);
   expect(r.box.map(v => +v.toFixed(4))).toEqual([0.125, 0.0833, 0.5, 0.5]);
-  expect(r.clampedW).toBeCloseTo(1 - 0.125, 5);
+  // ux2 blot2-06: a typed size is kept as far as the image allows and the box moves back
+  // to fit, rather than being cut to the room right of the old X (it was 1 - 0.125).
+  expect(r.clampedW).toBeCloseTo(1, 5);
+  expect(r.movedX).toBeCloseTo(0, 5);
   expect(errors).toEqual([]);
 });
 

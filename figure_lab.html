@@ -6218,11 +6218,12 @@ function renderImgList(){
           <button class="btn cs-btn" data-cropshape="ellipse" style="flex:1;justify-content:center;font-size:14px${im.cropShape==='ellipse'?';border-color:var(--accent);color:var(--accent)':''}" title="Ellipse clip">○</button>
           <button class="btn cs-btn" data-cropshape="circle"  style="flex:1;justify-content:center;font-size:14px${im.cropShape==='circle' ?';border-color:var(--accent);color:var(--accent)':''}" title="Circle clip">◯</button>
         </div>
-        <div class="inline-row" style="font-size:10px">
-          <span>T</span><input type="number" class="f-ct" value="${+(+im.cropT).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled title="Set by the inset region — use ⧉ Edit inset region…"':''}>
-          <span>L</span><input type="number" class="f-cl" value="${+(+im.cropL).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
-          <span>B</span><input type="number" class="f-cb" value="${+(+im.cropB).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
-          <span>R</span><input type="number" class="f-cr" value="${+(+im.cropR).toFixed(2)}" min="0" max="49" step="0.1"${im.insetOf!=null?' disabled':''}>
+        <div style="font-size:9px;color:var(--muted);margin:0 0 1px" title="Percent of the image cut from each edge: Top, Left, Bottom, Right">Crop % cut from each edge</div>
+        <div class="inline-row" style="font-size:10px;flex-wrap:nowrap;gap:3px">
+          <span>T</span><input type="number" class="f-ct" value="${+(+im.cropT).toFixed(2)}" min="0" max="49" step="0.1" style="width:46px;min-width:0" aria-label="Crop from the top, % of the image" title="${im.insetOf!=null?'Set by the inset region — use ⧉ Edit inset region…':'% of the image cut from the top'}"${im.insetOf!=null?' disabled':''}>
+          <span>L</span><input type="number" class="f-cl" value="${+(+im.cropL).toFixed(2)}" min="0" max="49" step="0.1" style="width:46px;min-width:0" aria-label="Crop from the left, % of the image" title="% of the image cut from the left"${im.insetOf!=null?' disabled':''}>
+          <span>B</span><input type="number" class="f-cb" value="${+(+im.cropB).toFixed(2)}" min="0" max="49" step="0.1" style="width:46px;min-width:0" aria-label="Crop from the bottom, % of the image" title="% of the image cut from the bottom"${im.insetOf!=null?' disabled':''}>
+          <span>R</span><input type="number" class="f-cr" value="${+(+im.cropR).toFixed(2)}" min="0" max="49" step="0.1" style="width:46px;min-width:0" aria-label="Crop from the right, % of the image" title="% of the image cut from the right"${im.insetOf!=null?' disabled':''}>
         </div>
         <div class="divider"></div>
         <div class="sec-lbl">Panel border (this image)</div>
@@ -13013,13 +13014,23 @@ function _trimIsWhiteOrBlack(img, tb){
     const d=x.getImageData(0,0,1,1).data; const mn=Math.min(d[0],d[1],d[2]), mx=Math.max(d[0],d[1],d[2]);
     return d[3]<8 || mn>=232 || mx<=24; }catch(e){ return false; }
 }
+// A black corner (the margin that was found is black, not white).
+function _trimCornerDark(img){
+  try{ const c=document.createElement('canvas'); c.width=1; c.height=1; const x=c.getContext('2d'); x.drawImage(img,0,0,1,1,0,0,1,1);
+    const d=x.getImageData(0,0,1,1).data; return d[3]>=8&&Math.max(d[0],d[1],d[2])<=24; }catch(e){ return false; }
+}
 function _trimPlanFor(list){
   return list.map(im=>{
     const tb=_trimBounds(im.img);
     if(!tb||tb.none||!_trimIsWhiteOrBlack(im.img,tb)) return null;
     const kept=(1-tb.l-tb.r)*(1-tb.t-tb.b);
     const blot=!!(im.gelAnalysis||(im.laneTable&&(im.laneTable.rows||[]).length)||/blot|western|gel|membrane|(^|[^a-z])wb([^a-z]|$)/i.test(im.name||''));
-    return {pid:im.id, label:_rtText(formatLabel(im.label))||'?', name:im.name||'', tb, kept, blot, tick:!blot};
+    // A fluorescence or dark-field micrograph's black is its background, not a margin a
+    // scanner left: trimming it cut 55 % of a DAPI field. A dark border on a panel that
+    // is pseudocoloured, merged, calibrated or a >8-bit file starts unticked, as blots do.
+    const dark=_trimCornerDark(im.img);
+    const micro=dark&&!!(_rawOf(im)||im.srcBits>8||(im.lut&&im.lut!=='none')||(im.channels||[]).length||im.umPerPx>0||_detectChannel(im.name||''));
+    return {pid:im.id, label:_rtText(formatLabel(im.label))||'?', name:im.name||'', tb, kept, blot, micro, tick:!blot&&!micro};
   }).filter(Boolean);
 }
 function trimBordersAll(){
@@ -13030,9 +13041,9 @@ function trimBordersAll(){
   if(!plan.length){ toast('No white or black margin to trim on any panel','ok'); return; }
   _trimPlan=plan;
   const pct=v=>`${(v*100).toFixed(1)}%`;
-  showInfoModal('Trim borders', `<p style="font-size:11px;margin-bottom:8px">A white or black margin was found on ${plan.length} panel${plan.length>1?'s':''}. Ticked panels are cropped to their content (the crop can be undone or changed later). Blots and gels start unticked, and a panel that would lose more than half its area is flagged — check them first.</p>`
+  showInfoModal('Trim borders', `<p style="font-size:11px;margin-bottom:8px">A white or black margin was found on ${plan.length} panel${plan.length>1?'s':''}. Ticked panels are cropped to their content (the crop can be undone or changed later). Blots, gels and micrographs on a black background start unticked, and a panel that would lose more than half its area is flagged — check them first.</p>`
     +plan.map((p,k)=>`<label style="display:flex;gap:6px;align-items:flex-start;font-size:11px;margin:3px 0"><input type="checkbox" class="trim-pick" data-k="${k}"${p.tick?' checked':''}>
-      <span><b>${esc(p.label)}</b> ${esc(p.name)} — removes T ${pct(p.tb.t)} · L ${pct(p.tb.l)} · B ${pct(p.tb.b)} · R ${pct(p.tb.r)}, keeps ${Math.round(p.kept*100)}% of the area${p.blot?' <span style="color:var(--warn)">· a blot or gel: its membrane may be cut</span>':p.kept<0.5?' <span style="color:var(--warn)">· large trim</span>':''}</span></label>`).join('')
+      <span><b>${esc(p.label)}</b> ${esc(p.name)} — removes T ${pct(p.tb.t)} · L ${pct(p.tb.l)} · B ${pct(p.tb.b)} · R ${pct(p.tb.r)}, keeps ${Math.round(p.kept*100)}% of the area${p.blot?' <span style="color:var(--warn)">· a blot or gel: its membrane may be cut</span>':p.micro?' <span style="color:var(--warn)">· a micrograph on a black background: the black is likely the picture, not a margin</span>':p.kept<0.5?' <span style="color:var(--warn)">· large trim</span>':''}</span></label>`).join('')
     +`<div style="display:flex;gap:6px;margin-top:10px"><button class="btn btn-primary" id="trim-apply-btn" onclick="_trimApply()">Trim ticked panels</button>`
     +(sel&&plan.some(p=>p.pid===sel.id)?`<button class="btn" onclick="_trimApply(${esc(JSON.stringify(sel.id))})">Only ${esc(_rtText(formatLabel(sel.label))||'the selected panel')}</button>`:'')+`</div>`);
 }
@@ -13060,12 +13071,25 @@ function _trimApply(onlyPid){
 function setCropPx(which,val){
   const [iw,ih]=_ceSrcDims(); const v=parseFloat(val); if(!isFinite(v)) return;
   const s=cropEdState, [W,H]=_ceDims(), locked=_ceSizeLocked();
-  if(which==='x') s.cx=Math.max(0,Math.min(1-s.cw,v/iw));
-  else if(which==='y') s.cy=Math.max(0,Math.min(1-s.ch,v/ih));
-  else if(which==='w'&&!locked){ s.cw=Math.max(0.01,Math.min(1-s.cx,v/iw)); if(s.aspect) s.ch=Math.min(1-s.cy,s.cw*W/(s.aspect*H)); }
-  else if(which==='h'&&!locked){ s.ch=Math.max(0.01,Math.min(1-s.cy,v/ih)); if(s.aspect) s.cw=Math.min(1-s.cx,s.ch*s.aspect*H/W); }
+  // Each typed value is kept, whichever order the four are typed in. A width or height
+  // that does not fit beside the box's position moves the box back to fit; a position
+  // that does not fit with the box's size shrinks the box (while the size is shared in
+  // this mode it cannot, and the position stops at the edge). Each used to be clamped
+  // to the other: Y typed before H came back as 0, and H typed before Y was cut to the
+  // room below the old Y (H 860 became 680, blot2-06).
+  const pos=(p,size)=>{ const f=Math.max(0,v/(p==='x'?iw:ih)), k=p==='x'?'cx':'cy', z=p==='x'?'cw':'ch';
+    if(f+s[z]<=1+1e-9||locked){ s[k]=Math.max(0,Math.min(1-s[z],f)); return; }
+    s[k]=Math.min(f,0.99); s[z]=Math.max(0.01,1-s[k]); };
+  const fit=()=>{ if(s.cx+s.cw>1) s.cx=Math.max(0,1-s.cw); if(s.cy+s.ch>1) s.cy=Math.max(0,1-s.ch); };
+  if(which==='x') pos('x');
+  else if(which==='y') pos('y');
+  else if(which==='w'&&!locked){ s.cw=Math.max(0.01,Math.min(1,v/iw)); if(s.aspect) s.ch=Math.min(1,s.cw*W/(s.aspect*H)); fit(); }
+  else if(which==='h'&&!locked){ s.ch=Math.max(0.01,Math.min(1,v/ih)); if(s.aspect) s.cw=Math.min(1,s.ch*s.aspect*H/W); fit(); }
   else return;
   s.hasBox=s.cw>0.02&&s.ch>0.02;
+  // In Batch crop a typed box sets the shared size as a drawn one does — the status line
+  // kept saying "Draw to set crop size" after one was typed.
+  if(s.batch&&s.hasBox&&!(s.batchCropW>0)){ s.batchCropW=s.cw; s.batchCropH=s.ch; if(typeof _updateBatchUI==='function') _updateBatchUI(); }
   drawCropEd();
 }
 
@@ -13369,7 +13393,12 @@ function _batchLoad(idx,box){
   if(box){ Object.assign(s,box); }
   else {
     const cw=s.batchCropW, ch=s.batchCropH;
-    s.cx=(1-cw)/2; s.cy=(1-ch)/2; s.cw=cw; s.ch=ch; s.ang=0;
+    // The next image opens with the box where the last one was — strips of one blot
+    // line up by keeping X — rather than centred, which reset a typed X on every scan
+    // (blot2-07). The first image of a batch, with no box before it, is centred.
+    const had=s.batchHistory&&s.batchHistory.length&&s.cx!=null&&isFinite(s.cx);
+    s.cx=had?Math.max(0,Math.min(1-cw,s.cx)):(1-cw)/2; s.cy=had?Math.max(0,Math.min(1-ch,s.cy)):(1-ch)/2;
+    s.cw=cw; s.ch=ch; s.ang=0;
   }
   s._gray=null; s.hasBox=true;
   // Edits: the image's own, unless the batch is carrying edits forward and some were made.
@@ -23222,6 +23251,11 @@ document.addEventListener('keydown', e=>{
   if(_topDialog()) return;
   // Typing belongs to the field — every key, Ctrl+Z included (its own text undo).
   const _t=e.target, _tag=_t&&_t.tagName;
+  // …except R in a number box, which cannot hold it: the guides say "type the crop, then
+  // press R", and after Tab the cursor sits in the next box, where R replaced the
+  // selected value with nothing (phage2-15). It keeps the value and renders.
+  if(_tag==='INPUT'&&_t.type==='number'&&(e.key==='r'||e.key==='R')&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    e.preventDefault(); _t.dispatchEvent(new Event('change',{bubbles:true})); render(); return; }
   if(_tag==='TEXTAREA' || (_t&&_t.isContentEditable)
      || (_tag==='INPUT' && !/^(checkbox|radio|range|color|button|submit|reset|file|image)$/i.test(_t.type))) return;
   // A focused checkbox, slider, colour well or select keeps its own keys (Space ticks the
@@ -25750,6 +25784,10 @@ function _iconMatch(ic, q){
 // into every row.
 function _labelControls(){
   document.querySelectorAll('.field > label:not([for])').forEach(lab=>{
+    // A label that holds its own control (Count's "round (a dish)" box) already names
+    // it; pointing it at the row's first control made a click on its words move the
+    // Threshold slider instead of ticking the box (phage2-02).
+    if(lab.querySelector('input,select,textarea')) return;
     const c=lab.parentElement.querySelector('input,select,textarea');
     if(c && c.id) lab.htmlFor=c.id;
   });
@@ -32459,13 +32497,22 @@ function exportMeasurements(){
   // A value of 0 is a value: `m.minV||''` wrote a black region's Min and Max, and a
   // measurement at x = 0, as empty cells. A count's result — the number of objects, at
   // the threshold it used — had no column at all, so its row carried only the area.
-  const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values']];
+  // A count's row carries what its result box shows — the panel, which objects (bright
+  // or dark), the region (box or ellipse), how many the rim cut, and the equivalent
+  // diameters (mean, SD, median, unit, and each object's) — so plaque sizes and a count
+  // made with the wrong settings can be told apart in the file (phage2-03).
+  const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values',
+    'Panel','Objects','Region','Cut by the rim (not counted)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters']];
   measurements.forEach(m=>{
     const v=k=>m[k]??'';
+    const cnt=m.type==='cellCount', d=m.dia||null;
     rows.push([m.type,m.label,m.source||'8-bit display',v('x'),v('y'),v('w'),v('h'),
       v('meanGray'),v('minV'),v('maxV'),v('intDens'),
       v('rawMean'),v('rawMin'),v('rawMax'),v('rawSD'),v('rawIntDens'),
-      v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'']);
+      v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'',
+      v('panel'), cnt?(m.polarity==='dark'?'dark (plaques)':m.polarity?'bright':''):'', cnt?(m.roi==='ellipse'?'ellipse (round, a dish)':m.roi?'box':''):'',
+      cnt&&m.roi==='ellipse'?(m.edgeObjects??''):'',
+      d?d.mean:'', d?d.sd:'', d?d.med:'', d?d.unit:'', d?d.values.join(' '):'']);
   });
   const anyRaw=measurements.some(m=>/^raw /.test(m.source||''));
   const csv='# The "Measured on" column states, per row, which pixels produced the numbers.\n'
@@ -32998,14 +33045,17 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   const areaUm=cal?(fgPx*umPerPx*umPerPx).toFixed(1):null;
   const noAreaUm=umPerPx>0&&!onSrc;
   // each object's equivalent diameter (the circle of the same area)
-  let diaTxt='';
+  let diaTxt='', diaRec=null;
   if(count){
-    const dia=sizes.map(n=>2*Math.sqrt(n/Math.PI)*(cal?umPerPx:1)).sort((a,b)=>a-b);
+    const diaIn=sizes.map(n=>2*Math.sqrt(n/Math.PI)*(cal?umPerPx:1));     // in object order
+    const dia=diaIn.slice().sort((a,b)=>a-b);
     const mean=dia.reduce((a,b)=>a+b,0)/dia.length, sd=dia.length>1?Math.sqrt(dia.reduce((a,b)=>a+(b-mean)**2,0)/(dia.length-1)):0;
     const med=dia[dia.length>>1];
     const u=cal?(mean>=1000?'mm':'µm'):(onSrc?'source px':'figure px'), k=cal&&mean>=1000?1/1000:1;
     const f=v=>(+(v*k).toPrecision(3)).toString();
     diaTxt=`Equivalent diameter: ${f(mean)} ± ${f(sd)} ${u} (mean ± SD; median ${f(med)}; ${count} objects)`;
+    // What the result box says, for the CSV: the summary and every object's diameter.
+    diaRec={mean:+f(mean), sd:+f(sd), med:+f(med), unit:u, values:diaIn.map(v=>+f(v))};
   }
   // what was counted, over the figure: the selection and a mark on each object
   const toFig=onSrc ? ((x,y)=>[map.dx+(x0+x-map.sx)/map.kx, map.dy+(y0+y-map.sy)/map.ky]) : ((x,y)=>[x0+x, y0+y]);
@@ -33028,6 +33078,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
     count,edgeObjects:edgeN,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',polarity:dark?'dark':'bright',roi:round?'ellipse':'rect',
+    panel:im?(_rtText(formatLabel(im.label))||''):'', dia:diaRec,
     source:src==='raw'?`raw ${_rawDepth(raw)}`:src==='source'?'source pixels (8-bit)':'8-bit display'});
   _renderMeasList();
   logAction('cellCount',{count,threshold:thresh,polarity:dark?'dark':'bright',roi:round?'ellipse':'rect'});
