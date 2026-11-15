@@ -1288,18 +1288,18 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 
     <div class="divider"></div>
     <div class="sec-lbl">Figure caption helper <span class="help-chip" tabindex="0" role="button" aria-label="About caption help" data-tip="Builds a structured A/B/C legend from your panel notes and scale bars. The on-device AI polish uses Chrome's built-in Gemini Nano — 100% local, nothing is uploaded — and falls back to the built-in caption if your browser lacks it.">?</span></div>
-    <button class="btn" onclick="generateCaption()" style="width:100%;justify-content:center">✦ Generate Caption</button>
-    <button class="btn" onclick="writeMethodsParagraph()" style="width:100%;justify-content:center;margin-top:4px" title="Write the image-processing paragraph for your Methods from what FigureLab knows: software and version, whether adjustments were uniform, gamma, pseudocolour, resampling, projections, calibration sources, splices and insets. The submission package includes it as -methods.txt.">✎ Write Methods paragraph</button>
+    <button class="btn" onclick="generateCaption({ask:true})" style="width:100%;justify-content:center">✦ Generate Caption</button>
+    <button class="btn" onclick="writeMethodsParagraph({ask:true})" style="width:100%;justify-content:center;margin-top:4px" title="Write the image-processing paragraph for your Methods from what FigureLab knows: software and version, whether adjustments were uniform, gamma, pseudocolour, resampling, projections, calibration sources, splices and insets. The submission package includes it as -methods.txt.">✎ Write Methods paragraph</button>
     <button class="btn" id="ai-caption-btn" onclick="aiPolishCaption()" style="width:100%;justify-content:center;margin-top:4px" title="Polish the caption with Chrome's built-in on-device AI (Gemini Nano). 100% local — nothing is uploaded. Falls back to the built-in caption if unavailable.">🤖 Polish with on-device AI</button>
     <textarea id="caption-out" rows="4" placeholder="Caption will appear here…" style="margin-top:4px"></textarea>
-    <div id="caption-stale" class="gen-stale" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this caption was generated. <a href="#" onclick="generateCaption();return false">✦ Regenerate</a> (replaces your edits)</div>
+    <div id="caption-stale" class="gen-stale" role="status" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this caption was written. <a href="#" onclick="generateCaption();return false">✦ Regenerate</a> (replaces your edits) · <a href="#" onclick="_genKeep('caption');return false" title="Keep your caption as it is; you are told again if the figure changes">Keep mine</a></div>
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
       <span style="font-size:10px;color:var(--muted);flex:1" title="The legend key in words — every channel, series or feature with its colour (and marker) — kept in step with the figure. Copy it into your figure legend and edit it there.">Legend text starter</span>
       <button class="btn" onclick="copyKeyText()" style="padding:2px 8px" title="Copy the key in words, to paste into your figure legend">Copy</button>
     </div>
     <textarea id="key-text" rows="2" readonly placeholder="The legend key in words appears here…" style="margin-top:2px"></textarea>
     <textarea id="methods-out" rows="5" placeholder="Methods paragraph will appear here…" style="margin-top:4px"></textarea>
-    <div id="methods-stale" class="gen-stale" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this paragraph was written. <a href="#" onclick="writeMethodsParagraph();return false">✎ Rewrite</a> (replaces your edits)</div>
+    <div id="methods-stale" class="gen-stale" role="status" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure has changed since this paragraph was written. <a href="#" onclick="writeMethodsParagraph();return false">✎ Rewrite</a> (replaces your edits) · <a href="#" onclick="_genKeep('methods');return false" title="Keep your paragraph as it is; you are told again if the figure changes">Keep mine</a></div>
     <div id="alt-text-wrap" style="margin-top:6px">
       <div class="sec-lbl" style="margin:0 0 2px">Alt text <span class="help-chip" tabindex="0" role="button" aria-label="About alt text" data-tip="A description of the figure for readers who cannot see it. Springer Nature asks for it and AIP requires it. Embedded in the PNG (metadata), the SVG (its title and description) and the PDF (the document's Subject — document metadata, not a tagged-PDF figure alternative), and shipped in the submission package as -alt.txt.">?</span></div>
       <div style="display:flex;align-items:center;gap:6px">
@@ -1307,6 +1307,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <button class="btn" onclick="draftAltText()" style="padding:2px 8px" title="Write a draft from the figure's structure — how many panels, the layout, scale bars, charts and the caption. It describes structure, not findings: add what the figure shows.">✦ Draft from figure</button>
       </div>
       <textarea id="alt-text" rows="3" oninput="_altTextInput()" placeholder="What the figure shows, for a reader who cannot see it…" style="margin-top:2px" title="Saved with the figure; embedded in PNG, SVG and PDF exports"></textarea>
+      <div id="alt-stale" class="gen-stale" role="status" style="display:none;font-size:10px;color:var(--warn);margin-top:2px">⚠ The figure or its caption has changed since this alt text was written — exports embed it as it is. <a href="#" onclick="generateAltText();return false">✦ Redraft</a> (replaces your edits) · <a href="#" onclick="_genKeep('alt');return false" title="Keep your alt text as it is; you are told again if the figure changes">Keep mine</a></div>
       <div style="font-size:9.5px;color:var(--muted);line-height:1.4">The draft describes the figure’s structure, not its findings. PDF carries it as document metadata (Subject), not as a tagged-PDF figure alternative.</div>
     </div>
 
@@ -4875,7 +4876,7 @@ const CMD_REGISTRY=[
   {label:'Load a saved session',    keys:'load open session restore reopen previous work file json resume', run:()=>esLoadSession()},
   // Compliance, in the words a biologist uses.
   {label:'Compress TIFF exports (LZW, lossless)', keys:'lzw compress compressed compression tiff tif plos lossless shrink', run:()=>_cmdpGoto('export-tiff-lzw','Tick to write LZW-compressed TIFFs — lossless')},
-  {label:'Write the Methods paragraph (image processing)', keys:'methods paragraph image processing statement disclosure software citation methods section write describe adjustments', run:()=>writeMethodsParagraph()},
+  {label:'Write the Methods paragraph (image processing)', keys:'methods paragraph image processing statement disclosure software citation methods section write describe adjustments', run:()=>writeMethodsParagraph({ask:true})},
   {label:'Check it against journal requirements', keys:'journal check compliance submit submission requirements ready publish validate before sending', run:()=>checkCompliance()},
   {label:'Render figure',            keys:'render preview refresh',        run:()=>render(),                    hint:'R'},
   {label:'Export PNG',               keys:'export png image save',         run:()=>doExportPreflight('png'),    hint:'Ctrl+E'},
@@ -4914,7 +4915,7 @@ const CMD_REGISTRY=[
   {label:'Check against other figures (image reuse)', keys:'duplicate duplication reuse reused image integrity proofig imagetwin across figures other figures same image paper manuscript compare figures copied micrograph blot', run:()=>openCrossFigureCheck()},
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
-  {label:'Generate caption',         keys:'caption legend figure text write describe',         run:()=>generateCaption()},
+  {label:'Generate caption',         keys:'caption legend figure text write describe',         run:()=>generateCaption({ask:true})},
   {label:'Replace image… (keep crop, labels and settings)', keys:'replace image swap file relink new picture keep crop settings update', run:()=>openReplaceImage(selectedPanel)},
   {label:'Replace all images… (figure as a template)', keys:'replace all images template next experiment relink swap files batch reuse', run:()=>openReplaceAll()},
   {label:'Alt text: draft from the figure (accessibility)', keys:'alt text alt-text accessibility screen reader a11y description springer aip', run:()=>draftAltText()},
@@ -6545,7 +6546,8 @@ function renderImgList(){
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
     item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
-    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
+    // The caption follows a caption note as it is typed (it used to wait for ⟳ Render).
+    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; if(typeof _scheduleGenSync==='function') _scheduleGenSync(); });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
     { const fc=item.querySelector('.f-chan');
       if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan; delete im.chanSrc;
@@ -10796,8 +10798,8 @@ const TUTORIALS=[
         sel:'button[onclick="checkCompliance()"]', title:'Check it against the journal rules',
         body:'<b>✓ Check journal compliance</b> checks calibration, resolution, adjustments, splices and labels. Read what it flags. The low-resolution warning is real: these demo strips are small.',
         waitFor:()=>!!document.getElementById('info-modal-bg'), act:()=>checkCompliance() },
-      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick="writeMethodsParagraph()"]')); },
-        sel:'button[onclick="writeMethodsParagraph()"]', title:'Write the Methods paragraph',
+      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick^="writeMethodsParagraph("]')); },
+        sel:'button[onclick^="writeMethodsParagraph("]', title:'Write the Methods paragraph',
         body:'<b>✎ Write Methods paragraph</b> describes the image processing from what the figure records: greyscale, the splice, where the scale came from. Edit it freely. The submission package ships your edited version.',
         waitFor:()=>(document.getElementById('methods-out').value||'').length>40, act:()=>writeMethodsParagraph() },
       { sel:'#fig-canvas', title:'That is a blot figure',
@@ -10924,8 +10926,8 @@ const TUTORIALS=[
         title:'Run the compliance check',
         body:'<b>✓ Check journal compliance</b> lists what a reviewer or image-forensics screen would flag. Rows marked ⚠ or ✗ explain themselves, and many have a button that takes you to the fix.',
         waitFor:()=>!!document.getElementById('info-modal-bg'), act:()=>checkCompliance() },
-      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick="writeMethodsParagraph()"]')); },
-        sel:'button[onclick="writeMethodsParagraph()"]', title:'Write the Methods paragraph',
+      { before:()=>{ _tutCloseInfo(); _tutOpen(document.querySelector('button[onclick^="writeMethodsParagraph("]')); },
+        sel:'button[onclick^="writeMethodsParagraph("]', title:'Write the Methods paragraph',
         body:'<b>✎ Write Methods paragraph</b> writes the software citation, pseudocolour, calibration and resampling from what the figure records, and nothing it cannot know.',
         waitFor:()=>(document.getElementById('methods-out').value||'').length>40, act:()=>writeMethodsParagraph() },
       { before:()=>_tutOpen('export-tiff-lzw'), sel:'#export-tiff-lzw', title:'Compressed TIFF',
@@ -11294,6 +11296,8 @@ function render(targetCanvas, exportScale, opts){
     if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.'); return; }
     renderFreeform(canvas, ctx, S, Object.assign({}, opts, {export:isExport}));
     if(!isExport&&typeof _syncPhysReadout==='function') _syncPhysReadout();
+    // the caption, Methods and alt text follow a freeform figure too
+    if(!isExport&&typeof _scheduleGenSync==='function') _scheduleGenSync();
     return;
   }
   if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
@@ -14884,7 +14888,7 @@ function snapshotState(opts){
   if(opts&&opts.boundary) snap.fig={
     controls:_collectFigControls({layout:{},style:{}}),
     measurements:JSON.parse(JSON.stringify(measurements)),
-    notes:gv('fig-notes'), caption:gv('caption-out'), methods:gv('methods-out'), altText:_figAltText,
+    notes:gv('fig-notes'), caption:gv('caption-out'), methods:gv('methods-out'), altText:_figAltText, genState:_genStateSave(),
     labelOffsets:JSON.parse(JSON.stringify(labelOffsets)), reproLog:reproLog.map(e=>({...e})),
     reuseRun:_reuse.lastRun?JSON.parse(JSON.stringify(_reuse.lastRun)):null, reuseFig:{figUid:_reuse.figUid, libId:_reuse.libId} };
   return snap;
@@ -14903,6 +14907,7 @@ function restoreState(s){
     measurements=JSON.parse(JSON.stringify(s.fig.measurements||[]));
     sv('fig-notes',s.fig.notes||''); sv('caption-out',s.fig.caption||''); sv('methods-out',s.fig.methods||'');
     _setAltText(s.fig.altText||'');
+    if('genState' in s.fig) _genStateLoad(s.fig.genState);
     if(Array.isArray(s.fig.reproLog)) reproLog=s.fig.reproLog.map(e=>({...e}));
     if('reuseRun' in s.fig) _reuse.lastRun=s.fig.reuseRun?JSON.parse(JSON.stringify(s.fig.reuseRun)):null;
     // Ctrl+Z across a Load gives back the figure's identity with its run (own-copy rule).
@@ -17698,7 +17703,7 @@ function confirmNewFigure(){
   });
 }
 // ── Generic confirm modal ────────────────────────────────────
-function showConfirmModal(title, body, onOk){
+function showConfirmModal(title, body, onOk, opts){
   let m=document.getElementById('confirm-modal-bg');
   if(!m){
     m=document.createElement('div');
@@ -17718,8 +17723,16 @@ function showConfirmModal(title, body, onOk){
   document.getElementById('cm-body').textContent=body;
   const okBtn=document.getElementById('cm-ok');
   const fresh=okBtn.cloneNode(true); okBtn.parentNode.replaceChild(fresh,okBtn);
+  // opts: {ok, cancel} button words, and primary — the safe, expected answer is styled as
+  // the main action rather than red as if it destroyed something.
+  opts=opts||{};
+  fresh.textContent=opts.ok||'Confirm';
+  fresh.className='btn '+(opts.primary?'btn-primary':'btn-danger');
+  document.getElementById('cm-cancel').textContent=opts.cancel||'Cancel';
   fresh.addEventListener('click',()=>{ m.remove(); onOk(); });
   m.style.display='flex';
+  // the keyboard lands in the dialog: on the main action, or on Cancel when it is a destructive one
+  setTimeout(()=>{ try{ (opts.primary?fresh:document.getElementById('cm-cancel')).focus(); }catch(e){} },0);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -19293,6 +19306,11 @@ async function doExport(fmt, opts){
     _keyFmt=fmt; _keySyncUI();           // Download key follows the format the figure went out in
     _lastExportFmt=fmt;                  // the journal report checks the format it went out in
     _ckExports=_ckExports.filter(e=>e.at===_ckEdits&&e.fmt!==fmt).concat({fmt, at:_ckEdits});
+    // PNG, SVG and PDF embed the alt text: an untouched one is brought up to date with the
+    // figure now (not 600 ms after the last render), and an edited one that the figure has
+    // since outgrown is embedded as written — and said so below.
+    _syncGeneratedText();
+    const _altStale=(fmt==='png'||fmt==='svg'||fmt==='pdf'||fmt==='pdf-lossless')&&_genStale('alt');
     // Raster formats get a true supersampled re-render (grid and freeform alike).
     // Use the canvas's ACTUAL effective DPI (may be < requested if the 60MP cap
     // fired) so embedded physical-size metadata stays honest.
@@ -19316,6 +19334,7 @@ async function doExport(fmt, opts){
     logAction('export',{format:fmt,dpi,name});
     const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
     if(fmt==='webp') toast(`Saved ${name}.webp — WebP has no print-resolution field, so it opens at your software's default DPI: set the size by hand, or use PNG/TIFF`, 'warn');
+    else if(_altStale) toast(`Saved ${name}.${_ext} — with your alt text as written, though the figure has changed since: check it under Export › Alt text`, 'warn');
     else if(!_svgWarned) toast(`Saved ${name}.${_ext}`, 'ok');
   } catch(err){
     console.error('Export failed',err);
@@ -19739,7 +19758,10 @@ async function exportSubmissionPackage(){
   render();
   // The texts FigureLab would write for the figure as it is now, taken from this
   // render, before the export renders below replace the frame the Methods reads.
-  const freshCap=_captionText(), freshMeth=generateMethodsParagraph();
+  // Untouched texts are brought up to date first: the PNG, PDF and SVG below embed the
+  // alt text, which quotes the caption, so a stale one went into every file.
+  _syncGeneratedText();
+  const freshCap=_captionText(), freshMeth=generateMethodsParagraph(), freshAlt=_buildStructuralAltText();
   try{
     const rc=()=> renderExportCanvas(dpi);   // supersample grid AND freeform (true target DPI)
     const files=[]; const add=f=>{ if(f&&f.data&&f.data.length) files.push(f); };
@@ -19794,9 +19816,13 @@ async function exportSubmissionPackage(){
     }
     const notes=(document.getElementById('fig-notes')&&document.getElementById('fig-notes').value||'').trim();
     if(notes) files.push({name:name+'-figure-notes.txt', data:notes});
-    // The alt text, for the submission system's own alt-text field.
-    const alt=(_figAltText||'').trim();
-    if(alt) files.push({name:name+'-alt.txt', data:alt+'\n'});
+    // The alt text, for the submission system's own alt-text field — kept as the author
+    // wrote it, and checked like the caption: when the figure has changed since, the
+    // draft for the figure as exported ships beside it.
+    { const t=_packageText('alt', freshAlt);
+      if(t.text){ files.push({name:name+'-alt.txt', data:t.text+'\n'});
+        if(t.state==='stale'){ const gf={name:`${name}-alt-generated.txt`, data:freshAlt+'\n'}; files.push(gf);
+          textChecks.push({kind:'alt', label:'alt text', state:'stale', _f:files[files.length-2], _g:gf}); } } }
     // Attribution obligations ship with the figure, so a co-author assembling the
     // submission doesn't have to reconstruct which icons needed a credit line.
     const credits=(typeof _creditsText==='function')?_creditsText():'';
@@ -19899,7 +19925,7 @@ async function exportSubmissionPackage(){
     // not a dialog on every export.
     if(textChecks.length && !skipped.length){
       toast(`Submission package built — check the ${textChecks.map(c=>c.label).join(' and ')}: it may not match the figure (see README.txt)`,'warn');
-      if(textChecks.some(c=>c.state==='stale')) showInfoModal('⚠ Check the caption and Methods',
+      if(textChecks.some(c=>c.state==='stale')) showInfoModal(`⚠ Check the ${_listAnd(textChecks.map(c=>c.kind==='methods'?'Methods':c.label))}`,
         `<div style="font-size:11px;line-height:1.6">${_textCheckHtml(textChecks)}
           <p style="color:var(--muted)">The same note is in the package's README.txt.</p></div>`);
     } else if(skipped.length){
@@ -19927,24 +19953,39 @@ async function exportSubmissionPackage(){
 //                  that differs from what it would write now: kept, flagged
 function _packageText(kind, fresh){
   fresh=(fresh||'').trim();
-  const box=gv(kind==='caption'?'caption-out':'methods-out').trim();
+  const box=String(_genBox(kind)).trim();
   const gen=_genText[kind]==null?null:String(_genText[kind]).trim();
+  const base=_genBase[kind]==null?null:String(_genBase[kind]).trim(), sig=_genSig(kind, fresh);
+  // An empty alt-text box stays empty: alt text is the author's to write (✦ Draft from
+  // figure starts one); caption and Methods are written for them.
+  if(kind==='alt'&&!box) return {text:'', state:'current'};
   if(!box || box===gen){
-    if(fresh && box!==fresh) _setGeneratedText(kind, fresh);
-    return {text:fresh, state:(box&&box!==fresh)?'regenerated':'current'};
+    if(fresh && box!==fresh && (kind!=='alt'||sig!==base)) _setGeneratedText(kind, fresh, sig);
+    const now=String(_genBox(kind)).trim();
+    return {text:now, state:(box&&box!==now)?'regenerated':'current'};
   }
   if(!fresh || box===fresh) return {text:box, state:'current'};
-  if(gen==null) return {text:box, state:'unverified'};
-  return {text:box, state:gen===fresh?'edited':'stale'};
+  // Typed, pasted or loaded, never kept on purpose: the alt text is the author's own by
+  // nature and is flagged only once the figure changes under it; a caption or Methods
+  // FigureLab did not write is checked against FigureLab's.
+  if(gen==null&&!_genKept[kind]){
+    if(kind==='alt') return {text:box, state:(base!=null&&sig!==base)?'stale':'current'};
+    return {text:box, state:'unverified'};
+  }
+  return {text:box, state:(base!=null&&sig!==base)?'stale':'edited'};
 }
 function _textCheckLines(checks){
-  return checks.map(c=>c.state==='stale'
+  return checks.map(c=>c.kind==='alt'
+    ? `  - ${c.file} is your alt text, as written. The figure or its caption has changed\n    since it was written, so it may describe the figure as it was; the PNG,\n    PDF and SVG embed it as it is. FigureLab's draft for the figure as\n    exported is in ${c.generated}.`
+    : c.state==='stale'
     ? `  - ${c.file} is your edited ${c.label}. The figure has changed since FigureLab\n    wrote the text you edited, so it may describe the figure as it was.\n    FigureLab's ${c.label} for the figure as exported is in ${c.generated}.`
     : `  - ${c.file} is ${c.label} text FigureLab did not write here (typed, pasted or\n    loaded), and it differs from FigureLab's ${c.label} for the figure as\n    exported, which is in ${c.generated}. Check it against the figure.`).join('\n');
 }
 function _textCheckHtml(checks){
   return `<p style="margin-bottom:6px">Kept as you wrote it, but it may not describe the figure in this package:</p>
-    <ul style="margin:0 0 8px 16px">${checks.map(c=>`<li><b>${esc(c.file)}</b> — ${c.state==='stale'
+    <ul style="margin:0 0 8px 16px">${checks.map(c=>`<li><b>${esc(c.file)}</b> — ${c.kind==='alt'
+      ?`the figure or its caption has changed since this alt text was written (the PNG, PDF and SVG embed it as it is)`
+      :c.state==='stale'
       ?`the figure has changed since FigureLab wrote the ${esc(c.label)} you edited`
       :`not written by FigureLab here, and different from its ${esc(c.label)} for this figure`}; FigureLab's current text is in <b>${esc(c.generated)}</b></li>`).join('')}</ul>`;
 }
@@ -21989,41 +22030,118 @@ function _adjustmentsUniform(shown){
   return shown.every(im=>_sameAdjustments(im,shown[0]));
 }
 
-// Text the app wrote into the caption and Methods boxes, as it wrote it. A box that
-// still holds exactly this was not edited by the author; one that differs was. The
+// Text the app wrote into the caption, Methods and alt-text boxes, as it wrote it. A box
+// that still holds exactly this was not edited by the author; one that differs was. The
 // submission package uses that to decide whether it may regenerate the text for the
 // figure as it is now, or must keep the author's words and say they may be out of date.
-const _genText={caption:null, methods:null};
-function _setGeneratedText(kind, text){
-  _genText[kind]=text;
-  document.getElementById(kind==='caption'?'caption-out':'methods-out').value=text;
+//   _genText  what the app wrote into the box (null: nothing written in this figure)
+//   _genBase  what the generator said for the figure when the box was last in step with
+//             it: when the text was written, when the author chose "Keep mine", or — for
+//             text the app did not write (typed, pasted, an older session) — when it was
+//             first seen. The box is out of date when the generator now says otherwise.
+//   _genKept  the author looked at the change and kept their words ("Keep mine")
+// All three are saved with the session, so a reopened figure still knows which text
+// it wrote: a revision made after reopening used to leave every box stale, unflagged.
+const _genText={caption:null, methods:null, alt:null};
+const _genBase={caption:null, methods:null, alt:null};
+const _genKept={caption:false, methods:false, alt:false};
+const _GEN_KINDS=['caption','methods','alt'];
+function _genBox(kind){ return kind==='alt' ? (_figAltText||'') : gv(kind==='caption'?'caption-out':'methods-out'); }
+// What the app would write now. The alt-text draft quotes the caption box, so the
+// caption is brought up to date first (the sync runs them in this order).
+function _genFresh(kind){
+  if(kind==='caption') return _captionText();
+  if(kind==='methods') return _methodsPanels().length?generateMethodsParagraph():'';
+  return _buildStructuralAltText();
+}
+// What the box's text is compared against to tell whether the figure has changed under
+// it. For the alt text that is its draft and the caption FigureLab would write now: the
+// draft quotes the caption box, so with an edited caption kept, a swap or a recalibration
+// would otherwise never reach it.
+function _genSig(kind, fresh){
+  fresh=String(fresh==null?_genFresh(kind)||'':fresh).trim();
+  return kind==='alt' ? fresh+'\u0001'+String(_captionText()||'').trim() : fresh;
+}
+function _setGeneratedText(kind, text, base){
+  _genText[kind]=text; _genBase[kind]=base!=null?base:_genSig(kind,text); _genKept[kind]=false;
+  if(kind==='alt') _setAltText(text);
+  else document.getElementById(kind==='caption'?'caption-out':'methods-out').value=text;
   const n=document.getElementById(kind+'-stale'); if(n) n.style.display='none';
 }
-// The caption and Methods boxes follow the figure. Text the app wrote and nobody has
-// touched is rewritten when panels are swapped, replaced or recalibrated — it used to
-// keep describing the old figure ("(b) Plaque assay" after a swap) until the package
-// was built. Text the author edited is kept, with a note that it may be out of date.
-let _genSyncT=null;
-function _scheduleGenSync(){ clearTimeout(_genSyncT); _genSyncT=setTimeout(_syncGeneratedText,600); }
+function _resetGenState(){ _GEN_KINDS.forEach(k=>{ _genText[k]=null; _genBase[k]=null; _genKept[k]=false; }); }
+function _genStateSave(){ const o={}; _GEN_KINDS.forEach(k=>{ o[k]={gen:_genText[k], base:_genBase[k], kept:_genKept[k]}; }); return o; }
+function _genStateLoad(o){
+  _resetGenState(); if(!o||typeof o!=='object') return;
+  _GEN_KINDS.forEach(k=>{ const r=o[k]; if(!r||typeof r!=='object') return;
+    _genText[k]=typeof r.gen==='string'?r.gen:null; _genBase[k]=typeof r.base==='string'?r.base:null; _genKept[k]=!!r.kept; });
+}
+// Is the box's text out of date: kept by the author (edited, typed or loaded) while the
+// figure has changed since it was last in step? Text the app wrote and nobody touched
+// is never stale — the sync rewrites it.
+function _genStale(kind){
+  const box=String(_genBox(kind)).trim(), gen=_genText[kind], base=_genBase[kind];
+  if(!box||base==null) return false;
+  if(gen!=null&&box===String(gen).trim()) return false;
+  let fresh, sig; try{ fresh=String(_genFresh(kind)||'').trim(); sig=_genSig(kind,fresh); }catch(e){ return false; }
+  return !!fresh && fresh!==box && sig!==String(base).trim();
+}
+// "Keep mine": the author has seen that the figure changed and keeps their words. The
+// note goes until the figure changes again.
+function _genKeep(kind){
+  try{ _genBase[kind]=_genSig(kind); }catch(e){}
+  _genKept[kind]=true;
+  const n=document.getElementById(kind+'-stale'); if(n) n.style.display='none';
+  if(typeof scheduleAutosave==='function') scheduleAutosave();
+  toast(`Your ${kind==='alt'?'alt text':kind==='methods'?'Methods paragraph':'caption'} is kept as written — you will be told again if the figure changes`,'ok');
+}
+// The caption, Methods and alt-text boxes follow the figure. Text the app wrote and
+// nobody has touched is rewritten when panels are swapped, replaced or recalibrated —
+// it used to keep describing the old figure ("(b) Plaque assay" after a swap) until the
+// package was built. Text the author edited, typed or loaded is kept, with a note that
+// it may be out of date and one click to regenerate it or keep it.
+// 600 ms after the last render, but never more than 1.5 s after the first one waiting:
+// a figure still decoding its images re-renders often enough to starve a plain debounce.
+let _genSyncT=null, _genSyncDue=0;
+function _scheduleGenSync(){ const now=Date.now(); if(!_genSyncT) _genSyncDue=now+1500;
+  clearTimeout(_genSyncT); _genSyncT=setTimeout(_syncGeneratedText, Math.max(0, Math.min(600, _genSyncDue-now))); }
 function _syncGeneratedText(){
-  const jobs=[['caption','caption-out',()=>_captionText()],
-              ['methods','methods-out',()=>_methodsPanels().length?generateMethodsParagraph():'']];
-  for(const [kind,id,fn] of jobs){
-    const note=document.getElementById(kind+'-stale'), box=gv(id).trim(), gen=_genText[kind];
-    if(!box||gen==null){ if(note) note.style.display='none'; continue; }
-    let fresh; try{ fresh=String(fn()||'').trim(); }catch(e){ continue; }
-    if(box===String(gen).trim()){
-      if(fresh&&fresh!==box) _setGeneratedText(kind,fresh);
+  clearTimeout(_genSyncT); _genSyncT=null;
+  for(const kind of _GEN_KINDS){
+    const note=document.getElementById(kind+'-stale'), box=String(_genBox(kind)).trim(), gen=_genText[kind];
+    if(!box){ if(note) note.style.display='none'; continue; }
+    let fresh, sig; try{ fresh=String(_genFresh(kind)||'').trim(); sig=_genSig(kind,fresh); }catch(e){ continue; }
+    if(gen!=null&&box===String(gen).trim()){
+      // Untouched: follows the figure. (An alt text polished on the device differs from
+      // its draft; it is redrafted only when the draft itself would change.)
+      if(fresh&&sig!==String(_genBase[kind]==null?'':_genBase[kind]).trim()){
+        if(fresh!==box) _setGeneratedText(kind,fresh,sig); else _genBase[kind]=sig; }
       if(note) note.style.display='none';
-    } else if(note) note.style.display=(fresh&&fresh!==String(gen).trim())?'':'none';
+      continue;
+    }
+    // Text the app did not write here: in step with the figure as it is now, so a
+    // later change to the figure is flagged.
+    if(_genBase[kind]==null){ _genBase[kind]=sig; if(note) note.style.display='none'; continue; }
+    if(box===fresh) _genBase[kind]=sig;
+    if(note) note.style.display=(fresh&&box!==fresh&&sig!==String(_genBase[kind]).trim())?'':'none';
   }
 }
-function generateCaption(){
+// The box holds the author's own words: asked before they are replaced.
+function _genAskReplace(kind, what, run){
+  const box=String(_genBox(kind)).trim(), gen=_genText[kind];
+  if(!box||(gen!=null&&box===String(gen).trim())){ run(); return; }
+  showConfirmModal(`Replace your ${what}?`,
+    `The box holds text you wrote or edited. A new ${what} from the figure replaces it — Keep mine leaves it as it is.`,
+    run, {ok:'Replace', cancel:'Keep mine', primary:true});
+}
+function generateCaption(opts){
   // Guard and log on the panels the caption describes. The old count was
   // min(images, cols*rows), which logged 4 for a figure whose spanning panel
   // leaves 3 drawn, and let a figure with every panel hidden through the guard.
   const n=_figurePanels().length+_captionObjects().length;
   if(!n){ toast('No images, charts or gene maps to caption','warn'); return; }
+  // The button asks before writing over an edited caption (the alt text's draft always
+  // did); the "⚠ … Regenerate (replaces your edits)" link has already said so.
+  if(opts&&opts.ask){ _genAskReplace('caption','caption',()=>generateCaption()); return; }
   render();                     // _sbSkip is set by the render: whether each bar was drawn
   _setGeneratedText('caption', _captionText());
   logAction('generateCaption',{panels:n});
@@ -22328,9 +22446,10 @@ function _methodsBitDepth(P, nm){
   if(lost.length) t+=` For ${_panelsPhrase(lost)} the native samples were not available, and each file was scaled from 0 to its own maximum.`;
   return t;
 }
-function writeMethodsParagraph(){
+function writeMethodsParagraph(opts){
   const n=_methodsPanels().length;
   if(!n){ toast('No image panels to describe','warn'); return; }
+  if(opts&&opts.ask){ _genAskReplace('methods','Methods paragraph',()=>writeMethodsParagraph()); return; }
   render();                     // the resolution sentence reads this frame's panel cells
   _setGeneratedText('methods', generateMethodsParagraph());
   logAction('methodsParagraph',{panels:n});
@@ -22449,10 +22568,10 @@ function _buildStructuralAltText(){
 }
 // The button: a draft replaces the box, so text the author wrote is asked about first.
 function draftAltText(){
-  if((_figAltText||'').trim()) showConfirmModal('Replace your alt text?','The draft from the figure’s structure replaces what is in the box now.',()=>generateAltText());
-  else generateAltText();
+  _genAskReplace('alt','alt text',()=>generateAltText());
 }
 async function generateAltText(){
+  _syncGeneratedText();          // the draft quotes the caption: bring an untouched one up to date first
   const draft=_buildStructuralAltText();
   let text=draft;
   // Optional on-device polish — never leaves the machine, no key.
@@ -22469,7 +22588,7 @@ async function generateAltText(){
       }
     }catch(e){ /* keep the rule-based draft */ }
   }
-  _setAltText(text);
+  _setGeneratedText('alt', text, _genSig('alt', draft));
   focusAltText();
   toast('Alt text drafted from the figure’s structure — it says what is where, not what it shows; add the findings','ok');
   logAction('altText',{chars:_figAltText.length, onDevice:typeof LanguageModel!=='undefined'});
@@ -22823,7 +22942,7 @@ function _resetFigureState(opts){
   // Forget what FigureLab last wrote into those boxes, or a loaded figure's caption
   // is compared with the PREVIOUS figure's generated text and the package calls it
   // "your edited caption" when it is simply a caption that was not written here.
-  if(typeof _genText!=='undefined'){ _genText.caption=null; _genText.methods=null; }
+  if(typeof _resetGenState==='function') _resetGenState();
   _setAltText('');
   _pendingPanels=[];
   // Reuse decisions and the last cross-figure run belong to the figure; a style file
@@ -22879,6 +22998,9 @@ function serializeSession(bundleImages, mode){
     // another figure's text, so the boxes are cleared instead.
     captionText:gv('caption-out'), methodsText:gv('methods-out'),
     altText:_figAltText,
+    // Which of those texts FigureLab wrote, and for what figure — so after reopening, an
+    // untouched caption still follows the figure and an edited one is flagged when it changes.
+    genTexts:_genStateSave(),
     // Reuse decisions and the last cross-figure check (findings as text, no pixels).
     imageReuse:{decisions:_reuse.decisions, lastRun:_reuse.lastRun, figUid:(images.length||freeformElements.length)?_xdFigId():_reuse.figUid, libId:_reuse.libId},
     labelOffsets,
@@ -22968,6 +23090,7 @@ function applySession(s,_opts){
       { const nt=document.getElementById('fig-notes'); if(nt) nt.value=s.notes||''; }
       sv('caption-out', s.captionText||''); sv('methods-out', s.methodsText||'');
       _setAltText(s.altText||'');
+      _genStateLoad(s.genTexts);
       if(s.imageReuse) _reuseLoad(s.imageReuse);
       // The loaded figure's headings REPLACE the store. setAxisLabels only writes the
       // indices it is given, so the previous figure's headings used to survive past
@@ -34612,7 +34735,7 @@ function shareSession(){
   // measurements, the files' own calibration and times — and the generated text.
   const state = serializeSession(false, 'share');
   delete state.measurements; delete state.freeformElements;
-  delete state.captionText; delete state.methodsText; delete state.altText;
+  delete state.captionText; delete state.methodsText; delete state.altText; delete state.genTexts;
   state._shared = true;
   const ids=new Set(state.images.filter(Boolean).map(d=>d.id));
   state._imageCount = state.images.filter(d=>d&&!(d.insetOf!=null&&ids.has(d.insetOf))).length;
