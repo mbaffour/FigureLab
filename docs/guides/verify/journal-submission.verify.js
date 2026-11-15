@@ -112,23 +112,31 @@ async function card(T, i, { open = false } = {}) {
     return hits.slice(0, 3).join(' / ');
   });
 
-  // ISSUES.md: the Nature preset keeps 183 mm on this 2 × 2 figure although it then prints
-  // 177.5 mm tall (Nature allows 170 mm); the README says a preset picks the widest width that fits.
-  await step(T, '1.3 ⌘K "Journal: Nature": Printed height fails on a 2 × 2 figure; Export › Printed width 89 mm fixes it', async () => {
+  // ux2 (was ISSUES.md): the Nature preset kept 183 mm on this 2 × 2 figure although it then
+  // printed 177.5 mm tall (Nature allows 170 mm). The preset now picks the widest width that
+  // fits and says so; a wider width chosen afterwards fails the row, whose button narrows it.
+  await step(T, '1.3 ⌘K "Journal: Nature": the preset picks 89 mm for a 2 × 2; at 183 mm Printed height fails and "Set 89 mm" fixes it', async () => {
     const hits = await L.cmdk(T, 'Journal: Nature');
     expect(/^Journal: Nature/.test(hits[0]), hits[0]);
     await p.waitForTimeout(500);
     const t = await L.toasts(T);
+    expect(/89 mm wide — the widest that keeps it within 170 mm tall/.test(t), 'toast: ' + t);
     let R = await report(T);
     const h0 = row(R, 'Printed height');
+    expect(h0.icon === '✓', 'Printed height after the preset: ' + h0.note);
     await closeReport(T);
     await L.openSection(T, 'Export');
-    await p.locator('#export-width-mm').selectOption({ label: '89 mm — single column (Nature)' });
+    await p.locator('#export-width-mm').selectOption({ label: '183 mm — double column (Nature; eLife preset)' });
     await p.waitForTimeout(400);
     R = await report(T);
     const h1 = row(R, 'Printed height');
-    expect(h1.icon === '✓', 'Printed height at 89 mm: ' + h1.note);
-    return `at 183 mm: ${h0.icon} ${h0.note.split('Source')[0]} → at 89 mm: ${h1.icon} ${h1.note.split('Source')[0]} (toast: ${t})`;
+    expect(h1.icon === '✗' && R.buttons.includes('Set 89 mm'), 'Printed height at 183 mm: ' + h1.note + ' | ' + R.buttons.join('|'));
+    await p.locator('#info-modal-bg .compliance-row', { hasText: 'Printed height' }).getByRole('button', { name: 'Set 89 mm' }).click();
+    await p.waitForTimeout(500);
+    R = await readReport(T);
+    const h2 = row(R, 'Printed height');
+    expect(h2.icon === '✓', 'after Set 89 mm: ' + h2.note);
+    return `preset: ${h0.icon} ${h0.note.split('Source')[0]} → at 183 mm: ${h1.icon} → Set 89 mm: ${h2.icon} (toast: ${t})`;
   });
 
   await step(T, '1.3b Nature report: "Alt text" opens the ALT TEXT box; ✦ Draft from figure fills it and the row passes', async () => {

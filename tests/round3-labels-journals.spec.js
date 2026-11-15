@@ -452,14 +452,17 @@ test('F14: applying Nature puts the headings in range; Fit with an unfittable ti
   const errors = await setup(page, 4);
   const r = await page.evaluate(() => {
     sv('cols', '2'); sv('rows', '2'); sc('show-col-labels', true); sc('show-row-labels', true); sv('fig-title', 'Title'); onLayoutChange(); render();
-    applyPreset('nature'); render();
+    // ux2: Nature now picks 89 mm for this 2 × 2 (183 mm printed it over 170 mm tall), where the
+    // title fits; the clash this test is about is at 183 mm, chosen by hand after the preset.
+    const nat = () => { applyPreset('nature'); sv('export-width-mm', '183'); render(); };
+    nat();
     const k = _physFacts().ptPerPx, heads = figTextItems.filter(t => t.kind === 'col' || t.kind === 'row').map(t => t.fs * k);
     const row = __row('Text size');
     undo(); redo();                                        // seed Redo: undo then redo leaves one... re-seed below
     undo(); const u = undoStack.length, rd = redoStack.length, ax = gi('axis-fs'), lb = gi('label-size');
     redo(); undo();
     const u2 = undoStack.length, rd2 = redoStack.length;
-    applyPreset('nature'); undo(); applyPreset('nature');  // back on Nature, with Redo empty; seed it:
+    applyPreset('nature'); undo(); nat();                  // back on Nature, with Redo empty; seed it:
     sv('m-top', String(gi('m-top') + 2)); pushUndo(); undo();
     const before = { u: undoStack.length, rd: redoStack.length, ax: gi('axis-fs'), lb: gi('label-size') };
     _auditFix('jtext'); document.getElementById('info-modal-bg')?.remove();

@@ -317,3 +317,191 @@ test('phage2-06: the ASM preset rescales lane tables; one left small is flagged 
   expect(fixed.r.text).not.toContain('Lane-table text prints at');
   expect(errors).toEqual([]);
 });
+
+// ── Text contrast ────────────────────────────────────────────────────────────────────
+// Panels of one flat colour, with an optional dark spot in the top-left corner (where
+// the letter goes), committed as an import would.
+async function solidPanels(page, colours, spot) {
+  await page.evaluate(async ([colours, spot]) => {
+    for (let i = 0; i < colours.length; i++) {
+      const c = document.createElement('canvas'); c.width = 300; c.height = 300;
+      const x = c.getContext('2d'); x.fillStyle = colours[i]; x.fillRect(0, 0, 300, 300);
+      if (spot) { x.fillStyle = spot; x.beginPath(); x.arc(22, 20, 11, 0, Math.PI * 2); x.fill(); }   // a spot under the letter's right half
+      const src = c.toDataURL('image/png');
+      await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, `plate_${i}.png`); res(); }; img.src = src; });
+    }
+    sv('cols', String(colours.length)); sv('rows', '1'); onLayoutChange(); render();
+  }, [colours, spot || null]);
+  await page.evaluate(HELPERS);
+}
+
+// newcomer2-02 / ISSUES: with Look › Panel Labels › Background ticked (the default), the
+// report's Auto contrast button visibly did nothing (white on a .45 chip over a white
+// panel, 3.36:1, before and after).
+test('newcomer2-02: the Auto contrast button fixes Text contrast with Background ticked, and says what it did', async ({ page }) => {
+  const errors = await loadApp(page);
+  await solidPanels(page, ['#f4f4f4', '#ffffff', '#e8e8e8']);
+  await page.locator('#target-journal').selectOption('nature');
+  expect(await page.evaluate(() => gc('label-bg'))).toBe(true);
+  await page.evaluate(() => checkCompliance());
+  const row = page.locator('#info-modal-bg .compliance-row', { hasText: 'Text contrast' });
+  await expect(row.locator('.c-icon')).not.toHaveText('✓');
+  await row.getByRole('button', { name: 'Auto contrast' }).click();
+  await expect(page.locator('#toast')).toContainText('Auto contrast on');
+  const after = await page.evaluate(() => { const r = __row('Text contrast'); __close(); return r; });
+  expect(after.icon).toBe('✓');
+  expect(errors).toEqual([]);
+});
+
+// ISSUES "Auto contrast keeps white text over mid-grey pictures": a phase-contrast photo
+// (#8a8a8a) with Background unticked and Auto contrast on kept white letters, 3.45:1.
+test('ISSUES: Auto contrast picks black letters on a mid-grey picture, and Text contrast passes', async ({ page }) => {
+  const errors = await loadApp(page);
+  await solidPanels(page, ['#8a8a8a', '#7d7d7d']);
+  await page.evaluate(() => { sc('label-bg', false); sc('label-auto-color', true); render(); });
+  const r = await page.evaluate(() => { const ink = figTextItems.filter(t => t.kind === 'panel').map(t => t.fill); const row = __row('Text contrast'); __close(); return { ink, row }; });
+  expect(r.ink).toEqual(['#111111', '#111111']);
+  expect(r.row === null || r.row.icon === '✓').toBe(true);      // with no journal a passing row is not listed
+  expect(errors).toEqual([]);
+});
+
+// phage2-04: the black 'D' sat on the dark 10⁰ spot of a spot assay (black on black in the
+// canvas, TIFF and SVG) and Text contrast read 19/19 passed: the dark pixels under it were
+// taken for its own ink. Measured on the figure drawn without text, it is flagged.
+test('phage2-04: a black letter over a dark spot is flagged by Text contrast', async ({ page }) => {
+  const errors = await loadApp(page);
+  await solidPanels(page, ['#f2f2f2', '#f2f2f2'], '#141414');
+  await page.evaluate(() => { sc('label-bg', false); sc('label-auto-color', false); sv('label-color', '#000000'); render(); });
+  await page.locator('#target-journal').selectOption('asm');
+  const r = await page.evaluate(() => { const row = __row('Text contrast'); __close(); return row; });
+  expect(r.icon).not.toBe('✓');
+  expect(r.text).toMatch(/panel letters “A”/);
+  // and the button fixes it, whatever the picture
+  await page.evaluate(() => checkCompliance());
+  await page.locator('#info-modal-bg .compliance-row', { hasText: 'Text contrast' }).getByRole('button', { name: 'Auto contrast' }).click();
+  const after = await page.evaluate(() => { const row = __row('Text contrast'); __close(); return row; });
+  expect(after.icon).toBe('✓');
+  expect(errors).toEqual([]);
+});
+
+// ── Export format, printed height, the Printed width menu ─────────────────────────────
+// newcomer2-03: Nature, PDF (lossless) exported, then a TIFF as well — the row failed
+// ("last exported as TIFF — not accepted") although an accepted PDF had just been written.
+test('newcomer2-03: Export format passes when any accepted format was exported since the figure last changed', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 2, 2);
+  await page.locator('#target-journal').selectOption('nature');
+  const r = await page.evaluate(async () => {
+    window.dl = () => {};
+    await doExport('pdf-lossless'); await doExport('tiff');
+    const both = __row('Export format'); __close();
+    // a change afterwards: only what is exported from now on counts
+    pushUndo(); sv('gap-h', '12'); render();
+    await doExport('tiff');
+    const tiffOnly = __row('Export format'); __close();
+    return { both, tiffOnly };
+  });
+  expect(r.both.icon).toBe('✓');
+  expect(r.both.text).toMatch(/exported as PDF \(lossless\), TIFF since the figure last changed ✓/);
+  expect(r.tiffOnly.icon).not.toBe('✓');
+  expect(errors).toEqual([]);
+});
+
+// ISSUES "The Nature preset keeps 183 mm when the figure then prints taller than 170 mm",
+// newcomer2-08: the Printed height row was the only ✗ with no button.
+test('ISSUES/newcomer2-08: the Nature preset fits a 2 × 2 within 170 mm; Printed height gets a "Set … mm" button', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  await page.evaluate(() => { sv('export-width-mm', '0'); render(); });
+  await page.locator('#target-journal').selectOption('nature');
+  const r = await page.evaluate(() => ({ w: gv('export-width-mm'), h: _physFacts().hMm, toast: document.getElementById('toast').textContent }));
+  expect(+r.w).toBe(89);
+  expect(r.h).toBeLessThanOrEqual(170.5);
+  expect(r.toast).toContain('the widest that keeps it within 170 mm tall');
+  // a wider width chosen later fails the row, and its button narrows the figure
+  await openExport(page);
+  await page.locator('#export-width-mm').selectOption('183');
+  await page.evaluate(() => checkCompliance());
+  const row = page.locator('#info-modal-bg .compliance-row', { hasText: 'Printed height' });
+  await expect(row.locator('.c-icon')).toHaveText('✗');
+  await row.getByRole('button', { name: 'Set 89 mm' }).click();
+  const after = await page.evaluate(() => { const r = __row('Printed height'); __close(); return { r, w: gv('export-width-mm') }; });
+  expect(after.r.icon).toBe('✓');
+  expect(+after.w).toBe(89);
+  expect(errors).toEqual([]);
+});
+
+// newcomer2-17 / freeform2-18: the Printed width menu was wider than the sidebar
+// (scrollWidth 563 vs 309); choosing an option scrolled the whole sidebar sideways.
+test('newcomer2-17: the Printed width menu fits the sidebar and choosing from it does not scroll it sideways', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 2, 2);
+  await openExport(page);
+  const sel = page.locator('#export-width-mm');
+  await sel.scrollIntoViewIfNeeded();
+  await sel.selectOption('183');
+  const r = await page.evaluate(() => { const sb = document.getElementById('sidebar'), s = document.getElementById('export-width-mm');
+    const a = sb.getBoundingClientRect(), b = s.getBoundingClientRect();
+    return { sw: sb.scrollWidth, cw: sb.clientWidth, sl: sb.scrollLeft, selRight: b.right, sbRight: a.right }; });
+  expect(r.sw).toBeLessThanOrEqual(r.cw + 1);
+  expect(r.sl).toBe(0);
+  expect(r.selRight).toBeLessThanOrEqual(r.sbRight + 1);
+  expect(errors).toEqual([]);
+});
+
+// fluor2-02: 'Same range per channel across panels ✓ (DAPI, GFP, CellMask, TFEB-GFP,
+// Membrane)' — five "channels" for three, each matched with itself, so a real mismatch
+// between conditions passed. The green channel named GFP (from OME) on one panel and
+// TFEB-GFP on the others, at different ranges, is now flagged.
+test('fluor2-02: Display ranges flags one colour shown at different ranges under two channel names', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 3, 3);
+  const r = await page.evaluate(() => {
+    images.forEach(im => { im.lut = 'green'; });
+    images[0].chan = 'GFP'; images[0].whitePt = 200;                 // control, from the file's OME name
+    images[1].chan = 'TFEB-GFP'; images[1].whitePt = 150;            // the treated conditions, typed
+    images[2].chan = 'TFEB-GFP'; images[2].whitePt = 150;
+    render();
+    const row = __row('Display ranges by channel'); __close();
+    images[0].whitePt = 150; render();                                // same range: nothing to flag
+    const same = __row('Display ranges by channel'); __close();
+    return { row, same };
+  });
+  expect(r.row.icon).toBe('⚠');
+  expect(r.row.text).toContain('One colour under more than one name');
+  expect(r.row.text).toMatch(/named GFP \(A: [^)]*\) and TFEB-GFP \(B, C: /);
+  expect(r.same.icon).toBe('✓');
+  expect(errors).toEqual([]);
+});
+
+// ── Typography ──────────────────────────────────────────────────────────────────────
+// ISSUES "Panel letter size field and the drawn letters disagree below 7 px", freeform2-19:
+// 4 pt typed at 183 mm read 4.65 pt in the field, the letters were drawn at the 7 px floor,
+// and the report measured 5.4 pt. The field now shows the size the letters are drawn at.
+test('ISSUES/freeform2-19: a letter size below the drawn minimum shows the size drawn, the one the report measures', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  await page.evaluate(() => { sv('export-width-mm', '183'); render(); });
+  await page.locator('#label-pt').fill('4');
+  await page.locator('#label-pt').press('Tab');
+  await page.waitForTimeout(150);
+  const r = await page.evaluate(() => { render(); const k = _physFacts().ptPerPx, drawn = figTextItems.find(t => t.kind === 'panel').fs;
+    return { pt: +gv('label-pt'), px: +gv('label-size'), drawnPt: drawn * k, drawn }; });
+  expect(r.px).toBeGreaterThanOrEqual(7);
+  expect(r.drawn).toBe(r.px);
+  expect(r.pt).toBeCloseTo(r.drawnPt, 1);
+  expect(errors).toEqual([]);
+});
+
+// freeform2-24 / ISSUES guide note: until a printed width is chosen, mm and pt are at
+// 1 px = 1/96 in, which nobody could tell from the pt fields. The Typography readout now
+// says how wide the figure prints at that scale and that the points are at that size.
+test('freeform2-24: with no printed width the type readout says the figure\'s printed width its points are at', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  const r = await page.evaluate(() => { sv('export-width-mm', '0'); render();
+    return { ro: document.getElementById('type-readout').textContent, mm: _physFacts().wMm }; });
+  expect(r.ro).toContain(`prints ${Math.round(r.mm)} mm wide`);
+  expect(r.ro).toContain('choose Export › Printed width');
+  expect(errors).toEqual([]);
+});

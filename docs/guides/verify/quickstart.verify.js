@@ -60,13 +60,16 @@ const { step, expect, btn } = L;
     return labs.join(' ');
   });
 
-  await step(T, '4. ⌘K → type "nature" → Enter applies the Nature preset', async () => {
+  // ux2: the preset now checks the height too — a 2 × 2 at 183 mm printed 177.5 mm tall, over
+  // Nature's 170 mm, so it picks 89 mm (single column) and says so in its toast.
+  await step(T, '4. ⌘K → type "nature" → Enter applies the Nature preset (89 mm: the widest that keeps a 2 × 2 within 170 mm)', async () => {
     const hits = await L.cmdk(T, 'nature');
     expect(/^Journal: Nature/.test(hits[0]), 'top hit: ' + hits[0]);
     await p.waitForTimeout(500);
-    const st = await p.evaluate(() => ({ j: document.getElementById('target-journal').value, w: document.getElementById('export-width-mm').value }));
-    expect(/nature/i.test(st.j) && +st.w === 183, JSON.stringify(st));
-    return 'Target journal ' + st.j + ', printed width ' + st.w + ' mm';
+    const st = await p.evaluate(() => ({ j: document.getElementById('target-journal').value, w: document.getElementById('export-width-mm').value, t: document.getElementById('toast').textContent }));
+    expect(/nature/i.test(st.j) && +st.w === 89, JSON.stringify(st));
+    expect(/89 mm wide — the widest that keeps it within 170 mm tall/.test(st.t), 'toast: ' + st.t);
+    return 'Target journal ' + st.j + ', printed width ' + st.w + ' mm — toast: ' + st.t;
   });
 
   await step(T, '5. Check › ✓ Check journal compliance → the report opens with one row per rule', async () => {
@@ -81,17 +84,21 @@ const { step, expect, btn } = L;
     return title;
   });
 
-  // ISSUES.md: the report's "Auto contrast" button leaves the Text contrast row failing while
-  // Look › Panel labels › Background is ticked (the default); unticking Background fixes it.
-  await step(T, '5b. Text contrast: untick Look › Background (letters then pick black or white) and re-check', async () => {
-    await L.openSection(T, 'Look');
-    await p.locator('#label-bg').uncheck();
-    await p.waitForTimeout(500);
-    const auto = await p.locator('#label-auto-color').isChecked();
-    expect(auto, 'Auto contrast did not switch on');
+  // ux2: the report's "Auto contrast" button now fixes the Text contrast row with Look ›
+  // Panel labels › Background ticked (the default): the chips darken and letters go white.
+  await step(T, '5b. Text contrast: the row\'s Auto contrast button fixes it (Background stays ticked) and says what it did', async () => {
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
-    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    let rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const tc = rep.locator('.compliance-row', { hasText: 'Text contrast' });
+    if (await tc.getByRole('button', { name: 'Auto contrast' }).count()) {
+      await tc.getByRole('button', { name: 'Auto contrast' }).click();
+      await p.waitForTimeout(400);
+      const t = await p.locator('#toast').textContent();
+      expect(/Auto contrast on/.test(t), 'toast: ' + t);
+    }
+    expect(await p.locator('#label-bg').isChecked(), 'Background was unticked');
+    rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const txt = await rep.innerText();
     const row = (txt.match(/Text contrast\n([^\n]*)/) || [])[1] || '';
     expect(/✓/.test(row), 'Text contrast row: ' + row);
@@ -100,10 +107,9 @@ const { step, expect, btn } = L;
     return title;
   });
 
-  await step(T, '5c. Printed height fails at 183 mm for a 2 × 2: Export › Printed width › 89 mm — single column (Nature) fixes it', async () => {
+  await step(T, '5c. Printed height passes: the preset already chose 89 mm — single column (Nature) for the 2 × 2', async () => {
     await L.openSection(T, 'Export');
-    await p.locator('#export-width-mm').selectOption({ label: '89 mm — single column (Nature)' });
-    await p.waitForTimeout(500);
+    expect(await p.locator('#export-width-mm').inputValue() === '89', 'width ' + await p.locator('#export-width-mm').inputValue());
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });

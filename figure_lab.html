@@ -124,6 +124,10 @@ input[type=number]:focus,input[type=text]:focus,select:focus{outline:none;border
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .btn:focus-visible,.ann-tool:focus-visible,.icon-btn:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 select{width:auto;cursor:pointer}
+/* A select never widens the sidebar: Export › Printed width's long option names pushed it
+   ~150 px sideways (scrollWidth 563 in a 309 px panel); the field shrinks it to fit. */
+.sidebar select{max-width:100%}
+.field>select{min-width:0;flex:0 1 auto}
 input[type=color]{width:32px;height:24px;border:1px solid var(--border);border-radius:4px;
   padding:2px;background:var(--surface);cursor:pointer}
 input[type=range]{width:88px;accent-color:var(--accent);cursor:pointer}
@@ -926,7 +930,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <input type="number" id="label-size" value="18" min="6" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
     <div class="field"><label>Color</label>
       <input type="color" id="label-color" value="#ffffff" oninput="scheduleRender()"></div>
-    <div class="field look-grid-part"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag from the brightness of the image beneath — so a white letter never lands on a white histology section. Not needed when the label has a background chip.">Auto contrast</label>
+    <div class="field look-grid-part"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag, whichever reads better on the image beneath — so a white letter never lands on a white histology section. With Background ticked it makes the chip dark enough for a white letter to read at 4.5:1 on any picture.">Auto contrast</label>
       <input type="checkbox" id="label-auto-color" onchange="scheduleRender()"></div>
     <div class="field look-grid-part"><label>Position</label>
       <select id="label-pos" onchange="scheduleRender()">
@@ -7339,6 +7343,31 @@ function _lutChannelName(lut){
 // typed tag, and the scale bar, so none of them can vanish into a bright-field image
 // or a white histology section. Falls back to the chosen colour if the pixels cannot
 // be read.
+// The report's Auto contrast button, one undo step that says what it did: Auto contrast for
+// letters, tags, bar text and headings (with a chip ticked, the chip darkens and letters go
+// white); then, for any letter still under 4.5:1 — a picture too mixed for black or white
+// alone — the chip behind the letters is switched on.
+function _ckAutoContrastFix(){
+  pushUndo();
+  const did=[];
+  const was={l:gc('label-auto-color'), s:gc('sb-auto-color'), a:gc('axis-auto-color'), bg:gc('label-bg')};
+  sc('label-auto-color',true); sc('sb-auto-color',true); sc('axis-auto-color',true);
+  if(!was.l||!was.s) did.push(was.bg?'Auto contrast on — the chips behind the letters are darker and the letters white':'Auto contrast on — each letter, tag and bar text is drawn black or white, whichever reads better on the picture under it');
+  render();
+  let px=_textPixelContrast();
+  const lowLetters=()=>px.low.filter(([k])=>/^(panel letters|panel tags) /.test(k));
+  if(lowLetters().length&&!gc('label-bg')){
+    sc('label-bg',true); render(); px=_textPixelContrast();
+    did.push('a dark chip behind each letter, since some pictures are too mixed for black or white letters alone');
+  }
+  const left=px.low.map(([k,r])=>`${k} ${r.toFixed(1)}:1`);
+  const msg=(did.length?did.join('; '):'Auto contrast was already on')
+    +(left.length?` — still under 4.5:1: ${left.slice(0,3).join(', ')}${left.length>3?` and ${left.length-3} more`:''}; change that text’s colour, or move it off the busy part of the picture`:' — every text over a picture now reads at 4.5:1 or better');
+  toast(msg, left.length?'warn':'ok');
+}
+// The dark chip behind a letter: .45 black as it always was, .62 with Auto contrast on —
+// white on it reads at 6:1 over white and better over anything darker.
+function _ckChipFill(auto){ return auto?'rgba(0,0,0,.62)':'rgba(0,0,0,.45)'; }
 function _autoInk(ctx,S,x,y,w,h,fallback){
   try{
     const c=ctx.canvas;
@@ -7352,15 +7381,25 @@ function _autoInk(ctx,S,x,y,w,h,fallback){
     // that is not opaque reads as the background it will sit on, so the ink chosen is the
     // one the flat render chooses. Every other render is opaque and unaffected.
     let bg=null;
+    // WCAG relative luminance of every sample. White or black is chosen by which reads
+    // better against the part of the picture that is worst for it — the brightest tenth
+    // for white ink, the darkest tenth for black — so a mid-grey photo (#8a8a8a: white
+    // 3.4:1, black 5.5:1) gets black letters; the switch is near luminance 0.18, not at
+    // mid-grey, where the old mean-brightness rule (> 150) left white letters.
+    const lin=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); };
+    const Ls=[];
     for(let i=0;i<d.length;i+=step){
       const a=d[i+3];
-      let l=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
-      if(a<255){ if(bg==null) bg=luma(gv('bg-color')||'#ffffff');
-        l=(l*a+bg*(255-a))/255; }
-      sum+=l; n++;
+      let r=d[i], g=d[i+1], b=d[i+2];
+      if(a<255){ if(bg==null) bg=_rgbaOf(gv('bg-color')||'#ffffff')||[255,255,255];
+        r=(r*a+bg[0]*(255-a))/255; g=(g*a+bg[1]*(255-a))/255; b=(b*a+bg[2]*(255-a))/255; }
+      Ls.push(0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b)); n++;
     }
     if(!n) return fallback;
-    return (sum/n)>150 ? '#111111' : '#ffffff';
+    Ls.sort((p,q)=>p-q);
+    const hi=Ls[Math.min(n-1,Math.floor(n*0.9))], lo=Ls[Math.floor(n*0.1)];
+    const cW=1.05/(hi+0.05), cB=(lo+0.05)/(0.00561+0.05);      // white ink; #111111 ink
+    return cB>cW ? '#111111' : '#ffffff';
   }catch(e){ return fallback; }
 }
 
@@ -11541,18 +11580,21 @@ function render(targetCanvas, exportScale, opts){
             const bx=lx-4, by=ly-fs-2, bw=tw+8, bh=fs+6, lbr=3;
             const hasBg=gc('label-bg');
             // Auto contrast: read the image under the letter and pick white or black.
-            // A chip already guarantees contrast, so the setting only bites without one.
+            // With a chip it makes the chip dark enough for a white letter to read at
+            // 4.5:1 on any picture (the .45 chip over white gave 3.4:1, and the button
+            // that switched Auto contrast on visibly did nothing).
             // A light letter with no chip on a chart's white ground would vanish: it is dark there.
-            const inkClr=(_plot&&!hasBg&&luma(lblClr)>160)?'#000000':(lblAuto&&!hasBg)?_autoInk(ctx,S,bx,by,bw,bh,lblClr):lblClr;
+            const inkClr=(_plot&&!hasBg&&luma(lblClr)>160)?'#000000':(lblAuto&&!hasBg)?_autoInk(ctx,S,bx,by,bw,bh,lblClr):(lblAuto&&hasBg)?'#ffffff':lblClr;
+            const _chipFill=_ckChipFill(lblAuto);
             const _lblItem={kind:'panel',idx:imgIdx,str:displayLbl,x:lx,y:ly,fs,font:lfont,
               fill:inkClr,align:'left',baseline:'alphabetic',rot:0,
               bbox:{x:bx,y:by,w:bw,h:bh},
-              bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:'rgba(0,0,0,.45)'}:null};
+              bg:hasBg?{x:bx,y:by,w:bw,h:bh,r:lbr,fill:_chipFill}:null};
             if(_lRuns) _lblItem.runs=_lRuns;
             figTextItems.push(_lblItem);
             if(!_skipText(_lblItem)){
               if(hasBg){
-                ctx.fillStyle='rgba(0,0,0,.45)';
+                ctx.fillStyle=_chipFill;
                 ctx.beginPath();
                 ctx.moveTo(bx+lbr,by); ctx.lineTo(bx+bw-lbr,by); ctx.quadraticCurveTo(bx+bw,by,bx+bw,by+lbr);
                 ctx.lineTo(bx+bw,by+bh-lbr); ctx.quadraticCurveTo(bx+bw,by+bh,bx+bw-lbr,by+bh);
@@ -14249,6 +14291,19 @@ function checkCompliance(){
   });
   const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
   const _rangeKeys=[..._ranges.keys()].join(', ');
+  // The groups above go by channel NAME. One colour under two names (GFP from a file's OME
+  // metadata, TFEB-GFP typed for the rest) made two groups, each matched with itself, so a
+  // real mismatch between conditions passed (fluor2-02). Grouped by lookup table as well:
+  // a colour shown at different ranges under different names is flagged, naming both.
+  const _byLut=new Map();
+  _shownPanels.forEach(im=>{ if(!im.img) return;
+    const lbl=_rtText(formatLabel(im.label))||'?';
+    const addL=o=>{ const lut=o&&o.lut; if(!lut||lut==='none'||lut==='grey') return; const nm=_levelKey(o); if(nm==='plain') return;
+      if(!_byLut.has(lut)) _byLut.set(lut,new Map()); const g=_byLut.get(lut);
+      if(!g.has(nm)) g.set(nm,{r:new Set(), who:new Set()}); const e=g.get(nm); e.r.add(_rangeText(o)); e.who.add(lbl); };
+    addL(im); (im.channels||[]).forEach(addL); });
+  const _nameSplit=[..._byLut].filter(([,g])=>g.size>1&&new Set([...g.values()].flatMap(e=>[...e.r])).size>1)
+    .map(([lut,g])=>`the ${(typeof LUT_NAMES!=='undefined'&&LUT_NAMES[lut]||lut).toLowerCase()} channel is named ${[...g].map(([nm,e])=>`${nm} (${[...e.who].join(', ')}: ${[...e.r].join(' / ')})`).join(' and ')}`);
   const _ppis=_panelPpiList(dpi), _lowPpi=_ppis.filter(p=>p.ppi<PANEL_MIN_PPI);
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
@@ -14289,10 +14344,11 @@ function checkCompliance(){
     // classic silent unfairness: the reader assumes GFP in A and GFP in B were shown the
     // same way. A warning, not a failure — sometimes it is deliberate, and the caption
     // says so — with the fix one click away.
-    {label:'Display ranges by channel', ok:_rangeDrift.length===0, warn:_rangeDrift.length>0,
+    {label:'Display ranges by channel', ok:_rangeDrift.length===0&&_nameSplit.length===0, warn:_rangeDrift.length>0||_nameSplit.length>0,
       // Labels and channel keys (file names) are the author's text: escaped for the note.
-      note:_rangeDrift.length ? esc(_rangeDrift.join('; '))+' — compared panels should share a range, or the legend should say why not'
-                              : (_rangeKeys ? `Same range per channel across panels ✓ (${esc(_rangeKeys)})` : 'Does not apply — no pseudocoloured panels'),
+      note:(_rangeDrift.length ? esc(_rangeDrift.join('; '))+' — compared panels should share a range, or the legend should say why not'
+                              : (_rangeKeys ? (_nameSplit.length?`Same range within each channel name (${esc(_rangeKeys)})`:`Same range per channel across panels ✓ (${esc(_rangeKeys)})`) : 'Does not apply — no pseudocoloured panels'))
+        +(_nameSplit.length?`. One colour under more than one name, shown at different ranges: ${esc(_nameSplit.join('; '))} — if they are one channel, give it one name (Export › Legend key › Channel names, or ⚙ › Channel on the panels that differ) so they are compared, synced and described together; if they are different channels that share a colour, the legend should say so`:''),
       info:!_rangeKeys, uncounted:!_rangeKeys,
       fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
@@ -14790,6 +14846,7 @@ function snapshotState(opts){
   return snap;
 }
 function restoreState(s){
+  _ckEdits++;
   if(!s) return;
   // Undo used to drop the selection outright, so the panel you were adjusting had to
   // be found and clicked again after every Ctrl+Z. Remember it by id and look it up in
@@ -14850,6 +14907,7 @@ function _pushSnap(snap){
   if(_pendingUndoSnap!==snap && _pendingUndoDirty) _flushPendingUndo();
   undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[];
   _pendingUndoSnap=null; _pendingUndoFor=null; _pendingUndoDirty=false;
+  _ckEdits++;          // the figure changed: exports made before this are of another version
 }
 function pushUndo(opts){
   // The control whose change is being dispatched already recorded this gesture's step
@@ -18130,6 +18188,10 @@ const JOURNAL_POLICY_FETCHED='August 2026';
 let _lastPresetName='';                 // which journal preset is in force
 let _aiPolicyAcked=false;               // acknowledged once per session, not per export
 var _lastExportFmt=null;                // the format the figure itself last went out in, this session
+// Every format the figure went out in since it last changed (an undo step or an undo/redo
+// is a change): exporting a TIFF after the PDF the journal wants no longer turns a pass
+// into a fail. [{fmt, at}] with `at` the change count when it was written.
+var _ckEdits=0, _ckExports=[];
 
 // The journal the figure is for, from its Target journal control; null for None.
 function _targetJournalId(){ const v=gv('target-journal'); return (v&&JOURNALS[v])?v:''; }
@@ -18432,6 +18494,21 @@ function _journalNarrowFor(J, k){
   return null;
 }
 
+// The widest width the journal allows at which the figure prints no taller than its
+// maximum height, when it is taller now; null when it fits, or when no allowed width does.
+function _ckHeightFitWidth(J){
+  if(!J||!J.maxH) return null;
+  render(); const pf=_physFacts();
+  if(!(pf.hMm>J.maxH+0.5&&pf.wMm>0)) return null;
+  let fit=Math.floor(pf.wMm*J.maxH/pf.hMm*10)/10;
+  if(J.columns){ const c=J.columns.filter(c=>c.mm<=fit+0.05).sort((p,q)=>q.mm-p.mm)[0]; fit=c?c.mm:null; }
+  else if(J.widthRange&&fit<(J.widthRange.min||0)) fit=null;
+  return fit;
+}
+function _ckSetWidthOption(J, mm){
+  const sel=document.getElementById('export-width-mm');
+  if(sel&&![...sel.options].some(o=>o.value===String(mm))){ const o=document.createElement('option'); o.value=String(mm); o.textContent=`${mm} mm — fits ${J.short||J.label}'s ${J.maxH} mm height`; sel.appendChild(o); }
+}
 // ── Width and resolution against the journal ──
 function _journalWidthOk(J, wMm){
   if(J.columns){
@@ -18474,20 +18551,14 @@ function _applyJournalRules(J){
     if(!(cur>0&&ok&&ok.ok)){
       const t=(!(cur>0)&&J.widthDefault)?J.widthDefault:_journalWidthTarget(J,w);
       if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); did.push(`${t} mm wide`); }
-      // The width the preset picked must not print the figure taller than the journal
-      // allows: ASM's 177.8 mm made a tall blot stack 360 mm high, a failed rule nobody
-      // had chosen. Then the widest width that fits is used instead, and said.
-      if(J.maxH){ render(); const pf=_physFacts();
-        if(pf.hMm>J.maxH+0.5&&pf.wMm>0){
-          let fit=Math.floor(pf.wMm*J.maxH/pf.hMm*10)/10;
-          if(J.columns){ const c=J.columns.filter(c=>c.mm<=fit+0.05).sort((p,q)=>q.mm-p.mm)[0]; fit=c?c.mm:null; }
-          else if(J.widthRange&&fit<(J.widthRange.min||0)) fit=null;
-          if(fit){
-            const sel=document.getElementById('export-width-mm');
-            if(sel&&![...sel.options].some(o=>o.value===String(fit))){ const o=document.createElement('option'); o.value=String(fit); o.textContent=`${fit} mm — fits ${J.short||J.label}'s ${J.maxH} mm height`; sel.appendChild(o); }
-            sv('export-width-mm',String(fit)); did.pop(); did.push(`${fit} mm wide — the widest that keeps it within ${J.maxH} mm tall`); }
-        } }
     }
+    // The width the preset picked (or kept) must not print the figure taller than the
+    // journal allows: ASM's 177.8 mm made a tall blot stack 360 mm high, and Nature kept a
+    // 183 mm a size preset had just set, printing a 2 × 2 grid 177.5 mm tall — failed rules
+    // nobody had chosen. Then the widest width that fits is used instead, and said.
+    const fit=_ckHeightFitWidth(J);
+    if(fit){ _ckSetWidthOption(J, fit); if(String(fit)!==gv('export-width-mm')){ sv('export-width-mm',String(fit));
+      if(/ mm wide$/.test(did[did.length-1]||'')) did.pop(); did.push(`${fit} mm wide — the widest that keeps it within ${J.maxH} mm tall`); } }
   }
   // fonts: switched only when the current one is not on the journal's list
   if(J.fonts){
@@ -18569,7 +18640,7 @@ function _accessRows(J){
   const lowList=[...low].sort((a,b)=>a[1]-b[1]);
   rows.push(n||low.size ? {label:'Text contrast', ok:low.size===0, warn:low.size>0&&!fail, src:J&&J.access&&J.access.contrast?_JSRC(J):'',
     note:low.size ? lowList.slice(0,6).map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+(lowList.length>6?` and ${lowList.length-6} more`:'')
-        +` — ${fail?'below 3:1, so hard or impossible to read':'below 4.5:1'}; ${cRule}. Measured on the rendered figure: the text's colour against the pixels under it`
+        +` — ${fail?'below 3:1, so hard or impossible to read':'below 4.5:1'}; ${cRule}. Measured on the rendered figure: the text's colour against the picture under its strokes (the worst tenth), with any chip as drawn. Auto contrast picks black or white letters, darkens the chips, and adds a chip where a picture is too mixed for either`
       : `${n} text item${n===1?'':'s'} measured (headings on the background, letters, tags and bar text on the pixels under them), lowest ${worst.toFixed(1)}:1 ✓ (${cRule})`,
     fix:low.size?(px.low.length?{a:'lblcontrast',t:'Auto contrast'}:(!gc('axis-auto-color')?{a:'contrast',t:'Auto colour'}:null)):null}
     : {label:'Text contrast', ok:true, info:true, uncounted:true, note:'Does not apply — no text to measure'});
@@ -18577,21 +18648,31 @@ function _accessRows(J){
 }
 
 // Contrast of the text drawn over pictures — panel letters, tags, scale-bar and
-// intensity-bar text, a freeform picture's label and bar text — measured on the figure as
-// rendered: the pixels in each text's box that are not its own ink are its background
-// (a chip, a halo, the picture), and their median is set against the ink. Text whose box
-// holds nothing but its own colour has no visible background: 1:1. {n, worst, low:[[what, ratio]]}.
+// intensity-bar text, a freeform picture's label and bar text — measured where the text
+// actually sits: on the figure drawn once more without any text, so a black letter over a
+// dark spot (or over a chart title drawn under it) meets the dark pixels instead of having
+// them mistaken for its own ink. A chip is laid over those pixels as drawn. The figure is
+// judged by the worst tenth of the background in each text's box, not its median: a letter
+// half on a plaque is half unreadable. {n, worst, low:[[what, ratio]]}.
 function _textPixelContrast(){
   const out={n:0, worst:null, low:[]};
   const cv=document.getElementById('fig-canvas'); if(!cv||!cv.width||!canvasLogicalW) return out;
-  let ctx; try{ ctx=cv.getContext('2d'); }catch(e){ return out; }
-  const sx=cv.width/canvasLogicalW, sy=cv.height/(canvasLogicalH||canvasLogicalW);
   const items=[];
   if(layoutMode==='freeform') (freeformElements||[]).forEach(el=>{ if(!el||(el.type!=='image'&&el.type!=='aiicon')) return;
     const fu=_ffFurniture(el); [fu.label,fu.sbText].forEach(t=>{ if(t&&String(t.str||'').trim()) items.push(t); }); });
   else (figTextItems||[]).forEach(t=>{ if(t&&['panel','tag','sb','cbar'].includes(t.kind)&&String(t.str||'').trim()) items.push(t); });
+  if(!items.length) return out;
+  // the figure without its text, at layout size; the on-screen records are put back
+  const keep={ft:figTextItems, kt:_keyTextItems, lf:_lastFrames, lc:_lastCells, lu:_lastFurn};
+  let src=null;
+  try{ const off=document.createElement('canvas'); render(off, 1, {skipLabels:true}); src=off; }catch(e){ src=null; }
+  figTextItems=keep.ft; _keyTextItems=keep.kt; _lastFrames=keep.lf; _lastCells=keep.lc; _lastFurn=keep.lu;
+  if(!src||!src.width) return out;
+  let ctx; try{ ctx=src.getContext('2d'); }catch(e){ return out; }
+  const sx=src.width/canvasLogicalW, sy=src.height/(canvasLogicalH||canvasLogicalW);
   if(!_keyMc) _keyMc=document.createElement('canvas').getContext('2d');
-  const lum=(r,g,b)=>{ const f=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); }; return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
+  const lin=x=>{ x/=255; return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4); };
+  const lum=(r,g,b)=>0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b);
   items.forEach(t=>{
     const ink=_rgbaOf(t.fill); if(!ink) return;
     let b=t.bbox;
@@ -18599,19 +18680,29 @@ function _textPixelContrast(){
       const x=t.align==='center'?t.x-w/2:t.align==='right'?t.x-w:t.x, y=t.baseline==='top'?t.y:t.baseline==='middle'?t.y-fs/2:t.y-fs*0.8;
       b={x:x-2,y:y-2,w:w+4,h:fs+4}; }
     const X=Math.max(0,Math.floor(b.x*sx)), Y=Math.max(0,Math.floor(b.y*sy));
-    const Wd=Math.min(cv.width-X,Math.ceil(b.w*sx)), Hd=Math.min(cv.height-Y,Math.ceil(b.h*sy));
+    const Wd=Math.min(src.width-X,Math.ceil(b.w*sx)), Hd=Math.min(src.height-Y,Math.ceil(b.h*sy));
     if(Wd<1||Hd<1) return;
     let d; try{ d=ctx.getImageData(X,Y,Wd,Hd).data; }catch(e){ return; }
-    const Li=lum(ink[0],ink[1],ink[2]), bgL=[];
-    const step=Math.max(1,Math.floor(Math.sqrt(Wd*Hd/4000)));
-    for(let yy=0;yy<Hd;yy+=step) for(let xx=0;xx<Wd;xx+=step){ const i=(yy*Wd+xx)*4;
-      const dr=d[i]-ink[0], dg=d[i+1]-ink[1], db=d[i+2]-ink[2];
-      if(dr*dr+dg*dg+db*db>40*40) bgL.push(lum(d[i],d[i+1],d[i+2])); }
-    const total=Math.ceil(Hd/step)*Math.ceil(Wd/step);
-    let L;
-    if(bgL.length<total*0.15) L=Li;                    // nothing but its own colour under it
-    else { bgL.sort((a,b)=>a-b); L=bgL[bgL.length>>1]; }
-    const r=(Math.max(L,Li)+0.05)/(Math.min(L,Li)+0.05);
+    const chip=t.bg?_rgbaOf(t.bg.fill):null, ca=chip?(chip[3]??1):0;
+    const Li=lum(ink[0],ink[1],ink[2]), rs=[];
+    // The glyphs' own pixels and a 1 px ring round them: the text drawn alone, as the
+    // figure draws it, into a mask the size of its box.
+    let M=null;
+    if(!t.rot){ try{ const mc=document.createElement('canvas'); mc.width=Wd; mc.height=Hd; const g=mc.getContext('2d');
+      g.setTransform(sx,0,0,sy,-X,-Y); g.font=t.font; g.fillStyle='#000'; g.textAlign=t.align||'left'; g.textBaseline=t.baseline||'alphabetic';
+      _rtDraw(g, t.str, t.x, t.y);
+      const a=g.getImageData(0,0,Wd,Hd).data; M=new Uint8Array(Wd*Hd); let n=0;
+      for(let yy=0;yy<Hd;yy++) for(let xx=0;xx<Wd;xx++){ if(a[(yy*Wd+xx)*4+3]<40) continue;
+        for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const u=xx+dx, v=yy+dy; if(u>=0&&v>=0&&u<Wd&&v<Hd&&!M[v*Wd+u]){ M[v*Wd+u]=1; n++; } } }
+      if(n<4) M=null; }catch(e){ M=null; } }
+    const step=M?1:Math.max(1,Math.floor(Math.sqrt(Wd*Hd/4000)));
+    for(let yy=0;yy<Hd;yy+=step) for(let xx=0;xx<Wd;xx+=step){ if(M&&!M[yy*Wd+xx]) continue; const i=(yy*Wd+xx)*4;
+      let r=d[i], g=d[i+1], bl=d[i+2];
+      if(chip){ r=chip[0]*ca+r*(1-ca); g=chip[1]*ca+g*(1-ca); bl=chip[2]*ca+bl*(1-ca); }
+      const L=lum(r,g,bl); rs.push((Math.max(L,Li)+0.05)/(Math.min(L,Li)+0.05)); }
+    if(!rs.length) return;
+    rs.sort((p,q)=>p-q);
+    const r=rs[Math.floor(rs.length*0.1)];
     out.n++; out.worst=out.worst==null?r:Math.min(out.worst,r);
     if(r<4.5-1e-9) out.low.push([`${_TEXT_KIND[t.kind]||t.kind} ${_qt(_rtText(t.str))} (${t.fill})`, r]);
   });
@@ -18738,8 +18829,10 @@ function _journalRows(J, g){
       fix:wk.ok?null:{a:'jwidth',t:`Set ${_journalWidthTarget(J,wMm)} mm`}});
   } else rows.push({label:'Printed width', ok:true, info:true, note:`${f1(wMm)} mm · ${nm}: ${J.dataOnly?'the data-presentation page states no width':'no width stated'}`});
   // height
-  if(J.maxH) rows.push({label:'Printed height', ok:hMm<=J.maxH+0.5, src,
-    note:`${f1(hMm)} mm · ${nm}: at most ${J.maxH} mm tall${hMm>J.maxH+0.5?' — fewer rows, or a narrower printed width (it scales the height too)':' ✓'}`});
+  if(J.maxH){ const tall=hMm>J.maxH+0.5, fitW=tall?_ckHeightFitWidth(J):null;
+    rows.push({label:'Printed height', ok:!tall, src,
+      note:`${f1(hMm)} mm · ${nm}: at most ${J.maxH} mm tall${tall?(fitW?` — a printed width of ${fitW} mm (it scales the height too) brings it to ${J.maxH} mm or less; or fewer rows`:` — no width ${nm} allows brings it under ${J.maxH} mm: use fewer rows, or split the figure`):' ✓'}`,
+      fix:fitW?{a:'jheight',t:`Set ${fitW} mm`}:null}); }
   else rows.push({label:'Printed height', ok:true, info:!!J.heightNote, src:J.heightNote?src:'', note:`${f1(hMm)} mm${J.heightNote?` · ${nm}: ${J.heightNote}`:''}`});
   // type size
   if(J.ptMin!=null||J.ptMax!=null){
@@ -18809,11 +18902,17 @@ function _journalRows(J, g){
   // export format, colour mode, file size, file name
   if(J.formats){
     const FN={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF (lossless)',svg:'SVG'};
-    const last=_lastExportFmt, okFmt=!last||J.formats.includes(last), lzwBad=J.lzw&&!gc('export-tiff-lzw');
+    const last=_lastExportFmt, lzwBad=J.lzw&&!gc('export-tiff-lzw');
+    // Every format written since the figure last changed counts: one accepted is a pass.
+    const cur=_ckExports.filter(e=>e.at===_ckEdits).map(e=>e.fmt), good=cur.filter(f=>J.formats.includes(f));
+    const okFmt=!last||(cur.length?good.length>0:J.formats.includes(last));
     const stage=J.formatStage?` at ${J.formatStage}`:'';
+    const fl=a=>a.map(f=>FN[f]||f).join(', ');
     rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src, info:!last&&!lzwBad, uncounted:!last&&!lzwBad,
       note:(lzwBad?'TIFFs are written uncompressed — tick Compress TIFF (LZW). ':'')
-        +(last?`last exported as ${FN[last]||last}${okFmt?' ✓':` — not accepted${stage}`}`:`not checked — not exported yet this session; use ${J.formats.map(f=>FN[f]).join(' or ')}`)
+        +(!last?`not checked — not exported yet this session; use ${J.formats.map(f=>FN[f]).join(' or ')}`
+          :cur.length?`exported as ${fl(cur)} since the figure last changed${okFmt?` ✓ (${fl(good)} accepted)`:` — not accepted${stage}`}`
+          :`last exported as ${FN[last]||last}, before the figure last changed${okFmt?' ✓':` — not accepted${stage}`}`)
         +` · ${nm}: ${J.formatNote}`,
       fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
   }
@@ -18903,7 +19002,7 @@ function _journalFix(action){
   if(action==='contrast'){ pushUndo(); sc('axis-auto-color',true); render(); return true; }
   // Letters, tags and bar text: Auto contrast picks white or black from the pixels under
   // each (headings' Auto colour too, in the same step).
-  if(action==='lblcontrast'){ pushUndo(); sc('label-auto-color',true); sc('sb-auto-color',true); sc('axis-auto-color',true); render(); return true; }
+  if(action==='lblcontrast'){ _ckAutoContrastFix(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
   if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
   if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
@@ -18950,6 +19049,8 @@ function _journalFix(action){
     // the narrower width can take the letters past the minimum: fit them in the same step
     sv('export-width-mm',String(w)); _syncWidthOptions(); _journalClampText(J); _syncPhysReadout(); return true;
   }
+  if(action==='jheight'){ const w=_ckHeightFitWidth(J); if(!w) return true;
+    pushUndo(); _ckSetWidthOption(J, w); sv('export-width-mm',String(w)); _syncWidthOptions(); _journalClampText(J); _syncPhysReadout(); return true; }
   if(action==='jlzw'){ _setTiffLzw(true); return true; }
   if(action==='jname'){ const T=_journalNameTarget(J); if(!T.ok&&T.name){ pushUndo(); sv('export-name',T.name); } return true; }
   if(action==='jsbtext'){ pushUndo(); sc('sb-text',false); render(); return true; }
@@ -19092,6 +19193,7 @@ async function doExport(fmt, opts){
     }
     _keyFmt=fmt; _keySyncUI();           // Download key follows the format the figure went out in
     _lastExportFmt=fmt;                  // the journal report checks the format it went out in
+    _ckExports=_ckExports.filter(e=>e.at===_ckEdits&&e.fmt!==fmt).concat({fmt, at:_ckEdits});
     // Raster formats get a true supersampled re-render (grid and freeform alike).
     // Use the canvas's ACTUAL effective DPI (may be < requested if the 60MP cap
     // fired) so embedded physical-size metadata stays honest.
@@ -24834,7 +24936,8 @@ function _ffFurniture(el){
     if(chip){                                          // the dark chip the grid's letters wear
       if(!_rulerMc) _rulerMc=document.createElement('canvas').getContext('2d');
       _rulerMc.font=font; const tw=R?_rtLayout(_rulerMc,R,font).w:_rulerMc.measureText(str).width;
-      out.label.bg={x:el.x+2, y:el.y+3, w:tw+8, h:fs+6, r:3, fill:'rgba(0,0,0,.45)'};
+      out.label.bg={x:el.x+2, y:el.y+3, w:tw+8, h:fs+6, r:3, fill:_ckChipFill(gc('label-auto-color'))};
+      if(gc('label-auto-color')) out.label.fill='#ffffff';
     }
   }
   return out;

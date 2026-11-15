@@ -43,7 +43,10 @@ const PT_RANGE = page => page.evaluate(() => { render(); const k = _physFacts().
 // (fixtures/compliance-baseline-nojournal.json), and re-captured in usability round 1,
 // when rows that checked nothing became ℹ "Does not apply" (not counted as passed), the
 // Text size row began measuring every text in the figure, and type kept its printed size
-// when the printed width changed (ux1-type.spec.js). Without the change this fails on its
+// when the printed width changed (ux1-type.spec.js); and in usability round 2, when Text
+// contrast began measuring the picture under each letter's strokes (ux2-check.spec.js): the
+// 'furnished' figure's white letters sit partly on the seeded white marker squares under a
+// .45 chip, 3.35:1, which the median of the box had hidden. Without the change this fails on its
 // first line: there is no _targetJournal (and no Target journal control) to be "none".
 test('with no target journal the report is word for word the one the app gave before', async ({ page }) => {
   const errors = await loadApp(page);
@@ -230,7 +233,7 @@ test('a Nature figure taller than 170 mm fails the height row; a PNG export fail
   await page.evaluate(async () => { await doExport('png'); });
   const f = await page.evaluate(() => __row('Export format'));
   expect(f.icon).toBe('✗');
-  expect(f.text).toMatch(/last exported as PNG — not accepted/);
+  expect(f.text).toMatch(/exported as PNG since the figure last changed — not accepted/);   // ux2: every format since the last change counts
   expect(f.text).toMatch(/JPEG, TIFF and PNG are not accepted for main figures/);
   expect(errors).toEqual([]);
 });
