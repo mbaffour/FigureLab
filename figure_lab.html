@@ -4159,7 +4159,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
   // three grey pages all called whatever the filename happens to contain.
   const och=(calib&&calib.chan)||null;
   const chanInit={};
-  if(och&&och.name) chanInit.chan=och.name;
+  if(och&&och.name){ chanInit.chan=och.name; chanInit.chanSrc='ome'; }
   if(och&&och.lut) chanInit.lut=och.lut;
   // The file's bit depth, so a panel whose native samples are not kept can say that its
   // numbers are 8-bit display values, not the file's.
@@ -4208,6 +4208,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
     // length in nm, µm or mm — not a fixed 10 µm, which is sub-pixel on a plate photo
     // and wider than the whole field on a TEM image.
     if(cu>0) _fitScaleBar(newImg);
+    _hotPixelWhite(newImg);
     _importUndo();
     if(!cpg.srcPage && images.some(im=>im&&im.name===name&&!im.srcPage)) toast(`Heads up: a panel named "${name}" is already loaded`,'warn');
     // A figure opened without its pixels (share link, settings-only file, oversized
@@ -5898,13 +5899,33 @@ function _setLevelShown(o, which, v){
   else { o.whitePt=Math.max(1,Math.min(255,Math.round(v))); if(o.whitePt<=(o.blackPt||0)) o.whitePt=(o.blackPt||0)+1; }
   o._adjCache=undefined; o._adjKey=undefined;
 }
+// A 16-bit camera file opens at 0…its own maximum, and a handful of hot pixels at
+// 60 000 counts then leave the cells nearly black (fluor2-08). When the brightest 0.01 %
+// of the pixels (at least one) reach well above everything else, the white point starts
+// at the value below them instead: the cells are visible at once, the numbers are in
+// counts in ⚙ (and in Methods), and the drawer says what was done. Smaller images, where
+// 0.01 % is under one pixel, and files without hot pixels open as before.
+function _hotPixelWhite(im){
+  try{
+    const r=_rawOf(im); if(!r||r.format===3||!(r.max>0)) return;
+    const d=r.data, n=d.length, skip=Math.floor(n*1e-4); if(skip<1) return;
+    const hist=new Uint32Array(65536); for(let i=0;i<n;i++) hist[d[i]]++;
+    let above=0, v=65535;
+    for(;v>0;v--){ if(above+hist[v]>skip) break; above+=hist[v]; }
+    if(!(v>0) || r.max<v*1.5) return;
+    _setLevelNative(im,'white',v);
+    im._hotWhite={at:v, max:r.max, n:above};
+  }catch(e){}
+}
 // Black/White point rows for a panel's drawer. A number box beside each slider takes an
 // exact value (255 steps across an 88 px slider cannot be hit with a mouse); for a file
 // with native samples both are in its units, and a line says what those are.
 function _levelFieldsHtml(im){
   const r=_rawOf(im), bp=_levelShown(im,'black'), wp=_levelShown(im,'white');
   const max=r?Math.max(_rawDec(r).hi,wp):255, step=r&&r.format===3?'any':1;
-  const unit=r?`<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">${esc(_rawDepth(r))} file: black and white points in its own values (this file ${_fmtCounts(r.min,r)}–${_fmtCounts(r.max,r)}). Sync by channel copies these values, so matched panels show the same values as the same grey.</div>`
+  const hw=r&&im._hotWhite&&im._hotWhite.max===r.max&&Math.abs(_toNative(im,im.whitePt==null?255:im.whitePt)-im._hotWhite.at)<1?` It opened with White at ${_fmtCounts(im._hotWhite.at,r)}: ${im._hotWhite.n} hot pixel${im._hotWhite.n!==1?'s':''} up to ${_fmtCounts(r.max,r)} would have left the rest nearly black.`:'';
+  const unit=r?`<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">${esc(_rawDepth(r))} file: black and white points in its own values (this file ${_fmtCounts(r.min,r)}–${_fmtCounts(r.max,r)}). Sync by channel copies these values, so matched panels show the same values as the same grey.${hw}</div>`
+    : ((im.raw||im.dispRaw)&&!((im.img&&im.img.naturalWidth)||im._imgEl)) ? `<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">Restoring the file’s ${im.srcBits>8?im.srcBits+'-bit ':''}samples…</div>`
     : (im.srcBits>8?`<div class="f-lv-note" style="font-size:9px;color:var(--warn);line-height:1.35;margin:-2px 0 2px">${im.srcBits}-bit file, native samples not kept: these are 8-bit display values (the file was scaled 0…its maximum). Re-import the file to set levels in its own values.</div>`:'');
   return `<div class="field">
           <label>Black pt</label>
@@ -5938,6 +5959,25 @@ function _derivedPanel(im){ return !!(im&&(im.insetOf!=null||(im.channels&&im.ch
 // filename names it; otherwise the LUT's usual channel. Recolouring a panel does not
 // rename it — a GFP file shown in magenta is still GFP — but the LUT change says so and
 // points at the Channel field, which is how a mis-detected file is corrected.
+// What ⚙ › Channel shows: the colour's name under Channel names when it has one (that
+// is the name the panel goes by everywhere), else the typed or OME name. And a line
+// saying where the name comes from, so an OME name or a colour-wide name is not a
+// mystery: the field used to show an OME "GFP" while the tag said TFEB-GFP.
+function _chanFieldValue(im){
+  const rn=im&&im.lut&&im.lut!=='none'?_keyRename(im.lut):''; if(rn) return rn;
+  return String((im&&im.chan)||'');
+}
+function _chanFieldNote(im){
+  if(!im) return '';
+  const rn=im.lut&&im.lut!=='none'?_keyRename(im.lut):'';
+  let t='';
+  if(rn){ const col=esc(_colourName(_LUT_SWATCH[im.lut]||'#888888'));
+    const u=[...new Set(_channelObjects().filter(x=>x.o.lut===im.lut).map(x=>x.who))];
+    t=`The ${col} channel's name (Export › Legend key › Channel names): every ${col} panel and merge channel goes by it${u.length>1?` (${esc(u.join(', '))})`:''}, and typing here renames them all.`; }
+  else if(String(im.chan||'').trim()&&im.chanSrc==='ome') t='From the OME-TIFF’s channel name.';
+  if(!t) return '';
+  return `<div class="f-chan-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:0 0 4px">${t}</div>`;
+}
 function _chanLabel(o){
   if(!o) return null;
   const typed=String(o.chan||'').trim(); if(typed) return typed;
@@ -6045,7 +6085,10 @@ function renderImgList(){
   const _view=_listViewState(list);
   list.innerHTML = '';
   const _keys=_panelKeys();
-  const nameCounts={}; images.forEach(im=>{ if(im&&!_derivedPanel(im)&&!im.excluded) nameCounts[im.name]=(nameCounts[im.name]||0)+1; });
+  // By file AND page: the pages of one multi-page or OME-TIFF share its name and are not
+  // duplicates of each other (each one used to carry "⚠ duplicate name").
+  const _dupKey=im=>`${im.name}\u0000${im.srcPage||0}`;
+  const nameCounts={}; images.forEach(im=>{ if(im&&!_derivedPanel(im)&&!im.excluded) nameCounts[_dupKey(im)]=(nameCounts[_dupKey(im)]||0)+1; });
   const _placed=layoutMode==='freeform' ? null : new Set(_gridPlacements().filter(p=>p.im).map(p=>p.imgIdx));
   images.forEach((im, idx) => {
     if(!im){
@@ -6089,7 +6132,7 @@ function renderImgList(){
     const _ch=_chName?{label:_chName, color:(im.lut&&im.lut!=='none'&&_LUT_SWATCH[im.lut])||(_chDef&&_chDef.color)||'#aaa'}:null;
     // A derived panel (a merge, a split part, an inset) shares its file's name on purpose,
     // and a hidden source is not in the figure: neither is a "duplicate".
-    const _dup=!_derivedPanel(im)&&!im.excluded&&nameCounts[im.name]>1;
+    const _dup=!_derivedPanel(im)&&!im.excluded&&nameCounts[_dupKey(im)]>1;
     item.innerHTML = `
       <div class="img-item-main"${im.excluded?' style="opacity:.45"':''}>
         <input type="checkbox" class="panel-pick" data-pick="${idx}" aria-label="Tick panel ${esc(_rtText(formatLabel(im.label))||im.name||String(idx+1))}" title="Tick, then use “Show only ticked” to keep just these" style="flex-shrink:0;margin:0 1px 0 0">
@@ -6230,7 +6273,8 @@ function renderImgList(){
         <button class="btn" data-splitch="${idx}" style="width:100%;justify-content:center;margin-top:4px" title="Explode this multi-channel panel into a row of separate single-channel panels plus a merge — the classic split-channel figure.">⑃ Split channels into panels</button>
         <div class="divider"></div>
         <div class="field" style="margin-bottom:2px"><label title="Which channel this panel shows. Sync by channel matches panels by it, and the channel tag and the legend key print it. Blank: read from the file name, unless the LUT says otherwise.">Channel</label>
-          <input type="text" class="f-chan" value="${esc(im.chan||'')}" placeholder="${esc(_channelName(im)||'')}" list="chan-name-list" maxlength="40" style="width:110px"></div>
+          <input type="text" class="f-chan" value="${esc(_chanFieldValue(im))}" placeholder="${esc(_channelName(im)||'')}" list="chan-name-list" maxlength="40" style="width:110px"></div>
+        ${_chanFieldNote(im)}
         <div class="sec-lbl">Tag (shown on the panel)</div>
         <input type="text" class="f-tag" value="${esc(im.tag||'')}" placeholder="e.g. 10 min, +ATc — blank: channel names if on" style="width:100%">
         <div class="field" style="margin-top:4px"><label title="A vertical LUT bar with the display range at its ends — for pseudocoloured or grayscale intensity panels">Intensity bar</label>
@@ -6309,7 +6353,7 @@ function renderImgList(){
     // you could see — and the Methods then said the panel "was converted to grayscale".
     // On a LUT panel it now switches the LUT off (the panel turns grey, the levels stay).
     item.querySelector('.f-gray').addEventListener('click', ()=>{ pushUndo(); const im=images[idx];
-      if(im.lut&&im.lut!=='none'){ const was=LUT_INFO[im.lut]?LUT_INFO[im.lut].btn:im.lut; im.lut='none'; im.grayscale=false;
+      if(im.lut&&im.lut!=='none'){ const was=LUT_INFO[im.lut]?LUT_INFO[im.lut].btn:im.lut, old=im.lut; im.lut='none'; im.grayscale=false; _carryChannelName(im, old);
         toast(`${_rtText(formatLabel(im.label))||'Panel'} shown in greys: ${was} LUT switched off (levels kept)`,'ok'); }
       else im.grayscale=!im.grayscale;
       im._adjCache=undefined; im._adjKey=undefined; renderImgList(); scheduleRender(0); });
@@ -6382,8 +6426,9 @@ function renderImgList(){
     // LUT buttons
     item.querySelectorAll('.f-lut').forEach(btn=>{
       btn.addEventListener('click',()=>{
-        const im=images[idx], was=_channelName(im);
+        const im=images[idx], was=_channelName(im), oldLut=im.lut;
         im.lut=btn.dataset.lut||'none';
+        _carryChannelName(im, oldLut);
         item.querySelectorAll('.f-lut').forEach(b=>b.classList.remove('lut-active'));
         btn.classList.add('lut-active');
         // A grayscale panel recoloured: Grayscale off, or the LUT would not be the point.
@@ -6420,7 +6465,7 @@ function renderImgList(){
     item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
     { const fc=item.querySelector('.f-chan');
-      if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan;
+      if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan; delete im.chanSrc;
         // The colour already carries another name in Legend key › Channel names: that name
         // is what the key and tags print, so it follows the one just typed.
         const rn=im.lut&&im.lut!=='none'?_keyRename(im.lut):'';
@@ -7069,17 +7114,74 @@ function applySettingsToAll(srcIdx){
 // across panels: the detected channel name, else the LUT's usual channel, else
 // "plain" for an unpseudocoloured image.
 function _levelKey(name, lut, hasChannels){
-  // A panel or channel object: the channel it was given (⚙ › Channel, OME), else the
-  // name its colour carries under Legend key › Channel names, else the file name's
-  // channel, else its LUT's channel.
-  if(name&&typeof name==='object'){ const o=name; lut=o.lut;
-    const typed=String(o.chan||'').trim(); if(typed) return typed;
-    const rn=lut&&lut!=='none'?_keyRename(lut):''; if(rn) return rn;
-    const c=_chanLabel(o); if(c) return c;
-    return (lut&&lut!=='none')?_lutChannelName(lut):'plain'; }
+  // A panel or channel object: its channel identity (channelIdentity), the one name the
+  // tag, the key, Sync by channel, the compliance row and Methods all use.
+  if(name&&typeof name==='object') return channelIdentity(name)||'plain';
   if(lut&&lut!=='none') return _channelName(name, lut);
   const d=_detectChannel(name||'');
   return (d&&d.label&&d.label!=='Merge')?d.label:'plain';
+}
+// ── One channel identity ──
+// Which channel a panel, a merge's extra channel or a freeform image shows — one answer
+// for the tag, the legend key, ≡ Sync by channel, the compliance row, the caption and
+// Methods. In order: the name its colour was given under Export › Legend key › Channel
+// names (one name per colour: renaming green there renames every green panel and merge
+// channel, including those whose name came from an OME-TIFF); else the channel it was
+// given in ⚙ › Channel or by its OME-TIFF; else the file name's channel word; else the
+// LUT's usual channel. null for an unpseudocoloured image whose file names no channel.
+// Sync used to put the OME/typed name first while the tags put the colour's name first,
+// so three panels tagged TFEB-GFP were two channels to Sync and Methods (fluor2-01).
+function channelIdentity(o){
+  if(!o) return null;
+  const L=o.lut;
+  if(L&&L!=='none'){ const rn=_keyRename(L); if(rn) return rn; }
+  const c=_chanLabel(o); if(c) return c;
+  return (L&&L!=='none')?_lutChannelName(L):null;
+}
+// A panel whose colour carried a name under Channel names keeps that name when it is
+// shown in grey or recoloured: a TFEB-GFP panel turned grey is still TFEB-GFP, not the
+// "GFP" of its file name (and not a second channel for Sync, the key and Methods).
+function _carryChannelName(o, oldLut){
+  if(!o||!oldLut||oldLut==='none'||o.lut===oldLut) return;
+  const rn=_keyRename(oldLut); if(!rn) return;
+  if(o.lut&&o.lut!=='none'&&_keyRename(o.lut)) return;      // the new colour has its own name
+  o.chan=rn; delete o.chanSrc;
+}
+// Every panel/channel/freeform-image object the figure holds, hidden ones included:
+// [{o, panel, who}] — `panel` is the grid panel (or freeform element) it belongs to.
+function _channelObjects(){
+  const out=[];
+  (images||[]).forEach(im=>{ if(!im||im._waitMark) return; const lbl=_rtText(formatLabel(im.label))||'?';
+    out.push({o:im, panel:im, who:lbl});
+    (im.channels||[]).forEach(ch=>{ if(ch) out.push({o:ch, panel:im, who:lbl}); }); });
+  (typeof freeformElements!=='undefined'&&freeformElements||[]).forEach(e=>{ if(e&&e.type==='image') out.push({o:e, panel:e, who:_rtText(formatLabel(e.label||''))||'?'}); });
+  return out;
+}
+// The figure's channels grouped by identity, for anything that compares channels across
+// panels (the compliance row "Display ranges by channel", Methods): an array of
+// {name, luts:[…], members:[{panel, obj, who, lut, extra}]} over the panels the figure
+// draws (opts.all: hidden ones too). `extra` is true for a merge's extra channel.
+// Unpseudocoloured panels whose file names no channel are left out. Also
+// `.sameColourSplit`: colours shown under more than one name — usually one channel
+// named two ways (an OME name and a file-name word), which no range check can see.
+function channelIdentityGroups(opts){
+  opts=opts||{};
+  const shown=opts.all?null:new Set(layoutMode==='freeform'?(freeformElements||[]).filter(e=>e&&e.type==='image'):_figurePanels());
+  const groups=new Map(), byLut=new Map();
+  _channelObjects().forEach(({o,panel,who})=>{
+    if(shown&&!shown.has(panel)) return;
+    if(o.type&&o.type!=='image') return;
+    const extra=o!==panel, lut=(o.lut&&o.lut!=='none')?o.lut:(extra?'green':'none');
+    if(!extra&&lut==='none'&&(panel.channels||[]).length===0&&!_chanLabel(o)) return;
+    const name=channelIdentity(extra&&!o.lut?{...o, lut}:o); if(!name) return;
+    if(!groups.has(name)) groups.set(name,{name, luts:[], members:[]});
+    const g=groups.get(name); if(!g.luts.includes(lut)) g.luts.push(lut);
+    g.members.push({panel, obj:o, who:extra?`${who} (${name})`:who, lut, extra});
+    if(lut!=='none'&&!(LUT_INFO[lut]&&LUT_INFO[lut].ramp)){ if(!byLut.has(lut)) byLut.set(lut,new Set()); byLut.get(lut).add(name); }
+  });
+  const out=[...groups.values()];
+  out.sameColourSplit=[...byLut].filter(([,n])=>n.size>1).map(([lut,n])=>({lut, names:[...n]}));
+  return out;
 }
 // Sync display ranges BY CHANNEL: the reference panel's black/white points (and gamma)
 // go to every other panel and extra channel that shows the same channel — DAPI levels
@@ -7125,9 +7227,19 @@ function syncLevelsByChannel(srcIdx){
   const keys=[...ref.keys()].filter(k=>k!=='plain').join(', ')||'this panel';
   const what=[...ref.entries()].filter(([k])=>k!=='plain').map(([k,r])=>r.native?`${k} ${_fmtCounts(r.native.lo,r.native.fmt)}–${_fmtCounts(r.native.hi,r.native.fmt)}`:`${k} ${+(+r.bp).toFixed(2)}–${+(+r.wp).toFixed(2)}`).join(', ');
   logAction('syncLevelsByChannel',{src:formatLabel(src.label), channels:keys, range:what, panels, extraChannels:chans, skipped:skipped.join(', ')});
-  const skipNote=skipped.length?` · not matched (one side has native samples, the other only 8-bit display values): ${skipped.join(', ')}`:'';
+  const skipNote0=skipped.length?` · not matched (one side has native samples, the other only 8-bit display values): ${skipped.join(', ')}`:'';
+  // The same colour under another name is usually the same channel named two ways (an
+  // OME-TIFF's name and a file name's word): say so, rather than leave it unmatched in
+  // silence while every tag on the canvas reads alike.
+  const srcLuts=new Set([src.lut,...(src.channels||[]).map(c=>c.lut||'green')].filter(l=>l&&l!=='none'&&!(LUT_INFO[l]&&LUT_INFO[l].ramp)));
+  const odd=new Map();
+  _channelObjects().forEach(({o,panel,who})=>{ if(panel===src||!o.img||panel.excluded) return; const l=o===panel?o.lut:(o.lut||'green');
+    if(!srcLuts.has(l)) return; const k=_levelKey(o); if(ref.has(k)) return;
+    if(!odd.has(k)) odd.set(k,{lut:l, who:new Set()}); odd.get(k).who.add(who); });
+  const oddNote=[...odd].map(([k,x])=>` · ${[...x.who].join(', ')} ${x.who.size>1?'are':'is'} also ${_colourName(_LUT_SWATCH[x.lut]||'#888888')} but named ${k}, so not matched — if it is the same channel, give it one name (⚙ › Channel, or Export › Legend key › Channel names)`).join('');
+  const skipNote=skipNote0+oddNote;
   if(!panels&&!chans) toast(`No other panel shows ${keys} — nothing to sync${skipNote}`,'warn');
-  else toast(`${what} from ${_rtText(formatLabel(src.label))} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})${skipNote}`,skipped.length?'warn':'ok');
+  else toast(`${what} from ${_rtText(formatLabel(src.label))} → ${panels} panel${panels!==1?'s':''}${chans?` and ${chans} extra channel${chans!==1?'s':''}`:''} (${[...touched].join(', ')})${skipNote}`,(skipped.length||odd.size)?'warn':'ok');
 }
 
 // Linked / "matched" panels: sync adjustments across a named comparison group,
@@ -15205,8 +15317,15 @@ function setKeyChannelName(lut, name){
   const m={..._keyRenames()}, v=String(name||'').trim().slice(0,60);
   if((m[lut]||'')===v) return;
   pushUndo();
+  // The channel's other panels — the same channel shown in grey or another colour (a
+  // revision to greyscale, an OME page coloured otherwise) — take the new name too, so
+  // the rename reaches every panel of the channel, not only those still in this colour.
+  const objs=v?_channelObjects():[], oldNames=new Set(objs.filter(x=>x.o.lut===lut).map(x=>channelIdentity(x.o)).filter(Boolean));
   if(v) m[lut]=v; else delete m[lut];
   sv('key-names', Object.keys(m).length?JSON.stringify(m):'');
+  objs.forEach(({o})=>{ if(o.lut===lut||(o.lut&&o.lut!=='none'&&_keyRename(o.lut))) return;
+    const id=channelIdentity(o); if(id&&oldNames.has(id)&&id!==v){ o.chan=v; delete o.chanSrc; } });
+  if(v&&typeof renderImgList==='function') renderImgList();
   logAction('keyChannelName',{lut, name:v});
   const box=document.getElementById('key-names-ui'); if(box) box.dataset.sig='';
   scheduleRender(0);
@@ -21762,6 +21881,12 @@ function _rawRecord(raw){
   return {id, ...meta, type:data instanceof Float32Array?'f32':'u16',
     b64:_u8ToB64(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))};
 }
+// Redraw the panel list once the pictures restored with native samples are decoded.
+let _rawRestoreTimer=0;
+function _rawRestoredSoon(){
+  clearTimeout(_rawRestoreTimer);
+  _rawRestoreTimer=setTimeout(()=>{ if(typeof renderImgList==='function') renderImgList(); }, 30);
+}
 function _rawFromRecord(r){
   if(!r||typeof r!=='object') return null;
   if(r.ref!=null) return (_rawLoadPool&&_rawLoadPool.get(r.ref))||null;
@@ -22166,8 +22291,14 @@ function applySession(s,_opts){
           // A chart or gene map panel is its data: nothing to wait for, never a file to drop.
           if(_isDataPanel(d)){ _dataPanelRefresh(im, true); return im; }
           if(d.src){
-            const img=new Image(); img.onload=()=>scheduleRender(); img.src=d.src; im.img=img;
-            im.channels.forEach(c=>{ if(c.src){ const ci=new Image(); ci.onload=()=>scheduleRender(); ci.src=c.src; c.img=ci; } });
+            // Native samples are matched to the picture they belong to (_rawOf), which can
+            // only be checked once it is decoded: the list is drawn again then, or every
+            // 16-bit panel said "native samples not kept … re-import" with 0–255 levels
+            // until something else happened to rebuild it (fluor2-03).
+            const hasRaw=!!(im.raw||im.dispRaw||im.channels.some(c=>c&&c.raw));
+            const done=()=>{ scheduleRender(); if(hasRaw) _rawRestoredSoon(); };
+            const img=new Image(); img.onload=done; img.src=d.src; im.img=img;
+            im.channels.forEach(c=>{ if(c.src){ const ci=new Image(); ci.onload=done; ci.src=c.src; c.img=ci; } });
             return im;
           }
           // A linked inset needs no pixels of its own: it shows its parent's.
@@ -32393,8 +32524,15 @@ function checkAutosave(){
   bar.innerHTML=`<span>↺ Recover unsaved session from ${when}?${note}</span>
     <button class="btn btn-primary" style="padding:3px 10px">Restore</button>
     <button class="btn" style="padding:3px 10px">Dismiss</button>`;
+  // Autosave keeps each picture but not a 16-bit file's native samples (browser storage
+  // would overflow): those panels come back in 8-bit display values, which used to be
+  // said only inside each panel's ⚙. Name them, and the way back, before and after.
+  const deep=(Array.isArray(s.images)?s.images:[]).filter(d=>d&&d.src&&+d.srcBits>8&&!d.rawRec).map(d=>d.label?`${_rtText(formatLabel(d.label))} (${d.name||''})`:(d.name||'(unnamed)'));
+  if(deep.length) bar.querySelector('span').insertAdjacentHTML('beforeend', ` <span style="color:var(--warn)">${deep.length} ${deep.length>1?'panels come':'panel comes'} back without ${deep.length>1?'their':'its'} 16-bit values.</span>`);
   bar.querySelector('.btn-primary').addEventListener('click',()=>{
-    try{ applySession(s,{silent:true, origin:'autosave'}); toast('Session recovered','ok'); }catch(e){ toast('Could not recover session','err'); }
+    try{ applySession(s,{silent:true, origin:'autosave'});
+      if(deep.length) toast(`Session recovered. Autosave does not keep 16-bit samples: ${deep.join(', ')} ${deep.length>1?'are':'is'} in 8-bit display values now (levels, Methods and measurements too). To get the camera values back, use ⇄ Replace image… with the same file on ${deep.length>1?'each':'it'} — or open the session you saved with Ctrl+S, which keeps them.`,'warn');
+      else toast('Session recovered','ok'); }catch(e){ toast('Could not recover session','err'); }
     bar.remove();
   });
   bar.querySelector('.btn:not(.btn-primary)').addEventListener('click',()=>bar.remove());
