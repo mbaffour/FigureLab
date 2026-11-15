@@ -30,6 +30,7 @@ const PHRASES = {
   'linked inset': /^Add linked inset/,
   'sample colours': /^Sample colours/,
   'nature': /^Journal: Nature/,
+  'plos': /^Journal: PLOS ONE/,
   'check against plos': /^Check against PLOS ONE/,
   'legend key': /^Legend key on the figure/,
   'alt text': /^Alt text/,
@@ -232,7 +233,7 @@ const PHRASES = {
     await p.keyboard.press('Escape'); await p.waitForTimeout(300);
   });
 
-  await step(T, 'A tutorial replaces the figure; End › "Bring your own figure back?" › Confirm restores it', async () => {
+  await step(T, 'A tutorial puts the figure aside; End › "Bring your own figure back?" › Restore my figure restores it', async () => {
     const before = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
     await L.cmdk(T, 'tutorial western');
     await p.waitForTimeout(1500);
@@ -240,7 +241,7 @@ const PHRASES = {
     expect(during !== before, 'tutorial did not load its figure');
     await btn(T, /^End$/).click(); await p.waitForTimeout(800);
     await expectVisible(p.getByText('Bring your own figure back?'));
-    await btn(T, /^Confirm$/).click(); await p.waitForTimeout(1200);
+    await btn(T, /^Restore my figure$/).click(); await p.waitForTimeout(1200);
     const after = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
     expect(after === before, `before ${before} / after ${after}`);
     return 'restored ' + after.split(',').length + ' panels';

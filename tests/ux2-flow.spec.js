@@ -218,13 +218,195 @@ test('ISSUES: ✦ Generate Caption asks before replacing an edited caption, with
   expect(errors).toEqual([]);
 });
 
-test('ISSUES: a caption note reaches the untouched caption without pressing Render', async ({ page }) => {
+// ── Caption and Methods wording ────────────────────────────────────────────────
+// A 16-bit greyscale TIFF (uncompressed, little-endian) with an ImageJ pixel size.
+function tiff16(px, w, h, umPerPx) {
+  const desc = Buffer.from('ImageJ=1.54f\nunit=micron\n\0', 'utf8');
+  const tags = [[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 16], [259, 3, 1, 1], [262, 3, 1, 1], [270, 2, desc.length, 'DESC'],
+    [273, 4, 1, 'DATA'], [277, 3, 1, 1], [278, 3, 1, h], [279, 4, 1, w * h * 2], [282, 5, 1, 'RES'], [283, 5, 1, 'RES'], [296, 3, 1, 1]];
+  const ifd = 8, descOff = ifd + 2 + tags.length * 12 + 4, resOff = descOff + desc.length + (desc.length & 1), dataOff = resOff + 8;
+  const buf = Buffer.alloc(dataOff + w * h * 2);
+  buf.write('II', 0, 'latin1'); buf.writeUInt16LE(42, 2); buf.writeUInt32LE(ifd, 4); buf.writeUInt16LE(tags.length, ifd);
+  tags.forEach(([t, ty, c, v], k) => { const o = ifd + 2 + k * 12; buf.writeUInt16LE(t, o); buf.writeUInt16LE(ty, o + 2); buf.writeUInt32LE(c, o + 4);
+    const val = v === 'DESC' ? descOff : v === 'DATA' ? dataOff : v === 'RES' ? resOff : v; if (ty === 3) buf.writeUInt16LE(val, o + 8); else buf.writeUInt32LE(val, o + 8); });
+  desc.copy(buf, descOff); buf.writeUInt32LE(Math.round(1e6 / umPerPx), resOff); buf.writeUInt32LE(1e6, resOff + 4);
+  for (let i = 0; i < px.length; i++) buf.writeUInt16LE(px[i], dataOff + i * 2);
+  return buf.toString('base64');
+}
+function field(w, h, bg, block, hot) { const a = new Uint16Array(w * h).fill(bg);
+  for (let y = 8; y < 24; y++) for (let x = 8; x < 24; x++) a[y * w + x] = block; a[(h - 2) * w + (w - 2)] = hot; return a; }
+async function dropTiffs(page, files) {
+  await page.evaluate(async (fs) => { await addFiles(fs.map(([b64, name]) => { const b = atob(b64), u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new File([u], name, { type: 'image/tiff' }); })); }, files);
+  await page.waitForFunction((n) => images.filter(Boolean).length === n && images.filter(Boolean).every(im => im.img && im.img.complete && im.img.naturalWidth > 0), files.length);
+}
+
+test('fluor2-04 / fluor2-05: caption and Methods give display ranges in the files’ own values, grouped, with the key’s channel names and natural wording', async ({ page }) => {
   const errors = await loadApp(page);
-  await revisionFigure(page);
+  // two conditions, GFP and a membrane dye; each file has its own maximum, so the same
+  // camera range is a different 8-bit number on every panel
+  await dropTiffs(page, [
+    [tiff16(field(64, 64, 200, 6000, 20441), 64, 64, 0.108), 'DMSO_GFP.tif'],
+    [tiff16(field(64, 64, 200, 6000, 65535), 64, 64, 0.108), 'BafA1_GFP.tif'],
+    [tiff16(field(64, 64, 100, 2000, 9000), 64, 64, 0.108), 'DMSO_CellMask.tif'],
+    [tiff16(field(64, 64, 100, 2000, 30000), 64, 64, 0.108), 'BafA1_CellMask.tif'],
+  ]);
+  await page.evaluate(() => {
+    autoDetectChannels(); sv('cols', 2); sv('rows', 2); onLayoutChange();
+    images.forEach(im => { const g = /GFP/.test(_sourceName(im)); _setLevelNative(im, 'black', g ? 300 : 150); _setLevelNative(im, 'white', g ? 10000 : 4000); });
+    sv('key-names', JSON.stringify({ green: 'TFEB-GFP', magenta: 'Membrane' }));   // Legend key › Channel names
+    render();
+  });
   await openExport(page);
   await page.getByRole('button', { name: '✦ Generate Caption' }).click();
-  await page.evaluate(() => { renderImgList(); document.querySelector('[data-gear="1"]').click(); });
-  await page.locator('#settings-1 input.f-cap').fill('Plaque assay, 1e-6 dilution');
-  await expect(page.locator('#caption-out')).toHaveValue(/\(B\) Plaque assay, 1e-6 dilution/);
+  await page.getByRole('button', { name: '✎ Write Methods paragraph' }).click();
+  const cap = await page.locator('#caption-out').inputValue(), meth = await page.locator('#methods-out').inputValue();
+  expect(cap).not.toMatch(/[Ll]evels|\d\.\d{4,}/);              // was "Levels 1.18482–39.49386" per panel
+  expect(cap).toContain('(A) TFEB-GFP (green)');
+  expect(cap).toContain('(C) Membrane (magenta)');            // was "Magenta"; "CellMask, Magenta" with a heading
+  expect(cap).toContain('Display ranges in the files’ own 16-bit values: TFEB-GFP 300–10000 (panels A and B); Membrane 150–4000 (panels C and D).');
+  expect(cap).toContain('Each channel was displayed with the same settings on every panel that shows it.');
+  expect(cap).not.toMatch(/differ between panels|RFP|Magenta/);
+  expect(meth).toContain('identical settings on every panel of each channel');
+  expect(meth).toContain('pseudocoloured with lookup tables: TFEB-GFP in green (panels A and B); Membrane in magenta (panels C and D)');
+  expect(meth).not.toMatch(/differ between panels|RFP|0–255/);
+  // one panel off its channel's range: said, by channel, with the values
+  const drift = await page.evaluate(() => { _setLevelNative(images[1], 'white', 12000); render(); return { cap: _captionText(), meth: generateMethodsParagraph() }; });
+  expect(drift.cap).toContain('Display settings differ between panels of the same channel (TFEB-GFP: A 300–10000; B 300–12000).');
+  expect(drift.meth).toContain('Display settings differ between panels of the same channel (TFEB-GFP: A 300–10000; B 300–12000)');
+  // a merge of 16-bit channels: no second range "on the 0–255 display scale"; a GFP
+  // panel shown without its lookup table is said to be greyscale
+  const merged = await page.evaluate(() => { _setLevelNative(images[1], 'white', 10000);
+    const c = images[3]; images[1].channels = [{ img: c.img, raw: c.raw, lut: 'magenta', name: c.name, blackPt: c.blackPt, whitePt: c.whitePt }];
+    images[0].lut = 'none'; render(); return generateMethodsParagraph(); });
+  expect(merged).not.toMatch(/0–255 display scale/);
+  expect(merged).toMatch(/Panel A shows \S+ in greyscale, without a lookup table/);
+  expect(errors).toEqual([]);
+});
+
+test('phage2-07 / phage-29: an EM pixel size reads in nm, and a chart in a grid cell is captioned from its data', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  await page.evaluate(() => {
+    const im = images[0]; im.umPerPx = 0.0004; im.sbOn = true; im.sbUm = 0.01; im.sbUnit = 'nm'; im.captionNote = 'Negative-stain TEM of phiKBA3';
+    const ch = _defaultChart('bar');
+    ch.data = { columns: ['strain', 'cfu'], rows: [['WT', 9.1e8], ['WT', 1.1e9], ['WT', 1.0e9], ['dfliC', 2e8], ['dfliC', 3e8], ['dfliC', 2.5e8]], source: 'file', sourceName: 'cfu.csv' };
+    ch.mapping.xCol = 0; ch.mapping.yCols = [1]; ch.error = 'sd'; ch.axes.y.title = 'CFU/mL'; ch.axes.y.log = true;
+    _addDataPanel('chart', ch, 360, 260, 'bar chart'); sv('cols', 2); sv('rows', 1); onLayoutChange(); render();
+  });
+  await openExport(page);
+  await page.getByRole('button', { name: '✦ Generate Caption' }).click();
+  await page.getByRole('button', { name: '✎ Write Methods paragraph' }).click();
+  const cap = await page.locator('#caption-out').inputValue(), meth = await page.locator('#methods-out').inputValue();
+  expect(cap).toContain('(0.4 nm per pixel)');                // was "(0.0004 µm per pixel)"
+  expect(meth).toContain('(0.4 nm per pixel)');
+  expect(cap).toContain('(B) Bar chart of CFU/mL for WT and dfliC, on a log scale. Mean ± SD, n = 3 per point. Data from cfu.csv.');  // was "(B) Panel B."
+  expect(errors).toEqual([]);
+});
+
+// ── Keyboard and first use ─────────────────────────────────────────────────────
+test('newcomer2-21 / newcomer-10: the welcome card is two Tabs away, and Space works on its buttons', async ({ page }) => {
+  const errors = await loadApp(page);
+  // Tab 1 is still the toolbar skip link; Tab 2 goes to the welcome card
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement.textContent)).toMatch(/Skip to the figure toolbar/);
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement.textContent)).toMatch(/Skip to the welcome card/);
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => document.activeElement.classList.contains('es-drop'))).toBe(true);
+  // "Load a session" within a few Tabs (it was Tab 145), and Space presses it
+  let n = 0;
+  while (n < 6 && !/Load a session/.test(await page.evaluate(() => document.activeElement.textContent || ''))) { await page.keyboard.press('Tab'); n++; }
+  expect(n).toBeLessThanOrEqual(3);
+  const chooser = page.waitForEvent('filechooser', { timeout: 4000 });
+  await page.keyboard.press(' ');
+  await chooser;                                     // the pan shortcut swallowed Space here
+  // once the figure has panels the card and its skip link are gone
+  await seedPanels(page, 1);
+  await page.evaluate(() => updateEmptyState());
+  expect(await page.evaluate(() => getComputedStyle(document.getElementById('skip-welcome')).display)).toBe('none');
+  expect(errors).toEqual([]);
+});
+
+test('newcomer-10 / newcomer2-21: panels on the canvas are picked, swapped and opened from the keyboard, with a focus ring and spoken names', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange(); render(); });
+  // Tab from the last toolbar control lands on the figure
+  await page.locator('#hilo-preview').focus();
+  // (past the tip's "Got it" when the tip is up)
+  for (let i = 0; i < 3 && await page.evaluate(() => document.activeElement.id) !== 'ann-canvas'; i++) await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement.id)).toBe('ann-canvas');
+  expect(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle)).toBe('solid');
+  await expect(page.locator('#panel-kb-live')).toContainText('Panel A (panel0.png) selected');
+  await expect(page.getByRole('application', { name: /Figure panels/ })).toHaveCount(1);
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#panel-kb-live')).toContainText('Panel B (panel1.png) selected');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#panel-kb-live')).toContainText('Panel D (panel3.png) selected');
+  expect(await page.evaluate(() => selectedPanel)).toBe(3);
+  // Shift+Up moves D's picture into B's cell (a swap, letters stay with the cells)
+  await page.keyboard.press('Shift+ArrowUp');
+  const r = await page.evaluate(() => ({ files: images.map(im => _sourceName(im)), labels: images.map(im => im.label), sel: selectedPanel }));
+  expect(r.files).toEqual(['panel0.png', 'panel3.png', 'panel2.png', 'panel1.png']);
+  expect(r.labels).toEqual(['A', 'B', 'C', 'D']);
+  expect(r.sel).toBe(1);                                    // the moved panel stays selected
+  await expect(page.locator('#panel-kb-live')).toContainText('panel3.png is now panel B');
+  // one undo step, as a drag
+  await page.keyboard.press('Control+z');
+  expect(await page.evaluate(() => images.map(im => _sourceName(im)))).toEqual(['panel0.png', 'panel1.png', 'panel2.png', 'panel3.png']);
+  // Enter opens the selected panel's settings and moves focus there
+  await page.locator('#ann-canvas').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  const open = await page.evaluate(() => ({ drawer: document.getElementById('settings-' + selectedPanel).classList.contains('open'),
+    focus: document.activeElement.getAttribute('data-gear') }));
+  expect(open.drawer).toBe(true);
+  expect(open.focus).toBe(String(await page.evaluate(() => selectedPanel)));
+  // the letter shortcuts still work with the figure focused
+  await page.locator('#ann-canvas').focus();
+  await page.keyboard.press('t');
+  expect(await page.evaluate(() => activeTool)).toBe('text');
+  expect(errors).toEqual([]);
+});
+
+// ── Help and tutorials ─────────────────────────────────────────────────────────
+test('newcomer2-24 / newcomer2-01: Help no longer points to a "⚠ calibrate" badge, and lists every side-panel section', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => openHelp());
+  const start = await page.locator('#help-pane-start').innerText();
+  expect(start).not.toMatch(/⚠ calibrate|uncalibrated warning badge/);
+  expect(start).toMatch(/Scale bar \/ calibrate…/);
+  expect(start).toMatch(/Calibrate from image/);
+  expect(start).toMatch(/Crop & Scale/);
+  expect(start).toMatch(/Measure \(ruler/);
+  expect(start).toMatch(/Shift\+arrow moves it/);
+  const faq = await page.locator('#help-pane-faq').innerText();
+  expect(faq).not.toMatch(/badge disappears/);
+  // what Help says works: ⌘K "calibrate" reaches the calibration
+  expect((await top(page, 'calibrate'))[0]).toMatch(/^Calibrate a panel/);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer2-11: a tutorial says one thing about getting your figure back, and offers it as the main action', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 2);
+  const said = [];
+  page.on('dialog', d => { said.push(d.message()); d.accept(); });
+  await page.evaluate(() => openHelp('tutorials'));
+  const intro = await page.locator('#help-pane-tutorials').innerText();
+  expect(intro).not.toMatch(/Ctrl\s*\+\s*Z brings it back/);
+  expect(intro).toMatch(/offered it back in one click/);
+  await page.locator('#tutorial-list [data-tut]').filter({ hasText: 'Start' }).nth(1).click();
+  await page.waitForFunction(() => _tut && document.getElementById('tour-ov'));
+  expect(said.join('\n')).not.toMatch(/Ctrl\+Z brings yours back/);
+  expect(said.join('\n')).toMatch(/offered your figure back in one click/);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#cm-title')).toHaveText('Bring your own figure back?');
+  await expect(page.locator('#cm-ok')).toHaveText('Restore my figure');
+  await expect(page.locator('#cm-ok')).toHaveClass(/btn-primary/);
+  await expect(page.locator('#cm-cancel')).toHaveText('Keep the tutorial figure');
+  await page.locator('#cm-ok').click();
+  expect(await page.evaluate(() => images.filter(Boolean).map(im => _sourceName(im)))).toEqual(['panel0.png', 'panel1.png']);
   expect(errors).toEqual([]);
 });

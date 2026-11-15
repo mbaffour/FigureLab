@@ -282,7 +282,7 @@ test('ruler CSV: the header states where each panel\'s calibration came from, an
   // the refactor kept the Methods paragraph's three cases
   expect(r.methods).toMatch(/read from TEM TIFF metadata for panel A/);
   expect(r.methods).toMatch(/set by hand for panel B/);
-  expect(r.methods).toMatch(/0\.005 µm per pixel for panel C/);
+  expect(r.methods).toMatch(/5 nm per pixel for panel C/);   // ux2 phage2-07: EM pixel sizes in nm
   expect(errors).toEqual([]);
 });
 

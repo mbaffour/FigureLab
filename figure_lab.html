@@ -78,6 +78,9 @@ details>summary:hover{color:var(--text);background:var(--surf2)}
 .img-item:hover{border-color:var(--border2)}
 .skip-link{position:absolute;left:8px;top:-60px;z-index:10000;background:var(--accent);color:#fff;padding:6px 10px;border-radius:5px;font-size:12px;text-decoration:none}
 .skip-link:focus{top:8px}
+#ann-canvas:focus{outline:none}
+#ann-canvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.sr-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
 /* Keyboard focus is always visible: inputs and selects used outline:none with only a
    border-colour change. Mouse clicks (no :focus-visible) look as before. */
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,summary:focus-visible,[role=button]:focus-visible,a:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
@@ -515,6 +518,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 </head>
 <body>
 <a href="#" class="skip-link" onclick="event.preventDefault();_skipToToolbar()">Skip to the figure toolbar</a>
+<a href="#" class="skip-link" id="skip-welcome" style="display:none" onclick="event.preventDefault();_skipToWelcome()">Skip to the welcome card — add images, load a session, tutorials</a>
 
 <!-- ── Header ───────────────────────────────────────────────── -->
 <header>
@@ -1703,7 +1707,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="canvas-container" id="canvas-container" style="position:relative;z-index:1">
       <canvas id="fig-canvas" role="img" aria-label="The figure (no alt text written yet — Export › Alt text)"></canvas>
       <canvas id="fig-canvas-hd"></canvas>
-      <canvas id="ann-canvas"></canvas>
+      <canvas id="ann-canvas" tabindex="0" role="application" aria-roledescription="figure panels" aria-label="Figure panels. Arrow keys pick a panel, Shift with an arrow moves it, Enter opens its settings." aria-describedby="panel-kb-live"></canvas>
+      <div id="panel-kb-live" class="sr-live" aria-live="polite"></div>
     </div>
   </div>
   <div class="status-bar">
@@ -1976,6 +1981,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div><code>Space+drag</code> Pan canvas</div>
       <div><code>Ctrl+0</code> Fit to window</div>
       <div><code>Ctrl+1</code> 100% zoom</div>
+      <div><code>Tab</code> to the figure, then <code>←↑→↓</code> Pick a panel</div>
+      <div><code>Shift+←↑→↓</code> Move it (swap) · <code>Enter</code> its settings</div>
       <div style="color:var(--muted);font-size:9px;letter-spacing:.8px;text-transform:uppercase;grid-column:1/-1;margin-top:6px">Editing</div>
       <div><code>Ctrl+Z</code> Undo</div>
       <div><code>Ctrl+Y</code> Redo</div>
@@ -2039,7 +2046,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <h3 class="help-h">The interface at a glance</h3>
 <p class="help-p">The window has two zones:</p>
 <ul class="help-ul">
-  <li><b>Left</b> — the side panel, in sections: <b>Images</b> (the list; each image's ⚙ opens its own settings — brightness, scale bar, label, crop, span and more), <b>Arrange</b> (grid size, gaps, headings), <b>Look</b> (letters, scale-bar style, journal), <b>Annotate &amp; Draw</b> (arrows, text, shapes), <b>Check</b> and <b>Export</b> (file name, DPI, printed width, caption, Methods, submission package, save and load).</li>
+  <li><b>Left</b> — the side panel, in sections: <b>Images</b> (the list; each image's ⚙ opens its own settings — brightness, scale bar, label, crop, span and more), <b>Arrange</b> (grid size, gaps, headings), <b>Templates</b>, <b>Crop &amp; Scale</b> (batch crop, trim borders, match the field of view or pixel size), <b>Annotate &amp; Draw</b> (arrows, text, shapes), <b>Look</b> (letters, scale-bar style, journal), <b>Measure</b> (ruler, counts, intensity), <b>Check</b> and <b>Export</b> (file name, DPI, printed width, caption, Methods, alt text, legend key, submission package, save and load).</li>
   <li><b>Center</b> — the canvas, where your rendered figure appears. The toolbar above it holds Render, the export buttons, zoom, fit, labels and rotate; the header shows the pixel size, the printed size in mm and the zoom.</li>
 </ul>
 
@@ -2055,7 +2062,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <p class="help-p"><b>Automatic:</b> when you import a TIFF that carries pixel-size metadata — <b>OME-TIFF</b>, <b>ImageJ</b>, Zeiss LSM, or a centimetre-resolution tag — FigureLab reads the µm/px and calibrates the panel on import (you'll see a toast; print-DPI resolution is ignored so it's never mistaken for a scale). <span class="help-ui">📎 Read TIFF metadata</span> in a panel re-applies it.</p>
 <p class="help-p"><b>Manual:</b> click <span class="help-ui">🔬 Calibrate from image</span> in a panel's settings, click two points a known distance apart, and enter the real-world distance — FigureLab computes the µm/px ratio. (Objective presets from 4× to 100× are also available.) Then enable the scale bar; <span class="help-ui">Auto SB</span> picks a clean length automatically.</p>
 <div class="help-callout help-tip"><b>Tip</b> Pick the bar's <b>unit</b> (nm / µm / mm) next to its length — handy for EM (nm) or gross specimens (mm). You can also <b>drag the left end of the scale bar</b> on the canvas to resize it (it snaps to clean values).</div>
-<div class="help-callout help-warn"><b>Note</b> An uncalibrated warning badge (⚠) appears on a scale bar when µm/px has not been set. Calibrate first so the bar is accurate.</div>
+<div class="help-callout help-warn"><b>Note</b> A scale bar is drawn only on a panel with a µm/px calibration. A panel whose bar is switched on without one is listed by <span class="help-ui">Check › ✓ Check journal compliance</span> (Scale-bar calibration), with a button to calibrate it or switch its bar off.</div>
 
 <h4 class="help-sub">4. Label the panels</h4>
 <p class="help-p">Turn on panel labels and choose a format — A/B/C, a/b/c, 1/2/3, or i/ii/iii — with control over position, size, colour, font, and bold/italic.</p>
@@ -2084,6 +2091,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Redo (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>)</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save session JSON</td></tr>
     <tr><td><kbd>Space</kbd>+drag</td><td>Pan the canvas</td></tr>
+    <tr><td><kbd>Tab</kbd> to the figure, then arrows</td><td>Pick a panel; <kbd>Shift</kbd>+arrow moves it (swaps with its neighbour); <kbd>Enter</kbd> opens its settings</td></tr>
     <tr><td><kbd>Shift</kbd>+draw</td><td>Snap to 45° / square</td></tr>
   </tbody>
 </table>
@@ -2336,7 +2344,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
       <div class="help-pane" id="help-pane-tutorials">
 <h3 class="help-h">Tutorials</h3>
-<p class="help-p">Each tutorial builds a small demo figure and walks you through the real controls, one step at a time. When a step asks you to do something, the card waits and moves on once you have done it. <b>Do it for me</b> does that step for you, and <kbd>Esc</kbd> ends the tutorial at any point. Your own figure is replaced while a tutorial runs; <kbd>Ctrl</kbd>+<kbd>Z</kbd> brings it back.</p>
+<p class="help-p">Each tutorial builds a small demo figure and walks you through the real controls, one step at a time. When a step asks you to do something, the card waits and moves on once you have done it. <b>Do it for me</b> does that step for you, and <kbd>Esc</kbd> ends the tutorial at any point. Your own figure is put aside while a tutorial runs: when it ends — <b>Done</b>, <b>End</b> or <kbd>Esc</kbd> — you are offered it back in one click.</p>
 <div id="tutorial-list"></div>
       </div>
       <div class="help-pane" id="help-pane-usecases">
@@ -2409,7 +2417,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <p class="help-p">The final-mile checklist: match a journal's spec, export a lossless high-resolution file, and generate the caption plus reproducibility records your methods section needs.</p>
 <ol class="help-ol">
   <li>Pick a <span class="help-ui">Target journal</span> (or press its preset button): Nature, PLOS ONE, eLife, EMBO J, ASM (mBio, J Bacteriol, J Virol…) or JBC. FigureLab applies what that journal's own figure guide says where it is mechanical — printed width, font, type size at print size, DPI, TIFF compression, file name — as one undo step, and <span class="help-ui">✓ Check journal compliance</span> then checks the figure against that guide, each row naming its source, with a fix button where the fix is mechanical. Science, Cell and PNAS keep their size presets, but their pages could not be read and the secondary sources disagree, so their rows say <i>unverified</i> and never fail. <span class="help-ui">Poster</span> is a size preset only.</li>
-  <li>Confirm a white background and that scale bars are calibrated — any <span class="help-ui">⚠</span> uncalibrated warning badge on a scale bar must be resolved first.</li>
+  <li>Confirm a white background and that scale bars are calibrated — the compliance check's <i>Scale-bar calibration</i> row lists any bar switched on without a calibration.</li>
   <li>Set a clear <span class="help-ui">file name</span> and choose <span class="help-ui">DPI</span> of 300–600. Check the info bar below the canvas for the physical size in mm at that DPI.</li>
   <li>Export as <span class="help-ui">TIFF</span> (uncompressed, or LZW-compressed and lossless when you tick <span class="help-ui">Compress TIFF</span>; pixel count scaled to the true DPI) or <span class="help-ui">PDF (lossless)</span> — journals prefer these over JPEG.</li>
   <li>Add a short note to each image in its settings, then click <span class="help-ui">✦ Generate Caption</span> to produce a structured A/B/C caption with scale-bar text.</li>
@@ -2461,7 +2469,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <details class="faq-item"><summary class="faq-q">My fluorescence image is too dim to see — what should I adjust?</summary><div class="faq-a"><p class="help-p">Use the per-panel <b>Gamma</b> slider for nonlinear brightening that lifts dim signal without blowing out bright areas, and set the <b>Black / White point</b> to clip and stretch the useful intensity range. Brightness and Contrast are also available with live preview. Use <span class="help-ui">Apply to all</span> to copy these settings to every panel for consistency.</p></div></details>
 
 <h3 class="help-h">Scale bars &amp; calibration</h3>
-<details class="faq-item"><summary class="faq-q">Why does my scale bar say "uncalibrated" (⚠)?</summary><div class="faq-a"><p class="help-p">The warning badge appears whenever a panel's µm/px ratio has not been set, so FigureLab cannot know the real-world length of the bar. Calibrate the panel and the badge disappears.</p></div></details>
+<details class="faq-item"><summary class="faq-q">Why is there no scale bar on my panel?</summary><div class="faq-a"><p class="help-p">A bar is drawn only once the panel has a µm/px calibration — without one FigureLab cannot know the real length. Right-click the panel › <span class="help-ui">📏 Scale bar / calibrate…</span> (or ⌘K “add scale bar”) and pick the objective or <span class="help-ui">🔬 Calibrate from image</span>. If the bar is switched on without a calibration, the compliance check lists the panel. A bar too long or too short for the panel is not drawn either; <span class="help-ui">Auto</span> picks a length that fits.</p></div></details>
 <details class="faq-item"><summary class="faq-q">How do I calibrate a panel?</summary><div class="faq-a"><p class="help-p">Two ways:</p><ul class="help-ul"><li><b>Two-point calibration</b> — click <span class="help-ui">🔬 Calibrate from image</span> in the panel settings, click two points a known distance apart (e.g. a stage micrometer), and enter the real distance. FigureLab computes µm/px automatically.</li><li><b>Objective preset</b> — pick your objective (4×–100×) to apply an approximate µm/px value.</li></ul><div class="help-callout help-tip"><b>Tip</b> Once calibrated, press <span class="help-ui">Auto SB</span> to snap the bar to a clean length (about 20% of the panel width).</div></div></details>
 <details class="faq-item"><summary class="faq-q">Can I match the physical scale across several panels?</summary><div class="faq-a"><p class="help-p">Yes. After calibrating, use the scale-matching option so panels imaged at the same magnification share one consistent µm/px, keeping bar lengths comparable across the figure.</p></div></details>
 
@@ -5084,7 +5092,7 @@ const CMD_REGISTRY=[
   {label:'Make a panel span two columns or rows (big panel)', keys:'span col span row span merge cells big large larger panel two rows two columns 2x2 double wide tall bigger one panel', run:()=>_cmdpPanelControl('.f-colspan','Set Col span and Row span for this panel — 2 and 2 makes it four cells big')},
   {label:'Copy one panel’s look to every panel (Apply to all)', keys:'copy style apply to all same settings brightness contrast lut levels match panels uniform paste style', run:()=>_cmdpPanelControl('[data-applyall]','“↔ Apply to all” copies this panel’s brightness, contrast, gamma, LUT and levels to every panel')},
   {label:'Margins around the figure', keys:'margin margins edge border around outside top left bottom right padding space room for labels', run:()=>_cmdpGoto('m-left','Margins in px: Left makes room for row headings, Top for column headings')},
-  {label:'Swap or reorder panels', keys:'reorder swap order move panels rearrange drag sort sequence position', run:()=>toast('Drag a panel on the canvas onto another to swap them, or drag a row’s ⠿ handle in the image list; ⌘K “Sort panels by filename” sorts them all','ok')},
+  {label:'Swap or reorder panels', keys:'reorder swap order move panels rearrange drag sort sequence position keyboard', run:()=>toast('Drag a panel on the canvas onto another to swap them, or drag a row’s ⠿ handle in the image list. By keyboard: Tab to the figure, pick a panel with the arrow keys and press Shift+arrow. ⌘K “Sort panels by filename” sorts them all','ok')},
   {label:'Align selected objects: left edges (freeform)', keys:'align left edges line up objects freeform', run:()=>_cmdpFree(()=>alignElems('left'))},
   {label:'Align selected objects: top edges (freeform)', keys:'align top edges line up objects freeform', run:()=>_cmdpFree(()=>alignElems('top'))},
   {label:'Align selected objects: centres (freeform)', keys:'align centre center middle objects freeform', run:()=>_cmdpFree(()=>alignElems('centerH'))},
@@ -5581,6 +5589,7 @@ function updateEmptyState(){
   const ffEmpty=(typeof freeformElements==='undefined')||freeformElements.length===0;
   const empty=(images.length===0 && ffEmpty);
   es.style.display=empty?'flex':'none';
+  { const sw=document.getElementById('skip-welcome'); if(sw) sw.style.display=empty?'':'none'; }
   _drawerOnFigure(empty);
   // The drag-divider tip is meaningless with no panels — keep it out of the way.
   if(empty){ const h=document.getElementById('canvas-hint'); if(h) h.style.display='none';
@@ -5610,6 +5619,9 @@ document.addEventListener('keydown',e=>{
 function _skipToToolbar(){
   const b=document.querySelector('#canvas-toolbar button'); if(b){ b.focus(); }
 }
+// The welcome card comes after the whole side panel in the page — "Load a session" was
+// the 145th Tab stop. While it is shown, the second skip link goes straight to it.
+function _skipToWelcome(){ const d=document.querySelector('#empty-state .es-drop'); if(d) d.focus(); }
 function esLoadSession(){
   const i=document.getElementById('session-load-input');
   if(i) i.click(); else toast('Open the Export panel to load a session','warn');
@@ -6546,8 +6558,7 @@ function renderImgList(){
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
     item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
-    // The caption follows a caption note as it is typed (it used to wait for ⟳ Render).
-    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; if(typeof _scheduleGenSync==='function') _scheduleGenSync(); });
+    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
     { const fc=item.querySelector('.f-chan');
       if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan; delete im.chanSrc;
@@ -10550,8 +10561,9 @@ function _tourEnd(){ _tourClose(); _tourEndSave(); _tut=null; _tourSteps=TOUR_ST
   if(saved) setTimeout(()=>_tutOfferRestore(saved),0); }
 function _tutOfferRestore(saved){
   showConfirmModal('Bring your own figure back?',
-    'The tutorial replaced the figure you had open. Restore it now, as it was when the tutorial started? (One undo step — Ctrl+Z goes back to the tutorial’s figure.)',
-    ()=>{ applySession(saved,{origin:'file'}); toast('Your figure is back, as it was before the tutorial','ok'); });
+    'The tutorial put the figure you had open aside. Restore it now, as it was when the tutorial started? (One undo step — Ctrl+Z goes back to the tutorial’s figure.)',
+    ()=>{ applySession(saved,{origin:'file'}); toast('Your figure is back, as it was before the tutorial','ok'); },
+    {ok:'Restore my figure', cancel:'Keep the tutorial figure', primary:true});
 }
 function _tourFinish(){
   if(_tut){ try{ localStorage.setItem('fl-tut-done-'+_tut.id,'1'); }catch(e){}
@@ -10942,7 +10954,7 @@ async function startTutorial(id){
   const T=_tutById(id); if(!T){ toast('No such tutorial','warn'); return; }
   if(T.id==='basics'){ startTour(true); return; }
   _tourClose();
-  if(images.some(Boolean) && !confirm(`Start "${T.title}"? It replaces the current figure with a small demo one. Ctrl+Z brings yours back.`)) return;
+  if(images.some(Boolean) && !confirm(`Start "${T.title}"? It puts your figure aside and builds a small demo one. When the tutorial ends (Done, End or Esc) you are offered your figure back in one click.`)) return;
   if(layoutMode==='freeform'){ const lm=document.getElementById('layout-mode'); if(lm) lm.value='grid'; setLayoutMode('grid'); }
   const hm=document.getElementById('help-modal'); if(hm) hm.classList.remove('open');
   // Keep the author's figure: a tutorial's "Do it for me" steps are each an undo step,
@@ -17124,6 +17136,73 @@ function showPanelMenu(idx, cx, cy){
   document.body.appendChild(menu);
   setTimeout(()=>document.addEventListener('click', hidePanelMenu, {once:true}), 20);
 }
+// ── Panels by keyboard ─────────────────────────────────────────
+// The canvas is one picture, so its panels could only be picked, swapped or opened with
+// a mouse. Tab reaches the figure; arrow keys pick a panel (the same dashed frame a
+// click draws), Shift with an arrow swaps it with its neighbour (one undo step, as a
+// drag), Enter opens its settings. Each step is said in a live region for screen readers.
+function _kbSay(t){ const l=document.getElementById('panel-kb-live'); if(!l) return; l.textContent=''; setTimeout(()=>{ l.textContent=t; },30); }
+function _kbPanelName(i){ const im=images[i]; if(!im) return '';
+  const L=_rtText(formatLabel(im.label)), f=_sourceName(im)||(im.type==='chart'?'chart':im.type==='genemap'?'gene map':'');
+  return `${L?'Panel '+L:'Unlettered panel'}${f?` (${f})`:''}`; }
+function _kbPlaced(){ return _gridPlacements().filter(p=>p.im&&p.imgIdx>=0&&images[p.imgIdx]); }
+function _kbNeighbour(idx, key){
+  const P=_kbPlaced(), cur=P.find(p=>p.imgIdx===idx); if(!cur) return -1;
+  const k=P.indexOf(cur);
+  if(key==='ArrowRight') return k<P.length-1?P[k+1].imgIdx:-1;
+  if(key==='ArrowLeft') return k>0?P[k-1].imgIdx:-1;
+  const down=key==='ArrowDown', cc=cur.c+cur.cs/2;
+  const cand=P.filter(p=>down?p.r>=cur.r+cur.rs:p.r+p.rs<=cur.r);
+  cand.sort((a,b)=>(down?a.r-b.r:(b.r+b.rs)-(a.r+a.rs))||(Math.abs(a.c+a.cs/2-cc)-Math.abs(b.c+b.cs/2-cc)));
+  return cand.length?cand[0].imgIdx:-1;
+}
+function _kbSelect(i, why){
+  selectedPanel=i; if(typeof hidePanelTooltip==='function') hidePanelTooltip(); drawAnnOverlay();
+  _kbSay(`${_kbPanelName(i)} selected${why||''}.`);
+}
+function _kbSwap(a, b){
+  if(images[a]?.locked||images[b]?.locked){ toast('Cannot move a locked panel','warn'); _kbSay('That panel is locked and cannot move.'); return; }
+  const moved=_sourceName(images[a])||'the panel', other=_sourceName(images[b])||'the other panel';
+  // as the mouse drag commits it: pad, swap and trim as one edit (swapImages records the undo step)
+  _withWaiting(()=>{ while(images.length<=Math.max(a,b)) images.push(null); swapImages(a,b);
+    while(images.length&&images[images.length-1]===null) images.pop(); });
+  selectedPanel=b; renderImgList(); renderMiniGrid(); render(); drawAnnOverlay();
+  const now=_rtText(formatLabel(images[b]&&images[b].label)), was=_rtText(formatLabel(images[a]&&images[a].label));
+  toast(`Panels swapped — ${moved} is now ${now||'in that cell'}${was?`, ${other} is ${was}`:''} (Ctrl+Z undoes it)`,'ok');
+  _kbSay(`Moved: ${moved} is now panel ${now||''}; ${other} is panel ${was||''}. Ctrl+Z undoes it.`);
+}
+function _kbOpenSettings(idx){
+  if(typeof _isNarrow==='function'&&_isNarrow()) toggleSidebar(true);
+  renderImgList();
+  const drawer=document.getElementById('settings-'+idx), gear=document.querySelector(`[data-gear="${idx}"]`);
+  document.querySelectorAll('#img-list .img-settings.open').forEach(d=>{ if(d!==drawer){ const g=document.querySelector(`[data-gear="${d.id.replace('settings-','')}"]`); if(g) g.click(); else d.classList.remove('open'); } });
+  if(!gear){ toast('Open the panel’s ⚙ in Images','warn'); return; }
+  { let d=gear.closest('details'); while(d){ d.open=true; d=d.parentElement&&d.parentElement.closest('details'); } }
+  if(!(drawer&&drawer.classList.contains('open'))) gear.click();
+  try{ gear.closest('.img-item').scrollIntoView({block:'start'}); }catch(e){}
+  gear.focus();
+  _kbSay(`Settings of ${_kbPanelName(idx)} open in the side panel.`);
+}
+annCanvas.addEventListener('focus', ()=>{
+  if(layoutMode!=='grid') return;
+  // focus by Tab only: a click picks its own panel
+  let vis=true; try{ vis=annCanvas.matches(':focus-visible'); }catch(e){}
+  if(!vis) return;
+  if(!(selectedPanel>=0&&images[selectedPanel])){ const P=_kbPlaced(); if(!P.length){ _kbSay('No panels yet — add images first.'); return; } selectedPanel=P[0].imgIdx; drawAnnOverlay(); }
+  _kbSay(`${_kbPanelName(selectedPanel)} selected. Arrow keys pick another panel, Shift with an arrow moves it, Enter opens its settings.`);
+});
+annCanvas.addEventListener('keydown', e=>{
+  if(layoutMode!=='grid'||e.ctrlKey||e.metaKey||e.altKey||e.isComposing) return;
+  const arrow=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key);
+  if(!arrow&&e.key!=='Enter') return;
+  e.preventDefault(); e.stopPropagation();
+  const P=_kbPlaced(); if(!P.length){ _kbSay('No panels yet — add images first.'); return; }
+  if(!(selectedPanel>=0&&images[selectedPanel]&&P.some(p=>p.imgIdx===selectedPanel))){ _kbSelect(P[0].imgIdx); if(e.key!=='Enter') return; }
+  if(e.key==='Enter'){ _kbOpenSettings(selectedPanel); return; }
+  const to=_kbNeighbour(selectedPanel, e.key);
+  if(to<0){ _kbSay(`${_kbPanelName(selectedPanel)} — no panel ${({ArrowLeft:'before it',ArrowRight:'after it',ArrowUp:'above it',ArrowDown:'below it'})[e.key]}.`); return; }
+  if(e.shiftKey) _kbSwap(selectedPanel, to); else _kbSelect(to);
+});
 annCanvas.addEventListener('contextmenu', e=>{
   e.preventDefault();
   const {x,y}=canvasCoords(annCanvas,e);
@@ -22004,7 +22083,12 @@ function _captionAdjustments(im, skip){
   if(!im) return [];
   skip=skip||{};
   const a=[];
-  if((im.blackPt||0)>0||(im.whitePt??255)<255) a.push(`levels ${im.blackPt||0}–${im.whitePt??255}`);
+  // Levels: a file whose native samples are kept has its range stated in its own values
+  // in the sentence after the panels (skip.native), never as the 8-bit numbers of its
+  // decode ("Levels 1.18482–39.49386", different on every panel for one range). Other
+  // levels are whole numbers on the 0–255 scale.
+  if(((im.blackPt||0)>0||(im.whitePt??255)<255)&&!(skip.native&&_rawOf(im)))
+    a.push(`levels ${_lvl8(im.blackPt||0)}–${_lvl8(im.whitePt??255)}${im.srcBits>8&&!_rawOf(im)?' on the 8-bit display scale':''}`);
   if((im.gamma||1)!==1) a.push(`gamma ${(+im.gamma).toFixed(2)} (non-linear)`);
   if((im.brightness??1)!==1) a.push(`brightness ×${(+im.brightness).toFixed(2)}`);
   if((im.contrast??1)!==1) a.push(`contrast ×${(+im.contrast).toFixed(2)}`);
@@ -22016,18 +22100,70 @@ function _captionAdjustments(im, skip){
 }
 // Do two panels carry the same adjustment settings? Journals ask whether adjustments
 // were applied uniformly across the figure, so the caption has to be able to say.
+// Display ranges are compared in the file's own values when its samples are kept (as
+// the compliance check's "Display ranges by channel" row does): two 16-bit panels shown
+// 300–10000 match although their 8-bit black and white points differ.
 function _sameAdjustments(a,b){
-  const k=im=>[im.brightness??1, im.contrast??1, im.gamma||1, im.blackPt||0, im.whitePt??255,
+  const k=im=>[im.brightness??1, im.contrast??1, im.gamma||1, _rangeText(im),
                !!im.invert, !!im.grayscale, im.lut||'none', !!(im.bgKey&&im.bgKey.on)].join('|');
   return k(a)===k(b);
+}
+// The name a channel goes by in the caption and Methods: what the legend key and the
+// tags print (Legend key › Channel names, ⚙ › Channel, an OME name, the file name),
+// else its lookup table's usual channel. One wrapper, so the texts and the key cannot
+// name a channel differently.
+function _capChanName(o){ return (typeof channelIdentity==='function'&&channelIdentity(o))||(typeof _channelName==='function'&&_channelName(o))||_lutChannelName(o&&o.lut); }
+// A lookup table as a colour word for a legend ("green", "magenta"); a colour map by name.
+function _lutColourWord(k){ const L=LUT_INFO[k||'none']; if(!L||!L.name) return '';
+  return L.ramp ? L.name : ({green:'green',blue:'blue',magenta:'magenta',cyan:'cyan',red:'red',yellow:'yellow',orange:'orange'}[k]||String(L.name).toLowerCase()); }
+// A display level in words: a whole number on the 0–255 scale.
+function _lvl8(v){ return String(Math.round(+v||0)); }
+// Pixel size in the unit that reads naturally: "0.4 nm", "0.108 µm", "1.2 mm".
+function _pxSizeText(um, sig){
+  um=+um; sig=sig||3;
+  if(um>0&&um<0.01) return `${+(um*1000).toPrecision(sig)} nm per pixel`;
+  if(um>=1000) return `${+(um/1000).toPrecision(sig)} mm per pixel`;
+  return `${+um.toPrecision(sig)} µm per pixel`;
+}
+// The display ranges of every >8-bit panel and merged channel whose native samples are
+// kept, in the file's own values, grouped by channel and by range: one entry per
+// distinct range, naming the panels that share it. The caption and Methods both state
+// them from this, so they cannot disagree.
+function _nativeRangeGroups(P, nm){
+  const deep=[];
+  P.forEach(im=>{ [im,...(im.channels||[])].forEach(o=>{ if(_rawOf(o)||o.srcBits>8) deep.push({im,o}); }); });
+  const depth=[...new Set(deep.map(d=>{ const r=_rawOf(d.o); return r?_rawDepth(r):`${d.o.srcBits}-bit`; }))];
+  const groups=new Map();
+  deep.forEach(d=>{ if(!_rawOf(d.o)) return; const key=_levelKey(d.o)==='plain'?'':_levelKey(d.o);
+    const t=_rangeText(d.o);
+    if(!groups.has(key)) groups.set(key,new Map()); const g=groups.get(key); if(!g.has(t)) g.set(t,new Set()); g.get(t).add(nm(d.im)); });
+  const parts=[...groups].map(([key,g])=>(key?`${key} `:'')+[...g].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join(', '));
+  const lost=[...new Set(deep.filter(d=>!_rawOf(d.o)).map(d=>nm(d.im)))];
+  return {deep, depth, parts, lost};
+}
+// Were the display settings the same? Per channel when the figure compares channels —
+// two channels or more, one of them on several panels: GFP has to match GFP and the
+// membrane dye the membrane dye, not each other. Otherwise across every panel, as before.
+//   {uni:null|true|false, byChannel, drift:["TFEB-GFP: A 300–10000, B 300–12000", …]}
+function _uniformity(shown){
+  if(shown.length<2||!shown.some(im=>_captionAdjustments(im).length>0)) return {uni:null, byChannel:false, drift:[]};
+  const groups=new Map();
+  shown.forEach(im=>{ const k=_levelKey(im); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(im); });
+  const byChannel=groups.size>=2&&[...groups.values()].some(g=>g.length>=2);
+  if(!byChannel) return {uni:shown.every(im=>_sameAdjustments(im,shown[0])), byChannel, drift:[]};
+  const drift=[];
+  groups.forEach((g,k)=>{ if(g.every(im=>_sameAdjustments(im,g[0]))) return;
+    const name=k==='plain'?'unpseudocoloured panels':k, rng=new Map();
+    g.forEach(im=>{ const t=_rangeText(im); if(!rng.has(t)) rng.set(t,[]); rng.get(t).push(_rtText(formatLabel(im.label))||_sourceName(im)||'?'); });
+    drift.push(rng.size>1 ? `${name}: ${[...rng].map(([t,w])=>`${w.join(', ')} ${t}`).join('; ')}` : name); });
+  return {uni:!drift.length, byChannel, drift};
 }
 
 // Were the display adjustments identical on every shown panel? null when nothing was
 // adjusted or there is only one panel, so there is nothing to say. The caption and the
 // Methods paragraph both ask this, and must never answer differently.
 function _adjustmentsUniform(shown){
-  if(shown.length<2||!shown.some(im=>_captionAdjustments(im).length>0)) return null;
-  return shown.every(im=>_sameAdjustments(im,shown[0]));
+  return _uniformity(shown).uni;
 }
 
 // Text the app wrote into the caption, Methods and alt-text boxes, as it wrote it. A box
@@ -22183,24 +22319,49 @@ function _captionObjects(){
   const KIND={bar:'Bar chart', groupedBar:'Grouped bar chart', stackedBar:'Stacked bar chart', line:'Line chart', scatter:'Scatter plot',
     box:'Box plot', violin:'Violin plot', beeswarm:'Dot plot', heatmap:'Heatmap', survival:'Survival curve'};
   return els.slice().sort((a,b)=>(a.y-b.y)||(a.x-b.x)).map(el=>{
-    const L=letterFor(el), bits=[];
-    if(el.type==='chart'){
-      const ch=el.chart, cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
-      const ys=(m.yCols||[]).map(i=>_rtText(String(cols[i]==null?'':cols[i]))).filter(Boolean);
-      const yt=_rtText((ch.axes&&ch.axes.y&&ch.axes.y.title)||''), xt=_rtText((ch.axes&&ch.axes.x&&ch.axes.x.title)||'');
-      let d=(KIND[ch.kind]||'Chart');
-      if(yt||xt) d+=` of ${yt||'the values'}${xt?` against ${xt}`:''}`;
-      if(ys.length) d+=` (${ys.length>1?'series':'values'}: ${_listAnd(ys.slice(0,8))}${ys.length>8?', …':''})`;
-      bits.push(d+'.');
-      const src=ch.data&&ch.data.sourceName; if(src) bits.push(`Data from ${src}.`);
-      const note=String(ch.caption||'').trim(); if(note) bits.push(note.replace(/\.?$/,'.'));
-    } else {
-      const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
-      const t=_rtText((mp.style&&mp.style.title)||'');
-      bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${mp.length?` (${Math.round(mp.length).toLocaleString('en-US')} bp)`:''}${f.length?`, showing ${_listAnd(f.slice(0,10))}${f.length>10?' and others':''}`:''}.`);
-    }
-    return {letter:L, text:(L?`(${L}) `:'')+bits.join(' ')};
+    const L=letterFor(el);
+    return {letter:L, text:(L?`(${L}) `:'')+_dataCaption(el)};
   });
+}
+// What a chart or gene map shows, from its own settings: the kind, what is plotted
+// against what, the groups or series, mean ± SD/SEM and n when replicates are averaged,
+// the log axis, the data file and the author's note; a map's topology, length, features
+// and file. A grid panel holding a chart used to be captioned "(E) Panel E." and nothing more.
+function _dataCaption(el){
+  const KIND={bar:'Bar chart', groupedBar:'Grouped bar chart', stackedBar:'Stacked bar chart', line:'Line chart', scatter:'Scatter plot',
+    box:'Box plot', violin:'Violin plot', beeswarm:'Dot plot', heatmap:'Heatmap', survival:'Survival curve'};
+  const bits=[];
+  if(el.type==='chart'&&el.chart){
+    const ch=el.chart, cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
+    const ys=(m.yCols||[]).map(i=>_rtText(String(cols[i]==null?'':cols[i]))).filter(Boolean);
+    const yt=_rtText((ch.axes&&ch.axes.y&&ch.axes.y.title)||''), xt=_rtText((ch.axes&&ch.axes.x&&ch.axes.x.title)||'');
+    let d=(KIND[ch.kind]||'Chart');
+    if(yt||xt) d+=` of ${yt||'the values'}${xt?` against ${xt}`:''}`;
+    // the groups a bar or box chart compares, else the series plotted
+    let pl=null; try{ pl=_chartPlotted(el); }catch(e){ pl=null; }
+    const cats=pl&&!pl.numericX?[...new Set(pl.rows.map(r=>_rtText(String(r.x??''))).filter(Boolean))]:[];
+    if(cats.length>1&&cats.length<=12) d+=` for ${_listAnd(cats)}`;
+    else if(ys.length) d+=` (${ys.length>1?'series':'values'}: ${_listAnd(ys.slice(0,8))}${ys.length>8?', …':''})`;
+    if(pl&&pl.ylog) d+=', on a log scale';
+    bits.push(d+'.');
+    if(pl&&pl.rows.length){
+      const ns=pl.rows.map(r=>+r.n).filter(n=>n>0), lo=Math.min(...ns), hi=Math.max(...ns);
+      const nTxt=ns.length?(lo===hi?`n = ${lo}`:`n = ${lo}–${hi}`):'';
+      const ek=ch.error==='sd'?'mean ± SD':ch.error==='sem'?'mean ± SEM':ch.error==='column'?'error bars from the data file':'';
+      if(pl.boxes){ if(nTxt) bits.push(`Boxes show the median and quartiles; ${nTxt} per group.`); }
+      else if(hi>1&&ek) bits.push(`${_ucFirst(ek)}, ${nTxt} per point.`);
+      else if(hi>1) bits.push(`Means of replicates, ${nTxt} per point.`);
+      else if(ek==='error bars from the data file') bits.push('Error bars from the data file.');
+    }
+    const src=ch.data&&ch.data.sourceName; if(src) bits.push(`Data from ${src}.`);
+    const note=String(ch.caption||'').trim(); if(note) bits.push(note.replace(/\.?$/,'.'));
+  } else if(el.type==='genemap'&&el.map){
+    const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
+    const t=_rtText((mp.style&&mp.style.title)||'');
+    bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${mp.length?` (${Math.round(mp.length).toLocaleString('en-US')} bp)`:''}${f.length?`, showing ${_listAnd(f.slice(0,10))}${f.length>10?' and others':''}`:''}.`);
+    const src=mp.sourceName||mp.source; if(src&&typeof src==='string'&&/\.(gb|gbk|genbank|gff3?|fasta|fa|dna|txt)$/i.test(src)) bits.push(`Drawn from ${src}.`);
+  }
+  return bits.join(' ');
 }
 function _captionText(){
   const objs=_captionObjects();
@@ -22214,14 +22375,22 @@ function _captionText(){
     // or "(B) 10 min." rather than "(B) Panel B."
     const hd=heads.get(im)||{}, tag=_rtText((im.tag||'').trim());
     let desc=note||[hd.col, (hd.col&&_stockChanTag(tag))||(hd.col&&hd.col.toLowerCase().includes(tag.toLowerCase()))?'':tag].filter(Boolean).join(', ')||'';
-    // LUT → channel hint
+    // A chart or gene map in a grid cell: what it plots, not "(E) Panel E."
+    const dataDesc=_isDataPanel(im)?_dataCaption(im):'';
+    // The channel, by the name the key gives it, with its colour in words: "TFEB-GFP
+    // (green)", "Membrane (magenta)" — not "CellMask, Magenta" or the stock "RFP".
     const lutLabel=LUT_NAMES[im.lut||'none'];
     let lutInDesc=false, grayInDesc=false;
-    if(lutLabel&&!desc.toLowerCase().includes('gfp')&&!desc.toLowerCase().includes('dapi')&&!desc.toLowerCase().includes('lut')){
-      desc=desc?(desc+', '+lutLabel):lutLabel;
+    if(lutLabel){
       lutInDesc=true;
-    } else if(lutLabel){
-      lutInDesc=true;    // the author's own note already names the channel/LUT
+      const cn=_capChanName(im), col=_lutColourWord(im.lut), dl=desc.toLowerCase();
+      const named=(cn&&dl.includes(cn.toLowerCase()))||/\b(gfp|dapi|lut)\b/.test(dl);
+      const who=named?'':(_stockChanTag(cn)&&desc?'':cn);
+      const colour=col&&!dl.includes(col.toLowerCase())?col:'';
+      if(who||colour){
+        const head=[desc,who].filter(Boolean).join(', ');
+        desc=head?`${head}${colour?` (${colour})`:''}`:_ucFirst(colour);
+      }
     }
     // Grayscale hint
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
@@ -22244,6 +22413,7 @@ function _captionText(){
       const who=`Unlettered panel${hd.row?` in the ${hd.row} row`:''}${_sourceName(im)?` (${_sourceName(im)})`:''}`;
       desc=desc?`${who}, ${desc[0].toLowerCase()+desc.slice(1)}`:who;
     }
+    if(dataDesc){ const d0=desc; desc=d0?`${d0}. ${dataDesc.replace(/\.$/,'')}`:dataDesc.replace(/\.$/,''); }
     if(!desc) desc=insetSentence||`Panel ${shown}`;
     let s=shown?`(${shown}) ${desc}.`:`${desc}.`;
     if(parent&&desc!==insetSentence) s+=` ${insetSentence}.`;
@@ -22256,7 +22426,7 @@ function _captionText(){
     // uncalibrated panel, or one whose bar was too long or too short to draw, was
     // captioned "Scale bar, 10 µm" over a panel with no bar on it.
     if(_scaleBarDrawn(im)){
-      s+=` Scale bar, ${_sbLabel(im)} (${(+im.umPerPx.toPrecision(3))} µm per pixel).`;
+      s+=` Scale bar, ${_sbLabel(im)} (${_pxSizeText(im.umPerPx)}).`;
     }
     // The field of view actually shown — the cropped region in physical units — which a
     // methods section needs and a reader cannot recover from a scale bar alone.
@@ -22265,7 +22435,7 @@ function _captionText(){
     if(meta) s+=` ${meta}.`;
     // Image adjustments — every one that was applied, not just the levels. An inset
     // inherits its parent's, so it says so instead of repeating the list.
-    const adj=_captionAdjustments(im,{lut:lutInDesc, grayscale:grayInDesc});
+    const adj=_captionAdjustments(im,{lut:lutInDesc, grayscale:grayInDesc, native:true});
     if(parent){ if(adj.length) s+=` Displayed with the same settings as (${pl}).`; }
     else if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
       +` applied uniformly across the whole panel.)`;
@@ -22287,17 +22457,23 @@ function _captionText(){
   // Whether the adjustments were the same on every panel is itself a disclosure a
   // journal asks for: identical settings are routine, per-panel settings are the case
   // that needs stating rather than being left for a reader to infer from the numbers.
-  const _uni=_adjustmentsUniform(_figurePanels());
+  // Display ranges of files kept at their own bit depth, in their own values, panels
+  // sharing a range named together — said once, not per panel in 8-bit numbers.
+  const nat=_nativeRangeGroups(_figurePanels(), im=>_rtText(formatLabel(im.label))||(_sourceName(im)?`“${_sourceName(im)}”`:'?'));
+  const ranges=nat.parts.length?` Display ranges in the files’ own ${_listAnd(nat.depth.filter(d=>!/^8-bit/.test(d)))} values: ${nat.parts.join('; ')}.`:'';
+  const U=_uniformity(_figurePanels());
   let uniformity='';
-  if(_uni!==null){
-    uniformity=_uni
-      ? ' The same adjustment settings were applied to every panel.'
-      : ' Adjustment settings differ between panels, as stated per panel above.';
+  if(U.uni!==null){
+    uniformity=U.byChannel
+      ? (U.uni ? ' Each channel was displayed with the same settings on every panel that shows it.'
+               : ` Display settings differ between panels of the same channel (${U.drift.join('; ')}).`)
+      : (U.uni ? ' The same adjustment settings were applied to every panel.'
+               : ' Adjustment settings differ between panels, as stated per panel above.');
   }
   const title=gv('fig-title').trim();
   // Reuse the author marked intentional, stated as the journals require.
   const reuse=_reuseSentences().map(t=>' '+t).join('');
-  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+grouped.join(' ')+uniformity+reuse;
+  return (title?`Figure. ${_rtText(title)}. `:'')+preamble+grouped.join(' ')+ranges+uniformity+reuse;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -22330,32 +22506,38 @@ function generateMethodsParagraph(){
   // predicate, which also counts gamma, LUT, inversion and keying, so the "differ"
   // sentence is worded as the caption words it, not as a claim about levels alone.
   const lin=P.filter(im=>(im.blackPt||0)!==0||(im.whitePt??255)!==255||(im.brightness??1)!==1||(im.contrast??1)!==1);
-  const uni=_adjustmentsUniform(P);
+  const U=_uniformity(P), uni=U.uni;
   if(lin.length){
-    if(uni===true) S.push('Brightness, contrast and display range were adjusted linearly, with identical settings on every panel, each applied to the whole image.');
+    if(uni===true) S.push(`Brightness, contrast and display range were adjusted linearly, with identical settings on every panel${U.byChannel?' of each channel':''}, each applied to the whole image.`);
     else S.push(`Brightness, contrast or display range were adjusted linearly for ${_panelsPhrase(lin.map(nm))}, each applied to the whole image.`);
   }
-  if(uni===false) S.push('Adjustment settings differ between panels'+(hasHistory?'; the per-panel values are listed in PANEL_HISTORY.txt.':'.'));
+  if(uni===false) S.push((U.byChannel?`Display settings differ between panels of the same channel (${U.drift.join('; ')})`:'Adjustment settings differ between panels')
+    +(hasHistory?'; the per-panel values are listed in PANEL_HISTORY.txt.':'.'));
   { const s16=_methodsBitDepth(P, nm); if(s16) S.push(s16); }
   const gam=P.filter(im=>(im.gamma||1)!==1);
   if(gam.length) S.push(`A non-linear gamma adjustment was applied to ${_listAnd(gam.map(im=>`panel ${nm(im)} (γ = ${(+im.gamma).toFixed(2)})`))}.`);
-  // Pseudocolour: the panel's own LUT and those of any merged channels.
-  const luts=[];
+  // Pseudocolour: each channel by its name and colour, panels sharing both named
+  // together ("TFEB-GFP in green (panels A and B)"); a channel also shown without a
+  // lookup table is said to be in greyscale there, not left out.
+  const luts=new Map(), say=(o,k,im)=>{ const t=`${_capChanName(o)} in ${_lutColourWord(k)||LUT_NAMES[k]||k}`;
+    if(!luts.has(t)) luts.set(t,new Set()); luts.get(t).add(nm(im)); };
   P.forEach(im=>{
-    const l=[];
-    if(im.lut&&im.lut!=='none') l.push(LUT_NAMES[im.lut]||im.lut);
-    (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') l.push(LUT_NAMES[k]||k); });
-    if(l.length) luts.push(`panel ${nm(im)}, ${_listAnd(l)}`);
+    if(im.lut&&im.lut!=='none') say(im,im.lut,im);
+    (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') say(ch,k,im); });
   });
-  if(luts.length) S.push(`Images were pseudocoloured with lookup tables: ${luts.join('; ')}.`);
+  if(luts.size) S.push(`Images were pseudocoloured with lookup tables: ${[...luts].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join('; ')}.`);
+  { const grey=luts.size?P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&_levelKey(im)!=='plain'):[];
+    if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>_capChanName(im)))])} in greyscale, without a lookup table.`); }
   P.filter(im=>im.channels&&im.channels.some(c=>c.img)).forEach(im=>{
     // The base image plus each channel that has pixels; a channel without them is not drawn.
     const n=1+im.channels.filter(c=>c.img).length;
     S.push(`Panel ${nm(im)} is a composite of ${n} channels combined by screen blending, each cropped to the same field of view.`);
     // A merged channel's own display range is an adjustment too; it used to be left out,
     // so a merge whose GFP channel was stretched read as unadjusted.
-    const cl=im.channels.filter(c=>c.img&&((c.blackPt||0)>0||(c.whitePt??255)<255))
-      .map(c=>`${(typeof _lutChannelName==='function'&&_lutChannelName(c.lut))||c.name||'channel'} ${c.blackPt||0}–${c.whitePt??255}`);
+    // Channels kept at their own bit depth are stated in their own values with the rest
+    // (the display-range sentence); only 8-bit ones are given here, on the 0–255 scale.
+    const cl=im.channels.filter(c=>c.img&&!_rawOf(c)&&((c.blackPt||0)>0||(c.whitePt??255)<255))
+      .map(c=>`${_capChanName(c)||c.name||'channel'} ${_lvl8(c.blackPt||0)}–${_lvl8(c.whitePt??255)}`);
     if(cl.length) S.push(`In panel ${nm(im)} the merged channel${cl.length>1?'s were':' was'} displayed with ${cl.length>1?'their own linear display ranges':'its own linear display range'} (${_listAnd(cl)}, on the 0–255 display scale).`);
   });
   const gs=P.filter(im=>im.grayscale), inv=P.filter(im=>im.invert), key=P.filter(im=>im.bgKey&&im.bgKey.on);
@@ -22403,8 +22585,8 @@ function generateMethodsParagraph(){
     cal.get(k).names.push(nm(im));
   });
   if(cal.size) S.push('Pixel size was '+_listAnd([...cal.values()].map(c=>c.how
-    ? `${c.how} for ${_panelsPhrase(c.names)} (${+c.um.toPrecision(4)} µm per pixel)`
-    : `${+c.um.toPrecision(4)} µm per pixel for ${_panelsPhrase(c.names)}`))+'.');
+    ? `${c.how} for ${_panelsPhrase(c.names)} (${_pxSizeText(c.um,4)})`
+    : `${_pxSizeText(c.um,4)} for ${_panelsPhrase(c.names)}`))+'.');
   // Splice markers record themselves (addSpliceMarker sets splice:true); a plain line
   // drawn by hand, or a marker added before the flag existed, is not a splice claim.
   const spl=(annotations||[]).filter(a=>a&&a.splice);
@@ -22431,16 +22613,8 @@ function generateMethodsParagraph(){
 // the QUAREP "display range" a reviewer asks for. Panels without their native samples
 // (opened from an old session) are named as such.
 function _methodsBitDepth(P, nm){
-  const deep=[];
-  P.forEach(im=>{ [im,...(im.channels||[])].forEach((o,k)=>{ if(_rawOf(o)||o.srcBits>8) deep.push({im,o,k}); }); });
+  const {deep, depth, parts, lost}=_nativeRangeGroups(P, nm);
   if(!deep.length) return '';
-  const depth=[...new Set(deep.map(d=>{ const r=_rawOf(d.o); return r?_rawDepth(r):`${d.o.srcBits}-bit`; }))];
-  const groups=new Map();
-  deep.forEach(d=>{ if(!_rawOf(d.o)) return; const key=_levelKey(d.o)==='plain'?'':_levelKey(d.o);
-    const r=_rawOf(d.o), t=`${_fmtCounts(_toNative(d.o,d.o.blackPt||0),r)}–${_fmtCounts(_toNative(d.o,d.o.whitePt==null?255:d.o.whitePt),r)}`;
-    if(!groups.has(key)) groups.set(key,new Map()); const g=groups.get(key); if(!g.has(t)) g.set(t,new Set()); g.get(t).add(nm(d.im)); });
-  const parts=[...groups].map(([key,g])=>(key?`${key} `:'')+[...g].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join(', '));
-  const lost=[...new Set(deep.filter(d=>!_rawOf(d.o)).map(d=>nm(d.im)))];
   let t=`The ${_listAnd(depth)} images were mapped linearly to 8 bits for display`;
   t+=parts.length?`; display ranges in native values: ${parts.join('; ')}.`:'.';
   if(lost.length) t+=` For ${_panelsPhrase(lost)} the native samples were not available, and each file was scaled from 0 to its own maximum.`;
@@ -24078,7 +24252,7 @@ document.addEventListener('keydown', e=>{
   if((e.ctrlKey||e.metaKey)&&(e.key==='g'||e.key==='G')&&layoutMode==='freeform'&&selectedElems.size){ e.preventDefault(); if(e.shiftKey) ungroupSelectedElems(); else groupSelectedElems(); }
   // Space pans only over the figure. On a focused button or section header it is the
   // keyboard's click, as everywhere else — it used to be swallowed here.
-  if(e.key===' ' && (_t===document.body||_t===document.documentElement||(_t&&_t.closest&&_t.closest('#canvas-wrap')))){
+  if(e.key===' ' && (_t===document.body||_t===document.documentElement||(_t&&_t.closest&&_t.closest('#canvas-wrap')&&!_t.closest('#empty-state, button, a, summary, [role=button]')))){
     e.preventDefault(); spaceDown=true;
     if(activeTool==='none') annCanvas.style.cursor='grab';
   }

@@ -183,7 +183,7 @@ test('fluor-21: the caption uses the row and column headings, not "RFP" for Cell
     render(); return _captionText();
   });
   expect(cap).toContain('DMSO: (A) DAPI');
-  expect(cap).toContain('(B) CellMask, Magenta');
+  expect(cap).toContain('(B) CellMask (magenta)');     // ux2 fluor2-04: the colour in words, not "CellMask, Magenta"
   expect(cap).toContain('BafA1: (C) DAPI');
   expect(cap).not.toContain('RFP');
   expect(errors).toEqual([]);
@@ -599,7 +599,7 @@ test('newcomer-19: Open settings from the canvas shows one panel\'s settings at 
       const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
       const k = r.width / canvasLogicalW;
       c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + (b.x + b.w / 2) * k, clientY: r.top + (b.y + b.h / 2) * k })); }, i);
-    await page.getByText('Open settings').click();
+    await page.getByText('Open settings').last().click();   // the menu, not Help's mention of it
   }
   const open = await page.evaluate(() => [...document.querySelectorAll('#img-list .img-settings.open')].map(d => d.id));
   expect(open).toEqual(['settings-2']);
