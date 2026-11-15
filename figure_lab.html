@@ -14291,19 +14291,17 @@ function checkCompliance(){
   });
   const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
   const _rangeKeys=[..._ranges.keys()].join(', ');
-  // The groups above go by channel NAME. One colour under two names (GFP from a file's OME
-  // metadata, TFEB-GFP typed for the rest) made two groups, each matched with itself, so a
-  // real mismatch between conditions passed (fluor2-02). Grouped by lookup table as well:
-  // a colour shown at different ranges under different names is flagged, naming both.
-  const _byLut=new Map();
-  _shownPanels.forEach(im=>{ if(!im.img) return;
-    const lbl=_rtText(formatLabel(im.label))||'?';
-    const addL=o=>{ const lut=o&&o.lut; if(!lut||lut==='none'||lut==='grey') return; const nm=_levelKey(o); if(nm==='plain') return;
-      if(!_byLut.has(lut)) _byLut.set(lut,new Map()); const g=_byLut.get(lut);
-      if(!g.has(nm)) g.set(nm,{r:new Set(), who:new Set()}); const e=g.get(nm); e.r.add(_rangeText(o)); e.who.add(lbl); };
-    addL(im); (im.channels||[]).forEach(addL); });
-  const _nameSplit=[..._byLut].filter(([,g])=>g.size>1&&new Set([...g.values()].flatMap(e=>[...e.r])).size>1)
-    .map(([lut,g])=>`the ${(typeof LUT_NAMES!=='undefined'&&LUT_NAMES[lut]||lut).toLowerCase()} channel is named ${[...g].map(([nm,e])=>`${nm} (${[...e.who].join(', ')}: ${[...e.r].join(' / ')})`).join(' and ')}`);
+  // The groups above go by channel identity. One colour under two names (GFP from a file's
+  // OME metadata, TFEB-GFP typed for the rest) made two groups, each matched with itself, so
+  // a real mismatch between conditions passed (fluor2-02). channelIdentityGroups names the
+  // colours shown under more than one name; one shown at different ranges is flagged.
+  const _cig=(layoutMode==='freeform')?[]:channelIdentityGroups();
+  const _nameSplit=(_cig.sameColourSplit||[]).map(({lut,names})=>{
+    const per=names.map(nm=>{ const g=_cig.find(x=>x.name===nm); const ms=g?g.members.filter(m=>m.lut===lut&&m.panel&&m.panel.img):[];
+      return {nm, who:[...new Set(ms.map(m=>m.who))], r:[...new Set(ms.map(m=>_rangeText(m.obj)))]}; }).filter(e=>e.who.length);
+    if(per.length<2||new Set(per.flatMap(e=>e.r)).size<2) return null;
+    return `the ${(typeof LUT_NAMES!=='undefined'&&LUT_NAMES[lut]||lut).toLowerCase()} channel is named ${per.map(e=>`${e.nm} (${e.who.join(', ')}: ${e.r.join(' / ')})`).join(' and ')}`;
+  }).filter(Boolean);
   const _ppis=_panelPpiList(dpi), _lowPpi=_ppis.filter(p=>p.ppi<PANEL_MIN_PPI);
   const checks=[
     {label:'Export DPI',    ok:dpi>=300, warn:dpi>=150&&dpi<300, note:`${dpi} DPI (journals require ≥300)`,
