@@ -238,3 +238,82 @@ test('ISSUES: the placed key follows a layout change (a column more) without bei
   expect(r.off).toBe(false);
   expect(errors).toEqual([]);
 });
+
+// ── Text size: every text the figure prints ──────────────────────────────────────────
+// charts2-01 (charts-32): at Look › Text size 5 pt the PLOS report still read "Text size ✓
+// panel letters 10.0 pt" — chart panels in a grid were not measured, nor the log-axis
+// exponents (10⁶…10¹⁰) and the ⁻¹ of CFU mL⁻¹ at 70% of their text (5.6 pt at 8 pt).
+test('charts2-01: the Text size row measures chart text in grid chart panels, and their exponents', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) { const el = __gridChart('bar', ['Strain', 'PAO1', 'dpilA'], [['a', 1e8, 2e9], ['b', 3e9, 4e8]]);
+      el.chart.axes.y.log = true; el.chart.axes.y.title = 'CFU mL^{-1}'; }
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render();
+  });
+  await page.locator('#target-journal').selectOption('plos');
+  await page.evaluate(() => { const e = document.getElementById('text-pt'); e.value = '5'; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); render(); });
+  let row = await page.evaluate(() => { const r = __row('Text size'); return r; });
+  expect(row.icon).toBe('✗');
+  expect(row.text).toContain('chart text');
+  expect(row.text).toMatch(/chart text 5\.\d/);
+  // Fit brings the chart text to 8 pt; the exponents, at 70 % of it, are still under 8 pt and
+  // are flagged on their own — a warning that says how to raise them
+  await page.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' }).getByRole('button', { name: /Fit/ }).click();
+  await page.waitForTimeout(100);
+  row = await page.evaluate(() => { const r = __row('Text size'); __close(); return r; });
+  expect(row.icon).toBe('⚠');
+  expect(row.text).toContain('Superscripts and subscripts print at 70%');
+  expect(row.text).toMatch(/is 5\.\d pt, below 8 pt/);
+  // the Export box names it too, in plain words (it read "legend key the placed key")
+  const ro = await page.locator('#phys-readout').textContent();
+  expect(ro).toContain('chart text');
+  expect(ro).toMatch(/superscripts and subscripts 5\.\d pt/);
+  expect(errors).toEqual([]);
+});
+
+// charts2-20: the Export box read "smallest text = 8.0 pt (legend key the placed key)".
+test('charts2-20: the Export box names the placed key in plain words', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 2, 2);
+  await page.evaluate(() => { sv('label-pt', '12'); sv('axis-pt', '12'); sv('text-pt', '6'); render(); });
+  await openExport(page);
+  await page.locator('#key-on-figure').check();
+  await page.waitForTimeout(100);
+  const ro = await page.locator('#phys-readout').textContent();
+  expect(ro).toContain('legend key (placed on the figure)');
+  expect(ro).not.toContain('legend key the placed key');
+  expect(errors).toEqual([]);
+});
+
+// phage2-06 / phage2-19 / ISSUES: a lane table made before the ASM preset kept 13 px —
+// 'Dilution' at 5.1 pt and its exponents at 3.5 pt — and Text size passed ✓ because "ASM
+// states no type size". The preset now moves lane tables with the headings, and the row
+// warns below 6 pt and about a lane table left smaller than the figure's text, with a button.
+test('phage2-06: the ASM preset rescales lane tables; one left small is flagged and brought to the text size', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  await page.evaluate(() => {
+    images[3].laneTable = { rows: [{ name: 'Dilution', cells: ['10^{0}', '10^{-1}', '10^{-2}', '10^{-3}'] }], lanes: 4, pos: 'above', fs: 13 };
+    sv('panel-w', '600'); sv('panel-h', '600'); render();
+  });
+  await page.locator('#target-journal').selectOption('asm');
+  await page.waitForTimeout(100);
+  const after = await page.evaluate(() => ({ fs: images[3].laneTable.fs, ax: gf('axis-fs'), lane: _figTextSizes().filter(t => t.kind === 'lanetable').map(t => t.fs * _physFacts().ptPerPx) }));
+  expect(after.fs).toBeGreaterThan(13);
+  expect(Math.min(...after.lane)).toBeGreaterThanOrEqual(6);
+  // a table left at 13 px (made in an older session, or set by hand) is flagged with a fix
+  await page.evaluate(() => { images[3].laneTable = { ...images[3].laneTable, fs: 13 }; render(); });
+  await page.evaluate(() => checkCompliance());
+  const row = page.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' });
+  await expect(row.locator('.c-icon')).toHaveText('⚠');
+  await expect(row).toContainText('Lane-table text prints at');
+  await expect(row).toContainText('below 6 pt');
+  await row.getByRole('button', { name: /Lane tables to/ }).click();
+  await page.waitForTimeout(100);
+  const fixed = await page.evaluate(() => { const r = __row('Text size'); __close();
+    return { r, pt: Math.min(..._figTextSizes().filter(t => t.kind === 'lanetable').map(t => t.fs * _physFacts().ptPerPx)), text: +gv('text-pt') }; });
+  expect(fixed.pt).toBeGreaterThanOrEqual(fixed.text - 0.1);
+  expect(fixed.r.text).not.toContain('Lane-table text prints at');
+  expect(errors).toEqual([]);
+});

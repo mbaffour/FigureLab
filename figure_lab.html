@@ -17928,9 +17928,12 @@ function _syncPhysReadout(){
   // gene maps, bar text, annotations, the key) — in freeform too, where this used to read
   // the grid's letter size and so went stale.
   const sm=_figSmallestText(f.ptPerPx), warn=!!sm&&sm.pt<TEXT_PT_FLOOR-0.05;
+  const ss=sm&&_figSmallestText(f.ptPerPx, true), scr=ss&&ss.kind==='script'&&ss.pt<sm.pt-0.05?ss:null;
   el.innerHTML=`Prints ${f.wMm.toFixed(0)} × ${f.hMm.toFixed(0)} mm at ${f.dpi} DPI (${f.px} px wide) · `
     +(sm?`smallest text ≈ <b style="color:${warn?'var(--danger)':'inherit'}">${sm.pt.toFixed(1)} pt</b> (${esc(_TEXT_KIND[sm.kind]||sm.kind)}${sm.where?' '+esc(sm.where):''})`:'no text')
-    +(warn?` — below the ${TEXT_PT_FLOOR} pt any journal FigureLab has read accepts`:'');
+    +(scr?` · superscripts and subscripts ${scr.pt.toFixed(1)} pt`:'')
+    +(warn?` — below the ${TEXT_PT_FLOOR} pt any journal FigureLab has read accepts`:'')
+    +(getTargetWidthMm()>0?'':' · no printed width chosen: sizes are at 1 px = 1/96 in until Export › Printed width is set');
   // Called at the end of every render and when the DPI or printed width changes — the
   // two moments a panel's printed size can change.
   _syncPanelPpi();
@@ -18203,14 +18206,14 @@ function _journalFontValue(J){ return (J.fonts||[]).map(n=>_JFONT_VALUE[n]).find
 // the factor the printed-size readout uses.
 const _TEXT_KIND={panel:'panel letters', tag:'panel tags', title:'figure title', col:'column headings', row:'row headings',
   group:'group bands', sb:'scale-bar text', cbar:'intensity-bar numbers', ann:'annotation text', key:'legend key', fftext:'freeform text',
-  chart:'chart text', genemap:'gene-map text', lanetable:'lane labels'};
+  chart:'chart text', genemap:'gene-map text', lanetable:'lane labels', script:'superscripts and subscripts'};
 // A text-only emitter: _chartDraw and _genemapDraw run through it to list the text they
 // draw, with its size, without drawing anything.
 function _textRecEmit(out){
   const no=()=>{};
   return {rect:no, line:no, poly:no, circle:no, chip:no, gradient:no,
-    text(str,x,y,font){ str=_rtText(String(str??'')); if(!str.trim()) return;
-      const m=/(\d+(?:\.\d+)?)px/.exec(font||''); out.push({fs:m?+m[1]:12, str}); }};
+    text(str,x,y,font){ const raw=String(str??''); str=_rtText(raw); if(!str.trim()) return;
+      const m=/(\d+(?:\.\d+)?)px/.exec(font||''); out.push({fs:m?+m[1]:12, str, script:_ckHasScript(raw)}); }};
 }
 const _qt=v=>`“${String(v).replace(/\s+/g,' ').trim().slice(0,24)}”`;
 // A freeform figure draws its own objects, not the grid's panels and annotations: its
@@ -18223,7 +18226,7 @@ function _figTextSizes(){
   const out=[];
   const ann=a=>{ if(!a||a.hidden) return;
     if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16, where:_qt(_rtText(a.text))});
-    if(a.type==='legend'&&_figureKey().length) out.push({kind:'key', fs:_keyFs(), where:'the placed key'}); };
+    if(a.type==='legend'&&_figureKey().length) out.push({kind:'key', fs:_keyFs(), where:'(placed on the figure)'}); };
   if(layoutMode==='freeform'){
     freeformElements.forEach(el=>{ if(!el) return;
       const nm=_rtText(el.label||'')||el.type;
@@ -18234,24 +18237,41 @@ function _figTextSizes(){
       const ch=el.type==='chart'&&el.chart;
       if(ch&&ch.data&&Array.isArray(ch.data.rows)&&Array.isArray(ch.data.columns)&&ch.mapping){
         const rec=[]; try{ _chartDraw(el,_textRecEmit(rec)); }catch(e){}
-        rec.forEach(t=>out.push({kind:'chart', fs:t.fs, el, where:`${_qt(t.str)} in chart ${_qt(nm)}`})); }
+        rec.forEach(t=>out.push({kind:'chart', fs:t.fs, el, script:t.script, where:`${_qt(t.str)} in chart ${_qt(nm)}`})); }
       if(el.type==='genemap'&&el.map){
         const rec=[]; try{ _genemapDraw(el,_textRecEmit(rec)); }catch(e){}
-        rec.forEach(t=>out.push({kind:'genemap', fs:t.fs, el, where:`${_qt(t.str)} in gene map ${_qt(nm)}`})); }
+        rec.forEach(t=>out.push({kind:'genemap', fs:t.fs, el, script:t.script, where:`${_qt(t.str)} in gene map ${_qt(nm)}`})); }
     });
     annotations.forEach(ann);
-    return out;
+    return _ckScripts(out);
   }
-  (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill, where:_qt(_rtText(t.str))}); });
+  (figTextItems||[]).forEach(t=>{ if(t&&String(t.str||'').trim()) out.push({kind:t.kind, fs:t.fs, fill:t.fill, where:_qt(_rtText(t.str)),
+    script:(t.runs&&t.runs.some(r=>r.sup||r.sub))||_ckHasScript(t.str)}); });
+  // A chart or gene map in a grid cell is drawn from its data at the cell's size (the last
+  // render set im.w/h): its ticks, axis titles, names and exponents are figure text too.
+  _figurePanels().forEach(im=>{ if(!_isDataPanel(im)||!(im.w>0)) return;
+    const nm=_rtText(formatLabel(im.label))||'?', rec=[];
+    try{ if(im.type==='chart'&&im.chart) _chartDraw(im,_textRecEmit(rec)); else if(im.type==='genemap'&&im.map) _genemapDraw(im,_textRecEmit(rec)); }catch(e){}
+    rec.forEach(t=>out.push({kind:im.type, fs:t.fs, el:im, script:t.script, where:`${_qt(t.str)} in ${im.type==='chart'?'chart':'gene map'} ${_qt(nm)}`})); });
   annotations.forEach(ann);
   _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(ann));
+  return _ckScripts(out);
+}
+// Superscripts and subscripts are set at _RT_SCRIPT of their text's size (10^{6}, mL^{-1}),
+// and the Unicode ones (⁻¹, ²⁺) are drawn about as small: each text holding one adds a
+// 'script' item at that size, so the smallest printed glyph is measured, not its line.
+const _CK_SCRIPT_RE=/[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]/;
+function _ckHasScript(raw){ raw=String(raw??''); if(_CK_SCRIPT_RE.test(raw)) return true;
+  const R=_rtDrawRuns(raw); return !!(R&&R.some(r=>r.sup||r.sub)); }
+function _ckScripts(out){
+  out.slice().forEach(t=>{ if(t.script) out.push({kind:'script', of:t.kind, fs:t.fs*_RT_SCRIPT, el:t.el, where:`in ${_TEXT_KIND[t.kind]||t.kind} ${t.where||''}`.trim()}); });
   return out;
 }
 // The smallest text in the figure at print size: {pt, kind, where}, or null.
-function _figSmallestText(k){
-  const T=_figTextSizes(); if(!T.length) return null;
+function _figSmallestText(k, scripts){
+  const all=_figTextSizes(), T=scripts?all:all.filter(t=>t.kind!=='script'); if(!T.length) return null;
   const t=T.reduce((a,b)=>b.fs<a.fs?b:a);
-  return {pt:t.fs*k, kind:t.kind, where:t.where||'', n:T.length};
+  return {pt:t.fs*k, kind:t.kind, where:t.where||'', n:all.filter(t=>t.kind!=='script').length, of:t.of};
 }
 const _smallTxt=sm=>`${_TEXT_KIND[sm.kind]||sm.kind}${sm.where?` ${esc(sm.where)}`:''} ${sm.pt.toFixed(1)} pt`;
 // FigureLab's own floor, for figures whose journal states no type size (or whose stated
@@ -18261,11 +18281,61 @@ const TEXT_PT_FLOOR=5;
 function _textFloorRow(k, J){
   const sm=_figSmallestText(k), nm=J?esc(J.short||J.label):'';
   if(!sm) return {label:'Text size', ok:true, info:true, uncounted:true, note:'Does not apply — the figure has no text'};
-  const ok=sm.pt>=TEXT_PT_FLOOR-0.05;
-  return {label:'Text size', ok, fix:ok?null:{a:'jtextfloor',t:`Raise to ${TEXT_PT_FLOOR} pt`},
+  // Below 5 pt fails; below 6 pt warns: a journal that states no size still goes through a
+  // production desk, and most reject type under 6 pt. Superscripts and subscripts (set
+  // smaller than their text) are measured too, as their own warning.
+  const fail=sm.pt<TEXT_PT_FLOOR-0.05, soft=!fail&&sm.pt<TEXT_PT_SOFT-0.05;
+  const sc=_ckScriptLow(k, TEXT_PT_FLOOR), lt=_ckLaneLow(k, TEXT_PT_SOFT);
+  const ok=!fail&&!soft&&!sc&&!lt;
+  return {label:'Text size', ok, warn:!fail&&!ok,
+    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:null,
+    fix2:lt?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
-      +(ok?' ✓':` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`)
-      +(J?` · ${nm} ${J.ptMin!=null&&!J.verified?`gives ${esc(J.ptNote||`${J.ptMin}–${J.ptMax} pt`)} only in unverified sources`:'states no type size'}`:'')};
+      +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
+        :soft?` — below ${TEXT_PT_SOFT} pt: no journal FigureLab has read accepts it without a stated size, and most production desks reject it`:'')
+      +(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'')
+      +(J?` · ${nm} ${J.ptMin!=null&&!J.verified?`gives ${esc(J.ptNote||`${J.ptMin}–${J.ptMax} pt`)} only in unverified sources`:`states no type size, so FigureLab’s floor (${TEXT_PT_FLOOR} pt, ${TEXT_PT_SOFT} pt recommended) is checked`}`:'')};
+}
+const TEXT_PT_SOFT=6;
+const _ckF1=v=>(+v).toFixed(1).replace(/\.0$/,'');
+// Superscripts and subscripts printed below `min` pt: {pt, note} or null. Their size
+// follows their text's (70%), so the way up is the text size, or exponents written ×10ⁿ.
+function _ckScriptLow(k, min){
+  const S=_figTextSizes().filter(t=>t.kind==='script'); if(!S.length) return null;
+  const t=S.reduce((a,b)=>b.fs<a.fs?b:a), pt=t.fs*k; if(pt>=min-0.05) return null;
+  return {pt, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, ${t.of==='chart'?'or plain numbers on the axis':'or write the exponent out'}`};
+}
+// Lane tables keep the size they were made at (a table made before a journal preset kept
+// 13 px when everything else was rescaled): those printing below `min` pt, or below the
+// figure's text size when that is larger. {toPt, note} or null.
+function _ckLaneLow(k, min){
+  if(layoutMode==='freeform') return null;
+  const L=_figTextSizes().filter(t=>t.kind==='lanetable'); if(!L.length) return null;
+  const textPt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, lo=Math.min(...L.map(t=>t.fs))*k;
+  if(lo>=min-0.05&&lo>=textPt*0.8-0.05) return null;
+  return {toPt:textPt, note:`Lane-table text prints at ${_ckF1(lo)} pt, below the figure’s text size (${_ckF1(textPt)} pt, Look › Typography): a lane table keeps the size it was made at — “Lane tables to ${_ckF1(textPt)} pt” sets every lane table to the figure’s text size`};
+}
+// Lane tables scaled with the headings when a preset changes their size from h0 to h1 px
+// (the caller holds the undo step). Returns how many moved.
+function _ckLaneFollowHeadings(h0, h1){
+  if(!(h0>0)||!(h1>0)||Math.abs(h1-h0)<0.01) return 0;
+  let n=0;
+  images.forEach(im=>{ const t=im&&im.laneTable; if(!t||!_ltHasContent(t)) return;
+    const fs=Math.max(LT_FS_MIN,Math.min(72,Math.round((+t.fs||12)*h1/h0*10)/10));
+    if(fs!==+t.fs){ im.laneTable={...t, fs}; n++; } });
+  if(n) render();
+  return n;
+}
+// Every lane table at the figure's text size, in its own px at this printed width. One undo step.
+function _ckLaneToText(){
+  const k=_physFacts().ptPerPx, pt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, fs=Math.max(LT_FS_MIN,Math.min(72,Math.round(pt/k*10)/10));
+  const T=images.filter(im=>im&&im.laneTable&&_ltHasContent(im.laneTable)&&+im.laneTable.fs!==fs);
+  if(!T.length) return false;
+  pushUndo();
+  T.forEach(im=>{ im.laneTable={...im.laneTable, fs}; });
+  render();
+  toast(`${T.length} lane table${T.length===1?'':'s'} set to ${_ckF1(pt)} pt (${_ckF1(fs)} px at this printed width) — the figure’s text size`,'ok');
+  return true;
 }
 // Text a journal's size range can be fixed for: what the letter, heading and annotation
 // size controls set, and a freeform text object's own size. Scale-bar text follows the
@@ -18275,7 +18345,7 @@ const _TEXT_FIXABLE=new Set(['panel','tag','title','col','row','group','ann','ke
 const _TEXT_PT_KINDS=new Set(['chart','genemap','sb','cbar','key']);
 function _journalTextReport(J, ptPerPx){
   const by=new Map();
-  _figTextSizes().forEach(t=>{ const pt=t.fs*ptPerPx, g=by.get(t.kind)||{min:Infinity,max:-Infinity};
+  _figTextSizes().forEach(t=>{ if(t.kind==='script') return; const pt=t.fs*ptPerPx, g=by.get(t.kind)||{min:Infinity,max:-Infinity};
     g.min=Math.min(g.min,pt); g.max=Math.max(g.max,pt); by.set(t.kind,g); });
   const bad=[...by].filter(([,g])=>(J.ptMin!=null&&g.min<J.ptMin-0.05)||(J.ptMax!=null&&g.max>J.ptMax+0.05));
   const f=v=>v.toFixed(1);
@@ -18302,7 +18372,7 @@ function _journalTextStep(J){
     let v=cur; if(J.ptMin!=null&&v<J.ptMin) v=J.ptMin; if(J.ptMax!=null&&v>J.ptMax) v=J.ptMax;
     if(v!==cur) st.text=v;
   }
-  (layoutMode==='freeform'?freeformElements:[]).forEach(el=>{ if(!el||el.type!=='genemap'||!el.map||!_gmOwnSize(el)) return;
+  (layoutMode==='freeform'?freeformElements:_figurePanels()).forEach(el=>{ if(!el||el.type!=='genemap'||!el.map||!_gmOwnSize(el)) return;
     const cur=_gmTextPx(el.map.style)*k; let v=cur;
     if(J.ptMin!=null&&v<J.ptMin-0.05) v=J.ptMin; if(J.ptMax!=null&&v>J.ptMax+0.05) v=J.ptMax;
     if(v!==cur) st.maps.push([el,v]); });
@@ -18682,9 +18752,12 @@ function _journalRows(J, g){
     const floorBad=!!(st&&st.letterFloor&&tr.bad.some(([k])=>k==='panel'||k==='tag'));
     const narrow=floorBad?_journalNarrowFor(J,pf.ptPerPx):null;
     const canFit=tr.fixable&&!titleClash&&!_textStepEmpty(st);
-    rows.push({label:'Text size', ok:!tr.bad.length, src,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — smallest: ${_smallTxt(tr.smallest)} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}`
-        : (tr.list?`${esc(tr.list)} ✓ (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}`:`No text ✓ — ${nm}: ${rng}`),
+    const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin);
+    const extra=(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'');
+    rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc), src,
+      fix2:lt?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — smallest: ${_smallTxt(tr.smallest)} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
+        : (tr.list?`${esc(tr.list)}${lt||sc?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extra}`:`No text ✓ — ${nm}: ${rng}`),
       fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
   } else rows.push(_textFloorRow(pf.ptPerPx, J));
   // An unverified size range never fails, so FigureLab's own floor is checked beside it.
@@ -18806,13 +18879,16 @@ function _complianceRowHtml(c){
   const st=c.unverified?'unv':c.ok?(c.info?'info':'ok'):c.warn?'warn':'fail';
   const icon={ok:'✓',info:'ℹ',unv:'?',warn:'⚠',fail:'✗'}[st];
   const color={ok:'var(--a2)',info:'var(--muted)',unv:'var(--muted)',warn:'var(--warn)',fail:'var(--danger)'}[st];
-  const fixBtn=((!c.ok||c.info||c.unverified)&&c.fix)?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:6px" onclick="_auditFix('${esc(c.fix.a)}')" title="${c.fix.a==='s1'||c.fix.a==='jfmt'||c.fix.a==='alttext'||c.fix.a==='jlowppi'||c.fix.a==='calibrate'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(c.fix.t)}</button>`
-    +(c.fix2?`<button class="btn" style="padding:1px 8px;font-size:10px;margin-left:4px" onclick="_auditFix('${esc(c.fix2.a)}')" title="One undo step; the report runs again">${esc(c.fix2.t)}</button>`:''):'';
+  // The buttons go under the note, so a row with one keeps its full width to read
+  // (beside it, the note shrank to ~150 px and wrapped over 15 lines).
+  const _fb=(f,first)=>`<button class="btn" style="padding:1px 8px;font-size:10px;margin:3px ${first?0:4}px 0 0" onclick="_auditFix('${esc(f.a)}')" title="${f.a==='s1'||f.a==='jfmt'||f.a==='alttext'||f.a==='jlowppi'||f.a==='calibrate'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(f.t)}</button>`;
+  const _fl=(!c.ok||c.info||c.unverified)?[c.fix,c.fix2].filter(Boolean):[];
+  const fixBtn=_fl.length?`<span class="c-fix" style="display:block">${_fl.map((f,i)=>_fb(f,i===0)).join('')}</span>`:'';
   const src=c.src?`<span class="c-src" style="display:block;font-size:9.5px;color:var(--muted);opacity:.85">${c.unverified?'':'Source: '}${esc(c.src)}</span>`:'';
   return `<div class="compliance-row">
       <span class="c-icon" style="color:${color}">${icon}</span>
       <span class="c-label">${esc(c.label)}</span>
-      <span class="c-note" style="flex:1">${c.note}${src}</span>${fixBtn}
+      <span style="flex:1;min-width:0"><span class="c-note" style="display:block">${c.note}${src}</span>${fixBtn}</span>
     </div>`;
 }
 // The fixes a journal row offers. Each is one undo step, then the report runs again.
@@ -18830,6 +18906,14 @@ function _journalFix(action){
   if(action==='lblcontrast'){ pushUndo(); sc('label-auto-color',true); sc('sb-auto-color',true); sc('axis-auto-color',true); render(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
   if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
+  if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
+  if(action==='jtextsoft'){
+    render(); const snap=snapshotState();
+    if(_journalClampText({ptMin:TEXT_PT_SOFT, ptMax:null})) _pushSnap(snap);
+    else toast('Nothing here can be raised — the smallest text has a size of its own; change it where it was made','warn');
+    if(typeof renderAnnotationList==='function') renderAnnotationList();
+    return true;
+  }
   if(action==='jtextfloor'){
     // Everything Fit can set, up to FigureLab's floor; one undo step, none if nothing moves.
     render(); const snap=snapshotState();
@@ -21515,6 +21599,7 @@ function applyPreset(name){
   pushUndo();
   // Remembered so the export-time AI policy gate knows which journal to check against.
   _lastPresetName=name; _aiPolicyAcked=false;
+  const _ltAx0=gf('axis-fs');   // the heading size before: lane tables follow it (below)
   // The figure now targets this journal. Poster is a size preset, not a journal.
   sv('target-journal', J?name:'none');
   const nice=J?J.label:name.charAt(0).toUpperCase()+name.slice(1);
@@ -21544,8 +21629,12 @@ function applyPreset(name){
   scheduleRender();
   // The sizes in force now, in points (after the journal's own range clamped them).
   render();
+  // A lane table is made at the heading size and keeps its own px size: a table made before
+  // the preset stayed at 13 px (5 pt at ASM's width) while letters, headings and charts were
+  // rescaled. It now moves with the headings, by the same factor.
+  const _ltN=_ckLaneFollowHeadings(_ltAx0, gf('axis-fs'));
   const _f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
-  const sizes=p?` — letters ${_f1(gv('label-pt'))} pt, headings ${_f1(gv('axis-pt'))} pt, text ${_f1(gv('text-pt'))} pt${J&&J.ptMin==null&&J.verified?` (${J.short||J.label} states no type size)`:''}`:'';
+  const sizes=p?` — letters ${_f1(gv('label-pt'))} pt, headings ${_f1(gv('axis-pt'))} pt, text ${_f1(gv('text-pt'))} pt${_ltN?`, lane table${_ltN>1?'s':''} with the headings`:''}${J&&J.ptMin==null&&J.verified?` (${J.short||J.label} states no type size)`:''}`:'';
   if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}`, labNote?'warn':'ok');
   else if(labNote) toast(`${nice} preset applied${labNote}`,'warn');
 }

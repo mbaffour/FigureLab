@@ -212,8 +212,10 @@ test('charts-32 / phage-30: compliance measures chart, gene-map and annotation t
     b.click(); const row = __rows().find(x => x.label === 'Text size'); __close(); return { row, steps: undoStack.length - d0, textPt: +gv('text-pt'), sm: _figSmallestText(_physFacts().ptPerPx) }; });
 
   expect(fixed.steps).toBe(1);
-  expect(fixed.textPt).toBeGreaterThanOrEqual(5);
-  expect(fixed.row.icon).toBe('✓');
+  // ux2 (phage2-06): the button raises to 6 pt, the size production desks accept; the
+  // annotation's 10⁻³ exponent, at 70 % of its text, may still be flagged as a warning
+  expect(fixed.textPt).toBeGreaterThanOrEqual(6);
+  expect(fixed.row.icon).not.toBe('✗');
   expect(errors).toEqual([]);
 });
 

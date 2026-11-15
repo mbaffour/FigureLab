@@ -184,21 +184,21 @@ async function card(T, i, { open = false } = {}) {
     return `${fit} → Text size ${await p.locator('#text-pt').inputValue()} pt`;
   });
 
-  await step(T, '2.3 With Target journal None, the same row offers "Raise to 5 pt"', async () => {
+  await step(T, '2.3 With Target journal None, the same row offers "Raise to 6 pt"', async () => {
     await L.openSection(T, 'Look');
     await p.locator('#target-journal').selectOption({ label: 'None / general' });
     await p.locator('#text-pt').fill('3'); await p.locator('#text-pt').press('Tab');
     let R = await report(T);
-    expect(R.buttons.includes('Raise to 5 pt'), R.buttons.join('|'));
-    await p.locator('#info-modal-bg button', { hasText: 'Raise to 5 pt' }).click();
+    expect(R.buttons.includes('Raise to 6 pt'), R.buttons.join('|'));
+    await p.locator('#info-modal-bg button', { hasText: 'Raise to 6 pt' }).click();
     await p.waitForTimeout(500);
     const pt = await p.locator('#text-pt').inputValue();
     await closeReport(T);
     await L.openSection(T, 'Look');
     await p.locator('#target-journal').selectOption({ label: 'PLOS ONE' });
     await p.waitForTimeout(500);
-    expect(+pt === 5, 'text pt ' + pt);
-    return 'Text size → 5 pt; Target journal back to PLOS ONE (' + await p.locator('#text-pt').inputValue() + ' pt)';
+    expect(+pt === 6, 'text pt ' + pt);
+    return 'Text size → 6 pt; Target journal back to PLOS ONE (' + await p.locator('#text-pt').inputValue() + ' pt)';
   });
 
   await step(T, '2.4 A scale bar switched on over an uncalibrated photo: "No scale bar on these" clears it', async () => {
