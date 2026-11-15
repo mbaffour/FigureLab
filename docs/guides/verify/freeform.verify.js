@@ -457,22 +457,20 @@ const { step, expect, btn } = L;
     return `${c[1]}×${c[2]} px, ${c[3]} mm at 300 DPI; hits: ${hits.join(' / ')}`;
   });
 
-  await step(T, '7.2 Annotate & Draw › Insert icon: Bacteriophage, Bacterium; add the plate photo; clear the icons\' Label', async () => {
+  await step(T, '7.2 Annotate & Draw › Insert icon: Bacteriophage, Bacterium; add the plate photo (icons arrive with no letter, named in the Elements list)', async () => {
     await L.openSection(T, 'Annotate & Draw');
     await p.locator('button[title="Insert Bacteriophage"]').click(); await p.waitForTimeout(250);
     await p.locator('button[title="Insert Bacterium"]').click(); await p.waitForTimeout(250);
     await L.pickFiles(T, p.getByText('Drop or click to add images'), [plate]);
     await p.waitForFunction(() => freeformElements.length === 3, null, { timeout: 10000 });
-    const labels0 = (await els()).map(e => e.label);
-    for (const n of ['Bacteriophage', 'Bacterium']) { await pickRow(n); await p.locator('#ep-label').fill(''); await p.locator('#ep-label').press('Enter'); await p.waitForTimeout(120); }
-    const labels1 = (await els()).map(e => e.label || '');
-    expect(labels0.includes('Bacteriophage') && labels1.filter(Boolean).length === 0, JSON.stringify({ labels0, labels1 }));
-    return 'icons arrived labelled ' + labels0.filter(Boolean).join(', ');
+    const labels0 = (await els()).filter(e => /Bacteri/.test(e.name || '')).map(e => e.label || '');
+    const rows = await p.locator('.tpl-saved').allInnerTexts();
+    expect(labels0.length === 2 && labels0.every(l => !l) && rows.some(r => /Bacteriophage/.test(r)) && rows.some(r => /Bacterium/.test(r)), JSON.stringify({ labels0, rows }));
+    return 'icons arrived with no letter; Elements list: ' + rows.map(r => r.replace(/\s*×\s*$/, '')).join(', ');
   });
 
   await step(T, '7.3 Phage icon H 220, X 80; bacterium W 220, X 1028; plate W 300 + Clip ◯; Ctrl+A → ↕ → ←→ → Y 116', async () => {
-    // The Elements list is newest first, and icons with no Label read "image":
-    // the phage was inserted first, so it is the last row.
+    // The Elements list is newest first: the phage was inserted first, so it is the last row.
     const rows = p.locator('.tpl-saved');
     const n = await rows.count(); const names = []; for (let i = 0; i < n; i++) names.push(await rows.nth(i).innerText());
     await rows.nth(n - 1).locator('span').first().click(); await typeGeo({ h: 220, x: 80 });

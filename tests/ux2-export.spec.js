@@ -151,6 +151,54 @@ async function clickAt(page, x, y, modifiers) {
   await page.waitForTimeout(80);
 }
 
+test.describe('gene-map text', () => {
+  // Boxes of every word a gene map draws, from a recording emitter (the canvas, SVG, PDF and
+  // PowerPoint all take their words from the same calls).
+  const BOXES = `window.__gmBoxes = (el) => {
+    const out = [], mc = document.createElement('canvas').getContext('2d');
+    const e = { rect() {}, line() {}, poly() {}, circle() {}, clipStart() {}, clipEnd() {},
+      text(str, x, y, font, fill, align, baseline) { mc.font = font; const w = _rtMeasure(mc, str), fs = parseFloat(/([\\d.]+)px/.exec(font)[1]);
+        const l = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+        const t = baseline === 'top' ? y : baseline === 'middle' ? y - fs / 2 : y - fs * 0.8;
+        out.push({ str, l, r: l + w, t, b: t + fs }); } };
+    _genemapDraw(el, e); return out; };`;
+  test('ISSUES freeform: the length label keeps clear of the feature labels at the right end of a short map', async ({ page }) => {
+    const errors = await loadApp(page);
+    await page.evaluate(BOXES);
+    const r = await page.evaluate(() => {
+      const feats = [['pLate', 'promoter', 60, 110, 1], ['terS', 'cds', 120, 680, 1], ['terL', 'cds', 700, 2300, 1], ['portal', 'cds', 2320, 3900, 1], ['scaf', 'cds', 3920, 4600, 1],
+        ['mcp', 'cds', 4620, 5800, 1], ['tail tube', 'cds', 5820, 6400, 1], ['tape measure', 'cds', 6420, 9100, 1], ['holin', 'cds', 9200, 9500, -1],
+        ['endolysin', 'cds', 9510, 10050, -1], ['Rz', 'cds', 10060, 10400, -1], ['tLate', 'terminator', 10500, 10560, 1]].map(([name, type, start, end, strand]) => ({ name, type, start, end, strand }));
+      const res = [];
+      for (const ruler of [true, false]) {
+        const map = _defaultGenemap(); map.length = 10800; map.features = feats; map.style.showRuler = ruler; map.style.showLabels = true; map.style.strandRows = true;
+        const B = __gmBoxes({ type: 'genemap', x: 0, y: 0, w: 446, h: 160, map });
+        const len = B.find(b => b.str === '10.8 kb'), names = B.filter(b => feats.some(f => f.name === b.str));
+        res.push(names.filter(n => !(n.r <= len.l || n.l >= len.r || n.b <= len.t || n.t >= len.b)).map(n => n.str));
+      }
+      return res;
+    });
+    expect(r).toEqual([[], []]);
+    expect(errors).toEqual([]);
+  });
+
+  test('phage2-05: a long gene-map title in one grid cell fits the cell and keeps clear of the panel letter', async ({ page }) => {
+    const errors = await loadApp(page);
+    await page.evaluate(BOXES);
+    const r = await page.evaluate(() => {
+      sc('show-labels', true);
+      const map = _defaultGenemap(); map.style.title = '*Escherichia* phage phiKBA3, structural and lysis genes';
+      const el = { type: 'genemap', label: 'F', x: 0, y: 0, w: 300, h: 200, map };
+      const B = __gmBoxes(el).filter(b => /phage|Escherichia|structural|lysis/.test(b.str));
+      const reserve = Math.max(7, gf('label-size')) * 1.1;
+      return { inside: B.every(b => b.l >= 0 && b.r <= 300), clearOfLetter: B.every(b => b.l >= reserve || b.t > gf('label-size') + 8), lines: B.length };
+    });
+    expect(r.inside).toBe(true);
+    expect(r.clearOfLetter).toBe(true);
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe('freeform editing', () => {
   test('freeform2-04: X/Y/W/H show the new selection after a value was typed for another object', async ({ page }) => {
     const errors = await loadApp(page);
@@ -223,6 +271,108 @@ test.describe('freeform editing', () => {
     expect(errors).toEqual([]);
   });
 
+  test('freeform2-07: the annotation toolbar sits beside the selection, inside the canvas pane, not on it', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 200 }]);
+    await page.locator('#fm-canvas-w').fill('958'); await page.locator('#fm-canvas-w').press('Enter');
+    await page.locator('#fm-canvas-h').fill('798'); await page.locator('#fm-canvas-h').press('Enter');
+    await page.evaluate(() => { const W = canvasLogicalW, Hh = canvasLogicalH;
+      annotations.push({ type: 'rect', xf: 700 / W, yf: 300 / Hh, x2f: 950 / W, y2f: 500 / Hh, color: '#000000', width: 2, fill: true, fillColor: '#eeeeee', fillOpacity: 1 });
+      annotations.push({ type: 'textbox', xf: 300 / W, yf: 60 / Hh, x2f: 600 / W, y2f: 120 / Hh, text: 'Title', fill: true, fillColor: '#000000', fillOpacity: 0.6, shape: 'rect', fontSize: 18, color: '#ffffff' });
+      render(); });
+    await page.getByRole('button', { name: '⊡ Fit' }).click();
+    for (const [x, y, box] of [[820, 400, [700, 300, 950, 500]], [450, 90, [300, 60, 600, 120]]]) {
+      await clickAt(page, x, y);
+      const r = await page.evaluate((box) => { const f = document.getElementById('ann-float').getBoundingClientRect(), w = document.getElementById('canvas-wrap').getBoundingClientRect();
+        const c = document.getElementById('ann-canvas').getBoundingClientRect(), k = c.width / canvasLogicalW;
+        const s = { l: c.left + box[0] * k, t: c.top + box[1] * k, r: c.left + box[2] * k, b: c.top + box[3] * k };
+        return { inPane: f.left >= w.left && f.right <= w.right + 0.5 && f.top >= w.top - 0.5 && f.bottom <= w.bottom + 0.5,
+          overlaps: !(f.right <= s.l || f.left >= s.r || f.bottom <= s.t || f.top >= s.b), shown: getComputedStyle(document.getElementById('ann-float')).display };
+      }, box);
+      expect(r.shown).toBe('flex');
+      expect(r.inPane).toBe(true);
+      expect(r.overlaps).toBe(false);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-08 / 2-20: an icon arrives with no letter and keeps its name in the Elements list; charts and gene maps show their letter there', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 200 }]);
+    await openSection(page, 'Annotate & Draw');
+    await page.locator('button[title="Insert Bacteriophage"]').click();
+    await page.waitForFunction(() => freeformElements.length === 2);
+    await page.evaluate(() => { addChartElement('bar'); closeChartModal(); freeformElements[2].letter = 'E'; updateFreeformElemList(); });
+    const rows = await page.locator('#fm-elem-list .tpl-saved span').allInnerTexts();
+    const icon = await page.evaluate(() => { const e = freeformElements[1]; return { label: e.label, name: e.name, chip: !!_ffFurniture(e).label }; });
+    expect(icon).toEqual({ label: '', name: 'Bacteriophage', chip: false });
+    expect(rows.some(r => /Bacteriophage/.test(r))).toBe(true);
+    expect(rows.some(r => /^📊 E · /.test(r))).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-18: a picture\'s Props bar wraps inside the window at 1440 px, so Len, the units, BG and Tol can be reached', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300 }]);
+    await clickAt(page, 150, 150);
+    const r = await page.evaluate(() => {
+      const bar = document.getElementById('elem-props-bar'), pane = document.getElementById('ep-image-props');
+      const vis = [...pane.querySelectorAll('input,select,button')].filter(e => e.offsetParent);
+      const out = vis.filter(e => { const b = e.getBoundingClientRect(); return b.right > window.innerWidth + 0.5; }).map(e => e.id || e.title || e.textContent);
+      return { shown: getComputedStyle(pane).display, out, over: bar.scrollWidth - bar.clientWidth };
+    });
+    expect(r.shown).toBe('flex');
+    expect(r.out).toEqual([]);
+    expect(r.over).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-17 / phage2-18: the toolbar size read-out follows the freeform canvas', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300 }]);
+    await page.locator('#fm-canvas-w').fill('958'); await page.locator('#fm-canvas-w').press('Enter');
+    await page.locator('#fm-canvas-h').fill('798'); await page.locator('#fm-canvas-h').press('Enter');
+    await expect(page.locator('#canvas-info')).toContainText('958×798px');
+    await page.locator('#fm-canvas-h').fill('700'); await page.locator('#fm-canvas-h').press('Enter');
+    await expect(page.locator('#canvas-info')).toContainText('958×700px');
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-14: ⌘K "duplicate figure" finds the library copy, and an empty name says it saved nothing', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300 }]);
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.locator('#cmdp-input').fill('duplicate figure');
+    await expect(page.locator('#cmdp-list, #cmdp-results, .cmdp-item').first()).toContainText(/session library/i);
+    await page.keyboard.press('Escape');
+    page.once('dialog', d => d.accept(''));
+    await page.evaluate(() => saveToLibrary());
+    await expect(page.locator('#toast')).toContainText('Not saved');
+    expect(errors).toEqual([]);
+  });
+
+  test('charts2-20: the Export box names the placed key plainly', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedPanels(page, 2);
+    const w = await page.evaluate(() => { addChartElement('line'); closeChartModal(); annotations.push({ type: 'legend', xf: 0.05, yf: 0.05 }); render();
+      const k = _figTextSizes().find(t => t.kind === 'key'); return { keyRows: _figureKey().length, text: k ? _TEXT_KIND[k.kind] + ' ' + k.where : 'no key' }; });
+    expect(w.keyRows).toBeGreaterThan(0);
+    expect(w.text).toBe('legend key (placed on the figure)');   // wording settled by the compliance fixer (ux2-check)
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-16 / ISSUES align: a superscript minus is U+2212; the align buttons say which edge wins', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300 }]);
+    const r = await page.evaluate(() => ({ sup: _rtParse('cells mL^{-1}').runs.filter(x => x.sup).map(x => x.t), plain: _rtText('mL^{-1}'), dash: _rtParse('x^{a-b}').runs.filter(x => x.sup).map(x => x.t) }));
+    expect(r.sup).toEqual(['−1']);
+    expect(r.plain).toBe('mL⁻¹');
+    expect(r.dash).toEqual(['a-b']);                      // only a leading hyphen before a number
+    await expect(page.locator('button', { hasText: '⊤T' })).toHaveAttribute('title', /topmost edge/);
+    expect(errors).toEqual([]);
+  });
+
   test('ISSUES freeform: unticking Fill on a text box leaves no box, on the canvas, in the SVG and in the PowerPoint', async ({ page }) => {
     const errors = await loadApp(page);
     await seedFreeform(page, [{ type: 'image', x: 600, y: 600, w: 100, h: 100 }]);
@@ -247,6 +397,36 @@ test.describe('freeform editing', () => {
     expect(r.px).toEqual([255, 255, 255]);              // the canvas shows through (it was 102,102,102)
     expect(r.svgNone).toBe(true);
     expect(r.pptNoFill).toBe(true);
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe('submission package parts', () => {
+  test('newcomer2-12 / 2-22: panel files keep the picture\'s shape and the export DPI, and are named by the letters shown; no scale-bar length where there is no bar', async ({ page }) => {
+    test.setTimeout(60000);
+    const errors = await loadApp(page);
+    await page.evaluate(H);
+    const r = await page.evaluate(async () => {
+      const mk = (w, h, g) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = g; x.fillRect(0, 0, w, h); return c.toDataURL('image/png'); };
+      for (const [w, h, g, n] of [[300, 400, '#404040', 'tem.png'], [400, 400, '#808080', 'plate.png']])
+        await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, img.src, n); res(); }; img.src = mk(w, h, g); });
+      sv('cols', '2'); sv('rows', '1'); sv('label-format', 'abc'); sv('export-dpi', '300'); sv('export-width-mm', '0');
+      images[0].umPerPx = 0.1; images[0].sbUm = 10; images[0].sbOn = true; images[1].umPerPx = 0; images[1].sbUm = 10; images[1].sbOn = false;
+      render();
+      const z = await __unzip((await _captureDownload(() => exportSubmissionPackage())).data);
+      const names = Object.keys(z).filter(n => /^panels\//.test(n));
+      const png = z[names[0]];
+      const dv = new DataView(png.buffer, png.byteOffset), W = dv.getUint32(16), Hh = dv.getUint32(20);
+      let ppm = 0; for (let p = 8; p < png.length - 12;) { const len = dv.getUint32(p), t = String.fromCharCode(...png.subarray(p + 4, p + 8)); if (t === 'pHYs') ppm = dv.getUint32(p + 8); if (t === 'IDAT') break; p += 12 + len; }
+      const csvName = Object.keys(z).find(n => /metadata\.csv$/.test(n));
+      const rows = z[csvName].split('\n').map(l => l.split(','));
+      return { names, aspect: W / Hh, dpi: Math.round(ppm / 39.3700787), label: rows[1][2], sb: [rows[1][4], rows[2][4]] };
+    });
+    expect(r.names[0]).toMatch(/^panels\/panel_1_a\.png$/);
+    expect(r.aspect).toBeCloseTo(0.75, 2);              // 3:4, not the square cell
+    expect(r.dpi).toBe(300);
+    expect(r.label).toBe('a');
+    expect(r.sb).toEqual(['10', '']);
     expect(errors).toEqual([]);
   });
 });

@@ -1431,10 +1431,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <span id="ab-hint" style="font-size:10px;color:var(--muted);margin:0 4px" title="Click to select; Shift-, ⌘- or Ctrl-click adds to the selection; drag a box on empty canvas to select everything it touches; Ctrl+A selects all">Shift/⌘-click adds · drag a box · Ctrl+A all</span>
     <div class="abar-sep"></div>
     <span style="font-size:10px;color:var(--muted);margin-right:2px" title="One item lines up with the canvas; several line up with each other">Align:</span>
-    <button class="ab-sel1" onclick="alignElems('left')"   title="Align left edges (one item: to the canvas's left edge)">⊢L</button>
-    <button class="ab-sel1" onclick="alignElems('right')"  title="Align right edges (one item: to the canvas's right edge)">R⊣</button>
-    <button class="ab-sel1" onclick="alignElems('top')"    title="Align top edges (one item: to the canvas's top)">⊤T</button>
-    <button class="ab-sel1" onclick="alignElems('bottom')" title="Align bottom edges (one item: to the canvas's bottom)">B⊥</button>
+    <button class="ab-sel1" onclick="alignElems('left')"   title="Align left edges to the leftmost edge in the selection (=W and =H follow the first one selected instead; one item: to the canvas's left edge)">⊢L</button>
+    <button class="ab-sel1" onclick="alignElems('right')"  title="Align right edges to the rightmost edge in the selection (one item: to the canvas's right edge)">R⊣</button>
+    <button class="ab-sel1" onclick="alignElems('top')"    title="Align top edges to the topmost edge in the selection (one item: to the canvas's top)">⊤T</button>
+    <button class="ab-sel1" onclick="alignElems('bottom')" title="Align bottom edges to the lowest edge in the selection (one item: to the canvas's bottom)">B⊥</button>
     <button class="ab-sel1" onclick="alignElems('centerH')" title="Centre horizontally (one item: on the canvas)">↔</button>
     <button class="ab-sel1" onclick="alignElems('centerV')" title="Centre vertically (one item: on the canvas)">↕</button>
     <div class="abar-sep"></div>
@@ -1470,7 +1470,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <label id="ep-label-wrap" style="display:flex;align-items:center;gap:3px">Label<input type="text" id="ep-label" style="width:70px;padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('label',this.value)"></label>
     <label style="display:flex;align-items:center;gap:3px">Opacity<input type="range" id="ep-opacity" min="0" max="1" step="0.05" value="1" style="width:60px" oninput="updateElemProp('opacity',+this.value);document.getElementById('ep-opacity-v').textContent=Math.round(this.value*100)+'%'"><code id="ep-opacity-v" style="width:32px">100%</code></label>
     <label style="display:flex;align-items:center;gap:3px">Color<input type="color" id="ep-color" value="#5b8dee" style="width:28px;height:22px;padding:0;border:none;cursor:pointer" oninput="updateElemProp('color',this.value)"></label>
-    <div id="ep-text-props" style="display:none;align-items:center;gap:5px">
+    <div id="ep-text-props" style="display:none;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <select id="ep-font" title="Font family" onchange="updateElemProp('fontFamily',this.value)" style="padding:2px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px;max-width:112px">
         <option value="system-ui">Default</option>
@@ -1495,15 +1495,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </select>
       <button class="btn" style="padding:2px 8px;font-size:10px" onclick="editSelectedFreeformText()" title="Edit the words (or just double-click the text)">✎ Edit</button>
     </div>
-    <div id="ep-patch-props" style="display:none;align-items:center;gap:5px">
+    <div id="ep-patch-props" style="display:none;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 8px;font-size:10px" onclick="matchPatchBackground()" title="Sample the colour just outside the patch so it blends into the background">🎯 Match background</button>
     </div>
-    <div id="ep-icon-props" style="display:none;align-items:center;gap:5px">
+    <div id="ep-icon-props" style="display:none;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Icon colour<input type="color" id="ep-icon-color" value="#222222" style="width:26px;height:22px;padding:0;border:none;cursor:pointer" oninput="recolorIcon(this.value)"></label>
     </div>
-    <div id="ep-paint-props" style="display:none;align-items:center;gap:5px">
+    <div id="ep-paint-props" style="display:none;align-items:center;gap:5px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <button id="pp-brush" class="ep-tbtn active" title="Brush" onclick="setPaintMode('paint')">🖌</button>
       <button id="pp-erase" class="ep-tbtn" title="Eraser" onclick="setPaintMode('erase')">▨</button>
@@ -1511,7 +1511,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="pp-color" value="#ff3b30" style="width:26px;height:22px;padding:0;border:none;cursor:pointer"></label>
       <span style="font-size:10px;color:var(--muted)">on-top only · image untouched</span>
     </div>
-    <div id="ep-conn-props" style="display:none;align-items:center;gap:6px">
+    <div id="ep-conn-props" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Route
         <select id="ep-conn-route" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epConn('route',this.value)">
@@ -1524,7 +1524,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Colour<input type="color" id="ep-conn-color" value="#333333" style="width:26px;height:20px;padding:0;border:1px solid var(--border);border-radius:3px" oninput="_epConn('color',this.value)"></label>
       <input type="text" id="ep-conn-label" placeholder="label" style="width:80px;padding:1px 4px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="_epConn('labelText',this.value)">
     </div>
-    <div id="ep-chart-props" style="display:none;align-items:center;gap:6px">
+    <div id="ep-chart-props" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openChartModal()" title="Edit chart data, type and options">⚙ Edit chart…</button>
       <span id="ep-chart-link" style="display:none;font-size:10px"></span>
@@ -1540,7 +1540,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <option value="okabeIto">Okabe–Ito</option><option value="tolBright">Tol</option><option value="ibm">IBM</option><option value="grayscale">Gray</option>
         </select></label>
     </div>
-    <div id="ep-genemap-props" style="display:none;align-items:center;gap:6px">
+    <div id="ep-genemap-props" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <button class="btn" style="padding:2px 9px;font-size:10px" onclick="openGenemapModal()" title="Edit the construct, its features and its size">⚙ Edit map…</button>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px">Shape
@@ -1557,14 +1557,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <!-- AI editing. Shown only for objects the gate allows: AI-generated or hand-drawn.
          It stays hidden for imported experimental images and never appears in grid mode. -->
-    <div id="ep-ai-props" style="display:none;align-items:center;gap:6px">
+    <div id="ep-ai-props" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <button class="btn" onclick="aiEditViaBridge()" title="Edit in your own Gemini tab — FigureLab sends nothing">✨ Edit in Gemini</button>
       <button class="btn" onclick="aiEditSelected()" title="Edit via the Gemini API (sends this object to Google; needs a key + billing)">⚡ Edit via API</button>
       <button class="btn" onclick="aiVariation()" title="Generate another take on this object's own prompt, placed beside it">⧉ Variation</button>
       <button class="btn" id="ep-ai-revert" onclick="revertAIEdit()" title="Undo the last AI edit on this object" style="display:none">↩ Revert AI edit</button>
     </div>
-    <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
+    <div id="ep-image-props" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%;min-width:0">
       <div class="abar-sep"></div>
       <span style="color:var(--muted);font-size:10px" title="Percent of the picture cut from each side. The box shrinks by what is cut, keeps its top-left corner (X, Y) and the picture keeps its proportions.">Crop%:</span>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">T<input type="number" id="ep-cropT" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropT',+this.value)"></label>
@@ -4891,7 +4891,7 @@ const CMD_REGISTRY=[
   {label:'Export WebP',              keys:'export webp',                   run:()=>doExportPreflight('webp')},
   {label:'Download legend key',      keys:'legend key download swatch colours export', run:()=>downloadKey()},
   {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
-  {label:'Save to session library',  keys:'library session save named multiple figures', run:()=>saveToLibrary()},
+  {label:'Save to session library (a named copy of this figure)',  keys:'library session save named multiple figures duplicate figure copy variant version save as', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
   {label:'Export CSV metadata',      keys:'csv metadata spreadsheet',      run:()=>exportCSV()},
@@ -10960,7 +10960,9 @@ function exportCSV(){
   const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta,DisplayRange';
   const lines=[header];
   _figurePanels().forEach((im,i)=>{
-    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(_rtText(im.label)),im.umPerPx||0,im.sbUm||0,
+    // Label as the figure shows it (a, b… when the letters are lower case), and a scale-bar
+    // length only for a panel that has its bar drawn (sbUm 10 was written for panels with none).
+    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(_rtText(formatLabel(im.label))),im.umPerPx||0,_scaleBarDrawn(im)?im.sbUm:'',
       im.brightness,im.contrast,im.gamma||1,im.grayscale?1:0,im.invert?1:0,
       _csvCell(im.lut||'none'),im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,
@@ -16209,19 +16211,28 @@ function showAnnFloat(idx){
   const rect=annCanvas.getBoundingClientRect();
   const W=annCanvas.width, H=annCanvas.height;
   const sx=rect.width/W, sy=rect.height/H;
-  let cx, ty;
+  let cx, ty, by;
   if(a.type==='text'){
-    cx=rect.left+a.xf*W*sx; ty=rect.top+a.yf*H*sy;
+    cx=rect.left+a.xf*W*sx; ty=rect.top+a.yf*H*sy; by=ty+(a.fontSize||16)*1.3*sy;
   } else {
-    cx=rect.left+(a.xf+(a.x2f||a.xf))/2*W*sx;
-    ty=rect.top+Math.min(a.yf,a.y2f??a.yf)*H*sy;
+    cx=rect.left+(a.xf+(a.x2f??a.xf))/2*W*sx;
+    ty=rect.top+Math.min(a.yf,a.y2f??a.yf)*H*sy; by=rect.top+Math.max(a.yf,a.y2f??a.yf)*H*sy;
   }
-  const fw=260;
-  f.style.left=Math.max(4,Math.min(window.innerWidth-fw-4,cx-fw/2))+'px';
-  const fH=f.offsetHeight||44;
-  let fTop=ty-54; if(fTop<4) fTop=ty+24; // flip below if it would clip the top
+  // Measured as it is drawn (it was assumed 260 × 44 px, so a box's two-row toolbar ran past
+  // the window's right edge and sat on the very text box or box being edited), kept inside
+  // the canvas pane, and placed above the selection, or below it when there is no room.
+  const pane=(document.getElementById('canvas-wrap')||annCanvas).getBoundingClientRect();
+  const L0=Math.max(4,pane.left+4), R0=Math.min(window.innerWidth-4,pane.right-4);
+  f.style.maxWidth=Math.max(200,R0-L0)+'px';
+  f.style.visibility='hidden'; f.style.display='flex';
+  const fw=f.offsetWidth||260, fH=f.offsetHeight||44;
+  f.style.left=Math.max(L0,Math.min(R0-fw,cx-fw/2))+'px';
+  const T0=Math.max(4,pane.top+4), B0=Math.min(window.innerHeight-4,pane.bottom-4);
+  let fTop=ty-fH-10;
+  if(fTop<T0) fTop=by+10;                                    // no room above: below the selection
+  if(fTop+fH>B0) fTop=Math.max(T0, ty-fH-10);               // nor below: as high as the pane allows
   f.style.top=Math.max(4,Math.min(window.innerHeight-fH-4,fTop))+'px';
-  f.style.display='flex';
+  f.style.visibility='';
 }
 function hideAnnFloat(){ document.getElementById('ann-float').style.display='none'; }
 
@@ -19778,16 +19789,24 @@ async function exportSubmissionPackage(){
       let pos=0;
       for(const b of (panelBounds||[])){
         if(!images[b.idx]) continue;   // skip empty grid cells
+        // The picture as drawn in its cell, at its own shape: every file used to be the whole
+        // square cell, a 3:4 micrograph letterboxed in white. A cell with nothing measured
+        // (a chart, a gene map) is written whole.
+        const r=(b.dw>0&&b.dh>0)?{x:Math.max(b.x,b.dx), y:Math.max(b.y,b.dy), w:Math.min(b.x+b.w,b.dx+b.dw)-Math.max(b.x,b.dx), h:Math.min(b.y+b.h,b.dy+b.dh)-Math.max(b.y,b.dy)}:b;
+        if(!(r.w>0&&r.h>0)) continue;
         const pc=document.createElement('canvas');
-        pc.width=Math.max(1,Math.round(b.w*sc)); pc.height=Math.max(1,Math.round(b.h*sc));
-        pc.getContext('2d').drawImage(big, b.x*sc,b.y*sc,b.w*sc,b.h*sc, 0,0,pc.width,pc.height);
-        const blob=await new Promise(r=>pc.toBlob(r,'image/png'));
+        pc.width=Math.max(1,Math.round(r.w*sc)); pc.height=Math.max(1,Math.round(r.h*sc));
+        pc.getContext('2d').drawImage(big, r.x*sc,r.y*sc,r.w*sc,r.h*sc, 0,0,pc.width,pc.height);
+        // with the export's resolution in the file (pHYs), as the figure's own PNG has
+        const eff=big._effDpi||dpi;
+        const blob=await fetch(await embedPNGMetadata(pc.toDataURL('image/png'), {Software:'FigureLab '+APP_VERSION}, eff)).then(x=>x.blob()).catch(()=>null)
+          || await new Promise(rs=>pc.toBlob(rs,'image/png'));
         if(blob){ const buf=new Uint8Array(await blob.arrayBuffer());
           // Its place in the figure first, so two panels with one label are two files and
           // the files sort in reading order; then the label, made safe for a file name.
           pos++;
           // as the caption names it (NFKC turns H₂O₂ into H2O2 for the file system)
-          const lbl=_rtText((images[b.idx]&&images[b.idx].label)||'').normalize('NFKC').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
+          const lbl=_rtText(formatLabel((images[b.idx]&&images[b.idx].label)||'')).normalize('NFKC').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
           files.push({name:`panels/panel_${String(pos).padStart(String(nShown).length,'0')}${lbl?'_'+lbl:''}.png`, data:buf}); }
       }
     }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
@@ -24811,8 +24830,11 @@ function updateFreeformElemList(){
     const icon=el.type==='image'?'🖼':el.type==='text'?'T':el.type==='aiicon'?'✦':el.type==='patch'?'🩹':el.type==='paint'?'🖌':el.type==='chart'?'📊':el.type==='genemap'?'🧬':el.type==='connector'?'↳':'◻';
     const grp=el.groupId?' <span title="Grouped" style="opacity:.6">⧉</span>':'';
     const ai=el.aiGenerated?' <span title="AI-generated schematic — disclosed in export metadata" style="font-size:9px;color:var(--a2);border:1px solid var(--a2);border-radius:3px;padding:0 3px">AI</span>':'';
-    // Named by its letter and its file, so four imported pictures are not four "image" rows.
-    const nm=(el.type==='image'&&el.name&&el.label&&el.label!==el.name)?`${el.label} · ${el.name}`:(el.label||el.name||el.type||'element');
+    // Named by its letter and its file, so four imported pictures are not four "image" rows;
+    // a chart or gene map by its letter and its name (its label), as the pictures are.
+    const _dl=(el.type==='chart'||el.type==='genemap')&&el.letter?_rtText(formatLabel(el.letter)):'';
+    const nm=_dl?`${_dl} · ${el.label||el.type}`
+      :(el.type==='image'&&el.name&&el.label&&el.label!==el.name)?`${_rtText(formatLabel(el.label))} · ${el.name}`:(el.label||el.name||el.type||'element');
     row.innerHTML=`<span>${icon} ${esc(nm)}${grp}${ai}</span>
       <button class="icon-btn" title="Delete" style="font-size:10px">×</button>`;
     row.addEventListener('click',ev=>{
@@ -25042,6 +25064,10 @@ function renderFreeform(canvas, ctx, S, opts){
     if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
     if(_ckKeyNeed) _ckKeyMakeRoom();
     setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
+    // The toolbar's size read-out follows every freeform render too (it said "No figure
+    // rendered" with a figure on screen, or the size before a canvas resize).
+    { const ci=document.getElementById('canvas-info'); if(ci){ const _pf=_physFacts();
+      ci.textContent=`${W}×${H}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${Math.round(zoom*100)}%`; } }
   }
 }
 
@@ -26290,7 +26316,10 @@ function insertIcon(name){
       iconName:name, iconLabel:ic.label, iconLic:_iconLic(ic),
       x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
-      blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:ic.label});
+      // No letter: an icon used to arrive with its name as a letter chip drawn over it, and
+      // with that cleared it was "image" in the Elements list and the layered exports. Its
+      // name is its name; a letter is something the author adds.
+      blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:'', name:ic.label});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     drawFreeformOverlay(); scheduleRender(0);
   }, ()=>toast('Could not add icon','err'));
@@ -28395,8 +28424,25 @@ function _genemapDraw(el, emit){
   const ink='#222222', L=Math.max(1,map.length|0);
   const feats=_gmFeatures(map);
   emit.rect(0,0,W,H,'#ffffff',null,0);
-  if(st.title) emit.text(st.title, W/2, 4, font(fs*1.1,'bold'), ink, 'center', 'top');
-  const titleH=st.title?fs+10:0;
+  // The title keeps clear of the panel letter in the top-left corner (room for it is kept on
+  // both sides, so it stays centred) and fits the map's width: it shrinks a little, then
+  // wraps. It used to run off both edges of a one-cell map and under the letter F.
+  let titleH=0;
+  if(st.title){
+    const tw=(str,f)=>{ const mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(str); return R?_rtLayout(mc,R,f).w:mc.measureText(String(str)).width; };
+    const hasLetter=gc('show-labels')&&(_isDataPanel(el)?!!el.label:!!el.letter);
+    const reserve=hasLetter?Math.max(7,gf('label-size'))*1.1+12:0, avail=Math.max(40, W-2*reserve-8);
+    let tFs=fs*1.1; const tf=()=>font(tFs,'bold');
+    while(tFs>fs*0.85 && tw(st.title,tf())>avail) tFs-=0.25;
+    let lines=[String(st.title)];
+    if(tw(st.title,tf())>avail){
+      lines=[]; let cur='';
+      for(const w of String(st.title).split(' ')){ const t=cur?cur+' '+w:w; if(cur&&tw(t,tf())>avail){ lines.push(cur); cur=w; } else cur=t; }
+      if(cur) lines.push(cur);
+    }
+    lines.forEach((ln,i)=>emit.text(ln, W/2, 4+i*(tFs+2), tf(), ink, 'center', 'top'));
+    titleH=lines.length*(tFs+2)+8;
+  }
   if(map.topology==='circular') _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH);
   else                          _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH);
 }
@@ -28406,7 +28452,10 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
   const pad=Math.max(18, fs*1.6);
   const x0=pad, x1=Math.max(x0+10, W-pad);
   const bp2x=bp=>x0+(bp/L)*(x1-x0);
-  const rulerH=st.showRuler?fs+14:0;
+  // The length label has a line of its own under the ruler's numbers (or at the foot of the
+  // map without a ruler): set at the ruler's right end it ran into the last feature labels
+  // ("10.8 kb" over "endolysin" and "Rz").
+  const rulerH=st.showRuler?2*fs+16:fs+6;
   const bodyTop=titleH, bodyBot=H-rulerH-4;
   const midY=(bodyTop+bodyBot)/2;
   const gh=Math.max(8, Math.min(26, (bodyBot-bodyTop)*0.30));
@@ -28443,7 +28492,7 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
 
   // bp ruler
   if(st.showRuler){
-    const ry=H-rulerH+6;
+    const ry=H-rulerH+4;
     emit.line(x0,ry,x1,ry,'#999999',1);
     const ticks=_niceTicks(0,L,Math.max(2,Math.floor((x1-x0)/70)));
     ticks.forEach(t=>{
@@ -28452,9 +28501,9 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
       emit.line(tx,ry,tx,ry+4,'#999999',1);
       emit.text(String(Math.round(t)), tx, ry+5, font(fs), '#666666', 'center', 'top');
     });
-    emit.text(_bpLabel(L), x1, ry-4, font(fs,'bold'), '#444444', 'right', 'alphabetic');
+    emit.text(_bpLabel(L), x1, ry+5+fs+2, font(fs,'bold'), '#444444', 'right', 'top');
   } else {
-    emit.text(_bpLabel(L), x1, midY+gh+fs, font(fs,'bold'), '#444444', 'right', 'alphabetic');
+    emit.text(_bpLabel(L), x1, H-4, font(fs,'bold'), '#444444', 'right', 'alphabetic');
   }
 }
 
@@ -33333,8 +33382,11 @@ function _sessionThumb(){
 }
 async function saveToLibrary(){
   if(!images.length && !(typeof freeformElements!=='undefined'&&freeformElements.length)){ toast('Add a figure first','warn'); return; }
-  const name=(prompt('Name this session:', gv('fig-title')||gv('export-name')||'My figure')||'').trim();
-  if(!name) return;
+  const raw=prompt('Name this session (a copy of the figure as it is now — save one per variant):', gv('fig-title')||gv('export-name')||'My figure');
+  if(raw==null) return;                                   // Cancel
+  const name=raw.trim();
+  // OK on an empty name used to save nothing and say nothing.
+  if(!name){ toast('Not saved: give the copy a name','warn'); return; }
   // The entry this figure is saved as: the reuse check knows its own saved copy by it.
   const id=_uid(); _reuse.libId=id;
   try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:_withRawSave(()=>serializeSession(true))});
@@ -33756,6 +33808,22 @@ function countCellsROI(ctx,rx,ry,rw,rh){
 // ═══════════════════════════════════════════════════════════════
 // FREEFORM ELEMENT PROPERTIES BAR
 // ═══════════════════════════════════════════════════════════════
+// The props bar's panes wrap inside the window (a picture's fields ran past 1440 px, Len, BG
+// and Tol out of reach). So that selecting a picture never makes the bar taller and moves the
+// canvas under the mouse, the bar is given, once per window width, the height of its tallest
+// set of fields before anything is selected.
+function _epReserveHeight(bar){
+  const w=window.innerWidth; if(bar._epResW===w) return; bar._epResW=w;
+  const pane=id=>document.getElementById(id);
+  const panes=[...bar.children].filter(c=>/^ep-.*-props$/.test(c.id||''));
+  const saved=panes.map(p=>p.style.display), none=bar.classList.contains('ep-none'), mh=bar.style.minHeight;
+  bar.classList.remove('ep-none'); bar.style.minHeight='0px';
+  let mx=0;
+  const sets=panes.map(p=>[p]).concat([[pane('ep-image-props'),pane('ep-icon-props'),pane('ep-ai-props')].filter(Boolean)]);
+  for(const set of sets){ panes.forEach(q=>q.style.display='none'); set.forEach(q=>q.style.display='flex'); mx=Math.max(mx, bar.offsetHeight); }
+  panes.forEach((p,i)=>p.style.display=saved[i]); if(none) bar.classList.add('ep-none');
+  bar.style.minHeight=Math.max(parseFloat(mh)||0, mx)+'px';
+}
 function updateElemPropsBar(){
   const bar=document.getElementById('elem-props-bar');
   if(!bar) return;
@@ -33764,6 +33832,7 @@ function updateElemPropsBar(){
   // and vanish with the selection and push the canvas down or up under the mouse, so the
   // next click landed on a different object.
   bar.style.display='flex';
+  _epReserveHeight(bar);
   const idx=selectedElems.size===1?[...selectedElems][0]:-1;
   const el=idx>=0?freeformElements[idx]:null;
   bar.classList.toggle('ep-none', !el);
