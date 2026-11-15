@@ -1213,7 +1213,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <button class="btn" id="key-dl-btn" onclick="downloadKey()" style="width:100%;justify-content:center" title="Download the figure's legend key as figure-key.png (or the format you last exported the figure in)">⬇ Download key (PNG)</button>
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
       <input type="checkbox" id="key-on-figure" onchange="setKeyOnFigure(this.checked)">
-      <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, in the corner where it covers least, on the figure's background colour — drag it with the Select tool, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
+      <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, on the figure's background colour, in free space: a margin, an empty cell or a free corner — never over a picture, chart, letter or heading. When there is none, a margin grows to make room, and the key moves itself when the layout, text size, printed width or journal changes. Drag it with the Select tool to put it somewhere yourself, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
+      <select id="key-where" onchange="setKeyWhere(this.value)" style="width:auto;margin-left:auto;font-size:10px" aria-label="Where the key goes on the figure" title="Where the placed key goes. Free space: the emptiest corner, margin or empty cell. A corner or an edge: there, in a margin widened for it if the figure has no room.">
+        <option value="auto" selected>Free space</option>
+        <option value="tr">Top right</option>
+        <option value="tl">Top left</option>
+        <option value="br">Bottom right</option>
+        <option value="bl">Bottom left</option>
+        <option value="right">Right edge</option>
+        <option value="bottom">Below</option>
+      </select>
     </div>
     <div id="key-why" style="display:none;font-size:10px;color:var(--warn);line-height:1.4;margin-top:3px"></div>
     <div id="key-names-ui" style="display:none"></div>
@@ -11643,9 +11652,11 @@ function render(targetCanvas, exportScale, opts){
   // Marks pinned to a panel follow it before they are drawn (see _annFollow).
   if(!_pageCtx && !_omit) _annFollow('grid', _pinG, totalW, totalH, _pinReady);
   // Draw committed annotations (logical dims — ctx is scaled by S)
+  if(!isExport&&!_pageCtx&&!_omit) _ckKeyAutoPlace(totalW, totalH);   // a key the switch placed follows the layout
   _annExport=isExport; drawAnnotations(ctx, totalW, totalH); _annExport=false;
 
   if(isExport) return; // off-screen export: don't touch on-screen UI state
+  if(_ckKeyNeed) _ckKeyMakeRoom();
 
   const rb=document.getElementById('render-btn'); if(rb) rb.classList.remove('stale');
   maybeShowHint();
@@ -14319,6 +14330,7 @@ function checkCompliance(){
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
   checks.push(_reuseComplianceRow());
+  { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   // With a target journal the rows come from its own figure guide; without one the
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
@@ -14371,6 +14383,7 @@ function _auditFix(action){
       return;
     }
   }
+  else if(action==='ckkeyfree'){ _ckKeyToFree(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='calibrate'){
     // The first uncalibrated panel the figure SHOWS: the report no longer counts
@@ -15332,48 +15345,216 @@ function copyKeyText(){
 function _keyPlaced(){
   return annotations.some(a=>a&&a.type==='legend') || images.some(im=>im&&(im.panelAnns||[]).some(a=>a.type==='legend'));
 }
-// One switch, one undo step: on adds the key in the figure's emptiest corner (move it
-// with the Select tool, or place more with ▤ Key); off removes every placed key.
+// One switch, one undo step: on adds the key in free space on the figure — a margin, an
+// empty cell or a free corner, never over a picture, a chart, a letter or a heading — and
+// makes room in a margin when there is none; off removes every placed key.
+// A key the switch placed is marked `auto`: it moves itself whenever the layout, the text
+// size, the printed width or a journal preset changes what it would cover or its size, and
+// when a session is opened. One that was dragged, or placed by ▤ Key, stays where it was put,
+// and the compliance check flags it if it covers something. `where` is Export › Legend key ›
+// "Where": auto (the emptiest place), a corner, or along the right or bottom edge.
 function setKeyOnFigure(on){
   if(!!on===_keyPlaced()){ _keySyncUI(); return; }
   if(on&&!_figureKey().length){ _keySyncUI(); toast(_keyEmptyWhy(),'warn'); return; }
   pushUndo();
   if(on){
-    const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), p=_keyFreeSpot(L.w, L.h);
-    annotations.push({type:'legend', xf:p.xf, yf:p.yf, width:1});
+    const where=gv('key-where')||'auto';
+    const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), p=_keyFreeSpot(L.w, L.h, where);
+    annotations.push({type:'legend', xf:p.xf, yf:p.yf, width:1, auto:true, where});
   } else {
     annotations=annotations.filter(a=>!(a&&a.type==='legend'));
     images.forEach(im=>{ if(im&&im.panelAnns) im.panelAnns=im.panelAnns.filter(a=>a.type!=='legend'); });
     selectedAnnotation=-1; selectedPanelAnn=null; hideAnnFloat();
   }
   logAction('keyOnFigure',{on:!!on});
-  renderAnnotationList(); scheduleRender(0);
+  renderAnnotationList(); render();
+  if(on) _ckKeyMakeRoom(true);
 }
-// Where a key w × h (layout px) covers the least of the figure: each corner of the canvas,
-// and of the margins round the panels, scored by how much picture, chart or text it would
-// sit on. Ties go to the top right, where the key always went.
-function _keyFreeSpot(w, h){
-  const W=canvasLogicalW||1, H=canvasLogicalH||1, m=6;
+// Export › Legend key › Where: every key the figure carries goes there (and is placed
+// automatically again, even one that was dragged). One undo step.
+function setKeyWhere(where){
+  where=where||'auto';
+  const keys=annotations.filter(a=>a&&a.type==='legend');
+  if(!keys.length){ return; }   // remembered in the field for the next time the key is placed
+  pushUndo();
+  keys.forEach(a=>{ a.auto=true; a.where=where; a._room=null; });
+  logAction('keyWhere',{where});
+  render(); _ckKeyMakeRoom(true);
+}
+// What a key placed on the figure must not cover, in layout px: every picture, chart and
+// gene map, every text the render drew (letters, tags, headings, lane tables, bar text),
+// and every other annotation.
+function _ckKeyBusy(W, H){
   const busy=[];
-  if(layoutMode==='freeform') (freeformElements||[]).forEach(e=>{ if(e&&e.w>0&&e.h>0&&!e.hidden) busy.push({x:e.x,y:e.y,w:e.w,h:e.h}); });
-  else (panelBounds||[]).forEach(b=>busy.push({x:b.x,y:b.y,w:b.w,h:b.h}));
-  (figTextItems||[]).forEach(t=>{ if(t&&t.bbox) busy.push(t.bbox); });
+  if(layoutMode==='freeform') (freeformElements||[]).forEach(e=>{ if(e&&e.w>0&&e.h>0&&!e.hidden) busy.push({x:e.x,y:e.y,w:e.w,h:e.h,what:'object'}); });
+  else (panelBounds||[]).forEach(b=>{ const im=images[b.idx]; if(!im) return;   // an empty cell (idx −1) is free space
+    busy.push({x:b.x,y:b.y,w:b.w,h:b.h,what:'panel', name:im?(_rtText(formatLabel(im.label))||''):''}); });
+  (figTextItems||[]).forEach(t=>{ if(t&&t.bbox&&t.kind!=='key'&&String(t.str||'').trim()) busy.push({x:t.bbox.x,y:t.bbox.y,w:t.bbox.w,h:t.bbox.h,what:'text',kind:t.kind,str:_rtText(String(t.str))}); });
   annotations.forEach(a=>{ if(!a||a.hidden||a.type==='legend') return;
-    const x0=Math.min(a.xf,a.x2f??a.xf)*W, y0=Math.min(a.yf,a.y2f??a.yf)*H;
-    busy.push({x:x0-8,y:y0-8,w:Math.abs((a.x2f??a.xf)-a.xf)*W+16,h:Math.abs((a.y2f??a.yf)-a.yf)*H+16}); });
-  const xs=[W-w-m, m], ys=[m, H-h-m];
-  const cand=[]; ys.forEach(y=>xs.forEach(x=>cand.push({x,y})));
-  // inside the margins too: just right of / below the panels' extent
-  if(busy.length){ const R=Math.max(...busy.map(b=>b.x+b.w)), B=Math.max(...busy.map(b=>b.y+b.h));
-    if(R+m+w<=W) cand.push({x:R+m,y:m});
-    if(B+m+h<=H) cand.push({x:W-w-m,y:B+m}); }
-  const ov=(a,b)=>Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x))*Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
-  let best=null;
-  cand.forEach((c,i)=>{ c.x=Math.max(0,Math.min(W-w,c.x)); c.y=Math.max(0,Math.min(H-h,c.y));
-    const r={x:c.x,y:c.y,w,h}, s=busy.reduce((t,b)=>t+ov(r,b),0);
-    if(!best||s<best.s-0.5) best={s,c}; });
-  const c=best?best.c:{x:Math.max(0,W-w-10),y:10};
-  return {xf:c.x/W, yf:c.y/H};
+    let b; try{ b=_annBox(a,W,H); }catch(e){ b=null; }
+    if(b&&isFinite(b.x)&&isFinite(b.y)) busy.push({x:b.x-4,y:b.y-4,w:(b.w||0)+8,h:(b.h||0)+8,what:'annotation'}); });
+  return busy;
+}
+const _ckOv=(a,b)=>Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x))*Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
+// Where a key w × h (layout px) goes on a canvas W × H: {xf, yf, free, need:{side,px}}.
+// Every position on a fine lattice is tried; a free one (nothing within `gap` of it) is
+// scored by how close it sits to the corner or edge asked for — for auto, to the nearest
+// corner, ties to the top right, where the key always went. When no free spot exists the
+// key goes to the least-covered one, and `need` says how far a margin must grow.
+function _keyFreeSpot(w, h, where, W, H, busy){
+  W=W||canvasLogicalW||1; H=H||canvasLogicalH||1; where=where||'auto';
+  busy=busy||_ckKeyBusy(W,H);
+  const m=6, gap=4;
+  const B=busy.map(b=>({x:b.x-gap,y:b.y-gap,w:b.w+2*gap,h:b.h+2*gap}));
+  const R=busy.length?Math.max(...busy.map(b=>b.x+b.w)):0, Bt=busy.length?Math.max(...busy.map(b=>b.y+b.h)):0;
+  const L0=busy.length?Math.min(...busy.map(b=>b.x)):W;
+  const corners={tr:[W-w-m,m], tl:[m,m], br:[W-w-m,H-h-m], bl:[m,H-h-m]};
+  const want=where==='right'?'tr':where==='bottom'?'bl':where;
+  const target=corners[want]||null;
+  const score=(x,y)=>{
+    if(where==='right') return Math.abs(y-(H-h)/2)+(x<R?1e6:0);
+    if(where==='bottom') return Math.abs(x-(W-w)/2)+(y<Bt?1e6:0);
+    if(target) return Math.abs(x-target[0])+Math.abs(y-target[1]);
+    // auto: the nearest corner, the top right first among equals
+    return Math.min(...Object.entries(corners).map(([k,c])=>Math.abs(x-c[0])+Math.abs(y-c[1])+(k==='tr'?0:0.5)));
+  };
+  const xs=[], ys=[], st=Math.max(4,Math.round(Math.min(W,H)/100));
+  const x1=W-w-m, y1=H-h-m;
+  if(x1>=m) { for(let x=m;x<x1;x+=st) xs.push(x); xs.push(x1); }
+  if(y1>=m) { for(let y=m;y<y1;y+=st) ys.push(y); ys.push(y1); }
+  // the edges of what is drawn, so a key can sit snug beside it
+  busy.forEach(b=>{ [b.x+b.w+gap, b.x-gap-w].forEach(x=>{ if(x>=m&&x<=x1) xs.push(x); });
+    [b.y+b.h+gap, b.y-gap-h].forEach(y=>{ if(y>=m&&y<=y1) ys.push(y); }); });
+  let best=null, least=null;
+  for(const y of ys) for(const x of xs){
+    const r={x,y,w,h}; let ov=0;
+    for(const b of B){ if(b.x>=x+w||b.x+b.w<=x||b.y>=y+h||b.y+b.h<=y) continue; ov+=_ckOv(r,b); if(best&&ov>0) break; }
+    if(ov<=0){ const s=score(x,y); if(!best||s<best.s-1e-6) best={x,y,s}; }
+    else if(!best){ if(!least||ov<least.ov-0.5) least={x,y,ov}; }
+  }
+  // Explicit corners and edges: a free spot far from the place asked for is not that place.
+  if(best&&target&&where!=='right'&&where!=='bottom'){
+    const far=Math.abs(best.x-target[0])>Math.max(W*0.5,w)||Math.abs(best.y-target[1])>Math.max(H*0.5,h);
+    if(far) best=null;
+  }
+  if(best&&(where==='right'||where==='bottom')&&best.s>=1e6) best=null;
+  if(best) return {xf:best.x/W, yf:best.y/H, free:true};
+  // No free spot: say which margin would make one, and by how much.
+  // Free space: the margin that adds the less to the figure — beside it for a tall key,
+  // under it for a wide one.
+  const needR=Math.max(1,Math.ceil(R+gap+w+m-W)), needB=Math.max(1,Math.ceil(Bt+gap+h+m-H));
+  const autoSide=(h>H-2*m||needB*W<needR*H)?'bottom':'right';
+  const side=layoutMode==='freeform'
+    ? ((where==='bottom'||where==='bl'||where==='tl'||(where==='auto'&&autoSide==='bottom'))?'bottom':'right')
+    : (where==='bottom'?'bottom':(where==='tl'||where==='bl')?'left':where==='auto'?autoSide:'right');
+  const px=side==='right'?needR:side==='bottom'?needB:Math.ceil(w+gap+m-L0);
+  const c=least||{x:Math.max(0,W-w-m),y:m};
+  return {xf:Math.max(0,c.x)/W, yf:Math.max(0,c.y)/H, free:false, need:{side, px:Math.max(1,px)}};
+}
+// A key the switch placed, re-placed at the end of every on-screen render from the
+// layout just drawn. A key from a session saved before keys were marked is taken as
+// placed automatically only when it covers something or runs off the figure.
+var _ckKeyNeed=null, _ckKeyCache=null;
+function _ckKeyAutoPlace(W, H){
+  _ckKeyNeed=null;
+  const keys=annotations.filter(a=>a&&a.type==='legend'&&!a.hidden);
+  if(!keys.length||!_figureKey().length) return;
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
+  const busy=_ckKeyBusy(W,H);
+  keys.forEach(a=>{
+    if(a.auto==null){
+      const r={x:a.xf*W,y:a.yf*H,w:L.w,h:L.h};
+      const off=r.x<-0.5||r.y<-0.5||r.x+r.w>W+0.5||r.y+r.h>H+0.5;
+      if(!off&&!busy.some(b=>_ckOv(r,b)>1)) return;
+      a.auto=true;
+    }
+    if(!a.auto) return;
+    // The search runs only when what it reads changed: the figure's size, the key's, the
+    // place asked for, or anything drawn.
+    const sig=[W,H,L.w.toFixed(1),L.h.toFixed(1),a.where||'auto',layoutMode].join(',')+'|'+busy.map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
+    const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(L.w, L.h, a.where||'auto', W, H, busy);
+    _ckKeyCache={sig, p};
+    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h;
+    if(!p.free){
+      // Room is made once for a key of this size in this place; a margin the author
+      // narrowed again afterwards is left alone, and the check flags the key instead.
+      const sig=[Math.round(L.w),Math.round(L.h),a.where||'auto',p.need.side].join('|');
+      if(a._room!==sig) _ckKeyNeed={a, side:p.need.side, px:p.need.px, sig};
+    }
+  });
+}
+// Grow the margin the placed key needs (freeform: the canvas), a few passes since a wider
+// figure at a set printed width prints its type smaller and so redraws the key at another
+// size. Never inside an export render, never an undo step of its own: it belongs to the
+// change that made the key need room, and undoing that change takes the margin back too.
+var _ckRoomT=null;
+function _ckKeyMakeRoom(now){
+  if(!now){ clearTimeout(_ckRoomT); _ckRoomT=setTimeout(()=>_ckKeyMakeRoom(true),0); return; }
+  if(!_ckKeyNeed) return;
+  const fld={right:'m-right', left:'m-left', bottom:'m-btm'};
+  const before={}, grown={};
+  let guard=0, last=null;
+  while(_ckKeyNeed&&guard++<5){
+    const {a, side, px, sig}=_ckKeyNeed;
+    let id=fld[side];
+    if(layoutMode==='freeform') id=side==='bottom'?'fm-canvas-h':'fm-canvas-w';
+    if(!id) break;
+    if(!(id in before)) before[id]=parseInt(gv(id))||0;
+    const v=(parseInt(gv(id))||0)+px;
+    sv(id, String(v)); grown[id]=v; a._room=sig; last=a;
+    render();
+  }
+  _ckKeyNeed=null;
+  const ids=Object.keys(grown); if(!ids.length) return;
+  const nm={'m-right':'right margin','m-left':'left margin','m-btm':'bottom margin','fm-canvas-w':'canvas width','fm-canvas-h':'canvas height'};
+  toast(`The legend key needed free space, so the ${ids.map(id=>`${nm[id]} grew from ${before[id]} to ${grown[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`,'ok');
+  if(typeof _syncPhysReadout==='function') _syncPhysReadout();
+}
+// The placed keys, each with what it covers and whether it runs off the figure, from the
+// last render: [{a, pinned, covers:[…], off}]. A key placed on a panel with ▤ Key sits
+// on its picture on purpose; only the text it covers counts for it.
+function _ckKeyCover(){
+  const W=canvasLogicalW||1, H=canvasLogicalH||1, out=[];
+  if(!_figureKey().length) return out;
+  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs)), busy=_ckKeyBusy(W,H);
+  const one=(a, x, y, pinned, host)=>{
+    const r={x,y,w:L.w,h:L.h};
+    const covers=busy.filter(b=>{ const ov=_ckOv(r,b); if(ov<=1) return false;
+      if(pinned&&b.what==='panel'&&b.name===host) return false;
+      return true; });
+    out.push({a, pinned, covers, off:x<-0.5||y<-0.5||x+L.w>W+0.5||y+L.h>H+0.5});
+  };
+  annotations.forEach(a=>{ if(a&&a.type==='legend'&&!a.hidden) one(a, a.xf*W, a.yf*H, false); });
+  if(layoutMode!=='freeform') (panelBounds||[]).forEach(b=>{ const im=images[b.idx];
+    ((im&&im.panelAnns)||[]).forEach(a=>{ if(a.type==='legend'&&!a.hidden) one(a, b.x+a.xf*b.w, b.y+a.yf*b.h, true, _rtText(formatLabel(im.label))||''); }); });
+  return out;
+}
+// The compliance row: a placed key must not cover the figure or run off its edge.
+function _ckKeyRow(){
+  const K=_ckKeyCover(); if(!K.length) return null;
+  const bad=K.filter(k=>k.covers.length||k.off);
+  const what=k=>{ const t=[];
+    const letters=k.covers.filter(b=>b.kind==='panel').map(b=>b.str), pics=k.covers.filter(b=>b.what==='panel'||b.what==='object').length;
+    const txt=k.covers.filter(b=>b.what==='text'&&b.kind!=='panel');
+    if(letters.length) t.push(`panel letter${letters.length>1?'s':''} ${letters.map(esc).join(', ')}`);
+    if(pics) t.push(`${pics} ${layoutMode==='freeform'?'object':'panel'}${pics>1?'s':''}`);
+    if(txt.length) t.push(`${txt.length} label${txt.length>1?'s':''} (${[...new Set(txt.map(b=>_TEXT_KIND[b.kind]||b.kind))].join(', ')})`);
+    if(k.covers.some(b=>b.what==='annotation')) t.push('an annotation');
+    if(k.off) t.push('runs off the figure edge, so it is cut in the export');
+    return t.join(', '); };
+  return {label:'Legend key on the figure', ok:!bad.length, warn:bad.length>0,
+    note:bad.length ? bad.map(k=>`the ${k.pinned?'key placed on a panel':k.a.auto?'placed key':'key you moved'} covers ${what(k)}`).join('; ')
+        +' — a key must sit in free space (a margin, an empty cell); “Move to free space” puts it there and widens a margin if it has to'
+      : `${K.length===1?'The placed key sits':`All ${K.length} placed keys sit`} in free space, inside the figure ✓`,
+    fix:bad.some(k=>!k.pinned)?{a:'ckkeyfree',t:'Move to free space'}:null};
+}
+function _ckKeyToFree(){
+  const keys=annotations.filter(a=>a&&a.type==='legend');
+  if(!keys.length) return false;
+  pushUndo();
+  keys.forEach(a=>{ a.auto=true; a._room=null; if(!a.where) a.where='auto'; });
+  render(); _ckKeyMakeRoom(true);
+  return true;
 }
 // Why the key is empty, in words the author can act on.
 function _keyEmptyWhy(){
@@ -15386,6 +15567,8 @@ function _keyEmptyWhy(){
 }
 function _keySyncUI(){
   const sw=document.getElementById('key-on-figure'); if(sw) sw.checked=_keyPlaced();
+  { const k=annotations.find(a=>a&&a.type==='legend'), ws=document.getElementById('key-where');
+    if(k&&ws&&document.activeElement!==ws&&ws.value!==(k.where||'auto')) ws.value=k.where||'auto'; }
   const lbl={png:'PNG',jpeg:'JPEG',webp:'WebP',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF',svg:'SVG'}[_keyFmt||'png']||'PNG';
   const b=document.getElementById('key-dl-btn'); if(b){ const t=`⬇ Download key (${lbl})`; if(b.textContent!==t) b.textContent=t; }
   _keyNamesUI();
@@ -16401,6 +16584,7 @@ annCanvas.addEventListener('mousemove', e=>{
     const dxf=(x-annDragState.mx)/W, dyf=(y-annDragState.my)/H;
     const a=annotations[annDragState.idx];
     a.xf=annDragState.ox0f+dxf; a.yf=annDragState.oy0f+dyf;
+    if(a.type==='legend') a.auto=false;   // a key put somewhere by hand stays there
     if(annDragState.ox2f!==undefined){
       a.x2f=annDragState.ox2f+dxf; a.y2f=annDragState.oy2f+dyf;
     }
@@ -18469,6 +18653,7 @@ function _journalS1Name(){
 // "journals require…" are replaced by what this journal's page says.
 const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration','Scale bar drawn','Adjustment sanity',
   'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
+_GENERAL_ROWS.push('Legend key on the figure');
 function _journalRows(J, g){
   const rows=[], src=_JSRC(J), V=J.verified, nm=esc(J.short||J.label);
   const f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
@@ -24504,12 +24689,14 @@ function renderFreeform(canvas, ctx, S, opts){
 
   if(!_ffOnly){
     _drawBelow(Infinity);
+    if(!isExport) _ckKeyAutoPlace(W, H);   // a key the switch placed follows the layout
     _annSkip=_below.length?new Set(_below):null;
     _annExport=isExport; try{ drawAnnotations(ctx,W,H); } finally { _annExport=false; _annSkip=null; } }   // annotations are baked into exports too
   if(!isExport){
     if(typeof _syncPhysReadout==='function') _syncPhysReadout();   // the printed size follows a canvas resize
     drawFreeformOverlay();
     if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
+    if(_ckKeyNeed) _ckKeyMakeRoom();
     setStatus(`Freeform · ${W}×${H}px · ${freeformElements.length} element${freeformElements.length!==1?'s':''}`);
   }
 }
@@ -24951,6 +25138,7 @@ function _annBox(a, W, H){
 const _ANN_SIZED=new Set(['line','arrow','arrow2','rect','ellipse','textbox','spotlight','ruler','inset']);
 function _annMove(a, dx, dy, W, H){
   a._pinFresh=true;
+  if(a.type==='legend') a.auto=false;
   a.xf+=dx/W; a.yf+=dy/H;
   if(a.x2f!=null) a.x2f+=dx/W;
   if(a.y2f!=null) a.y2f+=dy/H;
