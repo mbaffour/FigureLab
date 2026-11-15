@@ -281,7 +281,7 @@ test('fluor2-04 / fluor2-05: caption and Methods give display ranges in the file
   // panel shown without its lookup table is said to be greyscale
   const merged = await page.evaluate(() => { _setLevelNative(images[1], 'white', 10000);
     const c = images[3]; images[1].channels = [{ img: c.img, raw: c.raw, lut: 'magenta', name: c.name, blackPt: c.blackPt, whitePt: c.whitePt }];
-    images[0].lut = 'none'; render(); return generateMethodsParagraph(); });
+    const was = images[0].lut; images[0].lut = 'none'; _carryChannelName(images[0], was); render(); return generateMethodsParagraph(); });   // as ⚙ › LUT Off does
   expect(merged).not.toMatch(/0–255 display scale/);
   // a merged channel off its channel's range is named too (it used to read as uniform)
   const mdrift = await page.evaluate(() => { _setLevelNative(images[1].channels[0], 'white', 5000); images[1]._adjCache = undefined; render();
@@ -290,6 +290,7 @@ test('fluor2-04 / fluor2-05: caption and Methods give display ranges in the file
   expect(mdrift.cap).not.toContain('Each channel was displayed with the same settings');
   expect(mdrift.meth).toMatch(/differ between panels of the same channel \(Membrane: .*B \(merge\) 150–5000/);
   expect(merged).toMatch(/Panel A shows TFEB-GFP in greyscale, without a lookup table/);
+  expect(await page.evaluate(() => _captionText())).toContain('(A) TFEB-GFP (greyscale).');
   expect(errors).toEqual([]);
 });
 

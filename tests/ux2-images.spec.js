@@ -608,7 +608,7 @@ test('fluor2-01 merges and split parts of OME panels follow a rename too: Method
   expect(ranges).not.toContain('CellMask');
   // the split parts' notes follow the rename (the LUT hint on unnoted panels, "GFP
   // (green)", is the caption writer's)
-  expect(r.caption).toMatch(/\(H\) TFEB-GFP\./);
+  expect(r.caption).toMatch(/\(H\) TFEB-GFP[ .]/);   // ux2-flow: now "TFEB-GFP (green)."
   expect(r.caption).toMatch(/\(I\) Membrane/);
   expect(r.caption).not.toContain('CellMask');
   expect(errors).toEqual([]);

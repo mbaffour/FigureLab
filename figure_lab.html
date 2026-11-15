@@ -22158,7 +22158,10 @@ function _uniformity(shown){
   const drift=[];
   groups.forEach((g,k)=>{
     const full=g.filter(e=>e.full);
-    const same=full.every(e=>_sameAdjustments(e.o,full[0].o))&&new Set(g.map(e=>_rangeText(e.o))).size<=1;
+    // Within a channel the colour is not a display setting to match: a GFP panel in grey
+    // beside green ones is said by the pseudocolour sentence, not reported as drift.
+    const k2=o=>[o.brightness??1, o.contrast??1, o.gamma||1, _rangeText(o), !!o.invert, !!(o.bgKey&&o.bgKey.on)].join('|');
+    const same=full.every(e=>k2(e.o)===k2(full[0].o))&&new Set(g.map(e=>_rangeText(e.o))).size<=1;
     if(same) return;
     const name=k==='plain'?'unpseudocoloured panels':k, rng=new Map();
     g.forEach(e=>{ const t=_rangeText(e.o); if(!rng.has(t)) rng.set(t,[]); const w=who(e.im)+(e.full?'':' (merge)'); if(!rng.get(t).includes(w)) rng.get(t).push(w); });
@@ -22408,6 +22411,12 @@ function _captionText(){
         desc=head?`${head}${colour?` (${colour})`:''}`:_ucFirst(colour);
       }
     }
+    // A channel shown without a lookup table beside panels where it is pseudocoloured is
+    // named as it is there: "(A) TFEB-GFP (greyscale)", not "(A) Panel A."
+    else if(!desc&&!_isDataPanel(im)&&!(im.channels&&im.channels.length)){
+      const cn=_capChanName(im);
+      if(cn&&_figurePanels().some(o=>o!==im&&o.lut&&o.lut!=='none'&&_capChanName(o)===cn)) desc=`${cn} (greyscale)`;
+    }
     // Grayscale hint
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
     else if(im.grayscale){ grayInDesc=true; }
@@ -22547,9 +22556,9 @@ function generateMethodsParagraph(){
   // file name happens to carry a channel word.
   { const coloured=new Map();
     P.forEach(im=>[im,...(im.channels||[])].forEach(o=>{ const k=o.lut||(o===im?'none':'green'); if(k==='none') return;
-      const c=_chanLabel(o); if(c&&!coloured.has(c)) coloured.set(c,_capChanName(o)); }));
-    const grey=P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&!_isDataPanel(im)&&coloured.has(_chanLabel(im)));
-    if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>coloured.get(_chanLabel(im))))])} in greyscale, without a lookup table.`); }
+      const c=_capChanName(o); if(c&&!coloured.has(c)) coloured.set(c,c); }));
+    const grey=P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&!_isDataPanel(im)&&coloured.has(_capChanName(im)));
+    if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>_capChanName(im)))])} in greyscale, without a lookup table.`); }
   P.filter(im=>im.channels&&im.channels.some(c=>c.img)).forEach(im=>{
     // The base image plus each channel that has pixels; a channel without them is not drawn.
     const n=1+im.channels.filter(c=>c.img).length;
