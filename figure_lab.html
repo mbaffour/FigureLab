@@ -15547,9 +15547,9 @@ function _ckKeyAutoPlace(W, H){
 // size. Never inside an export render, never an undo step of its own: it belongs to the
 // change that made the key need room, and undoing that change takes the margin back too.
 var _ckRoomT=null;
-function _ckKeyMakeRoom(now){
+function _ckKeyMakeRoom(now, quiet){
   if(!now){ clearTimeout(_ckRoomT); _ckRoomT=setTimeout(()=>_ckKeyMakeRoom(true),0); return; }
-  if(!_ckKeyNeed) return;
+  if(!_ckKeyNeed) return '';
   const fld={right:'m-right', left:'m-left', bottom:'m-btm'};
   const before={}, grown={};
   let guard=0, last=null;
@@ -15564,10 +15564,12 @@ function _ckKeyMakeRoom(now){
     render();
   }
   _ckKeyNeed=null;
-  const ids=Object.keys(grown); if(!ids.length) return;
+  const ids=Object.keys(grown); if(!ids.length) return '';
   const nm={'m-right':'right margin','m-left':'left margin','m-btm':'bottom margin','fm-canvas-w':'canvas width','fm-canvas-h':'canvas height'};
-  toast(`The legend key needed free space, so the ${ids.map(id=>`${nm[id]} grew from ${before[id]} to ${grown[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`,'ok');
+  const msg=`The legend key needed free space, so the ${ids.map(id=>`${nm[id]} grew from ${before[id]} to ${grown[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`;
+  if(!quiet) toast(msg,'ok');
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();
+  return msg;
 }
 // The placed keys, each with what it covers and whether it runs off the figure, from the
 // last render: [{a, pinned, covers:[…], off}]. A key placed on a panel with ▤ Key sits
@@ -16644,7 +16646,8 @@ annCanvas.addEventListener('mousemove', e=>{
     const dxf=(x-annDragState.mx)/W, dyf=(y-annDragState.my)/H;
     const a=annotations[annDragState.idx];
     a.xf=annDragState.ox0f+dxf; a.yf=annDragState.oy0f+dyf;
-    if(a.type==='legend') a.auto=false;   // a key put somewhere by hand stays there
+    // a key put somewhere by hand stays there (a click that wobbles a pixel or two is not a move)
+    if(a.type==='legend'&&Math.abs(x-annDragState.mx)+Math.abs(y-annDragState.my)>3) a.auto=false;
     if(annDragState.ox2f!==undefined){
       a.x2f=annDragState.ox2f+dxf; a.y2f=annDragState.oy2f+dyf;
     }
@@ -18359,7 +18362,7 @@ function _textFloorRow(k, J){
   const ok=!fail&&!soft&&!sc&&!lt;
   return {label:'Text size', ok, warn:!fail&&!ok,
     fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:null,
-    fix2:lt?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
+    fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
       +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
         :soft?` — below ${TEXT_PT_SOFT} pt: no journal FigureLab has read accepts it without a stated size, and most production desks reject it`:'')
@@ -18370,20 +18373,50 @@ const TEXT_PT_SOFT=6;
 const _ckF1=v=>(+v).toFixed(1).replace(/\.0$/,'');
 // Superscripts and subscripts printed below `min` pt: {pt, note} or null. Their size
 // follows their text's (70%), so the way up is the text size, or exponents written ×10ⁿ.
-function _ckScriptLow(k, min){
+function _ckScriptLow(k, min, maxPt){
   const S=_figTextSizes().filter(t=>t.kind==='script'); if(!S.length) return null;
   const t=S.reduce((a,b)=>b.fs<a.fs?b:a), pt=t.fs*k; if(pt>=min-0.05) return null;
-  return {pt, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, ${t.of==='chart'?'or plain numbers on the axis':'or write the exponent out'}`};
+  // Nature: 5–7 pt, and 70% of 7 pt is 4.9 — no size inside the range lifts them.
+  const stuck=maxPt!=null&&maxPt*_RT_SCRIPT<min-0.05;
+  return {pt, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — `
+    +(stuck?`no text size inside the range lifts them (${_ckF1(maxPt)} pt text gives ${_ckF1(maxPt*_RT_SCRIPT)} pt), so write ${t.of==='chart'?'the axis in plain numbers':'the exponent out'} at full size, or keep them and say so to the journal`
+      :`a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, ${t.of==='chart'?'or plain numbers on the axis':'or write the exponent out'}`)};
 }
 // Lane tables keep the size they were made at (a table made before a journal preset kept
 // 13 px when everything else was rescaled): those printing below `min` pt, or below the
 // figure's text size when that is larger. {toPt, note} or null.
 function _ckLaneLow(k, min){
   if(layoutMode==='freeform') return null;
-  const L=_figTextSizes().filter(t=>t.kind==='lanetable'); if(!L.length) return null;
-  const textPt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, lo=Math.min(...L.map(t=>t.fs))*k;
-  if(lo>=min-0.05&&lo>=textPt*0.8-0.05) return null;
-  return {toPt:textPt, note:`Lane-table text prints at ${_ckF1(lo)} pt, below the figure’s text size (${_ckF1(textPt)} pt, Look › Typography): a lane table keeps the size it was made at — “Lane tables to ${_ckF1(textPt)} pt” sets every lane table to the figure’s text size`};
+  // What each lane table draws (figTextItems carry its panel), against the size it is set to.
+  const L=(figTextItems||[]).filter(t=>t&&t.kind==='lanetable'&&String(t.str||'').trim()&&images[t.idx]&&images[t.idx].laneTable);
+  if(!L.length) return null;
+  const textPt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, target=textPt/k;
+  const lo=Math.min(...L.map(t=>t.fs))*k;
+  // set small: a table whose own size prints under the floor, or well under the figure's text
+  const setSmall=[...new Set(L.map(t=>t.idx))].filter(i=>{ const f=+images[i].laneTable.fs||12; return f*k<min-0.05||f*k<textPt*0.8-0.05; });
+  // drawn smaller than set: the table (or a cell) is shrunk to fit its cell or its lane
+  const shrunk=L.filter(t=>t.fs<(+images[t.idx].laneTable.fs||12)-0.01);
+  const shrunkLow=shrunk.length&&Math.min(...shrunk.map(t=>t.fs))*k<min-0.05;
+  if(!setSmall.length&&!shrunkLow) return null;
+  const nm=i=>_rtText(formatLabel(images[i].label))||'?';
+  const parts=[];
+  if(setSmall.length) parts.push(`Lane-table text prints at ${_ckF1(Math.min(...setSmall.map(i=>(+images[i].laneTable.fs||12)*k)))} pt, below the figure’s text size (${_ckF1(textPt)} pt, Look › Typography) or ${_ckF1(min)} pt: a lane table keeps the size it was made at — “Lane tables to ${_ckF1(textPt)} pt” sets every lane table to the figure’s text size`);
+  if(shrunkLow) parts.push(`some lane-table text is drawn smaller than its table’s size to fit (${shrunk.slice(0,2).map(t=>`${_qt(_rtText(t.str))} on ${esc(nm(t.idx))}`).join(', ')}, ${_ckF1(Math.min(...shrunk.map(t=>t.fs))*k)} pt): a larger size does not help there — shorten the text, widen the panel, or give the panel more height`);
+  return {toPt:textPt, lo, button:setSmall.length>0&&target>0, note:parts.join('; ')};
+}
+// Every lane table at the figure's text size, in its own px at this printed width. One undo
+// step; says what it did, and when a table is drawn smaller than that to fit its cell.
+function _ckLaneToText(){
+  const k=_physFacts().ptPerPx, pt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, fs=Math.max(LT_FS_MIN,Math.min(72,Math.round(pt/k*10)/10));
+  const T=images.filter(im=>im&&im.laneTable&&_ltHasContent(im.laneTable)&&+im.laneTable.fs!==fs);
+  if(!T.length) return false;
+  pushUndo();
+  T.forEach(im=>{ im.laneTable={...im.laneTable, fs}; });
+  render();
+  const capped=(figTextItems||[]).filter(t=>t&&t.kind==='lanetable'&&T.includes(images[t.idx])&&t.fs<fs-0.01);
+  toast(`${T.length} lane table${T.length===1?'':'s'} set to ${_ckF1(pt)} pt (${_ckF1(fs)} px at this printed width) — the figure’s text size`
+    +(capped.length?`; some of it is drawn smaller to fit its cell or lane (smallest ${_ckF1(Math.min(...capped.map(t=>t.fs))*k)} pt) — shorten it, widen the panel or give it more height`:''), capped.length?'warn':'ok');
+  return true;
 }
 // Lane tables scaled with the headings when a preset changes their size from h0 to h1 px
 // (the caller holds the undo step). Returns how many moved.
@@ -18395,17 +18428,6 @@ function _ckLaneFollowHeadings(h0, h1){
     if(fs!==+t.fs){ im.laneTable={...t, fs}; n++; } });
   if(n) render();
   return n;
-}
-// Every lane table at the figure's text size, in its own px at this printed width. One undo step.
-function _ckLaneToText(){
-  const k=_physFacts().ptPerPx, pt=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, fs=Math.max(LT_FS_MIN,Math.min(72,Math.round(pt/k*10)/10));
-  const T=images.filter(im=>im&&im.laneTable&&_ltHasContent(im.laneTable)&&+im.laneTable.fs!==fs);
-  if(!T.length) return false;
-  pushUndo();
-  T.forEach(im=>{ im.laneTable={...im.laneTable, fs}; });
-  render();
-  toast(`${T.length} lane table${T.length===1?'':'s'} set to ${_ckF1(pt)} pt (${_ckF1(fs)} px at this printed width) — the figure’s text size`,'ok');
-  return true;
 }
 // Text a journal's size range can be fixed for: what the letter, heading and annotation
 // size controls set, and a freeform text object's own size. Scale-bar text follows the
@@ -18677,6 +18699,7 @@ function _textPixelContrast(){
   let src=null;
   try{ const off=document.createElement('canvas'); render(off, 1, {skipLabels:true}); src=off; }catch(e){ src=null; }
   figTextItems=keep.ft; _keyTextItems=keep.kt; _lastFrames=keep.lf; _lastCells=keep.lc; _lastFurn=keep.lu;
+  _keySkipText=null; _annTextSkip=null; _skipFrameDraw=false;   // as an on-screen render leaves them
   if(!src||!src.width) return out;
   let ctx; try{ ctx=src.getContext('2d'); }catch(e){ return out; }
   const sx=src.width/canvasLogicalW, sy=src.height/(canvasLogicalH||canvasLogicalW);
@@ -18855,10 +18878,10 @@ function _journalRows(J, g){
     const floorBad=!!(st&&st.letterFloor&&tr.bad.some(([k])=>k==='panel'||k==='tag'));
     const narrow=floorBad?_journalNarrowFor(J,pf.ptPerPx):null;
     const canFit=tr.fixable&&!titleClash&&!_textStepEmpty(st);
-    const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin);
+    const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin, J.ptMax);
     const extra=(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'');
     rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc), src,
-      fix2:lt?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
+      fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
       note:tr.bad.length ? `${esc(tr.badList)} at final print size — smallest: ${_smallTxt(tr.smallest)} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
         : (tr.list?`${esc(tr.list)}${lt||sc?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extra}`:`No text ✓ — ${nm}: ${rng}`),
       fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
@@ -21745,10 +21768,19 @@ function applyPreset(name){
   // the preset stayed at 13 px (5 pt at ASM's width) while letters, headings and charts were
   // rescaled. It now moves with the headings, by the same factor.
   const _ltN=_ckLaneFollowHeadings(_ltAx0, gf('axis-fs'));
+  // A placed key that needs room makes it now, in this step, and the height is fitted again
+  // after it: a bottom margin grown for the key must not take the figure past the journal's
+  // height. Its message joins the preset's (a toast of its own replaced the preset's).
+  let _keyMsg='';
+  if(_ckKeyNeed){ _keyMsg=_ckKeyMakeRoom(true,true)||'';
+    const fw=J&&J.verified?_ckHeightFitWidth(J):null;
+    if(fw){ _ckSetWidthOption(J,fw); sv('export-width-mm',String(fw)); _journalClampText(J); render();
+      if(_ckKeyNeed) _keyMsg=_ckKeyMakeRoom(true,true)||_keyMsg;
+      did.push(`${fw} mm wide — the widest that keeps it within ${J.maxH} mm tall with the key`); _syncWidthOptions(); _syncPhysReadout(); } }
   const _f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
   const sizes=p?` — letters ${_f1(gv('label-pt'))} pt, headings ${_f1(gv('axis-pt'))} pt, text ${_f1(gv('text-pt'))} pt${_ltN?`, lane table${_ltN>1?'s':''} with the headings`:''}${J&&J.ptMin==null&&J.verified?` (${J.short||J.label} states no type size)`:''}`:'';
-  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}`, labNote?'warn':'ok');
-  else if(labNote) toast(`${nice} preset applied${labNote}`,'warn');
+  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}${_keyMsg?' · '+_keyMsg:''}`, labNote?'warn':'ok');
+  else if(labNote||_keyMsg) toast(`${nice} preset applied${labNote}${_keyMsg?' · '+_keyMsg:''}`,labNote?'warn':'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════

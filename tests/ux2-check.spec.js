@@ -318,6 +318,27 @@ test('phage2-06: the ASM preset rescales lane tables; one left small is flagged 
   expect(errors).toEqual([]);
 });
 
+// phage2-06 in the guide's own figure: a lane-table cell squeezed to fit its lane ("…")
+// printed at 5.8 pt. A larger table size cannot help there, so the row says what does and
+// offers no button that would do nothing.
+test('phage2-06: lane-table text shrunk to fit its lane is flagged with what helps, and no button that cannot', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 4);
+  await page.evaluate(() => {
+    sv('export-width-mm', '89'); render();
+    const fs = (+gv('text-pt')) / _physFacts().ptPerPx;
+    images[0].laneTable = { rows: [{ name: 'Phage', cells: ['phiKBA3 wild type lysate', 'phiKBA3 ΔholA lysate', 'buffer only control', 'phiKBA3 + EDTA'] }], lanes: 4, pos: 'above', fs };
+    render();
+  });
+  const r = await page.evaluate(() => { const row = __row('Text size'); __close();
+    const set = images[0].laneTable.fs, drawn = Math.min(...figTextItems.filter(t => t.kind === 'lanetable').map(t => t.fs)); return { row, set, drawn }; });
+  expect(r.drawn).toBeLessThan(r.set);
+  expect(r.row.text).toContain('drawn smaller than its table’s size to fit');
+  expect(r.row.text).not.toContain('Lane tables to');
+  expect(r.row.icon).not.toBe('✓');
+  expect(errors).toEqual([]);
+});
+
 // ── Text contrast ────────────────────────────────────────────────────────────────────
 // Panels of one flat colour, with an optional dark spot in the top-left corner (where
 // the letter goes), committed as an import would.
@@ -388,22 +409,29 @@ test('phage2-04: a black letter over a dark spot is flagged by Text contrast', a
 // newcomer2-03: Nature, PDF (lossless) exported, then a TIFF as well — the row failed
 // ("last exported as TIFF — not accepted") although an accepted PDF had just been written.
 test('newcomer2-03: Export format passes when any accepted format was exported since the figure last changed', async ({ page }) => {
+  // the browser's own Save window cannot be driven: fall back to a download, as the guides' harness does
+  await page.addInitScript(() => { window.showSaveFilePicker = undefined; });
   const errors = await loadApp(page);
   await channelGrid(page, 2, 2);
   await page.locator('#target-journal').selectOption('nature');
-  const r = await page.evaluate(async () => {
-    window.dl = () => {};
-    await doExport('pdf-lossless'); await doExport('tiff');
-    const both = __row('Export format'); __close();
-    // a change afterwards: only what is exported from now on counts
-    pushUndo(); sv('gap-h', '12'); render();
-    await doExport('tiff');
-    const tiffOnly = __row('Export format'); __close();
-    return { both, tiffOnly };
-  });
-  expect(r.both.icon).toBe('✓');
-  expect(r.both.text).toMatch(/exported as PDF \(lossless\), TIFF since the figure last changed ✓/);
-  expect(r.tiffOnly.icon).not.toBe('✓');
+  // through the toolbar and the Save dialog, typing a name, as the tester did
+  const save = async (fmt) => {
+    await page.locator('button:visible', { hasText: new RegExp('^↓ ' + fmt + '$') }).first().click();
+    const m = page.locator('#preflight-modal'); await m.waitFor({ state: 'visible' });
+    await m.locator('#pf-name').fill('Fig1');
+    const [d] = await Promise.all([page.waitForEvent('download'), m.locator('button', { hasText: /^Save / }).first().click()]);
+    await d.path();
+  };
+  await save('PDF lossless');
+  await save('TIFF');
+  const both = await page.evaluate(() => { const r = __row('Export format'); __close(); return r; });
+  expect(both.icon).toBe('✓');
+  expect(both.text).toMatch(/exported as PDF \(lossless\), TIFF since the figure last changed ✓/);
+  // a change afterwards: only what is exported from now on counts
+  await page.evaluate(() => { pushUndo(); sv('gap-h', '12'); render(); });
+  await save('TIFF');
+  const tiffOnly = await page.evaluate(() => { const r = __row('Export format'); __close(); return r; });
+  expect(tiffOnly.icon).not.toBe('✓');
   expect(errors).toEqual([]);
 });
 
@@ -428,6 +456,26 @@ test('ISSUES/newcomer2-08: the Nature preset fits a 2 × 2 within 170 mm; Printe
   const after = await page.evaluate(() => { const r = __row('Printed height'); __close(); return { r, w: gv('export-width-mm') }; });
   expect(after.r.icon).toBe('✓');
   expect(+after.w).toBe(89);
+  expect(errors).toEqual([]);
+});
+
+// A key placed below the figure grows the bottom margin; with a journal preset the height is
+// fitted after the key has its room, so the figure stays within the journal's height, the
+// key covers nothing and the preset's message is not replaced by the key's.
+test('a key placed below the figure and the Nature preset: within 170 mm, key clear, one message', async ({ page }) => {
+  const errors = await loadApp(page);
+  await channelGrid(page, 4, 2);
+  await openExport(page);
+  await page.locator('#key-where').selectOption('bottom');          // places the key below
+  await page.waitForTimeout(150);
+  await page.locator('#target-journal').selectOption('nature');
+  await page.waitForTimeout(200);
+  const r = await page.evaluate(() => ({ h: _physFacts().hMm, c: __covers(), toast: document.getElementById('toast').textContent, n: annotations.filter(a => a.type === 'legend').length }));
+  expect(r.n).toBe(1);
+  expect(r.h).toBeLessThanOrEqual(170.5);
+  expect(r.c.hit).toEqual([]);
+  expect(r.c.off).toBe(false);
+  expect(r.toast).toContain('Nature');
   expect(errors).toEqual([]);
 });
 
