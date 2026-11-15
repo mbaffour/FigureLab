@@ -4855,7 +4855,7 @@ const CMD_REGISTRY=[
   {label:'Labels: panel letters A, B, C', keys:'label labels letter a b c panel letters lettering caption tag name abc numbering', run:()=>_cmdpGoto('show-labels','Show, then size, colour and position below')},
   // Type in points — "font size" and "letter size" found nothing, and in freeform the
   // letter size was not on screen at all.
-  {label:'Text size in points (charts, gene maps, bar text, key)', keys:'font size text size type size typography point points pt chart text axis text tick labels small text readable',
+  {label:'Text size in points (charts, gene maps, bar text, key)', phrases:['make text bigger','make the text bigger','bigger text','larger text','make text smaller','smaller text','text bigger'], keys:'font size text size type size typography point points pt chart text axis text tick labels small text readable bigger larger smaller increase',
    run:()=>_cmdpGoto('text-pt','In points at the printed size; letters and headings have their own sizes')},
   {label:'Panel letter size (pt)', keys:'letter size label size panel letters font size pt points bigger smaller lettering', run:()=>_cmdpGoto('label-pt','Panel letters, in points at the printed size')},
   {label:'Figure font (letters, headings, charts, key)', keys:'font family typeface arial helvetica times figure font chart font', run:()=>_cmdpGoto('label-font','One font for the whole figure')},
@@ -4890,7 +4890,14 @@ const CMD_REGISTRY=[
   {label:'Export JPEG',              keys:'export jpeg jpg',               run:()=>doExportPreflight('jpeg')},
   {label:'Export WebP',              keys:'export webp',                   run:()=>doExportPreflight('webp')},
   {label:'Download legend key',      keys:'legend key download swatch colours export', run:()=>downloadKey()},
-  {label:'Save session (JSON)',      keys:'save session json download',    run:()=>saveJSON(),                  hint:'Ctrl+S'},
+  {label:'Save session (JSON)',      phrases:['save','save my work','save work','save my figure','save figure','save progress','save the figure'], keys:'save session json download work progress figure keep file', run:()=>saveJSON(),                  hint:'Ctrl+S'},
+  {label:'Add images (open the file picker)', phrases:['add images','add image','add pictures','add photos','open images','import images','add more images','add files'], keys:'add image images picture pictures photo photos micrograph file files open import upload browse drop insert load', run:()=>{ const f=document.getElementById('file-input'); if(f) f.click(); }},
+  {label:'Remove the selected panel', phrases:['delete panel','remove panel','delete this panel','remove this panel','delete the panel','remove the panel','delete image','remove image'], keys:'remove delete panel image picture photo discard drop take out', run:()=>{
+     const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:-1;
+     if(i<0){ toast('Click the panel to remove on the canvas first (or use × beside it in Images)','warn'); return; }
+     const nm=_rtText(formatLabel(images[i].label))||_sourceName(images[i])||'';
+     pushUndo(); _withWaiting(()=>images.splice(i,1)); selectedPanel=-1; renderImgList(); renderMiniGrid(); scheduleRender();
+     toast(`Panel ${nm} removed — Ctrl+Z brings it back`,'ok'); }},
   {label:'Save to session library (a named copy of this figure)',  keys:'library session save named multiple figures duplicate figure copy variant version save as', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
@@ -4949,15 +4956,20 @@ const CMD_REGISTRY=[
   {label:'Theme: High contrast',       keys:'theme contrast bold talk slide',                    run:()=>applyBuiltinTheme('high-contrast')},
   {label:'Theme: Poster (large type)', keys:'theme poster large a0 type',                        run:()=>applyBuiltinTheme('poster')},
   {label:'Preset: Poster',           keys:'preset poster',                 run:()=>applyPreset('poster')},
-  {label:'Journal: Nature',          keys:'preset style house journal nature springer requirements figure guidelines column width 89 183 mm', hint:'width, font, DPI + its rules', run:()=>applyPreset('nature')},
-  {label:'Journal: PLOS ONE',        keys:'preset style house journal plos one plosone requirements figure guidelines tiff lzw fig1 column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('plos')},
-  {label:'Journal: eLife',           keys:'preset style house journal elife requirements figure guidelines source data column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('elife')},
-  {label:'Journal: EMBO J',          keys:'preset style house journal embo emboj embo journal requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('embo')},
-  {label:'Journal: ASM (mBio, J Bacteriol, J Virol…)', keys:'preset style house journal asm mbio jvi jb jbact j bacteriol j virol aem microbiology spectrum requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('asm')},
-  {label:'Journal: JBC (data presentation)', keys:'preset style house journal jbc asbmb biological chemistry western blot requirements figure guidelines', hint:'width, font, DPI + its rules', run:()=>applyPreset('jbc')},
-  {label:'Journal: Science (unverified)', keys:'preset style house journal science aaas requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('science')},
-  {label:'Journal: Cell (unverified)',    keys:'preset style house journal cell press requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('cell')},
-  {label:'Journal: PNAS (unverified)',    keys:'preset style house journal pnas requirements figure guidelines column width', hint:'width, font, DPI + its rules', run:()=>applyPreset('pnas')},
+  {label:'Journal: Nature',          keys:'preset style house journal nature springer requirements figure guidelines column width 89 183 mm nature journal nat target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('nature')},
+  {label:'Journal: PLOS ONE',        keys:'preset style house journal plos one plosone requirements figure guidelines tiff lzw fig1 column width plos one public library of science target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('plos')},
+  {label:'Journal: eLife',           keys:'preset style house journal elife requirements figure guidelines source data column width elife e-life target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('elife')},
+  {label:'Journal: EMBO J',          keys:'preset style house journal embo emboj embo journal requirements figure guidelines column width embo j embo journal european molecular biology organization target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('embo')},
+  {label:'Journal: ASM (mBio, J Bacteriol, J Virol…)', keys:'preset style house journal asm mbio jvi jb jbact j bacteriol j virol aem microbiology spectrum requirements figure guidelines column width american society for microbiology journal of bacteriology journal of virology applied and environmental target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('asm')},
+  {label:'Journal: JBC (data presentation)', keys:'preset style house journal jbc asbmb biological chemistry western blot requirements figure guidelines journal of biological chemistry target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('jbc')},
+  {label:'Journal: Science (unverified)', keys:'preset style house journal science aaas requirements figure guidelines column width science magazine target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('science')},
+  {label:'Journal: Cell (unverified)',    keys:'preset style house journal cell press requirements figure guidelines column width cell press target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('cell')},
+  {label:'Journal: PNAS (unverified)',    keys:'preset style house journal pnas requirements figure guidelines column width proceedings of the national academy of sciences target house style export submit', hint:'width, font, DPI + its rules', run:()=>applyPreset('pnas')},
+  // Journals people name that have no preset: found, and said plainly, rather than a
+  // near-miss row that changes the figure.
+  {label:'Journal: no preset for Nature Communications', keys:'journal nature communications nat comms natcomms ncomms nat commun target house style', hint:'says so; opens Target journal',
+   run:()=>{ _cmdpGoto('target-journal'); toast('FigureLab has no Nature Communications preset — its figure guide was not read. Check that journal’s own guide; pick another journal here only if its rules match.','warn'); }},
+  {label:'Journal: other journals — the list FigureLab knows', keys:'journal target house style list which journals preset other', run:()=>_cmdpGoto('target-journal','Target journal — the journals whose figure guides FigureLab has read')},
   {label:'Check against Nature',     hint:'report only, changes nothing', keys:'check compliance journal requirements figure guidelines nature', run:()=>checkAgainstJournal('nature')},
   {label:'Check against PLOS ONE',   keys:'check compliance journal requirements figure guidelines plos one', run:()=>checkAgainstJournal('plos')},
   {label:'Check against eLife',      keys:'check compliance journal requirements figure guidelines elife', run:()=>checkAgainstJournal('elife')},
@@ -5208,22 +5220,32 @@ function closeCmdPalette(){ document.getElementById('cmd-palette').classList.rem
 // keyword hit, and an earlier hit outranks a later one.
 function _cmdpScore(item,q){
   if(!q) return 1;
+  // A plain phrase a row was written for ("save my work", "delete panel") wins outright.
+  if(item.phrases&&item.phrases.includes(q.trim().replace(/\s+/g,' '))) return 1100;
   const sp=x=>x.replace(/colour/g,'color').replace(/grey/g,'gray');
   const label=sp((item.label||'').toLowerCase()), keys=sp((item.keys||'').toLowerCase());
   const toks=sp(q).split(/\s+/).filter(Boolean);
   if(!toks.length) return 1;
   // A word-boundary hit always outranks one buried inside a longer word, or "um" ranks
   // "Rows and columns" above the scale bar, matching the "um" in col-UM-ns.
-  const at=(hay,t)=>{ let i=hay.indexOf(t), mid=-1;
-    while(i>=0){ if(i===0||!/[a-z0-9]/.test(hay[i-1])) return {i, whole:true}; if(mid<0) mid=i; i=hay.indexOf(t,i+1); }
-    return mid<0?null:{i:mid, whole:false}; };
-  const hit=t=>{
-    let best=0;
+  // `exact`: the word ends there too ("plos" in "plos one", not "plo" in "plot").
+  const at=(hay,t)=>{ let i=hay.indexOf(t), mid=-1, pre=null;
+    while(i>=0){ if(i===0||!/[a-z0-9]/.test(hay[i-1])){ const ex=!/[a-z0-9]/.test(hay[i+t.length]||'');
+        if(ex) return {i, whole:true, exact:true}; if(!pre) pre={i, whole:true, exact:false}; }
+      else if(mid<0) mid=i; i=hay.indexOf(t,i+1); }
+    return pre||(mid<0?null:{i:mid, whole:false, exact:false}); };
+  // The word as typed, and whether it landed on a whole word (not the start of a longer
+  // one, not inside one).
+  let weak=false;
+  const hit=(t,exactOnly)=>{
+    let best=0, ex=false;
     const L=at(label,t), K=at(keys,t);
-    if(L&&L.whole) best=L.i===0?1000:900-Math.min(L.i,200);  // the label, on a word boundary
-    if(K&&K.whole) best=Math.max(best, 700-Math.min(K.i,200));// a keyword, on a word boundary
+    if(exactOnly){ if(L&&L.exact) return 900-Math.min(L.i,200); if(K&&K.exact) return 700-Math.min(K.i,200); return 0; }
+    if(L&&L.whole){ best=L.i===0?1000:900-Math.min(L.i,200); ex=L.exact; } // the label, on a word boundary
+    if(K&&K.whole){ best=Math.max(best, 700-Math.min(K.i,200)); ex=ex||K.exact; } // a keyword, on a word boundary
     if(!best&&L) best=400-Math.min(L.i,200);                 // buried inside a label word
     if(!best&&K) best=200-Math.min(K.i,190);                 // buried inside a keyword
+    if(best&&!ex&&t.length<5) weak=true;                     // "plo", "ad": the start of some longer word
     return best;
   };
   // Filler words ("add arrow", "remove white border", "change font", "how do I…") count
@@ -5233,15 +5255,25 @@ function _cmdpScore(item,q){
   let total=0, n=0, bonus=0;
   for(const t of toks){
     let best=hit(t);
-    // "borders", "panels", "rows": the singular when the plural lands nowhere
-    if(!best&&t.length>3&&/s$/.test(t)) best=hit(t.replace(/(es|s)$/,''))||hit(t.slice(0,-1));
+    // "borders", "panels", "rows": the singular when the plural lands nowhere — as a whole
+    // word only. "plos" cut to "plo" matched the start of "plot", and Enter on "plos" added
+    // a box plot instead of switching to PLOS ONE.
+    if(!best&&t.length>3&&/s$/.test(t)) best=hit(t.replace(/(es|s)$/,''),true)||hit(t.slice(0,-1),true);
     if(!allFill&&_CMDP_FILLER.has(t)){ if(best>=700) bonus+=2; continue; }   // a tie-break, never a reason to miss
     if(!best) return 0;                                      // a real word that landed nowhere: not a hit
     total+=best; n++;
   }
-  return n?Math.round(total/n)+bonus:0;
+  let s=n?Math.round(total/n)+bonus:0;
+  // A row that ADDS something to the figure (a chart, a gene map, a starter layout) never
+  // wins on a weak match: Enter on it changes the figure, where a wrong "go to" row only
+  // scrolls. It drops below every row the words land on cleanly.
+  if(s&&weak&&_cmdpAdds(item)) s=Math.round(s*0.6);
+  return s;
 }
-const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and']);
+// Rows whose command adds content to the figure.
+function _cmdpAdds(item){ return /^(Add|Insert|Starter:|Flow:|Canvas:)\b/.test(item.label||''); }
+const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and',
+  'switch','pick','choose','apply','go','show','find','open']);
 // Open the selected panel's settings (else the first panel's) at one of its controls —
 // the span fields and Apply to all live at the foot of a long per-panel drawer.
 function _cmdpPanelControl(sel, note){
@@ -5308,12 +5340,13 @@ function _cmdpRender(q){
   let list=CMD_REGISTRY.map(c=>({c,s:_cmdpScore(c,q)}))
     .concat(q?_cmdpCtlCache.map(c=>({c,s:Math.round(_cmdpScore(c,q)*0.3)})):[])
     .filter(o=>o.s>0)
-    .sort((a,b)=>b.s-a.s).map(o=>o.c);
+    .sort((a,b)=>(b.s-a.s)||(_cmdpAdds(a.c)-_cmdpAdds(b.c))).map(o=>o.c);
   // Nothing matched on words. Offer the letters-in-order guesses, but SAY they are
-  // guesses, so a miss can no longer pass for an answer.
+  // guesses, so a miss can no longer pass for an answer — and never a row that adds
+  // something to the figure, which Enter on a guess would do.
   let guessing=false;
   if(q && !list.length){
-    list=CMD_REGISTRY.filter(c=>_cmdpLooseMatch(c,q)).slice(0,8);
+    list=CMD_REGISTRY.filter(c=>!_cmdpAdds(c)&&_cmdpLooseMatch(c,q)).slice(0,8);
     guessing=list.length>0;
   }
   _cmdpFiltered=list;
