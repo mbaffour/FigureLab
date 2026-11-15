@@ -13093,8 +13093,12 @@ function setCropPx(which,val){
   // this mode it cannot, and the position stops at the edge). Each used to be clamped
   // to the other: Y typed before H came back as 0, and H typed before Y was cut to the
   // room below the old Y (H 860 became 680, blot2-06).
-  const pos=(p,size)=>{ const f=Math.max(0,v/(p==='x'?iw:ih)), k=p==='x'?'cx':'cy', z=p==='x'?'cw':'ch';
-    if(f+s[z]<=1+1e-9||locked){ s[k]=Math.max(0,Math.min(1-s[z],f)); return; }
+  // A size that is fixed — shared by a batch once set, held to a ratio, or locked — is
+  // never changed by a position: the position stops at the edge, and says so.
+  const fixed=locked||!!s.aspect||(s.batch&&s.batchCropW>0);
+  const pos=p=>{ const f=Math.max(0,v/(p==='x'?iw:ih)), k=p==='x'?'cx':'cy', z=p==='x'?'cw':'ch';
+    if(f+s[z]<=1+1e-9){ s[k]=f; return; }
+    if(fixed){ s[k]=Math.max(0,1-s[z]); toast(`${p.toUpperCase()} ${Math.round(v)} does not fit with the box's ${Math.round(s[z]*(p==='x'?iw:ih))}-px ${p==='x'?'width':'height'} — set to ${Math.round(s[k]*(p==='x'?iw:ih))}`,'warn'); return; }
     s[k]=Math.min(f,0.99); s[z]=Math.max(0.01,1-s[k]); };
   const fit=()=>{ if(s.cx+s.cw>1) s.cx=Math.max(0,1-s.cw); if(s.cy+s.ch>1) s.cy=Math.max(0,1-s.ch); };
   if(which==='x') pos('x');
@@ -13103,9 +13107,10 @@ function setCropPx(which,val){
   else if(which==='h'&&!locked){ s.ch=Math.max(0.01,Math.min(1,v/ih)); if(s.aspect) s.cw=Math.min(1,s.ch*s.aspect*H/W); fit(); }
   else return;
   s.hasBox=s.cw>0.02&&s.ch>0.02;
-  // In Batch crop a typed box sets the shared size as a drawn one does — the status line
-  // kept saying "Draw to set crop size" after one was typed.
-  if(s.batch&&s.hasBox&&!(s.batchCropW>0)){ s.batchCropW=s.cw; s.batchCropH=s.ch; if(typeof _updateBatchUI==='function') _updateBatchUI(); }
+  // In Batch crop a typed box counts as a drawn one — the status line kept saying "Draw
+  // to set crop size" after one was typed. (It becomes the shared size on Apply, as a
+  // drawn one does.)
+  if(s.batch&&s.hasBox&&!(s.batchCropW>0)&&!s._typedBox){ s._typedBox=true; if(typeof _updateBatchUI==='function') _updateBatchUI(); }
   drawCropEd();
 }
 
@@ -13221,7 +13226,7 @@ function _updateBatchUI(){
   bar.style.display='flex';
   const done=cropEdState.batchTotal-cropEdState.batchQueue.length;
   prog.textContent=`Image ${done} / ${cropEdState.batchTotal}`;
-  const sized=cropEdState.batchCropW>0;
+  const sized=cropEdState.batchCropW>0||!!(cropEdState._typedBox&&cropEdState.hasBox);
   hint.textContent=sized?'Drag moves · handles resize':'Draw to set crop size';
   title.textContent=`✂ Batch Crop (${done} / ${cropEdState.batchTotal})`;
   document.getElementById('crop-modal-desc').textContent=sized
@@ -15418,6 +15423,11 @@ function setKeyChannelName(lut, name){
   sv('key-names', Object.keys(m).length?JSON.stringify(m):'');
   objs.forEach(({o})=>{ if(o.lut===lut||(o.lut&&o.lut!=='none'&&_keyRename(o.lut))) return;
     const id=channelIdentity(o); if(id&&oldNames.has(id)&&id!==v){ o.chan=v; delete o.chanSrc; } });
+  // A split part's caption note is its channel's name at the time of the split ("GFP"):
+  // the caption then said "(B) GFP" for a panel the figure calls TFEB-GFP. A note that is
+  // only the old name follows the rename; a note the author wrote is left alone.
+  if(v) objs.forEach(({o,panel})=>{ if(o!==panel||channelIdentity(o)!==v) return;
+    const n=String(o.captionNote||'').trim(); if(n&&n!==v&&oldNames.has(n)) o.captionNote=v; });
   if(v&&typeof renderImgList==='function') renderImgList();
   logAction('keyChannelName',{lut, name:v});
   const box=document.getElementById('key-names-ui'); if(box) box.dataset.sig='';

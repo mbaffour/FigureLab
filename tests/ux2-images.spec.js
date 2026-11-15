@@ -505,6 +505,14 @@ test('blot2-06/07 Batch crop: typed boxes keep every typed value in either order
   // the next scan opens with the same box
   await expect(page.locator('#crop-modal-title')).toContainText('(2 / 3)');
   expect(await box()).toEqual([136, 100, 600, 860]);
+  // now the size is shared: a Y that does not fit stops at the edge and says so, and the
+  // shared size is not shrunk for the scans after it
+  await typePx('y', 400);
+  expect(await box()).toEqual([136, 180, 600, 860]);
+  await expect(page.locator('#toast')).toContainText('does not fit');
+  await page.locator('#crop-apply-btn').click();
+  await expect(page.locator('#crop-modal-title')).toContainText('(3 / 3)');
+  expect((await box()).slice(2)).toEqual([600, 860]);
   expect(errors).toEqual([]);
 });
 
@@ -572,5 +580,36 @@ test('blot2-07 ✓ Apply & Next stays in view in a 1440 × 900 window', async ({
   const r = await btn.evaluate(b => { const q = b.getBoundingClientRect(); const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return { bottom: q.bottom, h: innerHeight, top: hit === b || b.contains(hit) }; });
   expect(r.bottom).toBeLessThanOrEqual(r.h);
   expect(r.top).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('fluor2-01 merges and split parts of OME panels follow a rename too: Methods and the caption name one channel', async ({ page }) => {
+  // Old build: after merge → split → rename, the merges still carried GFP/CellMask
+  // (Methods: "GFP 300–10000 (panels D and E) … TFEB-GFP 300–10000 (…)"), and the caption
+  // called the split parts "(B) GFP" and "(C) CellMask".
+  const errors = await loadApp(page);
+  await seedMixedChannels(page);
+  for (const i of [4, 5]) await rowOf(page, i).locator('.panel-pick').check();
+  await page.evaluate(() => mergeTickedPanels());
+  const m = await page.evaluate(() => images.findIndex(im => im && (im.channels || []).length));
+  const row = await openDrawer(page, m);
+  await row.locator('[data-splitch]').click();
+  await renameInKey(page, 'green', 'TFEB-GFP');
+  await renameInKey(page, 'magenta', 'Membrane');
+  const r = await page.evaluate(() => { render(); return { methods: generateMethodsParagraph(), caption: _captionText(),
+    ids: [...new Set(_channelObjects().map(x => _levelKey(x.o)))].sort() }; });
+  expect(r.ids).toEqual(['Membrane', 'TFEB-GFP']);
+  // the display-range sentence names channels; the lookup-table sentence after it names
+  // LUTs ("GFP (green)", "Magenta") and is the caption/Methods writers' to change
+  const ranges = r.methods.match(/display ranges in native values:[^.]*\./)[0];
+  expect(ranges).toContain('TFEB-GFP');
+  expect(ranges).toContain('Membrane');
+  expect(ranges).not.toMatch(/(^|[^-\w])GFP\b/);
+  expect(ranges).not.toContain('CellMask');
+  // the split parts' notes follow the rename (the LUT hint on unnoted panels, "GFP
+  // (green)", is the caption writer's)
+  expect(r.caption).toMatch(/\(H\) TFEB-GFP\./);
+  expect(r.caption).toMatch(/\(I\) Membrane/);
+  expect(r.caption).not.toContain('CellMask');
   expect(errors).toEqual([]);
 });
