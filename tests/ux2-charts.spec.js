@@ -433,3 +433,143 @@ test('ISSUES "wide table guessed as scatter": two columns of groups are guessed 
   expect(await page.evaluate(() => [...document.querySelectorAll('#chart-ycols input:checked')].map(i => i.parentElement.textContent.trim()))).toEqual(['OD600', 'CFU']);
   expect(errors).toEqual([]);
 });
+
+// ── Reading files back, Cancel, names, small drawing fixes ──────────────────────────
+// The submission package's files, by name.
+const packageFiles = page => page.evaluate(async () => {
+  const cap = await _captureDownload(() => exportSubmissionPackage());
+  const b = cap.data, dv = new DataView(b.buffer, b.byteOffset); let p = 0; const out = {};
+  while (p + 30 <= b.length && dv.getUint32(p, true) === 0x04034b50) {
+    const cs = dv.getUint32(p + 18, true), nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true), d0 = p + 30 + nl + el;
+    let d = b.subarray(d0, d0 + cs);
+    if (dv.getUint16(p + 8, true) === 8) d = new Uint8Array(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    out[new TextDecoder().decode(b.subarray(p + 30, p + 30 + nl))] = new TextDecoder().decode(d);
+    p = d0 + cs;
+  }
+  return out;
+});
+
+test('charts2-03/06: the package\'s source-data CSV reads back as its table, and its plotted values carry the data names and the shown name', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU, 'cfu.csv');
+  await modal(page).locator('#chart-names [data-key="dpilA"] input[type=text]').fill('Δ*pilA*');
+  await apply(page);
+  const files = await packageFiles(page);
+  const name = Object.keys(files).find(n => /^source-data\/.*\.csv$/.test(n));
+  const csv = files[name];
+  const plotted = csv.split('\n').filter(l => l.startsWith('cfu_per_ml,'));
+  expect(csv).toMatch(/\nseries,category,n,mean,error,error_type,series_shown_as,category_shown_as\n/);
+  const dp = plotted.find(l => l.split(',')[1] === 'dpilA');
+  expect(dp).toBeTruthy();                                  // the data name, as in the raw table
+  expect(dp.endsWith(',ΔpilA')).toBe(true);                 // and the shown name, marks converted
+  expect(csv).not.toContain('Δ*pilA*');
+  // dropped back in: the raw table, three groups, no comment line as a header or group
+  await drop(page, csv, 'A.csv');
+  const d = await page.evaluate(() => ({ cols: _chartDraft.data.columns, n: _chartDraft.data.rows.length, x: document.getElementById('chart-xcol').selectedOptions[0].text,
+    status: document.getElementById('chart-delim-info').textContent }));
+  expect(d.cols).toEqual(['strain', 'replicate', 'cfu_per_ml']);
+  expect(d.n).toBe(9);
+  expect(d.x).toBe('strain');
+  const cats = await page.evaluate(() => _chartStats({ chart: _chartDraft, w: 300, h: 200 }).categories);
+  expect(cats).toEqual(['PAO1', 'Δ*pilA*', 'dfliC']);        // the figure's name for dpilA follows it in
+  expect(errors).toEqual([]);
+});
+
+test('charts2-12: Cancel on a just-dropped CSV takes the import back — panel, grid size and key', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU, 'cfu.csv'); await apply(page);
+  const before = await page.evaluate(() => ({ n: images.length, rows: gv('grid-rows'), cols: gv('grid-cols'), key: _figureKey().map(k => k.name).join('|'), pins: gv('sample-pins') }));
+  await drop(page, 'strain,v\nJunk1,1\nJunk2,2\n', 'junk.csv');
+  await modal(page).getByRole('button', { name: 'Cancel' }).click();
+  const after = await page.evaluate(() => ({ n: images.length, rows: gv('grid-rows'), cols: gv('grid-cols'), key: _figureKey().map(k => k.name).join('|'), pins: gv('sample-pins') }));
+  expect(after).toEqual(before);
+  // a chart added from the menu and cancelled leaves the grid as it was too
+  await page.evaluate(() => addChartElement('bar'));
+  await modal(page).getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate(() => ({ n: images.length, rows: gv('grid-rows'), cols: gv('grid-cols'), key: _figureKey().map(k => k.name).join('|'), pins: gv('sample-pins') }))).toEqual(before);
+  // Cancel on a chart opened again for editing keeps it
+  await edit(page, 'A'); await modal(page).getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate(() => images.length)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test('charts2-05: every *…* pair in a name is italic — Δ*pilA* + p*pilA* — in the chart, the SVG and the key text', async ({ page }) => {
+  const errors = await loadApp(page);
+  const runs = await page.evaluate(() => _rtRuns('Δ*pilA* + p*pilA*').map(r => (r.i ? '/' + r.t + '/' : r.t)).join(''));
+  expect(runs).toBe('Δ/pilA/ + p/pilA/');
+  // footnote stars after a word still stay stars
+  expect(await page.evaluate(() => ['WT*KO*', 'rec*A*', 'x*y* = 5', '*', 'p < 0.05*'].map(s => _rtHas(s)))).toEqual([false, false, false, false, false]);
+  await drop(page, CFU, 'cfu.csv');
+  await modal(page).locator('#chart-names [data-key="dpilA"] input[type=text]').fill('Δ*pilA* + p*pilA*');
+  await apply(page);
+  const svg = await page.evaluate(async () => { const cap = await _captureDownload(() => exportSVG('t', 96, document.getElementById('fig-canvas'))); return new TextDecoder().decode(cap.data); });
+  expect(svg).not.toContain('p*pilA*');
+  expect((svg.match(/font-style="italic">pilA</g) || []).length).toBeGreaterThanOrEqual(2);
+  expect(await page.evaluate(() => _keyText())).toContain('ΔpilA + ppilA');
+  expect(errors).toEqual([]);
+});
+
+test('charts2-15: the error-bar caps at the first and last time of a line chart are drawn whole', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, GROWTH, 'growth.csv'); await apply(page);
+  const r = await page.evaluate(() => {
+    const el = images.find(p => p && p.type === 'chart'); el._chartKey = '';
+    let clip = null; const caps = [];
+    _chartDraw(el, { rect() {}, poly() {}, circle() {}, text() {}, clipStart(x, y, w, h) { clip = { x, w }; }, clipEnd() {},
+      line(x1, y1, x2, y2) { if (y1 === y2 && Math.abs(x2 - x1 - 8) < 1e-6) caps.push([x1, x2, clip]); } });
+    return caps.map(([a, b, c]) => a >= c.x - 1e-6 && b <= c.x + c.w + 1e-6);
+  });
+  expect(r.length).toBeGreaterThan(0);
+  expect(r.every(Boolean)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('charts2-16: a log-axis minimum typed as 1e6 reads 1e6 in the field when the dialog opens again', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU, 'cfu.csv');
+  await modal(page).locator('#chart-ylog').check();
+  await modal(page).locator('#chart-ymin').fill('1e6');
+  await apply(page);
+  await edit(page, 'A');
+  expect(await modal(page).locator('#chart-ymin').inputValue()).toBe('1e6');
+  const w = await modal(page).locator('#chart-ymin').evaluate(i => i.scrollWidth <= i.clientWidth + 1);
+  expect(w).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('charts2-10: a long bracket label sits above its line, not on it, and inside the plot; the field shows its length', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU, 'cfu.csv');
+  await modal(page).getByRole('button', { name: '+ Add' }).first().click();
+  const box = modal(page).locator('#chart-sig-list input[type=text]').first();
+  await box.fill("p = 0.0004 (Welch's t-test)");
+  expect(await modal(page).locator('#chart-sig-list').innerText()).toContain('27/40');
+  await apply(page);
+  const r = await page.evaluate(() => {
+    const el = images.find(p => p && p.type === 'chart'); el._chartKey = ''; el.w = 220;
+    const L = [], H = []; let yAxisX = Infinity;
+    _chartDraw(el, { rect() {}, poly() {}, circle() {}, line(x1, y1, x2, y2) { if (y1 === y2) H.push({ x1, x2, y: y1 }); },
+      text(s, x, y, f, fi, al) { if (/Welch|0\.0004/.test(s)) L.push({ s, x, y, f }); if (al === 'right') yAxisX = Math.min(yAxisX, x); } });
+    const fs = parseFloat(/([\d.]+)px/.exec(L[0].f)[1]), low = L.reduce((a, b) => (b.y > a.y ? b : a));
+    const bar = H.filter(h => h.y > low.y - 1).sort((a, b) => a.y - b.y)[0];
+    return { gap: bar.y - low.y, fs, lines: L.map(l => l.s), left: Math.min(...L.map(l => l.x - _rtText(l.s).length * fs * 0.55 / 2)), yAxisX };
+  });
+  expect(r.gap).toBeGreaterThanOrEqual(r.fs * 0.22);          // the descenders clear the line
+  expect(r.left).toBeGreaterThan(r.yAxisX);                     // not over the y tick labels
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES "one sample under several names": MOI_0, MOI 0 and "MOI 0 mean" take one palette colour and are one row in Look › Sample colours', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'time_min,MOI_0_r1,MOI_0_r2,MOI_1_r1,MOI_1_r2\n0,0.1,0.11,0.1,0.12\n60,0.4,0.44,0.25,0.3\n', 'reps.csv'); await apply(page);
+  await drop(page, 'time_min,MOI,replicate,OD600\n0,1,1,0.1\n0,1,2,0.12\n0,0,1,0.1\n0,0,2,0.11\n60,1,1,0.25\n60,1,2,0.3\n60,0,1,0.4\n60,0,2,0.44\n', 'tidy.csv'); await apply(page);
+  await drop(page, 'time_min,MOI 0 mean,MOI 0 SD\n0,0.105,0.007\n60,0.42,0.03\n', 'ms.csv'); await apply(page);
+  const c = await page.evaluate(() => _allCharts().map(el => { el._chartKey = ''; const st = _chartStatsCached(el); return Object.fromEntries((st.series || st.seriesNames || []).map(s => [s.key, s.color]).concat([['kind', el.chart.kind]])); }));
+  expect(c[1]['MOI 0']).toBe(c[0].MOI_0);
+  expect(c[1]['MOI 1']).toBe(c[0].MOI_1);
+  expect(c[2]['MOI 0 mean']).toBe(c[0].MOI_0);
+  await openLook(page);
+  const rows = await page.locator('#sample-colours-list [data-name]').evaluateAll(r => r.map(e => JSON.parse(e.dataset.keys)));
+  expect(rows.find(k => k.includes('MOI_0')).sort()).toEqual(['MOI 0', 'MOI 0 mean', 'MOI_0']);
+  expect(errors).toEqual([]);
+});

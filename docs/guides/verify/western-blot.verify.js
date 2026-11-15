@@ -300,7 +300,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     await m.locator('button', { hasText: '✓ Apply Crop' }).click(); await p.waitForTimeout(800);
     return 'kept tilt ' + before + '° → levelled ' + a + '° (true −2.0°)';
   });
-  await step(T, '9.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry cannot update yet (see ISSUES)', async () => {
+  await step(T, '9.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry re-analyses strip A and updates it; Apply keeps the link', async () => {
     const onFig = await p.evaluate(() => _chartLinkState(images.find(i => i.type === 'chart')).stale);
     expect(onFig, 'chart not marked stale after the re-crop');
     const q = await panelPoint(4); await p.mouse.dblclick(q.x, q.y);
@@ -309,12 +309,16 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const nt = (await note.innerText()).replace(/\s+/g, ' ');
     expect(/has changed since/.test(nt), nt);
     await L.toasts(T);
-    await note.locator('button', { hasText: '↻ Update from densitometry' }).click(); await p.waitForTimeout(500);
+    await note.locator('button', { hasText: '↻ Update from densitometry' }).click(); await p.waitForTimeout(800);
     const t = await L.toasts(T);
-    await chartDlg.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
-    return 'note: "' + nt.slice(0, 120) + '"; Update → toast "' + t + '"';
+    const nt2 = (await note.innerText()).replace(/\s+/g, ' ');
+    expect(/^Linked to the densitometry/.test(nt2), nt2);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(500);
+    const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return { link: !!el.chart.link, stale: _chartLinkState(el).stale }; });
+    expect(st.link && !st.stale, JSON.stringify(st));
+    return 'note: "' + nt.slice(0, 120) + '"; Update → toast "' + t.slice(0, 120) + '"; after Apply: linked, up to date';
   });
-  await step(T, '9.4 Re-open ⫼ Lanes & bands on strip A: it re-analyses the new scan, keeps reference/loading/ladder, and the chart follows', async () => {
+  await step(T, '9.4 Re-open ⫼ Lanes & bands on strip A: the re-analysis kept reference/loading/ladder, and the chart holds its values', async () => {
     await L.toasts(T);
     const title = await openGel(0);
     const t = await g.innerText();

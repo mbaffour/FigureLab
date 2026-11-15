@@ -654,8 +654,11 @@ test('grid: a CSV dropped in the grid is a chart panel with the guessed mapping,
   expect(await page.locator('#chart-repcols').isChecked()).toBe(true);
   await page.fill('#chart-ymax', '0.2');
   await page.check('#chart-ylog');
-  // Cancel on an imported panel keeps it, unchanged
+  // ux2 (charts2-12): Cancel on a just-imported panel takes the import back; Apply keeps it, unchanged
   await page.click('#chart-modal button:has-text("Cancel")');
+  expect(await page.evaluate(() => images.length)).toBe(0);
+  await drop(page, LYSIS_WIDE, 'lysis.csv', true);
+  await page.click('#chart-modal button.btn-primary');
   const c = await page.evaluate(() => { const im = images.find(p => p.type === 'chart'); return { n: images.length, log: !!im.chart.axes.y.log, max: im.chart.axes.y.max }; });
   expect(c).toEqual({ n: 1, log: false, max: null });
   // Edit again by the panel editor, apply: the panel's stats follow

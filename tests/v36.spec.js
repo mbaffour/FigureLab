@@ -472,8 +472,9 @@ test('bar chart draws bars in data order with the palette colours', async ({ pag
     const cx = c.getContext('2d');
     const sx = c.width / (canvasLogicalW || c.width), sy = c.height / (canvasLogicalH || c.height);
     // Local plot x: padL=48, plotW=w-48-16=436 across 2 categories → centres at ~48+109 and 48+327.
-    const sample = (lx, ly) => { const d = cx.getImageData(Math.round((el.x + lx) * sx), Math.round((el.y + ly) * sy), 1, 1).data; return d[0] < 40 && d[1] < 40 && d[2] < 40; };
-    // A dark pixel (Okabe-Ito[0] = black) exists high up only over the tall bar B.
+    // ux2: a one-series bar chart is coloured by its groups (A black, B orange), so "inked" is any non-white pixel
+    const sample = (lx, ly) => { const d = cx.getImageData(Math.round((el.x + lx) * sx), Math.round((el.y + ly) * sy), 1, 1).data; return d[0] + d[1] + d[2] < 600; };
+    // An inked pixel exists high up only over the tall bar B.
     const aHigh = sample(157, 90);   // over bar A column, high up — should be empty (white)
     const bHigh = sample(375, 90);   // over bar B column, high up — should be inked (tall bar)
     return { aHigh, bHigh };

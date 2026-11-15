@@ -547,7 +547,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-label="Add images: open the file picker (Enter or Space), or drop files here" onclick="document.getElementById('file-input').click()">
       <div class="drop-icon">⬆</div>
       <strong>Drop or click to add images</strong>
-      <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format</div>
+      <div style="margin-top:3px;font-size:10px">PNG · TIFF · JPG · any image format · CSV/TSV → chart</div>
       <div style="margin-top:2px;font-size:10px">…or paste one with Ctrl/⌘+V</div>
     </div>
     <input type="file" id="file-input" multiple accept="image/*,.tif,.tiff,.svg,.csv,.tsv" style="display:none">
@@ -1828,8 +1828,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <label style="font-size:11px;flex:1">Y title<input type="text" id="chart-ytitle" style="width:100%"></label>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;align-items:center" title="Leave empty to fit the data. Values outside the limits are not drawn, and the chart says how many.">
-          <span id="chart-xlim-wrap" style="display:inline-flex;gap:3px;align-items:center">X min <input type="number" step="any" id="chart-xmin" style="width:62px"> max <input type="number" step="any" id="chart-xmax" style="width:62px"></span>
-          <span style="display:inline-flex;gap:3px;align-items:center">Y min <input type="number" step="any" id="chart-ymin" style="width:62px"> max <input type="number" step="any" id="chart-ymax" style="width:62px"></span>
+          <span id="chart-xlim-wrap" style="display:inline-flex;gap:3px;align-items:center">X min <input type="number" step="any" id="chart-xmin" style="width:84px"> max <input type="number" step="any" id="chart-xmax" style="width:84px"></span>
+          <span style="display:inline-flex;gap:3px;align-items:center">Y min <input type="number" step="any" id="chart-ymin" style="width:84px"> max <input type="number" step="any" id="chart-ymax" style="width:84px"></span>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
           <label id="chart-xlog-lbl"><input type="checkbox" id="chart-xlog"> log X</label>
@@ -2890,7 +2890,8 @@ let figTextItems = [];      // text drawn each render: for label drag hit-test +
 //     digit or underscore, nor a ^{…}/_{…} group. So "WT*KO*", "rec*A*", "x*y* = 5" and
 //     "a*b*" stay literal (footnote stars after a word), and "*(p<0.05)*", "*+*" and
 //     "*-*" stay literal (no letter after the star). "Δ*fliC*" still italicises fliC: Δ is
-//     a symbol written against a gene name, not the end of an ASCII word.
+//     a symbol written against a gene name, not the end of an ASCII word; nor is a lone
+//     "p" starting a word, the plasmid prefix, so "Δ*pilA* + p*pilA*" italicises both genes.
 //   - it CLOSES one only with a non-space character before it and no word character after.
 // ^ and _ without { are plain characters, and so is an empty group: "^{}" and "_{}" mark
 // nothing up, so they are drawn as typed.
@@ -2945,8 +2946,9 @@ function _rtParse(str){
       if(a.n>3) return;                                   // "****" is a row of stars
       const prev=A[ix-1], next=A[ix+1];
       // See the rule above: a letter or digit after it, and no ASCII word (or group) before it.
+      const plasmid=!!prev&&prev.k==='c'&&prev.ch==='p'&&!isWord(A[ix-2])&&!(A[ix-2]&&A[ix-2].k==='g');
       const canOpen=!!next&&next.k==='c'&&/[\p{L}\p{N}]/u.test(next.ch)
-        &&!(prev&&(prev.k==='g'||(prev.k==='c'&&/[A-Za-z0-9_]/.test(prev.ch))));
+        &&!(prev&&(prev.k==='g'||(prev.k==='c'&&/[A-Za-z0-9_]/.test(prev.ch)&&!plasmid)));
       const canClose=!!prev&&!isSp(prev)&&!isWord(next);
       if(canClose){
         if(a.n<3){
@@ -10339,7 +10341,19 @@ function _sampleColourFor(key, disp){
   const R=_sampleColours(), P=_samplePins();
   if(_own(R,key)) return R[String(key)]; if(_own(R,disp)) return R[String(disp)];
   if(_own(P,key)) return P[String(key)]; if(_own(P,disp)) return P[String(disp)];
+  // One sample written two ways in two files ("MOI_0" and "MOI 0", "MOI 0 mean", Δ*fliC*
+  // and ΔfliC) takes the palette colour the other spelling was given. (A colour set by
+  // hand or by a lab style stays an exact-name match.)
+  const n=_sampleNorm(key), d=disp!=null?_sampleNorm(disp):n, M=_sampleNormMap('sample-pins');
+  if(M.has(n)) return M.get(n); if(M.has(d)) return M.get(d);
   return null;
+}
+function _sampleNorm(s){ return _rtPlain(String(s??'')).replace(/[_\s]+/g,' ').replace(/ (mean|avg|average)$/i,'').trim().toLowerCase(); }
+function _sampleNormMap(id){
+  const m=_ctlMap(id), C=_sampleNormMap._c||(_sampleNormMap._c={});
+  if(C[id]&&C[id].m===m) return C[id].map;
+  const map=new Map(); Object.keys(m).forEach(k=>{ const n=_sampleNorm(k); if(!map.has(n)) map.set(n, m[k]); });
+  C[id]={m, map}; return map;
 }
 // The colours of one chart's series (or categories), in the data's order. A sample with
 // a colour of its own (_sampleColourFor) keeps it; every other name takes the chart's
@@ -10539,7 +10553,8 @@ function _labStyleSync(){
 function _sampleColourNames(){
   const out=[], by=new Map(), reg=_sampleColours();
   const add=(key,disp,c)=>{ key=String(key); disp=String(disp??key); if(!key) return;
-    let o=by.get(disp); if(!o){ o={name:disp, keys:[], color:c}; by.set(disp,o); out.push(o); }
+    const g=_sampleNorm(disp);           // Δ*fliC* and ΔfliC, MOI_0 and MOI 0: one sample
+    let o=by.get(g); if(!o){ o={name:disp, keys:[], color:c}; by.set(g,o); out.push(o); }
     if(!o.keys.includes(key)) o.keys.push(key); };
   _allCharts().forEach(el=>_sampleDrawn(el).forEach(o=>add(o.key, o.disp, o.color)));
   Object.keys(reg).forEach(k=>{ if(![...by.values()].some(o=>o.keys.includes(k)||o.name===k)) add(k, k, reg[k]); });
@@ -20078,8 +20093,12 @@ async function exportSubmissionPackage(){
       try{ const P=_chartPlotted(el);
         if(P.rows.length){
           csv+='\n# Plotted values (what the chart draws): rows sharing a series and '+(P.numericX?'an x':'a category')+' are averaged'+(P.ylog?'; Y axis log10':'')+(P.xlog?'; X axis log10':'')+'\n';
-          csv+=(P.boxes?'group,n,mean,sd,median,q1,q3,min,max':'series,'+(P.numericX?'x':'category')+',n,mean,error,error_type')+'\n';
-          csv+=P.rows.map(r=>(P.boxes?[r.x,r.n,r.mean,r.err,r.med,r.q1,r.q3,r.min,r.max]:[r.series,r.x,r.n,r.mean==null?'':r.mean,r.err||'',r.kind]).map(q).join(',')).join('\n')+'\n';
+          // Names as in the data (the raw table above uses them), then as the chart shows
+          // them, in plain text (ΔfliC, not the Δ*fliC* typed with its format marks).
+          const shown=(v,k)=>{ const t=_rtText(String(v??'')); return t===String(k??'')?'':t; }, ms=P.rows.some(r=>r.skey!=='');
+          csv+=(P.boxes?(ms?'series,':'')+'group,n,mean,'+P.boxErr+',median,q1,q3,min,max,'+(ms?'series_shown_as,':'')+'group_shown_as':'series,'+(P.numericX?'x':'category')+',n,mean,error,error_type,series_shown_as'+(P.numericX?'':',category_shown_as'))+'\n';
+          csv+=P.rows.map(r=>(P.boxes?[...(ms?[r.skey]:[]),r.xkey,r.n,r.mean,r.err,r.med,r.q1,r.q3,r.min,r.max,...(ms?[shown(r.series,r.skey)]:[]),shown(r.x,r.xkey)]
+            :[r.skey,r.xkey,r.n,r.mean==null?'':r.mean,r.err||'',r.kind,shown(r.series,r.skey),...(P.numericX?[]:[shown(r.x,r.xkey)])]).map(q).join(',')).join('\n')+'\n';
         } }catch(e){}
       const safe=(el.label||('chart_'+(ci+1))).replace(/\.(csv|tsv|txt)$/i,'').replace(/[^\w.-]+/g,'_');
       files.push({name:`source-data/${safe}.csv`, data:csv});
@@ -23513,11 +23532,13 @@ function _chartLabColours(el){
 function _chartPlotted(el){
   const ch=el.chart, st=_chartStatsCached(el), out=[];
   const ek=ch.error==='sd'?'SD (n-1)':ch.error==='sem'?'SEM = SD/sqrt(n)':ch.error==='column'?'from a column':'';
-  if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, x:p.x, n:p.n, mean:p.y, err:p.err, kind:p.err>0?ek:''})));
-  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, x:g.cat, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.err>0?ek:''})));
-  else if(st.boxes) st.boxes.forEach(b=>out.push({series:st.nSeries>1?b.name:'', x:st.nSeries>1?b.cat:b.name, n:b.n, mean:b.mean,
+  // series and x are what the chart shows; skey and xkey the names in the data.
+  if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, skey:s.key, x:p.x, xkey:p.x, n:p.n, mean:p.y, err:p.err, kind:p.err>0?ek:''})));
+  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, skey:b.key, x:g.cat, xkey:g.key, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.err>0?ek:''})));
+  else if(st.boxes) st.boxes.forEach(b=>out.push({series:st.nSeries>1?b.name:'', skey:st.nSeries>1?b.key:'', x:st.nSeries>1?b.cat:b.name, xkey:st.nSeries>1?st.catKeys[b.ci]:b.key, n:b.n, mean:b.mean,
     err:ch.kind==='beeswarm'?b.err:b.sd, kind:ch.kind==='beeswarm'?(b.errKind==='sem'?'SEM = SD/sqrt(n)':b.errKind==='none'?'':'SD (n-1)'):'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
-  return {rows:out, numericX:!!st.series, boxes:!!st.boxes, ylog:!!(ch.axes&&ch.axes.y&&ch.axes.y.log&&!_chartLogWhy(ch.kind,'y')), xlog:!!(st.series&&ch.axes&&ch.axes.x&&ch.axes.x.log)};
+  const bk=st.boxes&&st.boxes[0]&&ch.kind==='beeswarm'?st.boxes[0].errKind:'sd';
+  return {rows:out, numericX:!!st.series, boxes:!!st.boxes, boxErr:bk==='sem'?'sem':bk==='none'?'whisker_none':'sd', ylog:!!(ch.axes&&ch.axes.y&&ch.axes.y.log&&!_chartLogWhy(ch.kind,'y')), xlog:!!(st.series&&ch.axes&&ch.axes.x&&ch.axes.x.log)};
 }
 function _chartPythonSnippet(el, idx){
   const ch=el.chart, D=ch.data;
@@ -26988,6 +27009,19 @@ function recolorIcon(color){
 function _parseDelimited(text){
   let s=String(text||'').replace(/^﻿/,'');          // strip BOM
   if(!s.trim()) return {columns:[],rows:[],delim:','};
+  // Comment lines ("# Source data for A (bar)", "# Error bars: SD") over the table are
+  // notes, not the header; a commented block after a blank line (the source data's
+  // "# Plotted values" table) is left out — so FigureLab's own source-data file reads back
+  // as the table it was drawn from. A bare "#" header ("#,value") is a column name.
+  let comments=0, cutBlock='';
+  const isCmt=l=>/^\s*#(\s|$)/.test(l);
+  if(isCmt(s)){
+    const L=s.split(/\r?\n/); let i=0; while(i<L.length&&isCmt(L[i])) i++;
+    comments=i; const rest=L.slice(i);
+    let k=-1; for(let j=1;j<rest.length;j++){ if(rest[j].trim()) continue; const nx=rest.slice(j+1).find(x=>x.trim()); if(nx!=null&&isCmt(nx)){ k=j; break; } }
+    if(k>0){ cutBlock=(rest.slice(k+1).find(x=>x.trim())||'').replace(/^\s*#\s*/,'').split(/[:(]/)[0].trim(); s=rest.slice(0,k).join('\n'); } else s=rest.join('\n');
+    if(!s.trim()) return {columns:[],rows:[],delim:',',comments};
+  }
   // Detect the delimiter from the first non-empty line, counting only outside quotes.
   const firstLine=(()=>{ let inq=false,out=''; for(let i=0;i<s.length;i++){ const c=s[i]; if(c==='"') inq=!inq; if((c==='\n'||c==='\r')&&!inq) break; out+=c; } return out; })();
   const count=ch=>{ let n=0,inq=false; for(const c of firstLine){ if(c==='"') inq=!inq; else if(c===ch&&!inq) n++; } return n; };
@@ -27034,7 +27068,7 @@ function _parseDelimited(text){
     if(!r0.some(v=>typeof v==='number') && numCol.some((isN,ci)=>isN&&typeof r0[ci]==='string'&&r0[ci].trim()!==''&&!na.test(r0[ci].trim()))){
       units=r0.map(v=>String(v??'').trim()); body.shift(); }
   }
-  return {columns, rows:body, delim, units, decimalComma};
+  return {columns, rows:body, delim, units, decimalComma, comments, cutBlock};
 }
 
 // Min/max via reduce — spreading a big array into Math.min(...) throws RangeError
@@ -27711,7 +27745,13 @@ function _chartDraw(el, emit){
   const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
   let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26*u+mx*T*0.56); }
   let _yLabW=0; for(const l of yA.labels) _yLabW=Math.max(_yLabW,_rtText(l).length);
-  const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0?_legW+8*u:16*u), padT=14*u+sigH;
+  const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0?_legW+8*u:16*u);
+  // A bracket label wider than the plot is set on two lines (it ran over the y-axis labels).
+  const _sigLines=an=>{ const t=String(an.text||'*'), pwE=W-padL-padR; if(_rtText(t).length*fs*0.55<=pwE*0.98) return [t];
+    const sp=[...t.matchAll(/ /g)].map(m=>m.index); if(!sp.length) return [t];
+    const k=sp.reduce((b,i)=>Math.abs(i-t.length/2)<Math.abs(b-t.length/2)?i:b, sp[0]); return [t.slice(0,k), t.slice(k+1)]; };
+  const sigWrap=sigs.some(an=>_sigLines(an).length>1)?fs*1.1:0;
+  const padT=14*u+sigH+sigWrap;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
@@ -27865,9 +27905,13 @@ function _chartDraw(el, emit){
       const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
       const x1=xCenter(a), x2=xCenter(b);
       let topY=Infinity; for(let ci=a;ci<=b;ci++) topY=Math.min(topY, top[ci]);
-      const yTop=Math.max(fs+2, topY - (12 + (an.level||0)*15)*u), drop=6*u;
+      const SL=_sigLines(an), yTop=Math.max(fs*(SL.length>1?2.2:1)+2, topY - (12 + (an.level||0)*15)*u), drop=6*u;
       emit.line(x1,yTop+drop,x1,yTop,ink,1); emit.line(x1,yTop,x2,yTop,ink,1); emit.line(x2,yTop,x2,yTop+drop,ink,1);
-      emit.text(an.text||'*', (x1+x2)/2, yTop-2, font(fs), ink, 'center', 'alphabetic');
+      // The label stands clear of the line by its descent (p, ( and ) used to cross it)
+      // and inside the plot's width, never over the y-axis labels.
+      SL.forEach((lab,k)=>{ const lw=_rtText(lab).length*fs*0.55, half=Math.min(pw,lw)/2;
+        const lx=Math.max(px0+half, Math.min(px1-half, (x1+x2)/2));
+        emit.text(lab, lx, yTop-2*u-fs*0.24-(SL.length-1-k)*fs*1.1, font(fs), ink, 'center', 'alphabetic'); });
     });
   }
 
@@ -27894,7 +27938,11 @@ function _chartDraw(el, emit){
       const x=xScale(rf.value); emit.line(x,py0,x,py1, rf.color||'#c0392b', 1.2, rf.dash===false?null:[6,4]);
       if(rf.label) emit.text(rf.label, x+3, py0+10*u, font(T), rf.color||'#c0392b', 'left', 'alphabetic'); });
     const marks=[];
-    clipOn(px0,py0,pw,ph);
+    // With the x range fitted to the data, the error-bar caps at the first and last x
+    // reach past the plot's edges: they are drawn whole (charts2-15). With limits typed,
+    // the plot box is the edge.
+    const xPad=xA.user?0:6;
+    clipOn(px0-xPad,py0,pw+2*xPad,ph);
     stat.series.forEach(s=>{
       if(stat.kind==='line') emit.poly(s.points.map(p=>[xScale(p.x),yScale(p.y)]),s.color,null,st.lineWidth||2);
       // Error bars: mean ± SD / SEM of the replicates at each x, or the column's value.
@@ -28185,6 +28233,7 @@ function addChartElement(kind){
     toast(`${kind||'bar'} chart added to the grid as panel ${_rtText(formatLabel(im.label))||'?'} — double-click it to edit its data again`,'ok');
     openDataPanelEditor(images.indexOf(im));
     _chartFreshId=im.id;      // Cancel on this first opening takes the panel away again
+    _chartFreshSnap=undoStack[undoStack.length-1]||null;
     return;
   }
   addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
@@ -28195,12 +28244,15 @@ function addChartElement(kind){
   openChartModal();
   // Cancel on this first opening takes the placeholder away again.
   _chartFreshId=freeformElements[ni]&&freeformElements[ni].id;
+  _chartFreshSnap=undoStack[undoStack.length-1]||null;
 }
 
 // Load a dropped/selected CSV/TSV file into a new chart: a panel in the grid (it used to
 // switch the figure to freeform), an object on the freeform canvas. Resolves true once
 // the chart is added. opts.holdMode (a drop that also held images) adds it without
 // opening the editor over the figure.
+// What reading a table left out: the comment lines over it, a commented block below it.
+function _csvSkipNote(P){ return (P.comments?` — ${P.comments} comment line${P.comments>1?'s':''} (#) over the table skipped`:'')+(P.cutBlock?`; the “${P.cutBlock}” block below it left out`:''); }
 function _loadDataFile(f, fail, opts){
   const hold=!!(opts&&opts.holdMode);
   return new Promise(settle=>{
@@ -28220,9 +28272,10 @@ function _loadDataFile(f, fail, opts){
     if(layoutMode!=='freeform'){
       const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
       logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
-      toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
+      toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}${_csvSkipNote(parsed)}`,'ok');
       _samplePinSync();
-      if(!hold) openDataPanelEditor(images.indexOf(im));
+      // Cancel on this first opening takes the import back (as for a chart added from the menu).
+      if(!hold){ openDataPanelEditor(images.indexOf(im)); _chartFreshId=im.id; _chartFreshSnap=undoStack[undoStack.length-1]||null; }
       added=true; return;
     }
     addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:(f.name||'chart')});
@@ -28230,8 +28283,8 @@ function _loadDataFile(f, fail, opts){
     logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
     _samplePinSync();
     updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
-    toast(`Imported ${parsed.rows.length} rows from ${f.name}${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
-    if(!hold) openChartModal();
+    toast(`Imported ${parsed.rows.length} rows from ${f.name}${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}${_csvSkipNote(parsed)}`,'ok');
+    if(!hold){ openChartModal(); _chartFreshId=freeformElements[ni]&&freeformElements[ni].id; _chartFreshSnap=undoStack[undoStack.length-1]||null; }
     added=true;
     } finally { settle(added); }
   };
@@ -28487,6 +28540,7 @@ function _selectedChartEl(){
   const el=freeformElements[[...selectedElems][0]];
   return (el&&el.type==='chart')?el:null;
 }
+let _chartFreshSnap=null;   // the undo step that added the chart now open as new (Cancel takes it back)
 let _chartDraft=null, _chartDraftColours={}, _chartDraftNames={}, _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
 function _chartModalOpen(){ const m=document.getElementById('chart-modal'); return !!(m&&m.classList.contains('open')); }
 // What the sig/ref/name editors act on: the draft while the dialog is open, else the chart.
@@ -28500,11 +28554,17 @@ function openChartModal(){
   document.getElementById('chart-modal').classList.add('open');
   _chartPreview();
 }
-function closeChartModal(){ clearTimeout(_chartParseT); document.getElementById('chart-modal').classList.remove('open'); _chartDraft=null; _chartFreshId=null; _dataPanelEdit=null; }
+function closeChartModal(){ clearTimeout(_chartParseT); document.getElementById('chart-modal').classList.remove('open'); _chartDraft=null; _chartFreshId=null; _chartFreshSnap=null; _dataPanelEdit=null; }
 // Cancel (and ×, Esc): nothing changes; a chart just added from the menu, never applied, goes again.
 function cancelChartModal(){
-  const fresh=_chartFreshId; closeChartModal();
+  const fresh=_chartFreshId, snap=_chartFreshSnap; closeChartModal();
   if(fresh==null) return;
+  // A chart just imported or added: the step that added it is taken back whole, so the
+  // grid's size, the sample colours and the key are as they were (a dropped CSV used to
+  // stay, and a cancelled one left the grid a row taller).
+  if(snap&&undoStack[undoStack.length-1]===snap){
+    undoStack.pop(); if(_importStep==='taken') _importStep='pending';
+    restoreState(snap); toast('Cancelled — the chart was not added','ok'); return; }
   const i=freeformElements.findIndex(e=>e&&e.id===fresh);
   if(i>=0){ freeformElements.splice(i,1); selectedElems.clear(); updateFreeformElemList(); if(typeof drawFreeformOverlay==='function') drawFreeformOverlay(); updateElemPropsBar(); scheduleRender(0); return; }
   const k=images.findIndex(p=>p&&p.id===fresh&&_isDataPanel(p));
@@ -28548,7 +28608,9 @@ function _chartModalSync(){
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
   _chartModalPickers();
   sv('chart-xtitle', ch.axes.x.title||''); sv('chart-ytitle', ch.axes.y.title||'');
-  const lim=v=>(v==null||v===''||!isFinite(+v))?'':String(v);
+  // 1e6, not 1000000 cut to "10000" in the field
+  const lim=v=>{ if(v==null||v===''||!isFinite(+v)) return ''; v=+v; const a=Math.abs(v);
+    return (a>=1e5||(a>0&&a<1e-3))?v.toExponential().replace(/\.?0+e/,'e').replace('e+','e'):String(v); };
   sv('chart-xmin', lim(ch.axes.x.min)); sv('chart-xmax', lim(ch.axes.x.max)); sv('chart-ymin', lim(ch.axes.y.min)); sv('chart-ymax', lim(ch.axes.y.max));
   sc('chart-xlog', !!ch.axes.x.log); sc('chart-ylog', !!ch.axes.y.log);
   sv('chart-palette', ch.style.palette||'okabeIto');
@@ -28629,7 +28691,7 @@ function _chartReparse(force){
   clearTimeout(_chartParseT);
   const ch=_chartDraft; if(!ch) return;
   const parsed=_parseDelimited(document.getElementById('chart-data-ta').value);
-  ch._parseNote={decimalComma:parsed.decimalComma||0, units:parsed.units||null, empty:!(parsed.columns.length&&parsed.rows.length)};
+  ch._parseNote={decimalComma:parsed.decimalComma||0, units:parsed.units||null, empty:!(parsed.columns.length&&parsed.rows.length), skip:_csvSkipNote(parsed)};
   if(!parsed.columns.length||!parsed.rows.length){ _chartModalRefresh(); return; }
   const sameHead=JSON.stringify(parsed.columns)===JSON.stringify(ch.data.columns||[]);
   ch.data=Object.assign({}, ch.data, {columns:parsed.columns, rows:parsed.rows, units:parsed.units||null});
@@ -28673,6 +28735,7 @@ function _chartModalRefresh(){
   if(D.sourceName) bits.push(D.sourceName);
   if(D.units&&D.units.some(Boolean)) bits.push('units row: '+D.units.map((u,i)=>u?`${_chartColName(D.columns,i)} ${u}`:'').filter(Boolean).join(', '));
   if(pn.decimalComma) bits.push(`${pn.decimalComma} decimal comma${pn.decimalComma>1?'s':''} read as points`);
+  if(pn.skip) bits.push(pn.skip.replace(/^ — /,''));
   if(pn.empty) bits.push('⚠ no rows read yet — a header row and at least one data row');
   document.getElementById('chart-delim-info').textContent=bits.join(' · ');
   const ln=document.getElementById('chart-link-note');
@@ -28827,7 +28890,7 @@ function _chartRenderSigList(){
     const row=document.createElement('div');
     row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
     row.innerHTML=`${pick(i,'a',+an.a||0)}<span>–</span>${pick(i,'b',an.b==null?1:+an.b||0)}
-      <input type="text" value="${esc(an.text||'*')}" maxlength="40" style="width:130px" oninput="_chartSigEdit(${i},'text',this.value)" title="The symbol or p value from your own test (up to 40 characters: *, n.s., p = 0.0008, p = 7.6×10^{-4})">
+      <input type="text" value="${esc(an.text||'*')}" maxlength="40" style="flex:1;min-width:130px" oninput="_chartSigEdit(${i},'text',this.value);this.nextElementSibling.textContent=this.value.length+'/40'" title="The symbol or p value from your own test (up to 40 characters: *, n.s., p = 0.0008, p = 7.6×10^{-4})"><span style="color:var(--muted);font-size:10px;min-width:30px" title="Characters used of the 40 a label can hold">${String(an.text||'*').length}/40</span>
       <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>`;
     wrap.appendChild(row);
   });

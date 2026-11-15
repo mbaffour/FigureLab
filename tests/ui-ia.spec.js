@@ -36,6 +36,8 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     'gel-canvas', 'gel-banner', 'gel-table', 'gel-fit', 'gel-ref', 'gel-lc',
     // its background method, total-protein mode and lane profile
     'gel-bg', 'gel-bg-p', 'gel-bg-unit', 'gel-lc-mode', 'gel-prof-lane', 'gel-prof-info', 'gel-profile',
+    // the band a chart takes from it
+    'gel-chart-band',
     // The lane condition table editor, built when it opens.
     'lt-modal-bg', 'lt-status', 'lt-match', 'lt-lanes', 'lt-pos', 'lt-fs', 'lt-grid', 'lt-preview',
     // The uncropped-originals (S1) dialog, built when it opens.

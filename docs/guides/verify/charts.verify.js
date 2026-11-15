@@ -111,19 +111,13 @@ const TRUTH = {
   });
 
   // ---- Task 5: wide table, one column per group, bracket -------------------------------------
-  await step(T, 'T5.1 Wide table: guessed as Scatter; set Chart type Bar and Data layout › Columns, tick both groups', async () => {
+  await step(T, 'T5.1 Wide table: guessed as Bar with Data layout › Columns, both groups ticked, SD and points', async () => {
     const d0 = await importCsv('swim_wide.csv');
-    await chart.locator('#chart-kind').selectOption({ label: 'Bar' });
-    await chart.locator('#chart-layout').selectOption({ label: 'Columns — each ticked column is a group' });
-    await p.waitForTimeout(300);
     const lbl = await chart.locator('#chart-ycols-lbl').innerText();
-    for (const g of ['Untreated', 'Phage-treated']) await chart.locator('#chart-ycols label', { hasText: g }).locator('input').check();
-    await chart.locator('#chart-err').selectOption({ label: 'SD (n−1)' });
-    await chart.getByLabel('points').check();
+    expect(d0.kind === 'Bar' && /^Columns/.test(d0.layout) && d0.ycols.join('|') === 'Untreated|Phage-treated' && d0.err === 'SD (n−1)' && lbl === 'Group columns (each is one group)', JSON.stringify(d0));
+    expect(await chart.locator('#chart-points').isChecked(), 'points not ticked');
     await chart.locator('#chart-ytitle').fill('Swim diameter (mm)');
-    const d = await draft();
-    expect(d.ycols.join('|') === 'Untreated|Phage-treated' && lbl === 'Group columns (each is one group)', JSON.stringify(d));
-    return `first guess: ${d0.kind} with X ${d0.x}; now ${d.kind}, ${lbl}`;
+    return `guessed: ${d0.kind}, ${d0.layout}, ${lbl}: ${d0.ycols.join(', ')}`;
   });
   await step(T, 'T5.2 Significance brackets › + Add: Untreated – Phage-treated, label "p = 0.0008 (Welch t-test)"', async () => {
     const sec = chart.locator('.sec-lbl', { hasText: 'Significance brackets' }).locator('xpath=..');
@@ -245,7 +239,8 @@ const TRUTH = {
     await L.pickFiles(T, p.getByText('📄 Load lab style (paper_style.json)…'), [f]);
     await p.waitForTimeout(800);
     const title = await p.locator('#im-title').innerText().catch(() => '');
-    const list = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#sample-colours-list [data-name]')].map(r => [r.dataset.name, r.querySelector('input').value])));
+    // each row: the name shown, and the data names behind it (dfliC is shown as Δ*fliC*)
+    const list = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#sample-colours-list [data-name]')].flatMap(r => [r.dataset.name, ...JSON.parse(r.dataset.keys || '[]')].map(k => [k, r.querySelector('input').value]))));
     await p.keyboard.press('Escape');
     expect(list.dfliC === '#cc79a7' && list.dmotA === '#009e73' && /Arial/.test(await p.locator('#label-font').inputValue()), JSON.stringify(list));
     const untreated = await p.evaluate(() => document.querySelector('#sample-colours-list [data-name="Untreated"]').innerText);
@@ -296,7 +291,9 @@ const TRUTH = {
     for (const r of plotted('B')) { const tr = TRUTH.B[`${r.series}@${r.x}`]; if (tr && (!close(+r.mean, mean(tr)) || !close(+r.error, sd(tr)))) bad.push('B ' + JSON.stringify(r)); }
     for (const r of plotted('E')) { const tr = TRUTH.E[r.category]; if (!tr || !close(+r.mean, mean(tr)) || !close(+r.error, sd(tr)) || +r.n !== 5) bad.push('E ' + JSON.stringify(r)); }
     for (const r of plotted('F')) { const tr = TRUTH.F[r.category]; if (!tr || !close(+r.mean, mean(tr)) || !close(+r.error, sd(tr))) bad.push('F ' + JSON.stringify(r)); }
-    const D = plotted('D'); if (!D.some(r => r.series === 'MOI 1' && r.x === '60' && +r.error === 0.05 && r.error_type === 'from a column')) bad.push('D pairing');
+    // series: the data's name ("MOI 1 mean"); series_shown_as: the name the chart shows ("MOI 1")
+    const D = plotted('D'); if (!D.some(r => r.series === 'MOI 1 mean' && r.series_shown_as === 'MOI 1' && r.x === '60' && +r.error === 0.05 && r.error_type === 'from a column')) bad.push('D pairing');
+    if (!plotted('A').some(r => r.category === 'dfliC' && r.category_shown_as === 'ΔfliC')) bad.push('A: dfliC not written with its shown name ΔfliC');
     expect(!bad.length, bad.join('; '));
     return `${src.length} source-data CSVs; means and SDs match the truth (A WT ${(mean(TRUTH.A.WT) / 1e9).toFixed(4)}e9 ± ${(sd(TRUTH.A.WT) / 1e7).toFixed(3)}e7, E Untreated ${mean(TRUTH.E.Untreated).toFixed(2)} ± ${sd(TRUTH.E.Untreated).toFixed(3)}, F decimal commas ${mean(TRUTH.F.WT).toFixed(1)})`;
   });
