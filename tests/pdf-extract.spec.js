@@ -35,10 +35,11 @@ test('write exported PDFs to disk for external validation', async ({ page }) => 
   `, true);
   fs.writeFileSync(path.join(OUT, 'labels.pdf'), Buffer.from(a));
 
-  // 2. Same figure as a JPEG-image PDF, with a Greek label that must stay raster
+  // 2. Same figure as a JPEG-image PDF, with a label no standard font can set (✓), which
+  //    must stay raster. (Greek such as α-tubulin is Symbol text since usability round 2.)
   const b = await grab(`
     sv('show-labels', true); sv('label-format', 'custom');
-    images[0].label = '\\u03b1-tubulin'; images[1].label = 'GAPDH';
+    images[0].label = '\\u2713 tubulin'; images[1].label = 'GAPDH';
     render();
   `, false);
   fs.writeFileSync(path.join(OUT, 'mixed.pdf'), Buffer.from(b));

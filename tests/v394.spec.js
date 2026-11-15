@@ -77,17 +77,21 @@ test('text the base-14 font cannot represent stays in the raster, never mangled'
   const errors = await loadApp(page);
   await seedPanels(page, 2);
   const r = await page.evaluate(() => {
-    // Greek and comparison operators have no WinAnsi code point
+    // Greek and comparison operators have no WinAnsi code point; since usability round 2
+    // they are set in the base-14 Symbol font (with a ToUnicode map), so they are text now.
+    // A character neither font has (✓, CJK) still stays in the raster.
     const ok = _pdfCanTypeset({ str: 'Control 20 \u00b5m' });
     const greek = _pdfCanTypeset({ str: '\u03b1-tubulin' });
     const cmp = _pdfCanTypeset({ str: 'p \u2265 0.05' });
     const tick = _pdfCanTypeset({ str: '\u2713 done' });
+    const cjk = _pdfCanTypeset({ str: '\u5927\u80a0\u687f\u83cc' });
     const empty = _pdfCanTypeset({ str: '' });
-    return { ok, greek, cmp, tick, empty };
+    return { ok, greek, cmp, tick, cjk, empty };
   });
   expect(r.ok).toBe(true);
-  expect(r.greek).toBe(false);      // α — must stay raster
-  expect(r.cmp).toBe(false);        // ≥
+  expect(r.greek).toBe(true);       // α — Symbol
+  expect(r.cmp).toBe(true);         // ≥ — Symbol
+  expect(r.cjk).toBe(false);        // must stay raster
   expect(r.tick).toBe(false);       // ✓
   expect(r.empty).toBe(false);
   expect(errors).toEqual([]);
@@ -98,7 +102,7 @@ test('an unrepresentable label is still drawn — it is skipped from text, not d
   await seedPanels(page, 2);
   const r = await page.evaluate(() => {
     sv('show-labels', true); sv('label-format', 'custom');
-    images[0].label = '\u03b1-tubulin';        // no WinAnsi representation
+    images[0].label = '\u2713 tubulin';        // ✓: in neither WinAnsi nor Symbol (α is Symbol text since round 2)
     images[1].label = 'GAPDH';                 // plain ASCII
     render();
     // the raster render used for the PDF skips ONLY what the text layer will draw
@@ -112,11 +116,11 @@ test('an unrepresentable label is still drawn — it is skipped from text, not d
     finally { CanvasRenderingContext2D.prototype.fillText = origFill; }
     return { painted, items: figTextItems.map(i => i.str) };
   });
-  // the Greek label was painted into the raster; the ASCII one was held back for text
-  expect(r.painted).toContain('\u03b1-tubulin');
+  // the ✓ label was painted into the raster; the ASCII one was held back for text
+  expect(r.painted).toContain('\u2713 tubulin');
   expect(r.painted).not.toContain('GAPDH');
   // both are still recorded as text items (the PDF layer filters again)
-  expect(r.items).toContain('\u03b1-tubulin');
+  expect(r.items).toContain('\u2713 tubulin');
   expect(r.items).toContain('GAPDH');
   expect(errors).toEqual([]);
 });

@@ -551,14 +551,14 @@ const { step, expect, btn } = L;
     return runs.join(' | ') + ' — ' + (await L.toasts(T)).split(' | ').pop();
   });
 
-  await step(T, '8.3 ↓ PDF lossless: the title and "infects" are real text; "Δ…" stays in the picture', async () => {
+  await step(T, '8.3 ↓ PDF lossless: the title, "infects" and "Δ…" are real text (Δ in the standard Symbol font)', async () => {
     const { f } = await saveVia('PDF lossless', 'graphical_abstract');
     const zlib = require('zlib'); const d = fs.readFileSync(f).toString('latin1'); let tj = [];
     for (const m of d.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
       let b = Buffer.from(m[1], 'latin1'); try { b = zlib.inflateSync(b); } catch (_) {}
       tj = tj.concat([...b.toString('latin1').matchAll(/\(([^)]*)\)\s*Tj/g)].map(x => x[1]));
     }
-    expect(tj.includes('infects') && tj.some(t => /Phage phiGuide lyses/.test(t)) && !tj.some(t => /ompC/.test(t)), tj.join(' | '));
+    expect(tj.includes('infects') && tj.some(t => /Phage phiGuide lyses/.test(t)) && tj.some(t => /ompC/.test(t)) && /\/BaseFont \/Symbol \/ToUnicode/.test(d), tj.join(' | '));
     return 'PDF text: ' + tj.join(' | ');
   });
 

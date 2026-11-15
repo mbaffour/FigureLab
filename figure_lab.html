@@ -2959,7 +2959,9 @@ function _rtParse(str){
     const fl=()=>({...f, i:f.i||it>0, b:f.b||bd>0});
     A.forEach(a=>{
       if(a.k==='c'){ push(a.ch, fl()); pl+=a.ch; }
-      else if(a.k==='g') pl+=_rtScriptPlain(seq(a.inner, {...fl(), sup:a.sup, sub:!a.sup}), a.sup);
+      // A superscript's leading hyphen before a number is a minus sign (mL^{-1}, 10^{-3}):
+      // drawn and written as U+2212, the mark a typesetter would use, not a hyphen.
+      else if(a.k==='g') pl+=_rtScriptPlain(seq(a.sup?a.inner.replace(/^-(?=[0-9.])/,'−'):a.inner, {...fl(), sup:a.sup, sub:!a.sup}), a.sup);
       else {
         if(a.oi||a.ob||a.ci||a.cb) marked=true;
         if(a.ci||a.cb){ if(a.ci) it--; if(a.cb) bd--; push('*'.repeat(a.lit), fl()); }
@@ -5681,7 +5683,7 @@ function _refreshPreflight(){
     : (fmt==='pdf'||fmt==='pdf-lossless')
     // Says what the PDF's text is and is not: real, named fonts, not embedded. The freeform
     // PDF used to have no text at all and nothing here said so.
-    ? `Panel letters, labels, text annotations and text boxes are written as <b>real, selectable text</b> in the PDF's standard fonts (Helvetica, Times or Courier, whichever matches the figure's font; the font is named in the file). They are <b>not embedded</b>: every PDF reader supplies these fonts, but a journal preflight that requires all fonts embedded will flag them. Text with characters those fonts lack (Greek, ≥, ✓)${layoutMode==='freeform'?' and text on a turned object':''} stays in the picture. Pictures, lines and shapes are pixels at ${dpi} DPI.`
+    ? `Panel letters, labels, text annotations, text boxes and the words of charts and gene maps are written as <b>real, selectable text</b> in the PDF's standard fonts (Helvetica, Times or Courier, whichever matches the figure's font; Greek letters and signs such as Δ, φ, −, ≥ in the standard Symbol font). The fonts are named in the file, <b>not embedded</b>: every PDF reader supplies them (so the letters look like Helvetica, not Arial), but a journal preflight that requires all fonts embedded will flag them. Text with characters none of them has (✓, CJK, emoji)${layoutMode==='freeform'?' and text on a turned object':''} stays in the picture. Pictures, lines and shapes are pixels at ${dpi} DPI.`
     : `Text, lines & annotations are <b>rasterised</b> at ${dpi} DPI.`;
   const warns=[];
   if(dpi<300) warns.push({t:'warn',m:`${dpi} DPI is below the 300 DPI most journals require for print.`});
@@ -11226,6 +11228,10 @@ function render(targetCanvas, exportScale, opts){
   _keyTextItems = [];
   _keySkipText = typeof _skipOpt==='function' ? _skipOpt : (_skipOpt ? ()=>true : null);
   _annTextSkip = typeof _skipOpt==='function' ? _skipOpt : null;   // the PDF: text marks go in its text layer
+  // Chart and gene-map words: recorded and left off the pixels only when asked (opts.dataText,
+  // the PDF's gate or the PowerPoint's), never on screen and never for the SVG, which writes them itself.
+  _dataTextSkip = (opts && opts.dataText) ? (typeof opts.dataText==='function' ? opts.dataText : ()=>true) : null;
+  _dataTextS = S; _dataTextClip = null;
   if(!isExport) _keyRefresh();            // the legend text, the switch and the button follow every redraw
   if(!isExport){ panelBounds = []; _sbBars = []; _insetFrames = []; _insetConnectors = []; }
   // A hidden panel (the source files a merge parked, a panel hidden with 👁) is not drawn,
@@ -18031,7 +18037,7 @@ function renderExportCanvas(dpi, opts){
     toast(`Export capped to ~60MP (effective ${capDpi} DPI)`, 'warn');
   }
   const off=document.createElement('canvas');
-  render(off, scale, opts);
+  try{ render(off, scale, opts); } finally { _dataTextSkip=null; _dataTextClip=null; }   // chart words go to text for this render only
   // Expose the ACTUAL scale and resolution so metadata writers embed the true
   // physical size — both when the cap shrank the canvas below the requested DPI and
   // when a printed width was chosen (where scale*96 is unrelated to the real DPI).
@@ -18892,7 +18898,7 @@ function _journalRows(J, g){
     // Scale-bar and intensity-bar text follow the label font (_barFontFamily).
     rows.push({label:'Font', ok:!off.length, src,
       note:(off.length?`${off.map(u=>`${esc(u.where)} in ${esc(u.name)}`).join('; ')} — `:`${esc(use.map(u=>u.name).filter((v,i,a)=>a.indexOf(v)===i).join(', '))} ✓ — `)
-        +`${nm}: ${J.fontNote}`,
+        +`${nm}: ${J.fontNote}. In FigureLab's PDF the text names the standard Helvetica, Times or Courier (and Symbol for Greek), not embedded; the TIFF, PNG and SVG keep this font`,
       fix:off.length?{a:'jfont',t:`Use ${_fontName(_journalFontValue(J))}`}:null});
   }
   if(J.letters){
@@ -20134,6 +20140,9 @@ async function _pptxKey(S, a, x, y, E, ptPerPx, sc){
   await S.picture(c, x, y, c.width/sc, c.height/sc, 'Key swatches');
   items.forEach(it=>_pptxTextItem(S, {...it, x:it.x+x, y:it.y+y}, ptPerPx, 'Key: '+_rtText(it.str)));
 }
+// The chart and gene-map words PowerPoint can set where they are drawn: level or turned a
+// quarter (a y-axis title). Category labels turned −40° stay in the chart's picture.
+function _pptxCanSet(it){ return !it.rotDeg||Math.abs(it.rotDeg+90)<0.01; }
 async function exportPPTX(){
   if(!images.length&&!(freeformElements||[]).length){ toast('Add images first, or ✨ Load example figure','warn'); return; }
   toast('Building PowerPoint…','ok');
@@ -20143,13 +20152,21 @@ async function exportPPTX(){
     const R=_PPTX_RELNS;
     const ff=layoutMode==='freeform';
     const dpi=getExportDPI();
-    const L=ff?_layerFreeform(dpi, {textApart:true}):_layerGrid(dpi, {});
+    const L=ff?_layerFreeform(dpi, {textApart:true}):_layerGrid(dpi, {dataText:_pptxCanSet});
     const {S:sc, kx, ky, Lw, Lh}=L;
-    // The slide is the figure's shape, at most 13.33 in wide (a 16:9 slide) and never
-    // larger than the figure at 96 px per inch; text keeps its size relative to the figure.
-    let E=Math.min(9525, 12192000/Lw);
-    if(Lw*E<914400||Lh*E<914400) E=Math.max(E, 914400/Math.min(Lw,Lh));      // PowerPoint's 1-inch minimum
-    const cx=Math.round(Lw*E), cy=Math.round(Lh*E), ptPerPx=E/12700;
+    // The slide is the figure at its printed size (Export › Printed width, or the canvas at
+    // the export DPI when that is Free), so an 8 pt letter reads 8 pt in PowerPoint and a
+    // 180 mm figure is a 180 mm slide. It used to be the canvas at 96 px per inch, capped at
+    // a 13.33 in slide: every type size an editor read was 1.4–3× the printed one.
+    // 1 mm = 36000 EMU. PowerPoint takes slides from 1 in to 56 in a side; a figure smaller
+    // than 1 in gets a larger slide with the figure at its printed size in the top-left
+    // corner, and the notes say so.
+    const pf0=_physFacts();
+    let E=pf0.wMm*36000/Lw;
+    if(!(E>0)||!isFinite(E)) E=9525;
+    if(Lw*E>51206400||Lh*E>51206400) E=51206400/Math.max(Lw,Lh);
+    const fw=Math.round(Lw*E), fh=Math.round(Lh*E);
+    const cx=Math.max(914400, fw), cy=Math.max(914400, fh), ptPerPx=E/12700;
     const B=_pptxSlideBuilder(E);
     // Device pixels to slide units with the render's own ratios, as in the layered SVG.
     const pic=(c,r,name,o)=>B.picture(c, r.x0*kx, r.y0*ky, r.w*kx, r.h*ky, name, o);
@@ -20171,7 +20188,7 @@ async function exportPPTX(){
       if(it.bg) B.shape('roundRect', it.bg.x, it.bg.y, it.bg.w, it.bg.h, it.bg.fill, null, 0, 'Label chip', {r:it.bg.r});
       _pptxTextItem(B, it, ptPerPx, name);
     };
-    const kindName={panel:'Panel letter', sb:'Scale bar label', tag:'Tag', cbar:'Intensity bar label', title:'Title', col:'Column heading', row:'Row heading', group:'Group label'};
+    const kindName={panel:'Panel letter', sb:'Scale bar label', tag:'Tag', cbar:'Intensity bar label', title:'Title', col:'Column heading', row:'Row heading', group:'Group label', data:'Chart text'};
     // Marks with no simple PowerPoint shape (counters, axes, rulers, spotlights, text
     // boxes, tilted inset outlines) go into one transparent picture.
     const over=document.createElement('canvas'); over.width=Math.round(Lw*sc); over.height=Math.round(Lh*sc);
@@ -20265,8 +20282,17 @@ async function exportPPTX(){
           if(used.length){ const ib=_inkBounds(c); if(ib){ await pic(_cropCanvas(c,ib), ib, 'Marks behind objects, as a picture: '+[...new Set(used)].join(', ')); nPics++; } }
         }
         else if(it.kind==='vector'){
-          const c=document.createElement('canvas'); render(c, sc, {ffOnly:new Set([it.el]), noBg:true});
-          const ib=_inkBounds(c); if(ib){ await pic(_cropCanvas(c,ib), ib, (it.el.type[0].toUpperCase()+it.el.type.slice(1))+' '+_rtText(it.el.label||'')); nPics++; }
+          // A chart's or gene map's lines and marks are a picture; its words (axis titles,
+          // ticks, legend, gene names) and its letter are editable text boxes over it. A word
+          // PowerPoint cannot set as drawn (turned by a free angle, inside a clip) stays in the picture.
+          const c=document.createElement('canvas'), dataEl=it.el.type==='chart'||it.el.type==='genemap';
+          let words=[];
+          try{ render(c, sc, {ffOnly:new Set([it.el]), noBg:true, skipLabels:dataEl?()=>true:false, dataText:dataEl?_pptxCanSet:null}); words=dataEl?figTextItems.slice():[]; }
+          finally{ _dataTextSkip=null; _dataTextClip=null; }
+          const nm=(it.el.type[0].toUpperCase()+it.el.type.slice(1))+' '+_rtText(formatLabel(it.el.label)||'');
+          const ib=_inkBounds(c); if(ib){ await pic(_cropCanvas(c,ib), ib, nm.trim()); nPics++; }
+          for(const w of words){ if(w.bg) B.shape('roundRect', w.bg.x, w.bg.y, w.bg.w, w.bg.h, w.bg.fill, null, 0, 'Label chip', {r:w.bg.r});
+            _pptxTextItem(B, w, ptPerPx, (w.kind==='data'?(it.el.type==='chart'?'Chart text: ':'Gene map text: '):'Panel letter: ')+_rtText(w.str)); nText++; }
         } else if(it.kind==='text'){
           const el=it.el, fs=el.fontSize||16;
           const font=`${el.italic?'italic ':''}${el.bold?'bold ':''}${fs}px ${el.fontFamily||gv('label-font')||'system-ui'}`;
@@ -20317,11 +20343,14 @@ async function exportPPTX(){
 ${B.sp.join('\n')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`;
     const slideRelsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rIdn1" Type="${R}/notesSlide" Target="../notesSlides/notesSlide1.xml"/>${B.rels.join('')}</Relationships>`;
-    // The figure's physical size, in the notes: the slide is a working copy at slide scale.
+    // The figure's physical size, in the notes: the slide is the figure at that size.
     const pf=_physFacts();
     const note=`FigureLab v${APP_VERSION} figure "${_rtText(gv('fig-title'))||gv('export-name')||'figure'}". `
       +`Printed size: ${pf.wMm.toFixed(1)} × ${pf.hMm.toFixed(1)} mm at ${dpi} DPI (${pf.px} px wide). `
-      +`This slide shows it ${(Lw*E/914400).toFixed(2)} × ${(Lh*E/914400).toFixed(2)} in; text sizes are in points at slide scale (1 figure px = ${ptPerPx.toFixed(3)} pt). `
+      +(Math.abs(fw/36000-pf0.wMm)<0.05
+        ? `The slide is the figure at its printed size, so text sizes are the printed sizes in points (1 figure px = ${ptPerPx.toFixed(3)} pt). `
+        : `The slide shows it at ${(fw/36000).toFixed(1)} × ${(fh/36000).toFixed(1)} mm, the largest PowerPoint allows; text sizes are in points at that scale (1 figure px = ${ptPerPx.toFixed(3)} pt). `)
+      +((cx>fw||cy>fh)?`The slide is ${(cx/36000).toFixed(1)} × ${(cy/36000).toFixed(1)} mm because PowerPoint's smallest slide is 1 inch a side; the figure sits in its top-left corner. `:'')
       +`Panel pictures carry the export's pixels (${Math.round(sc*96)} per inch of the on-screen figure), unrecompressed PNG; letters, headings, labels and scale bars are editable text and shapes.`
       +(L.fallback.length?` Not separate: ${L.fallback.map(f=>(f.im?_rtText(formatLabel(f.im.label)||'panel'):_rtText(formatLabel(f.el.label)||'object'))+' ('+f.why+')').join('; ')}.`:'');
     const notesSlide=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -20765,13 +20794,13 @@ function _layerGrid(dpi, o){
   const fbMarks=cellsB.filter(b=>fb.has(b.idx)&&hasMarks(b)&&why.get(b.idx)!=='a magnified inset copies its pixels');
   const markIdx=new Set(lay.filter(hasMarks).map(b=>b.idx).concat(fbMarks.map(b=>b.idx)));
   const ro={skipLabels:true, skipCharts:true, skipInsetFrames:true, skipPanelLegends:true, skipFurniture:true,
-    noBg:true, vectorPanels:vecIdx, noShapeClip:!!o.noShapeClip, skipPanelMarks:markIdx};
+    noBg:true, vectorPanels:vecIdx, noShapeClip:!!o.noShapeClip, skipPanelMarks:markIdx, dataText:o.dataText||null};
   const savedAnns=annotations;
   let off, items, frames, furn, cells, base=null, baseItems=[], baseFrames=[], baseFurn=[], baseMarks=null;
   try{
     annotations=[];
     off=document.createElement('canvas');
-    render(off, S, {...ro, omitPanels:fb});
+    try{ render(off, S, {...ro, omitPanels:fb}); } finally { _dataTextSkip=null; _dataTextClip=null; }
     items=figTextItems.slice(); frames=_lastFrames.slice(); furn=_lastFurn.slice(); cells=_lastCells;
     off.getContext('2d').setTransform(1,0,0,1,0,0);      // the cuts below are in device pixels
     // Device px → user units. The writers give the SVG a viewBox of exactly the render's
@@ -20813,8 +20842,9 @@ function _layerGrid(dpi, o){
     if(fb.size){
       base=document.createElement('canvas');
       annotations=insets;
-      render(base, S, {...ro, noShapeClip:false, omitPanels:layIdx});
+      try{ render(base, S, {...ro, noShapeClip:false, omitPanels:layIdx}); } finally { _dataTextSkip=null; _dataTextClip=null; }
       baseItems=figTextItems.filter(it=>_LAYER_PANEL_KINDS.has(it.kind)&&fb.has(it.idx));
+      items=items.concat(figTextItems.filter(it=>it.kind==='data'));   // a flattened chart's words
       baseFrames=_lastFrames.filter(f=>fb.has(f.parentIdx));
       baseFurn=_lastFurn.filter(f=>f.type!=='bracket'&&fb.has(f.idx));
       if(fbMarks.length){
@@ -21266,10 +21296,13 @@ function _tiffBytes(rgb, W, H, dpi, opts){
 //
 // The fonts used are the PDF base-14 (Helvetica/Times/Courier), which every
 // reader has built in — so nothing is bundled and the single-file constraint is
-// untouched. Base-14 text is encoded in WinAnsi (CP1252); any string containing a
-// character outside it (Greek, ≥, ✓, CJK) is left in the raster instead, because
-// silently substituting a glyph in a scientific label would be worse than a
-// slightly softer one. _pdfCanTypeset is the gate.
+// untouched. Base-14 text is encoded in WinAnsi (CP1252). Greek letters, the true
+// minus and the common maths signs (Δ, φ, λ, −, ≥, ≤, →, ∞ …) go in the base-14 Symbol
+// font, with a ToUnicode map so they copy and search as the characters they are: a
+// phage paper's φ and Δ used to be left in the picture. Any string with a character
+// neither font has (✓, CJK, emoji) is left in the raster instead, because silently
+// substituting a glyph in a scientific label would be worse than a slightly softer one.
+// _pdfCanTypeset is the gate, and _pdfSegs the one place that decides.
 // ═══════════════════════════════════════════════════════════════
 
 // CP1252's 0x80–0x9F block; 0x20–0x7E and 0xA0–0xFF match Unicode directly.
@@ -21279,6 +21312,49 @@ const _WINANSI_HI={0x20AC:0x80,0x201A:0x82,0x0192:0x83,0x201E:0x84,0x2026:0x85,0
   0x02DC:0x98,0x2122:0x99,0x0161:0x9A,0x203A:0x9B,0x0153:0x9C,0x017E:0x9E,0x0178:0x9F,
   0x03BC:0xB5};   // GREEK SMALL MU -> MICRO SIGN: the same mark, and what "µm" means
 
+// The Adobe Symbol encoding for what WinAnsi lacks: Unicode code point → Symbol byte.
+// (Symbol's Greek is upright and its letters are drawn from Times-like shapes; µ stays
+// the WinAnsi micro sign, which is what "µm" is.)
+const _SYMBOL_ENC=(()=>{
+  const m={};
+  [...'ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟΠΘΡΣΤΥςΩΞΨΖ'].forEach((c,i)=>{ m[c.codePointAt(0)]=0x41+i; });
+  [...'αβχδεφγηιϕκλμνοπθρστυϖωξψζ'].forEach((c,i)=>{ m[c.codePointAt(0)]=0x61+i; });
+  Object.assign(m,{0x2212:0x2D, 0x2206:0x44, 0x2126:0x57, 0x03D2:0xA1, 0x2032:0xA2, 0x2264:0xA3, 0x221E:0xA5,
+    0x2194:0xAB, 0x2190:0xAC, 0x2191:0xAD, 0x2192:0xAE, 0x2193:0xAF, 0x2033:0xB2, 0x2265:0xB3, 0x221D:0xB5,
+    0x2202:0xB6, 0x2260:0xB9, 0x2261:0xBA, 0x2248:0xBB, 0x2297:0xC4, 0x2295:0xC5, 0x2205:0xC6, 0x2208:0xCE,
+    0x2207:0xD1, 0x220F:0xD5, 0x221A:0xD6, 0x22C5:0xD7, 0x21D4:0xDB, 0x21D2:0xDE, 0x2211:0xE5, 0x222B:0xF2,
+    0x2200:0x22, 0x2203:0x24, 0x2245:0x40, 0x22A5:0x5E, 0x223C:0x7E, 0x2234:0x5C});
+  return m;
+})();
+// The ToUnicode map the Symbol font object carries, so a reader copies Δ, not "D".
+function _pdfSymbolToUnicode(){
+  const pairs=Object.entries(_SYMBOL_ENC).map(([u,b])=>[+b,+u]).sort((a,b)=>a[0]-b[0]);
+  const seen=new Set(), list=pairs.filter(([b])=>!seen.has(b)&&seen.add(b));   // first code point per byte
+  const h=(v,n)=>v.toString(16).toUpperCase().padStart(n,'0');
+  let body='';
+  for(let i=0;i<list.length;i+=100){ const part=list.slice(i,i+100);
+    body+=`${part.length} beginbfchar\n`+part.map(([b,u])=>`<${h(b,2)}> <${h(u,4)}>`).join('\n')+'\nendbfchar\n'; }
+  return `/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n`
+    +`/CMapName /FigureLab-Symbol-UCS def\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n${body}`
+    +`endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`;
+}
+function _winAnsiByte(c){
+  if(c>=0x20&&c<=0x7E) return c;
+  if(c>=0xA0&&c<=0xFF) return c;
+  return _WINANSI_HI[c]!=null?_WINANSI_HI[c]:null;
+}
+// A string as runs of one font each: {sym:false, bytes} in the label's own face (WinAnsi),
+// {sym:true, bytes} in Symbol. null when any character is in neither.
+function _pdfSegs(str){
+  const out=[];
+  for(const ch of String(str)){
+    const c=ch.codePointAt(0); let b=_winAnsiByte(c), sym=false;
+    if(b==null){ b=_SYMBOL_ENC[c]; sym=true; if(b==null) return null; }
+    const last=out[out.length-1];
+    if(last&&last.sym===sym) last.bytes.push(b); else out.push({sym, bytes:[b]});
+  }
+  return out;
+}
 // → array of CP1252 byte values, or null if any character has no representation.
 function _winAnsiBytes(str){
   const out=[];
@@ -21292,8 +21368,8 @@ function _winAnsiBytes(str){
   return out;
 }
 function _pdfCanTypeset(it){
-  if(it && it.runs) return it.runs.every(r=>!!_winAnsiBytes(r.t));   // the characters drawn, not the marks
-  return !!(it && it.str && _winAnsiBytes(it.str));
+  if(it && it.runs) return it.runs.every(r=>!!_pdfSegs(r.t));   // the characters drawn, not the marks
+  return !!(it && it.str && _pdfSegs(it.str));
 }
 
 // PDF literal string: escape \ ( ) and emit bytes as octal above ASCII.
@@ -21358,10 +21434,23 @@ function _pdfTextOps(items, k, hPt){
     return `/${gstates.get(k)} gs `;
   };
   const X=x=>(x*k).toFixed(3), Y=y=>(hPt-y*k).toFixed(3);
+  // One run's segments: the label's face for WinAnsi, Symbol for Greek and maths. Symbol
+  // has no bold, so a bold label's Greek is filled and stroked at 4% of its size (Tr 2).
+  // rise: the run's text rise, written after its first font switch. skipFirstTf: the first
+  // segment's font was already set (the plain path sets it right after BT, as it always did).
+  const show=(segs, face, sz, bold, rest, rise, skipFirstTf)=>segs.map((g,i)=>{
+    const fb=g.sym&&bold&&rest===0;
+    return `${i===0&&skipFirstTf?'':`/${fkey(g.sym?'Symbol':face)} ${sz} Tf `}${i===0&&rise!=null?`${rise} Ts `:''}${fb?`2 Tr ${(+sz*0.04).toFixed(3)} w `:''}(${_pdfStr(g.bytes)}) Tj ${fb?'0 Tr ':''}`;
+  }).join('');
+  const symBold=(segsList, fonts)=>segsList.some((sg,i)=>sg.some(g=>g.sym)&&isBold(fonts[i]));
+  const isBold=f=>/\bbold\b|\b[6-9]00\b/i.test(String(f||''));
+  const rotM=it=>{ if(it.rotDeg==null||Math.abs(it.rotDeg+90)<1e-6) return '0 1 -1 0';
+    const t=-it.rotDeg*Math.PI/180, c=Math.cos(t), sn=Math.sin(t), f=v=>(Math.abs(v)<1e-9?0:v).toFixed(5);
+    return `${f(c)} ${f(sn)} ${f(-sn)} ${f(c)}`; };
   let ops='';
   for(const it of items){
-    const bytes=it.runs?null:_winAnsiBytes(it.str);
-    const runBytes=it.runs?it.runs.map(r=>_winAnsiBytes(r.t)):null;
+    const bytes=it.runs?null:_pdfSegs(it.str);
+    const runBytes=it.runs?it.runs.map(r=>_pdfSegs(r.t)):null;
     if(it.runs?runBytes.some(b=>!b):!bytes) continue;   // left in the raster by _pdfCanTypeset
     // label chip behind the text
     if(it.bg){
@@ -21376,20 +21465,20 @@ function _pdfTextOps(items, k, hPt){
       const L=_rtLayout(mc, it.runs, it.font), off=_rtBaseOff(mc, it.font, it.baseline);
       const dx=it.align==='center'?-L.w/2:(it.align==='right'||it.align==='end')?-L.w:0;
       const c=_pdfColor(it.fill), tgs=gs(c.a);
-      const place=()=>{ let o='';
-        if(it.rot) o+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm ${(dx*k).toFixed(3)} ${(-off*k).toFixed(3)} Td `;
+      const place=(rest)=>{ let o='';
+        if(it.rot) o+=`${rotM(it)} ${X(it.x)} ${Y(it.y)} Tm ${(dx*k).toFixed(3)} ${(-off*k).toFixed(3)} Td `;
         else o+=`1 0 0 1 ${X(it.x+dx)} ${Y(it.y+off)} Tm `;
         L.runs.forEach((q,i)=>{
           const sz=(L.size*k*((q.sup||q.sub)?_RT_SCRIPT:1)).toFixed(3);
-          o+=`/${fkey(_pdfFontFor(q.font))} ${sz} Tf ${(-q.dy*k).toFixed(3)} Ts (${_pdfStr(runBytes[i])}) Tj `;
+          o+=show(runBytes[i], _pdfFontFor(q.font), sz, isBold(q.font), rest, (-q.dy*k).toFixed(3));
         });
         return o; };
       // A halo: the same glyphs stroked first (text render mode 1), the fill on top.
       if(it.halo){ const hc=_pdfColor(it.halo.color);
-        ops+=`q ${gs(hc.a)}${(it.halo.w*k).toFixed(3)} w 1 j 1 J ${hc.r.toFixed(3)} ${hc.g.toFixed(3)} ${hc.b.toFixed(3)} RG BT 1 Tr `+place()+`0 Ts 0 Tr ET Q\n`; }
+        ops+=`q ${gs(hc.a)}${(it.halo.w*k).toFixed(3)} w 1 j 1 J ${hc.r.toFixed(3)} ${hc.g.toFixed(3)} ${hc.b.toFixed(3)} RG BT 1 Tr `+place(1)+`0 Ts 0 Tr ET Q\n`; }
       if(tgs) ops+=`q ${tgs}`;
-      ops+=`BT ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
-      ops+=place();
+      ops+=`BT ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `+(symBold(runBytes, L.runs.map(q=>q.font))?`${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} RG `:'');
+      ops+=place(0);
       ops+=`0 Ts ET${tgs?' Q':''}\n`;
       continue;
     }
@@ -21404,22 +21493,23 @@ function _pdfTextOps(items, k, hPt){
     if(it.baseline==='top') ay+=ascent;
     else if(it.baseline==='middle') ay+=ascent/2;
     const c=_pdfColor(it.fill);
-    const key=fkey(_pdfFontFor(it.font));
+    const face=_pdfFontFor(it.font);
     const size=(it.fs*k).toFixed(3);
     const tgs=gs(c.a);
     if(tgs) ops+=`q ${tgs}`;              // a gs cannot sit inside BT…ET
-    ops+=`BT /${key} ${size} Tf ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `;
+    ops+=`BT /${fkey(bytes[0].sym?'Symbol':face)} ${size} Tf ${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} rg `+(symBold([bytes],[it.font])?`${c.r.toFixed(3)} ${c.g.toFixed(3)} ${c.b.toFixed(3)} RG `:'');
     if(it.rot){
       // canvas rotate(-90°) runs the text upward on screen; in PDF's y-up space
-      // that is a +90° rotation of the text matrix.
-      ops+=`0 1 -1 0 ${X(it.x)} ${Y(it.y)} Tm `;
+      // that is a +90° rotation of the text matrix (rotDeg: any other turn, e.g. a
+      // chart's −40° category labels).
+      ops+=`${rotM(it)} ${X(it.x)} ${Y(it.y)} Tm `;
       // re-apply align/baseline along the rotated axes
       const dx=(it.align==='center'?-w/2:0), dy=(it.baseline==='top'?ascent:it.baseline==='middle'?ascent/2:0);
       if(dx||dy) ops+=`${(dx*k).toFixed(3)} ${(-dy*k).toFixed(3)} Td `;
     } else {
       ops+=`1 0 0 1 ${X(ax)} ${Y(ay)} Tm `;
     }
-    ops+=`(${_pdfStr(bytes)}) Tj ET${tgs?' Q':''}\n`;
+    ops+=show(bytes, face, size, isBold(it.font), 0, null, true)+`ET${tgs?' Q':''}\n`;
   }
   return {ops, fonts, gstates};
 }
@@ -21428,7 +21518,7 @@ function _pdfTextOps(items, k, hPt){
 // hand those labels to exportPDF to lay down as real text. Anything the embedded
 // font can't represent is painted normally, so nothing is ever lost.
 async function _exportPDFWithText(name, dpi, opts){
-  const pc=renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
+  const pc=renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset, dataText:_pdfCanTypeset});
   // The placed legend key's names are typeset like the labels (_drawLegend left them off
   // the raster under the same rule).
   const items=figTextItems.concat(_keyTextItems);
@@ -21519,6 +21609,7 @@ function _pdfAssemble(pages, info){
   const pageId=p=>3+p*3, imId=p=>4+p*3, csId=p=>5+p*3;
   const fontIdByBase=new Map(); let nextObj=3+n*3;
   for(const pg of pages) pg.text.fonts.forEach((key,base)=>{ if(!fontIdByBase.has(base)) fontIdByBase.set(base, nextObj++); });
+  const symUId=fontIdByBase.has('Symbol')?nextObj++:0;    // Symbol's ToUnicode map
   const infoEntries=Object.entries(info||{}).filter(([,v])=>String(v||'').trim());
   const infoId=infoEntries.length?nextObj++:0;
   const lastObj=nextObj-1;
@@ -21544,8 +21635,12 @@ function _pdfAssemble(pages, info){
   // Base-14 font objects — no font file is embedded, so nothing is bundled.
   fontIdByBase.forEach((id,base)=>{
     offs[id]=sz();
-    push(`${id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
+    // Symbol keeps its own built-in encoding (a WinAnsi /Encoding would remap its Greek).
+    if(base==='Symbol') push(`${id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Symbol /ToUnicode ${symUId} 0 R >>\nendobj\n`);
+    else push(`${id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /${base} /Encoding /WinAnsiEncoding >>\nendobj\n`);
   });
+  if(symUId){ const cm=enc(_pdfSymbolToUnicode());
+    offs[symUId]=sz(); push(`${symUId} 0 obj\n<< /Length ${cm.length} >>\nstream\n`); push(cm); push('\nendstream\nendobj\n'); }
   if(infoId){
     offs[infoId]=sz();
     push(`${infoId} 0 obj\n<< ${infoEntries.map(([k,v])=>`/${k} ${_pdfInfoStr(String(v).trim())}`).join(' ')} /Producer ${_pdfInfoStr('FigureLab '+APP_VERSION)} >>\nendobj\n`);
@@ -26841,16 +26936,51 @@ function _chartStatsCached(el){
 
 // ── Emit backends ──────────────────────────────────────────────
 // Both speak the same tiny vocabulary; _chartDraw() targets whichever is passed.
+// The PDF and the PowerPoint: a chart's or gene map's words as text items (figure units,
+// for figTextItems) instead of pixels. Set by render() from opts.dataText for one export
+// render. A word stays in the picture when it is turned by an angle the writer cannot
+// set, drawn translucent, inside the plot's clip, or reaching past its grid cell (where
+// the picture cuts it off and the text would not be).
+var _dataTextSkip=null, _dataTextS=1, _dataTextClip=null;
+function _dataTextOut(ctx, inClip, str, x, y, font, fill, align, baseline, rot){
+  if(!_dataTextSkip || inClip || !String(str??'').trim() || ctx.globalAlpha<0.999) return false;
+  const m=ctx.getTransform(), S=_dataTextS||1;
+  const sx=Math.hypot(m.a,m.b), sy=Math.hypot(m.c,m.d), det=m.a*m.d-m.b*m.c;
+  if(!(sx>0) || Math.abs(sx-sy)>1e-6*sx || det<=0) return false;          // stretched or mirrored
+  let deg=Math.atan2(m.b,m.a)*180/Math.PI+(+rot||0);
+  deg=((deg%360)+540)%360-180; if(Math.abs(deg)<0.01) deg=0;              // -180…180, canvas sense
+  const k=sx/S, P=_rtFontParts(font), fs=P.size*k;
+  const it={kind:'data', str:String(str), x:(m.a*x+m.c*y+m.e)/S, y:(m.b*x+m.d*y+m.f)/S, fs,
+    font:String(font).replace(/(\d+(?:\.\d+)?)px/, (+fs.toFixed(3))+'px'), fill, align:align||'left', baseline:baseline||'alphabetic',
+    rot:deg?1:0, rotDeg:deg};
+  const R=_rtDrawRuns(it.str); if(R) it.runs=R;
+  if(_dataTextClip){
+    // The word's box in figure units, against the cell it is cut to.
+    const mc=_rtMc(); mc.font=it.font; const w=R?_rtLayout(mc,R,it.font).w:mc.measureText(it.str).width;
+    const x0=it.align==='center'?-w/2:(it.align==='right'||it.align==='end')?-w:0;
+    const up=it.baseline==='top'?0:it.baseline==='middle'?fs*0.6:fs, dn=it.baseline==='top'?fs*1.25:it.baseline==='middle'?fs*0.6:fs*0.3;
+    const t=deg*Math.PI/180, c=Math.cos(t), s2=Math.sin(t), C=_dataTextClip;
+    for(const [u,v] of [[x0,-up],[x0+w,-up],[x0,dn],[x0+w,dn]]){
+      const px=it.x+u*c-v*s2, py=it.y+u*s2+v*c;
+      if(px<C.x-0.5||px>C.x+C.w+0.5||py<C.y-0.5||py>C.y+C.h+0.5) return false;
+    }
+  }
+  if(!_dataTextSkip(it)) return false;
+  figTextItems.push(it);
+  return true;
+}
 function _chartEmitCanvas(ctx){
+  let clips=0;
   return {
     rect(x,y,w,h,fill,stroke,sw){ if(fill){ ctx.fillStyle=fill; ctx.fillRect(x,y,w,h); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.strokeRect(x,y,w,h); } },
     line(x1,y1,x2,y2,stroke,sw,dash){ ctx.save(); ctx.strokeStyle=stroke||'#000'; ctx.lineWidth=sw||1; if(dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore(); },
     poly(pts,stroke,fill,sw){ if(!pts.length) return; ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
     circle(cx,cy,r,fill,stroke,sw){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=sw||1; ctx.stroke(); } },
-    text(str,x,y,font,fill,align,baseline,rot){ ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); _rtDraw(ctx,str,0,0); } else _rtDraw(ctx,str,x,y); ctx.restore(); },
+    text(str,x,y,font,fill,align,baseline,rot){ if(_dataTextSkip&&_dataTextOut(ctx,clips>0,str,x,y,font,fill,align,baseline,rot)) return;
+      ctx.save(); ctx.font=font; ctx.fillStyle=fill; ctx.textAlign=align||'left'; ctx.textBaseline=baseline||'alphabetic'; if(rot){ ctx.translate(x,y); ctx.rotate(rot*Math.PI/180); _rtDraw(ctx,str,0,0); } else _rtDraw(ctx,str,x,y); ctx.restore(); },
     // Everything drawn between clipStart and clipEnd stays inside the plot rectangle.
-    clipStart(x,y,w,h){ ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip(); },
-    clipEnd(){ ctx.restore(); },
+    clipStart(x,y,w,h){ clips++; ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip(); },
+    clipEnd(){ clips=Math.max(0,clips-1); ctx.restore(); },
   };
 }
 // SVG backend — appends element strings to `out`. Same vocabulary as the canvas
@@ -27342,7 +27472,9 @@ function _dataPanelDraw(ctx, im, x, y, w, h){
   im.w=w; im.h=h;
   ctx.save(); ctx.translate(x,y);
   ctx.beginPath(); ctx.rect(0,0,w,h); ctx.clip();
-  if(im.type==='chart') _chartDraw(im, _chartEmitCanvas(ctx)); else _genemapDraw(im, _chartEmitCanvas(ctx));
+  const _pc=_dataTextClip; if(_dataTextSkip){ const m=ctx.getTransform(), S=_dataTextS||1; _dataTextClip={x:m.e/S, y:m.f/S, w:w*m.a/S, h:h*m.d/S}; }
+  try{ if(im.type==='chart') _chartDraw(im, _chartEmitCanvas(ctx)); else _genemapDraw(im, _chartEmitCanvas(ctx)); }
+  finally{ _dataTextClip=_pc; }
   ctx.restore();
 }
 // The panel's own picture at its own shape: what the list thumbnail, the row hug and the
@@ -34215,7 +34347,7 @@ async function exportMultiPagePDF(opts){
       // too small (83 mm instead of 261 mm at 300 DPI) and ignored the printed-width
       // target entirely. Typesettable labels are held out of the raster and laid
       // down as real text, exactly as _exportPDFWithText does for one page.
-      c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset});
+      c = renderExportCanvas(dpi, {skipLabels:_pdfCanTypeset, dataText:_pdfCanTypeset});
       items = figTextItems.concat(_keyTextItems);
       // Page size from the resolution the page canvas ACTUALLY carries (the printed
       // width when one is set, the 60 MP-capped DPI when the cap fired) — the same

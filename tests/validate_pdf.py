@@ -80,8 +80,8 @@ def main():
     p2 = PdfReader(os.path.join(OUT, "mixed.pdf")).pages[0]
     t2 = p2.extract_text()
     check("GAPDH" in t2, "the ASCII label is live text")
-    check("α-tubulin" not in t2,
-          "the Greek label is NOT in the text layer (left in the raster, not mangled)")
+    check("✓ tubulin" not in t2 and "tubulin" not in t2,
+          "the ✓ label is NOT in the text layer (left in the raster, not mangled)")
 
     print("== multipage.pdf : two lossless pages, lettering continues, row labels follow ==")
     r3 = PdfReader(os.path.join(OUT, "multipage.pdf"))
