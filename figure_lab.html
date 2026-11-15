@@ -1087,6 +1087,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
          colours charts use by name, and the chart axis line width. Hidden inputs, so
          they are saved, undone and reset with every other figure control (_FIG_CONTROLS). -->
     <input type="hidden" id="sample-colours" value="">
+    <!-- A sample's palette colour, fixed the first time a chart draws it (so reordering
+         groups or adding a panel never moves it), and the name it is shown under in every
+         chart ("shown as"). Saved, undone and reset like the controls around them. -->
+    <input type="hidden" id="sample-pins" value="">
+    <input type="hidden" id="sample-names" value="">
     <input type="hidden" id="chart-axis-w" value="">
     <input type="hidden" id="lab-style-src" value="">
     <!-- The values the lab style put on the font and size controls, so the status line can
@@ -4399,6 +4404,7 @@ async function replacePanelImage(pid, f){
   const pg=d.pages>1?` (page ${d.page} of ${d.pages})`:'';
   const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
   const notes=(pm?[pm]:[]).concat(plan.notes);
+  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
   toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg}${notes.length?' — '+notes.join('; '):' — crop, labels and settings kept'}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
@@ -8888,9 +8894,13 @@ function runGelAnalysis(idx,opts){
       if(lc.error) dropped=`Loading control dropped: ${lc.error}`; else a.loading=lc; }
   }
   _gelApplyLadder(a);
+  if(prev&&prev.chartBand) a.chartBand=prev.chartBand;
+  const kept=_gelReapplyEdits(a, prev);
   pushUndo();
   im.gelAnalysis=a;
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
+  if(kept.deleted||kept.added) toast([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
+    kept.added?`${kept.added} band${kept.added>1?'s':''} you had added by hand ${kept.added>1?'were':'was'} not re-made — click ${kept.added>1?'them':'it'} in again`:''].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection','warn');
   if(!a.lanes.length) toast(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
   else if(dropped) toast(dropped,'warn');
   // A lane table is never re-mapped onto a different number of lanes behind your back:
@@ -8927,7 +8937,30 @@ function gelSetLane(idx,li,x0,x1){
 }
 function gelDeleteBand(idx,li,bi){
   return _gelEdit(idx,a=>{ const L=a.lanes[li]; if(!L||!L.bands[bi]) return false;
+    // Where it was, so a re-detection (a re-crop, a replaced scan) deletes it again.
+    const rf=_gelRf(a,L.bands[bi]), fit=a.ladder&&a.ladder.fit;
+    a.deleted=(a.deleted||[]).concat({lane:li, rf, kda:fit&&a.ladder.lane!==li?Math.pow(10,fit.intercept+fit.slope*rf):null, h:(L.bands[bi].y1-L.bands[bi].y0)/a.frame.sh});
     L.bands.splice(bi,1); a.edits=(a.edits||0)+1; });
+}
+// A re-detection finds every band again, those deleted by hand too. Each deletion is
+// re-applied at its position (same lane; ±10% in kDa with a ladder, else within half a
+// band height in Rf) and said; bands added by hand are not re-made, and that is said.
+function _gelReapplyEdits(a, prev){
+  const out={deleted:0, where:[], added:0};
+  if(!prev) return out;
+  const fit=a.ladder&&a.ladder.fit;
+  (prev.deleted||[]).forEach(d=>{ const L=a.lanes[d.lane]; if(!L) return;
+    let best=-1, bd=Infinity;
+    L.bands.forEach((b,bi)=>{ const rf=_gelRf(a,b);
+      let dd;
+      if(d.kda>0&&fit&&a.ladder.lane!==d.lane){ dd=Math.abs(Math.log(Math.pow(10,fit.intercept+fit.slope*rf)/d.kda)); if(dd>Math.log(1.1)) return; }
+      else { dd=Math.abs(rf-d.rf); if(dd>Math.max(0.03,(d.h||0)/2,(b.y1-b.y0)/2/a.frame.sh)) return; }
+      if(dd<bd){ bd=dd; best=bi; } });
+    if(best>=0){ L.bands.splice(best,1); out.deleted++; out.where.push(`lane ${d.lane+1} at ${d.kda>0?_gelFmt(d.kda,1)+' kDa':'Rf '+_gelFmt(d.rf,2)}`); }
+  });
+  if(prev.deleted&&prev.deleted.length) a.deleted=prev.deleted.slice();
+  out.added=prev.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.manual).length,0);
+  return out;
 }
 // A band the user points at: the nearest local peak above background, walked to 10%
 // of its height like a detected one; failing that, a thin band at the click, measured
@@ -9026,6 +9059,16 @@ function exportGelProfileCSV(idx){
   const ctx=_gelCtx(im,im.gelAnalysis); if(ctx.error){ toast(ctx.error,'warn'); return; }
   dl(blobUrl(gelProfileCSV(idx)),(gv('export-name')||'figure')+`-panel${formatLabel(im.label)||idx+1}-lane-profiles.csv`);
   toast('Lane profiles CSV exported','ok');
+}
+// The band a chart takes from this panel: rf (its position; with a ladder its kDa is kept
+// too), or null for the default (the largest band of the reference lane).
+function gelSetChartBand(idx,rf){
+  return _gelEdit(idx,a=>{
+    if(rf==null||!isFinite(+rf)){ if(!a.chartBand) return false; delete a.chartBand; return; }
+    const fit=a.ladder&&a.ladder.fit;
+    if(a.chartBand&&Math.abs(a.chartBand.rf-rf)<1e-9) return false;
+    a.chartBand={rf:+rf, kda:fit?Math.pow(10,fit.intercept+fit.slope*rf):null};
+  });
 }
 function gelSetRefLane(idx,li){
   return _gelEdit(idx,a=>{ const v=(li==null||li<0||li>=a.lanes.length)?null:li; if(v===a.refLane) return false; a.refLane=v; });
@@ -9366,12 +9409,13 @@ function openGelAnalysis(idx){
             <input id="gel-ladder-sizes" type="text" value="${GEL_DEFAULT_LADDER}" style="width:150px" title="Marker sizes in kDa, top → bottom, comma-separated">
             <button class="btn" style="padding:1px 8px;font-size:10px" title="Assign the sizes to the ladder bands and fit log10(kDa) against Rf (needs at least 3 markers)" onclick="gelSetLadder(_gelUI.idx,document.getElementById('gel-ladder-lane').value===''?null:+document.getElementById('gel-ladder-lane').value,document.getElementById('gel-ladder-sizes').value)">Fit</button></span>
         </div>
-        <div id="gel-fit" style="margin-top:4px;color:var(--muted)"></div>
+        <div id="gel-fit" style="margin-top:4px;color:var(--muted);height:15px;line-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title=""></div>
         <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">
           <button class="btn" style="font-size:10px" title="Add lane-number labels centred on the detected lanes (one undo step)" onclick="gelPlaceLaneNumbers(_gelUI.idx)">▦ Place lane numbers on detected lanes</button>
           <button class="btn" style="font-size:10px" title="Add the ladder sizes beside the detected ladder bands (one undo step)" onclick="gelPlaceMWLabels(_gelUI.idx)">↕ Place MW labels on the ladder bands</button>
           <button class="btn" style="font-size:10px" title="Remove this panel's MW labels only (one undo step); placing them again also replaces the old set" onclick="gelRemoveMWLabels(_gelUI.idx)">✕ Remove MW labels</button>
-          <button class="btn" style="font-size:10px" title="Draw these values as a bar chart: lanes as categories, one series per analysed panel, in the normalisation every panel has (stated on the axis). The chart stays linked: a re-analysis updates it." onclick="chartFromDensitometry(_gelUI.idx)">📊 Chart these values</button>
+          <select id="gel-chart-band" style="font-size:10px;max-width:260px" title="The band charted for this panel: in every lane, the band at this position (±10% in kDa with a ladder, else the same Rf); a lane with no band there is n.d. One undo step; a linked chart follows." onchange="gelSetChartBand(_gelUI.idx,this.value===''?null:+this.value)"></select>
+          <button class="btn" style="font-size:10px" title="Draw these values as a bar chart: lanes as categories, one series per analysed panel at the band chosen beside this button, in this panel's normalisation (panels without it are left out and named; loading controls are not charted). The chart stays linked: a re-analysis updates it, and pressing this again updates it instead of adding another." onclick="chartFromDensitometry(_gelUI.idx)">📊 Chart these values</button>
           <button class="btn" style="font-size:10px" title="Download the table as CSV, with a header saying what was measured and how" onclick="exportGelCSV(_gelUI.idx)">⬇ CSV</button>
           <button class="btn" style="font-size:10px" title="Download every lane's profile as CSV: position (source px and Rf), raw signal, background and net signal per row" onclick="exportGelProfileCSV(_gelUI.idx)">⬇ Lane profiles CSV</button>
           <button class="btn" style="font-size:10px" title="The +/− condition table over or under the blot, aligned to these detected lanes" onclick="openLaneTable(_gelUI.idx)">⊞ Lane table…</button>
@@ -9638,9 +9682,17 @@ function _gelRenderModal(){
   document.getElementById('gel-ladder-lane').innerHTML=opts(a.ladder?a.ladder.lane:null);
   if(a.ladder) document.getElementById('gel-ladder-sizes').value=a.ladder.sizes;
   document.getElementById('gel-lc').value=a.loading&&_gelLoadingIdx(a)>=0?String(_gelLoadingIdx(a)):'';
+  { const cb=document.getElementById('gel-chart-band');
+    if(cb){ const T=_gelChartTarget(a,im), RR=_gelRows(a,im).filter(r=>!(a.ladder&&r.laneIdx===a.ladder.lane));
+      const lane=a.refLane!=null?a.refLane:(RR[0]?RR[0].laneIdx:-1), pick=a.chartBand;
+      const auto=a.chartBand?(()=>{ const c=Object.assign({},a); delete c.chartBand; return _gelChartTarget(c,im); })():T;
+      cb.innerHTML=`<option value="">Band to chart: ${auto?`auto — at ${esc(_gelTargetText(auto))} (${esc(auto.how)})`:'auto — none'}</option>`
+        +RR.filter(r=>r.laneIdx===lane).map(r=>`<option value="${r.rf}"${pick&&Math.abs(pick.rf-r.rf)<1e-9?' selected':''}>Band to chart: lane ${r.lane} band ${r.band}, at ${r.kda!=null?_gelFmt(r.kda,1)+' kDa':'Rf '+r.rf.toFixed(3)}</option>`).join('')
+        +(pick&&!RR.some(r=>r.laneIdx===lane&&Math.abs(pick.rf-r.rf)<1e-9)?`<option value="${pick.rf}" selected>Band to chart: at ${esc(_gelTargetText(pick))} (picked)</option>`:''); } }
   const fit=a.ladder&&a.ladder.fit;
   fitEl.innerHTML=a.ladder?(fit?`MW fit: log<sub>10</sub>(kDa) = ${fit.intercept.toFixed(3)} ${fit.slope<0?'−':'+'} ${Math.abs(fit.slope).toFixed(3)}·Rf · ${fit.n} markers in lane ${a.ladder.lane+1} · R² = ${fit.r2.toFixed(4)}`
-    :`<span style="color:var(--warn)">⚠ No molecular weights: ${esc(a.ladder.error||'')}</span>`):'';
+    :`<span style="color:var(--warn)">⚠ No molecular weights: ${esc(a.ladder.error||'')}</span>`):'&nbsp;';
+  fitEl.title=fitEl.textContent.trim();
   const rows=_gelRows(a);
   const th=s=>`<th style="text-align:right;padding:2px 5px;border-bottom:1px solid var(--border);white-space:nowrap">${s}</th>`;
   const td=(s,st)=>`<td style="text-align:right;padding:2px 5px;${st||''}">${s}</td>`;
@@ -10267,31 +10319,76 @@ function _ensureFontOption(v){
     sel.appendChild(o);
   });
 }
-function _sampleColours(){
-  const s=gv('sample-colours')||'';
-  if(_sampleColours._s===s) return _sampleColours._m;
-  let m={}; try{ const o=s?JSON.parse(s):{}; if(o&&typeof o==='object') m=o; }catch(e){}
-  _sampleColours._s=s; _sampleColours._m=m; return m;
+function _sampleColours(){ return _ctlMap('sample-colours'); }
+// A hidden control holding a JSON object (name → value), parsed once per value.
+function _ctlMap(id){
+  const s=gv(id)||'', C=_ctlMap._c||(_ctlMap._c={}), hit=C[id];
+  if(hit&&hit.s===s) return hit.m;
+  let m={}; try{ const o=s?JSON.parse(s):{}; if(o&&typeof o==='object'&&!Array.isArray(o)) m=o; }catch(e){}
+  C[id]={s, m}; return m;
 }
-// The colours of one chart's series (or categories), in order. A name in the lab palette
-// takes its lab colour; every other name takes the chart's default colour for its place,
-// unless a lab sample in this chart already holds that colour (or an earlier series got
-// it), when it takes the next default colour that is free. Without this ΔfliC kept
-// palette orange beside a lab ΔmotA in orange and the chart, its key and the legend text
-// could not tell the two strains apart.
+// The palette colour each sample was first drawn in (see _samplePinSync), and the name
+// each is shown under in every chart.
+function _samplePins(){ return _ctlMap('sample-pins'); }
+function _sampleNames(){ return _ctlMap('sample-names'); }
+const _own=(m,k)=>k!=null&&Object.prototype.hasOwnProperty.call(m,String(k));
+// The colour a sample is drawn in, when it has one of its own: set by hand or by a lab
+// style (under its data name or the name it is shown as), else the palette colour it was
+// pinned to when a chart first drew it. null: it takes the next free palette colour.
+function _sampleColourFor(key, disp){
+  const R=_sampleColours(), P=_samplePins();
+  if(_own(R,key)) return R[String(key)]; if(_own(R,disp)) return R[String(disp)];
+  if(_own(P,key)) return P[String(key)]; if(_own(P,disp)) return P[String(disp)];
+  return null;
+}
+// The colours of one chart's series (or categories), in the data's order. A sample with
+// a colour of its own (_sampleColourFor) keeps it; every other name takes the chart's
+// default colour for its place, unless another sample in the FIGURE already holds that
+// colour (or an earlier series got it), when it takes the next default colour that is
+// free. Without this ΔfliC kept palette orange beside a lab ΔmotA in orange, and a strain
+// that came second in one panel took the colour another strain had in the next panel,
+// so the key listed both under one colour, or one strain twice.
 function _seriesColours(names, colours, alt){
   // alt: the display names (a renamed group keeps the colour of its data name, and a
   // colour set on the new name is found too).
-  const n=colours.length, lab=names.map((nm,i)=>_sampleColour(nm)||(alt&&alt[i]!=null?_sampleColour(alt[i]):null));
-  const used=new Set(lab.filter(Boolean).map(c=>String(c).toLowerCase()));
+  const n=colours.length, lc=c=>String(c).toLowerCase();
+  const lab=names.map((nm,i)=>_sampleColourFor(nm, alt&&alt[i]!=null?alt[i]:null));
+  const used=new Set(lab.filter(Boolean).map(lc));
+  const held=new Set([...Object.values(_sampleColours()), ...Object.values(_samplePins())].map(lc));
   return names.map((nm,i)=>{
     if(lab[i]) return lab[i];
-    for(let k=0;k<n;k++){ const c=colours[(i+k)%n]; if(!used.has(String(c).toLowerCase())){ used.add(String(c).toLowerCase()); return c; } }
+    for(let k=0;k<n;k++){ const c=colours[(i+k)%n]; if(!used.has(lc(c))&&!held.has(lc(c))){ used.add(lc(c)); return c; } }
+    for(let k=0;k<n;k++){ const c=colours[(i+k)%n]; if(!used.has(lc(c))){ used.add(lc(c)); return c; } }
     return colours[i%n];
   });
 }
-// A chart series or category takes its lab colour only on an exact name match.
-function _sampleColour(name){ const m=_sampleColours(); return Object.prototype.hasOwnProperty.call(m,String(name))?m[String(name)]:null; }
+// A chart series or category takes a lab colour only on an exact name match.
+function _sampleColour(name){ const m=_sampleColours(); return _own(m,name)?m[String(name)]:null; }
+// Fix every drawn sample's palette colour by its name, so it never moves: called where a
+// chart is committed (Apply, an import, Chart these values), inside that undo step, never
+// while drawing. Charts are taken in figure order, each seeing the pins of those before
+// it; a pin whose name no chart draws any more is dropped, freeing its colour.
+function _samplePinSync(){
+  const before=gv('sample-pins')||'', C=_allCharts(), fresh=()=>C.forEach(el=>{ el._chartKey=''; el._chartStat=null; });
+  // Pins of names no chart draws any more go first, so they hold no colour from the rest.
+  fresh();
+  const drawn=new Set(); C.forEach(el=>_sampleDrawn(el).forEach(o=>{ drawn.add(o.key); drawn.add(o.disp); }));
+  const old=_samplePins(), pins={}; Object.keys(old).forEach(k=>{ if(drawn.has(k)) pins[k]=old[k]; });
+  const put=()=>{ sv('sample-pins', Object.keys(pins).length?JSON.stringify(pins):''); fresh(); };
+  put();
+  C.forEach(el=>{ let n=0;
+    _sampleDrawn(el).forEach(o=>{ if(_sampleColourFor(o.key, o.disp)==null&&!_own(pins,o.key)){ pins[o.key]=String(o.color).toLowerCase(); n++; } });
+    if(n) put(); });                       // the next chart sees these
+  const changed=(gv('sample-pins')||'')!==before;
+  if(changed) C.forEach(el=>{ if(_isDataPanel(el)) _dataPanelRefresh(el, true); });
+  return changed;
+}
+// What one chart draws in a colour of its own: {key (data name), disp (shown as), color}.
+function _sampleDrawn(el){
+  let st=null; try{ st=_chartStatsCached(el); }catch(e){ return []; }
+  const L=st.catColours||st.boxes||(st.groups?null:st.series)||st.seriesNames||((st.curves&&!st.singleGroup)?st.curves:null)||[];
+  return L.map(x=>({key:String(x.key??x.name), disp:String(x.name), color:x.color}));
+}
 function _chartAxisW(){ const v=parseFloat(gv('chart-axis-w')); return v>0?v:1; }
 function _labStylePlan(settings){
   settings=(settings&&typeof settings==='object')?settings:{};
@@ -10428,7 +10525,7 @@ function _labStyleSync(){
   const src=gv('lab-style-src'), n=Object.keys(_sampleColours()).length, aw=gv('chart-axis-w');
   if(!src&&!n&&!aw){ el.innerHTML=''; return; }
   const ov=_labStyleOverrides(), J=_targetJournal();
-  el.innerHTML=`Lab style: ${esc(src||'loaded')}${n?` · ${n} sample colour${n>1?'s':''}`:''}${aw?` · chart axes ${esc(aw)} px`:''}`
+  el.innerHTML=[src?`Lab style: ${esc(src)}${n?` · ${n} sample colour${n>1?'s':''}`:''}`:n?`Sample colours: ${n} set by hand`:'', aw?`chart axes ${esc(aw)} px`:''].filter(Boolean).join(' · ')
     +(ov.length?` · <span id="lab-style-overridden" style="color:var(--warn)">overridden${J?` by ${esc(J.label)}`:''}, applied after it: ${esc(ov.join(', '))}</span>`:'')
     +` <a href="#" onclick="event.preventDefault();clearLabStyle()" style="color:var(--accent)" title="Forget the sample colours and chart axis width (one undo step)">clear</a>`;
 }
@@ -10436,39 +10533,49 @@ function _labStyleSync(){
 // The same registry a lab style loads (the hidden sample-colours control: saved with the
 // figure, undone, reset). Lists every name the charts draw, so one swatch recolours a
 // strain in every chart, the legend key and its text.
+// One row per sample as the charts show it: the name it is shown under (two data names
+// shown alike, "dpilA" and "dpilA mean" both shown as ΔpilA, are one sample), the data
+// names behind it, and the colour it is drawn in.
 function _sampleColourNames(){
-  const out=[], seen=new Set(), add=(k,c)=>{ k=String(k); if(!k||seen.has(k)) return; seen.add(k); out.push({name:k, color:c}); };
-  const reg=_sampleColours();
-  _allCharts().forEach(el=>{
-    let st=null; try{ st=_chartStatsCached(el); }catch(e){ return; }
-    if(st.series) st.series.forEach(x=>add(x.key??x.name, x.color));
-    else if(st.boxes) st.boxes.forEach(x=>add(x.key??x.name, x.color));
-    else if(st.catColours) st.catColours.forEach(x=>add(x.key??x.name, x.color));
-    else if(st.seriesNames) st.seriesNames.forEach(x=>add(x.key??x.name, x.color));
-    else if(st.curves&&!st.singleGroup) st.curves.forEach(x=>add(x.name, x.color));
-  });
-  Object.keys(reg).forEach(k=>add(k, reg[k]));
-  return out.map(o=>({name:o.name, color:reg[o.name]||o.color, set:Object.prototype.hasOwnProperty.call(reg,o.name)}));
+  const out=[], by=new Map(), reg=_sampleColours();
+  const add=(key,disp,c)=>{ key=String(key); disp=String(disp??key); if(!key) return;
+    let o=by.get(disp); if(!o){ o={name:disp, keys:[], color:c}; by.set(disp,o); out.push(o); }
+    if(!o.keys.includes(key)) o.keys.push(key); };
+  _allCharts().forEach(el=>_sampleDrawn(el).forEach(o=>add(o.key, o.disp, o.color)));
+  Object.keys(reg).forEach(k=>{ if(![...by.values()].some(o=>o.keys.includes(k)||o.name===k)) add(k, k, reg[k]); });
+  return out.map(o=>{ const hand=o.keys.find(k=>_own(reg,k))||(_own(reg,o.name)?o.name:null);
+    return {name:o.name, keys:o.keys, color:hand?reg[hand]:o.color, set:!!hand}; });
 }
+var _sampleListSig='';
 function _sampleColoursRender(){
   const w=document.getElementById('sample-colours-list'); if(!w) return;
   if(document.activeElement&&w.contains(document.activeElement)) return;
   const L=_sampleColourNames();
-  w.innerHTML=L.length?L.map(o=>`<div style="display:flex;gap:5px;align-items:center;margin-top:2px" data-name="${esc(o.name)}">
-      <input type="color" value="${esc(_hex6(o.color||'#000000'))}" style="width:26px;height:20px;padding:0" title="${esc(o.name)}: its colour in every chart and the legend key" onchange="setSampleColour(this.closest('[data-name]').dataset.name,this.value)">
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.name)}</span>
-      ${o.set?`<button class="icon-btn" title="Back to the chart's own palette colour" onclick="setSampleColour(this.closest('[data-name]').dataset.name,null)">×</button>`:'<span style="color:var(--muted);font-size:10px" title="Drawn in the chart palette until you pick a colour">palette</span>'}</div>`).join('')
+  _sampleListSig=JSON.stringify(L);
+  const keysOf=o=>esc(JSON.stringify(o.keys));
+  w.innerHTML=L.length?L.map(o=>{ const data=o.keys.filter(k=>k!==o.name);
+    return `<div style="display:flex;gap:5px;align-items:center;margin-top:2px" data-name="${esc(o.name)}" data-keys="${keysOf(o)}">
+      <input type="color" value="${esc(_hex6(o.color||'#000000'))}" style="width:26px;height:20px;padding:0" title="${esc(_rtText(o.name))}: its colour in every chart and the legend key" onchange="setSampleColour(JSON.parse(this.closest('[data-keys]').dataset.keys),this.value)">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(data.length?`Shown as ${_rtText(o.name)}; in the data: ${data.join(', ')}`:o.name)}">${esc(_rtText(o.name))}${data.length?` <span style="color:var(--muted)">(${esc(data.join(', '))})</span>`:''}</span>
+      ${o.set?`<button class="icon-btn" title="Back to the colour the palette gave it" onclick="setSampleColour(JSON.parse(this.closest('[data-keys]').dataset.keys),null)">×</button>`:'<span style="color:var(--muted);font-size:10px" title="The palette colour it was first drawn in, kept for it in every chart until you pick another">palette</span>'}</div>`; }).join('')
     :'<span style="color:var(--muted);font-size:10px">No charts yet — their series and groups are listed here.</span>';
 }
-// One undo step. color null: the name goes back to its chart's palette colour.
+// After a render: the list follows the charts as they are now (a chart applied, imported,
+// deleted, undone), not as they were when Look was last opened.
+function _sampleColoursMaybeRender(){
+  const w=document.getElementById('sample-colours-list'); if(!w||!w.offsetParent) return;
+  if(JSON.stringify(_sampleColourNames())!==_sampleListSig) _sampleColoursRender();
+}
+// One undo step. color null: the name goes back to its palette colour. name: one data
+// name, or every data name one row of Look › Sample colours stands for.
 function setSampleColour(name, color){
-  name=String(name??'').trim(); if(!name) return false;
+  const names=(Array.isArray(name)?name:[name]).map(n=>String(n??'').trim()).filter(Boolean); if(!names.length) return false;
   const m=Object.assign({}, _sampleColours());
-  if(color==null){ if(!(name in m)) return false; delete m[name]; }
-  else { if(!/^#[0-9a-f]{6}$/i.test(color)) return false; if(m[name]===color.toLowerCase()) return false; m[name]=color.toLowerCase(); }
+  if(color==null){ if(!names.some(n=>n in m)) return false; names.forEach(n=>delete m[n]); }
+  else { if(!/^#[0-9a-f]{6}$/i.test(color)) return false; color=color.toLowerCase(); if(names.every(n=>m[n]===color)) return false; names.forEach(n=>{ m[n]=color; }); }
   pushUndo();
   sv('sample-colours', Object.keys(m).length?JSON.stringify(m):'');
-  logAction('sampleColours',{set:[name]});
+  logAction('sampleColours',{set:names});
   _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; });
   { const w=document.getElementById('sample-colours-list'); if(w&&document.activeElement&&w.contains(document.activeElement)) document.activeElement.blur(); }
   _labStyleSync(); scheduleRender(0);
@@ -10478,12 +10585,17 @@ function _sampleColoursAdd(){
   const n=prompt('Sample name, exactly as in your data (e.g. WT, dfliC):'); if(!n||!n.trim()) return;
   setSampleColour(n.trim(), '#0072b2');
 }
+// Every sample the figure draws, in the colour it is drawn in (set by hand, from a lab
+// style, or the palette colour it was given), under its data names, so the next figure of
+// the paper draws each strain in the same colour whatever order its groups come in.
 function saveSampleColoursStyle(){
-  const m=_sampleColours();
-  if(!Object.keys(m).length){ toast('No sample colours set yet — pick one in the list first','warn'); return; }
+  const m={}, L=_sampleColourNames(); let hand=0;
+  L.forEach(o=>{ if(o.set) hand++; o.keys.forEach(k=>{ m[k]=String(o.color).toLowerCase(); }); });
+  if(!Object.keys(m).length){ toast('No samples yet — add a chart or pick a colour first','warn'); return; }
   const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:{sample_palette:m}};
   dl(URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:'application/json'})), 'paper_style.json');
-  toast(`paper_style.json saved with ${Object.keys(m).length} sample colour${Object.keys(m).length>1?'s':''} (sample_palette only)`,'ok');
+  const n=Object.keys(m).length;
+  toast(`paper_style.json saved with ${n} sample colour${n>1?'s':''} (${hand} set by hand, ${L.length-hand} from the palette; sample_palette only)`,'ok');
 }
 // Open the Look panel and bring one of its controls into view (command palette).
 function _openLookFor(id){
@@ -11267,6 +11379,7 @@ function render(targetCanvas, exportScale, opts){
   // a parent adjustment made a moment ago is reflected in the same frame. Cheap: it
   // only touches panels that carry an insetOf binding.
   if(typeof syncLinkedInsets==='function') syncLinkedInsets();
+  if(!isExport&&typeof _sampleColoursMaybeRender==='function') _sampleColoursMaybeRender();   // Look › Sample colours follows the charts
   // opts.skipLabels: true skips ALL figure text (SVG export re-emits every label as
   // vector). A FUNCTION skips per item — the PDF export uses this, because it can only
   // typeset text its embedded font can represent, and anything else must stay in the
@@ -22843,6 +22956,7 @@ const _FIG_CONTROLS=[
   // a loaded lab style (paper_style.json): sample name → colour, chart axis width (px)
   ['labStyle.sampleColours','sample-colours'],['labStyle.chartAxisW','chart-axis-w'],['labStyle.source','lab-style-src'],
   ['labStyle.applied','lab-style-set'],
+  ['samples.pins','sample-pins'],['samples.names','sample-names'],
   // the figure's type in points (Look › Typography) and the key's channel names
   ['style.labelPt','label-pt'],['style.axisPt','axis-pt'],['style.textPt','text-pt'],
   ['keyNames','key-names'],
@@ -23386,10 +23500,10 @@ function _errNote(err){
 // needs to reproduce lab sample colours. null when none comes from the lab style, so a
 // script without one is written exactly as before.
 function _chartLabColours(el){
-  if(!Object.keys(_sampleColours()).length) return null;
+  if(!Object.keys(_sampleColours()).length&&!Object.keys(_samplePins()).length) return null;
   const s=_chartStatsCached(el);
   const list=s.catColours||s.seriesNames||s.series||s.boxes||s.curves;
-  if(!list||!list.some(x=>_sampleColour(x.name)||(x.key!=null&&_sampleColour(x.key)))) return null;
+  if(!list||!list.some(x=>_sampleColourFor(x.key??x.name, x.name))) return null;
   return list.map(x=>({name:String(x.name), color:x.color}));
 }
 // What a chart plots, as a table: one row per drawn point or bar — the series, the
@@ -27101,7 +27215,11 @@ function _chartLogWhy(kind, axis){
   if(kind==='survival') return 'Survival is a probability from 0 to 1 — it is drawn on a linear axis';
   return '';
 }
-function _chartDisp(ch, key){ const d=ch.names&&ch.names[key]; return (d!=null&&String(d).trim()!=='')?String(d):String(key); }
+// The name a series or category is shown under: this chart's own (the " mean" of "MOI 0
+// mean" left off), else the figure's (one "shown as" per sample for every chart, set in
+// Names & colours or Look › Sample colours), else the data's.
+function _chartDisp(ch, key){ let d=ch.names&&ch.names[key]; if(d==null||String(d).trim()===''){ const F=_sampleNames(); d=_own(F,key)?F[String(key)]:null; }
+  return (d!=null&&String(d).trim()!=='')?String(d):String(key); }
 function _chartOrdered(ch, keys){
   const ord=Array.isArray(ch.order)?ch.order.map(String):null; if(!ord||!ord.length) return keys;
   return keys.map((k,i)=>({k,i,o:ord.indexOf(String(k))})).sort((a,b)=>(a.o<0?1e9+a.i:a.o)-(b.o<0?1e9+b.i:b.o)).map(q=>q.k);
@@ -27139,7 +27257,7 @@ function _chartShape(ch, warn){
   else { if(sc==null) sdefs.forEach(sd=>skeys.push(sd.key));
     const seen=new Set(skeys); obs.forEach(o=>{ if(!seen.has(o.s)){ seen.add(o.s); skeys.push(o.s); } }); }
   if(wide) obs.forEach(o=>{ o.s=skeys[0]; });
-  return {obs, cats:_chartOrdered(ch,cats), skeys, wide, sc, yLog, xLog};
+  return {obs, cats:_chartOrdered(ch,cats), catsData:cats, skeys, wide, sc, yLog, xLog};
 }
 // Mean, error and n of the replicates at one point. SD is the sample SD (n−1); SEM =
 // SD/√n; from a column, the value given (the first, if rows repeat).
@@ -27260,8 +27378,9 @@ function _chartStats(el){
   const style=ch.style||{};
   const S=_chartShape(ch, warn), obs=S.obs;
   const disp=k=>_chartDisp(ch,k);
-  // Lab colour by the data's own name first, so renaming a group keeps its colour.
-  const labOf=k=>_sampleColour(k)||_sampleColour(disp(k));
+  // Colours by category are given in the data's order, so moving a group never moves
+  // its colour; then read in the order drawn.
+  const catColOf=keys=>{ const m=new Map(), cd=S.catsData; _seriesColours(cd, colours, cd.map(disp)).forEach((c,i)=>m.set(cd[i],c)); return keys.map(k=>m.get(k)); };
 
   if(kind==='scatter'||kind==='line'){
     // Points sharing an x within a series are averaged (always on a line; on a scatter
@@ -27292,7 +27411,7 @@ function _chartStats(el){
   if(kind==='box'||kind==='violin'||kind==='beeswarm'){
     // Each category = the pooled numeric values across the value columns; box/violin/
     // beeswarm all summarise or display this same distribution.
-    const ccol=_seriesColours(catKeys, colours, cats);
+    const ccol=catColOf(catKeys);
     const byC=new Map(); catKeys.forEach(c=>byC.set(c,[])); obs.forEach(o=>{ const l=byC.get(o.cat); if(l) l.push(o.y); });
     const boxes=catKeys.map((c,ci)=>{
       const vals=byC.get(c).slice().sort((a,b)=>a-b);
@@ -27309,21 +27428,18 @@ function _chartStats(el){
   // bar / groupedBar / stackedBar: categories on x, one bar per series per category.
   const skeys=S.skeys, snames=skeys.map(disp), scol=_seriesColours(skeys, colours, snames);
   // A one-series bar chart of samples (strains on the x axis, or one column per strain)
-  // takes the colours by category, since there is no series to name; the key then lists
-  // the categories.
-  const byCat=skeys.length===1 && (S.wide || catKeys.some(c=>labOf(c)));
-  // By category, a category off the palette takes the series colour, as before, or the
-  // first default colour no lab category on this chart holds.
-  const labCat=new Set(catKeys.map(labOf).filter(Boolean).map(c=>String(c).toLowerCase()));
-  const offCat=labCat.has(String(scol[0]).toLowerCase())?(colours.find(c=>!labCat.has(String(c).toLowerCase()))||scol[0]):scol[0];
-  const wideCol=S.wide?_seriesColours(catKeys, colours, cats):null;
+  // takes the colours by category, since there is no series to name; the key and Look ›
+  // Sample colours then list the categories. (It used to switch to that only once some
+  // category had a colour set, so the list showed the value column, then the strains.)
+  const byCat=skeys.length===1;
+  const catCol=byCat?catColOf(catKeys):null;
   const cell=new Map(); obs.forEach(o=>{ const k=o.cat+'\u0001'+o.s; let q=cell.get(k); if(!q){ q={vals:[],es:[]}; cell.set(k,q); } q.vals.push(o.y); q.es.push(o.e); });
   const groups=catKeys.map((c,ci)=>{
     const bars=skeys.map((sk,si)=>{
       const q=cell.get(c+'\u0001'+sk)||{vals:[],es:[]};
       const a=_chartAgg(q.vals,q.es,(ch.agg==='mean'||q.vals.length>1||ch.error==='column')?ch.error:'none');
       // Keep the raw replicate values so "show points" can overlay them (exposes n + spread).
-      const color=S.wide?wideCol[ci]:byCat?(labOf(c)||offCat):scol[si];
+      const color=byCat?catCol[ci]:scol[si];
       return {series:snames[si], key:sk, color, value:a.mean, err:a.err, n:q.vals.length, vals:q.vals, missing:!q.vals.length};
     });
     return {cat:cats[ci], key:c, bars};
@@ -27357,7 +27473,7 @@ function _chartStats(el){
 function _chartStatsCached(el){
   const ch=el.chart;
   const ax=ch.axes||{};
-  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error, gv('sample-colours'),
+  const key=JSON.stringify([ch.kind, ch.data.rows.length, ch.data.columns, ch.mapping, ch.agg, ch.error, gv('sample-colours'), gv('sample-pins'), gv('sample-names'),
     ch.names||null, ch.order||null, !!(ax.x&&ax.x.log), !!(ax.y&&ax.y.log), !!(ch.style&&ch.style.showPoints), ch.style&&ch.style.palette]);
   if(el._chartKey===key && el._chartStat) return el._chartStat;
   el._chartStat=_chartStats(el); el._chartKey=key;
@@ -27926,7 +28042,7 @@ function _dataPanelDraw(ctx, im, x, y, w, h){
 // data again at the cell's size. Rebuilt whenever the data changes, whoever changed it.
 function _dataPanelRefresh(im, force){
   if(!_isDataPanel(im)) return false;
-  const key=JSON.stringify([im.type, im.chart||im.map||null, im.plotW, im.plotH, gv('sample-colours')]);
+  const key=JSON.stringify([im.type, im.chart||im.map||null, im.plotW, im.plotH, gv('sample-colours'), gv('sample-pins'), gv('sample-names')]);
   if(!force && im._dpKey===key && im.img) return false;
   const w=Math.max(40,Math.round(+im.plotW||360)), h=Math.max(40,Math.round(+im.plotH||260));
   const c=document.createElement('canvas'); c.width=w*2; c.height=h*2;
@@ -28077,12 +28193,14 @@ function _loadDataFile(f, fail, opts){
       const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
       logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
       toast(`Imported ${parsed.rows.length} rows from ${f.name} — chart panel ${_rtText(formatLabel(im.label))||'?'} in the grid${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
+      _samplePinSync();
       if(!hold) openDataPanelEditor(images.indexOf(im));
       added=true; return;
     }
     addFreeformElement({type:'chart', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h, chart:ch, label:(f.name||'chart')});
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
+    _samplePinSync();
     updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
     toast(`Imported ${parsed.rows.length} rows from ${f.name}${parsed.units?' (a units row under the header went into the axis titles)':''}${parsed.decimalComma?` — ${parsed.decimalComma} decimal comma${parsed.decimalComma>1?'s':''} read as points`:''}`,'ok');
     if(!hold) openChartModal();
@@ -28097,11 +28215,17 @@ function _loadDataFile(f, fail, opts){
 
 // ── Densitometry → chart ───────────────────────────────────────
 // "Chart these values" in the lanes & bands dialog: one series per analysed panel, the
-// lanes as categories, the value in the best normalisation every panel has (÷ loading
-// control relative to the reference lane, ÷ loading control, relative to the reference
-// lane, or the raw volume), stated in the axis title and the caption. The chart keeps a
-// link to the analyses: a re-analysis rewrites its data in the same undo step, and when
-// it cannot (a panel gone, an analysis out of date) the chart says it is out of date.
+// lanes as categories. Each panel is charted at one band position — the band the user
+// picked in the dialog, else the largest band in its reference lane — and a lane with no
+// band there is n.d., never its largest other band (a nonspecific band in a knockout
+// lane used to be charted as the target). The value is the normalisation the dialog's
+// panel has (÷ loading control relative to the reference lane, ÷ loading control,
+// relative to the reference lane, or the raw volume); a panel without it is left out and
+// named, never charted raw beside normalised ones. A panel serving as a loading control
+// (another panel's, or one named as such) is not a series. The chart keeps a link to the
+// analyses, its series named once by panel id: a re-analysis rewrites its numbers in the
+// same undo step, and when it cannot (a panel gone, an analysis out of date) the chart
+// says it is out of date.
 const _GEL_CHART_METRICS=['normLCRef','normLC','relRef','volume'];
 function _gelChartMetricOK(a, im, k){
   if(k==='volume') return true;
@@ -28111,10 +28235,16 @@ function _gelChartMetricOK(a, im, k){
   if(k==='relRef') return a.refLane!=null;
   return false;
 }
-// The analysed panels to chart from: every one except those serving as another's loading control.
+function _gelBestMetric(im){ return _GEL_CHART_METRICS.find(k=>_gelChartMetricOK(im.gelAnalysis,im,k)); }
+// A loading control by what it shows: the file name or tag names a stain or a
+// housekeeping protein.
+const _GEL_LC_NAME=/loading|housekeep|(^|[^a-z])actin|gapdh|tubulin|vinculin|total[ _-]?protein|revert|ponceau|stain[ _-]?free|coomassie|amido/i;
+function _gelLooksLC(im){ return _GEL_LC_NAME.test(`${im.name||''} ${im.tag||''}`); }
+// The analysed panels to chart from: every one except those serving as another's loading
+// control or named as one (the dialog's own panel always counts).
 function _gelChartPanels(idx){
   const lcIdx=new Set(images.map(p=>p&&p.gelAnalysis&&p.gelAnalysis.loading?_gelLoadingIdx(p.gelAnalysis):-1).filter(i=>i>=0));
-  const out=images.map((p,i)=>i).filter(i=>images[i]&&images[i].gelAnalysis&&(!lcIdx.has(i)||i===idx));
+  const out=images.map((p,i)=>i).filter(i=>images[i]&&images[i].gelAnalysis&&(i===idx||(!lcIdx.has(i)&&!_gelLooksLC(images[i]))));
   if(idx!=null&&idx>=0&&!out.includes(idx)&&images[idx]&&images[idx].gelAnalysis) out.unshift(idx);
   return out;
 }
@@ -28127,36 +28257,71 @@ function _gelChartMetricLabel(k, P){
   if(k==='relRef') return `Band volume relative to${ref}`;
   return 'Band volume (background-subtracted, a.u.)';
 }
-// The table a link stands for, read from the analyses as they are now.
-function _gelChartTable(ids, metric){
+function _gelPanelName(im){ const l=_rtText(formatLabel(im.label)); return l?`Panel ${l}`:String(im.tag||'').trim()||String((typeof _sourceName==='function'?_sourceName(im):im.name)||'Panel').replace(/\.[a-z0-9]{2,4}$/i,''); }
+// The band position a panel is charted at: {rf, kda, how} — the one picked in the
+// dialog, else the largest quantifiable band of the reference lane (of the whole blot
+// without one). null: the panel has no bands.
+function _gelChartTarget(a, im){
+  const R=_gelRows(a,im).filter(r=>!(a.ladder&&r.laneIdx===a.ladder.lane));
+  if(a.chartBand&&isFinite(a.chartBand.rf)) return {rf:+a.chartBand.rf, kda:a.chartBand.kda!=null&&isFinite(a.chartBand.kda)?+a.chartBand.kda:null, how:'picked in the dialog'};
+  const ref=a.refLane!=null?R.filter(r=>r.laneIdx===a.refLane&&!_gelUnq(r)):[];
+  const pool=ref.length?ref:R.filter(r=>!_gelUnq(r)), top=pool.slice().sort((x,y)=>y.volume-x.volume)[0];
+  if(!top) return null;
+  return {rf:top.rf, kda:top.kda, how:ref.length?`the largest band in reference lane ${a.refLane+1}`:'the largest band on the blot'};
+}
+// The row of lane li at the target: within ±10% in kDa when a ladder is fitted, else
+// within half a band height (at least 3% of the crop) in Rf. The nearest one, or null.
+function _gelRowAt(a, R, li, T){
+  let best=null;
+  R.forEach(r=>{ if(r.laneIdx!==li) return;
+    let d;
+    if(T.kda>0&&r.kda>0){ d=Math.abs(Math.log(r.kda/T.kda)); if(d>Math.log(1.1)) return; }
+    else { d=Math.abs(r.rf-T.rf); if(d>Math.max(0.03,(r.y1-r.y0)/2/a.frame.sh)) return; }
+    if(!best||d<best.d) best={r,d}; });
+  return best&&best.r;
+}
+function _gelTargetText(T){ return T.kda>0?`${_gelFmt(T.kda,1)} kDa`:`Rf ${_gelFmt(T.rf,2)}`; }
+// The table a link stands for, read from the analyses as they are now. names: the
+// series' names by panel id, fixed when the chart was made (a letter cleared or changed
+// later does not rename a series or make the chart look out of date).
+function _gelChartTable(ids, metric, names){
   const P=ids.map(id=>images.find(p=>p&&p.id===id));
   const gone=P.findIndex(p=>!p||!p.gelAnalysis);
   if(gone>=0) return {error:`panel ${gone+1} of the chart is no longer in the figure or no longer analysed`};
-  const bad=P.find(p=>!_gelFresh(p)); if(bad) return {error:`panel ${_rtText(formatLabel(bad.label))||'?'}: ${_gelStaleText(bad).toLowerCase()}`};
-  const nm=im=>{ const l=_rtText(formatLabel(im.label)); return l?`Panel ${l}`:(_sourceName?_sourceName(im):im.name)||'Panel'; };
-  const names=[], seen=new Map();
-  P.forEach(im=>{ let n=nm(im); const k=(seen.get(n)||0)+1; seen.set(n,k); names.push(k>1?`${n} (${k})`:n); });
+  const bad=P.find(p=>!_gelFresh(p)); if(bad) return {error:`${_gelPanelName(bad).replace(/^Panel /,'panel ')}: ${_gelStaleText(bad).toLowerCase()}`, stalePanels:P.filter(p=>!_gelFresh(p)).map(p=>p.id)};
+  const out=[], seen=new Map();
+  P.forEach((im,i)=>{ const kept=names&&names[ids[i]]; let n=kept||_gelPanelName(im); if(!kept){ const k=(seen.get(n)||0)+1; seen.set(n,k); if(k>1) n=`${n} (${k})`; } out.push(n); });
   const nL=Math.max(...P.map(im=>im.gelAnalysis.lanes.length));
   const ladder=new Set(P.map(im=>im.gelAnalysis.ladder?im.gelAnalysis.ladder.lane:-1));
+  const R=P.map(im=>_gelRows(im.gelAnalysis,im)), Tg=P.map(im=>_gelChartTarget(im.gelAnalysis,im));
   const rows=[];
   for(let li=0; li<nL; li++){
     if(ladder.has(li)&&P.every(im=>!im.gelAnalysis.ladder||im.gelAnalysis.ladder.lane===li)) continue;   // the marker lane is no sample
     const row=[`Lane ${li+1}`];
-    P.forEach(im=>{ const a=im.gelAnalysis;
-      if(a.ladder&&a.ladder.lane===li){ row.push(''); return; }
-      // The lane's largest band that has a value in this normalisation.
-      const R=_gelRows(a,im).filter(r=>r.laneIdx===li&&r[metric]!=null&&isFinite(r[metric])).sort((x,y)=>y.volume-x.volume);
-      row.push(R.length?+(+R[0][metric]).toPrecision(6):''); });
+    P.forEach((im,k)=>{ const a=im.gelAnalysis;
+      if((a.ladder&&a.ladder.lane===li)||!Tg[k]){ row.push(''); return; }
+      const r=_gelRowAt(a, R[k], li, Tg[k]);
+      row.push(r&&r[metric]!=null&&isFinite(r[metric])?+(+r[metric]).toPrecision(6):''); });
     rows.push(row);
   }
-  return {columns:['Lane',...names], rows, names};
+  const chosen=P.map((im,k)=>`${out[k]}: the band at ${Tg[k]?_gelTargetText(Tg[k]):'— (no bands)'}${Tg[k]?` (${Tg[k].how})`:''}`);
+  return {columns:['Lane',...out], rows, names:out, chosen};
 }
+// A link's series names by panel id. A link saved before they were kept takes them from
+// the chart's own columns, in order.
+function _chartLinkNames(L, ch){
+  if(L.names&&typeof L.names==='object') return L.names;
+  const c=ch&&ch.data&&ch.data.columns, ids=L.ids||[];
+  if(c&&c.length===ids.length+1){ const o={}; ids.forEach((id,i)=>{ o[id]=String(c[i+1]); }); return o; }
+  return null;
+}
+function _chartLinkTable(ch){ const L=ch.link; return _gelChartTable(L.ids||[], L.metric, _chartLinkNames(L, ch)); }
 function _chartLinkState(el){
   const ch=el&&el.chart, L=ch&&ch.link; if(!L) return {stale:false};
-  const T=_gelChartTable(L.ids||[], L.metric);
-  if(T.error) return {stale:true, why:T.error};
+  const T=_chartLinkTable(ch);
+  if(T.error) return {stale:true, why:T.error, stalePanels:T.stalePanels||null};
   const same=JSON.stringify(T.columns)===JSON.stringify(ch.data.columns)&&JSON.stringify(T.rows)===JSON.stringify(ch.data.rows);
-  return same?{stale:false}:{stale:true, why:'the analysis has changed since the chart was made', table:T};
+  return same?{stale:false, table:T}:{stale:true, why:'the analysis has changed since the chart was made', table:T};
 }
 // Re-read every linked chart from its analyses (called whenever an analysis changes).
 function _chartLinksSync(){
@@ -28171,40 +28336,98 @@ function _chartLinksSync(){
   if(n){ logAction('chartLinkUpdate',{charts:n}); toast(`${n} chart${n>1?'s':''} updated from the re-analysed densitometry`,'ok'); scheduleRender(0); }
   return n;
 }
+// An analysis the chart cannot read any more (its panel re-cropped or its image
+// replaced) is re-run — with its ladder, reference lane, loading control and charted
+// band kept — before the chart is updated from it.
+function _chartLinkReanalyse(ids){
+  (ids||[]).forEach(id=>{ const i=images.findIndex(p=>p&&p.id===id); if(i>=0&&!_gelFresh(images[i])) runGelAnalysis(i); });
+}
 function _chartLinkUpdateDraft(){
   const ch=_chartDraft; if(!ch||!ch.link) return;
-  const st=_chartLinkState({chart:ch}); if(!st.table){ toast(st.why?`Cannot update: ${st.why}`:'Already up to date','warn'); return; }
+  let st=_chartLinkState({chart:ch});
+  if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState({chart:ch}); }
+  if(!st.table){ toast(st.why?`Cannot update: ${st.why} — open ⫼ Lanes & bands on it`:'Already up to date','warn'); return; }
   ch.data=Object.assign({}, ch.data, {columns:st.table.columns, rows:st.table.rows});
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
   _chartModalPickers(); _chartModalRefresh();
 }
 function _chartLinkUpdateSelected(){
   const el=_selectedChartEl(); if(!el) return;
-  const st=_chartLinkState(el);
+  let st=_chartLinkState(el);
+  if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState(el); if(!st.stale){ updateElemPropsBar(); scheduleRender(0); return; } }
   if(!st.table){ toast(st.stale?`Cannot update: ${st.why} — re-analyse it (⫼ Analyse lanes & bands)`:'Already up to date', st.stale?'warn':'ok'); return; }
+  if(!st.stale){ toast('Already up to date','ok'); return; }
   pushUndo(); el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows}); el._chartKey=''; el._chartStat=null;
+  if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0); toast('Chart updated from the densitometry','ok');
 }
-// One click from the lanes & bands dialog: chart the analysed panels' values.
+function _gelMetricWhyNot(im, metric){
+  const a=im.gelAnalysis, lc=a.loading&&!_gelLoadingStale(a,im), ref=a.refLane!=null;
+  if(metric==='normLCRef') return !lc&&!ref?'no loading control and no reference lane':!lc?(a.loading?'its loading control is out of date':'no loading control'):'no reference lane';
+  if(metric==='normLC') return a.loading?'its loading control is out of date':'no loading control';
+  if(metric==='relRef') return 'no reference lane';
+  return 'it is normalised, and this panel is not';
+}
+// One click from the lanes & bands dialog: chart the analysed panels' values, or update
+// the chart already linked to this panel.
 function chartFromDensitometry(idx){
   idx=_gelPanelIdx(idx);
-  const ids=_gelChartPanels(idx).map(i=>images[i].id);
-  if(!ids.length){ toast('Analyse a blot first (⫼ Analyse lanes & bands)','warn'); return false; }
+  const me=images[idx];
+  if(!me||!me.gelAnalysis){ toast('Analyse a blot first (⫼ Analyse lanes & bands)','warn'); return false; }
+  if(!_gelFresh(me)){ toast(`${_gelStaleText(me)} — press ↻ Re-detect first`,'warn'); return false; }
+  // The normalisation is the dialog's panel's best; a panel without it is left out.
+  const metric=_gelBestMetric(me);
+  const cand=_gelChartPanels(idx), left=[];
+  const ids=cand.filter(i=>{ const im=images[i]; if(i===idx) return true;
+    if(!_gelFresh(im)){ left.push(`${_gelPanelName(im)} (${_gelStaleText(im).toLowerCase()})`); return false; }
+    if(_gelBestMetric(im)!==metric){ left.push(`${_gelPanelName(im)} (${_gelMetricWhyNot(im, metric)})`); return false; }
+    return true; }).map(i=>images[i].id);
+  const lcLeft=images.filter((p,i)=>p&&p.gelAnalysis&&i!==idx&&!cand.includes(i)).map(_gelPanelName);
   const P=ids.map(id=>images.find(p=>p.id===id));
-  const metric=_GEL_CHART_METRICS.find(k=>P.every(im=>_gelChartMetricOK(im.gelAnalysis,im,k)))||'volume';
-  const T=_gelChartTable(ids, metric);
+  // A chart already linked to this panel is updated, not added again.
+  const old=_allCharts().find(el=>el.chart.link&&el.chart.link.kind==='gel'&&(el.chart.link.ids||[]).includes(me.id));
+  const oldNames=old?(_chartLinkNames(old.chart.link, old.chart)||{}):{};
+  const names={}; ids.forEach(id=>{ if(oldNames[id]) names[id]=oldNames[id]; });
+  const T=_gelChartTable(ids, metric, Object.keys(names).length?names:null);
   if(T.error){ toast(`Cannot chart: ${T.error} — re-detect first`,'warn'); return false; }
   if(!T.rows.length){ toast('No lanes to chart','warn'); return false; }
+  ids.forEach((id,i)=>{ names[id]=T.names[i]; });
   const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
+  const raw=metric==='volume';
+  const caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background), ${label.charAt(0).toLowerCase()+label.slice(1)}: ${T.chosen.join('; ')}; n.d., no quantifiable band at that position.`;
+  const link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`, names};
+  const notes=[];
+  if(raw) notes.push(`raw volumes: ${_gelPanelName(me).replace(/^Panel /,'panel ')} has no reference lane or loading control`);
+  if(left.length) notes.push(`left out ${left.join(', ')}`);
+  if(lcLeft.length) notes.push(`${lcLeft.join(', ')} not charted (a loading control)`);
+  const chosen=T.chosen.join('; ');
+  if(typeof closeGelAnalysis==='function') closeGelAnalysis();
+  pushUndo();
+  if(old){
+    const ch=old.chart, L0=ch.link;
+    // Text the app wrote is rewritten; text the user typed stays.
+    if(!ch.axes.y.title||ch.axes.y.title===L0.metricLabel) ch.axes.y.title=label;
+    if(!ch.caption||/^Densitometry of panel/.test(ch.caption)) ch.caption=caption;
+    ch.data=Object.assign({}, ch.data, {columns:T.columns, rows:T.rows});
+    ch.mapping=Object.assign({}, ch.mapping, {xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, layout:'xcol'});
+    if(T.names.length>1&&ch.kind==='bar') ch.kind='groupedBar';
+    ch.style.showLegend=T.names.length>1;
+    ch.link=link;
+    old._chartKey=''; old._chartStat=null; if(_isDataPanel(old)) _dataPanelRefresh(old, true);
+    _samplePinSync();
+    logAction('chartFromDensitometry',{panels:ids.length, metric, updated:true});
+    scheduleRender(0);
+    const where=_isDataPanel(old)?` (panel ${_rtText(formatLabel(old.label))||'?'})`:'';
+    toast(`Updated the linked chart${where}: ${label}; ${chosen}.${notes.length?' '+notes.join('; ')+'.':''}`, raw||left.length?'warn':'ok');
+    return true;
+  }
   const ch=_defaultChart(T.names.length>1?'groupedBar':'bar');
   ch.data={columns:T.columns, rows:T.rows, source:'densitometry', sourceName:`densitometry, panel${P.length>1?'s':''} ${pn}`};
   ch.mapping={xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, errCol:null, errCols:{}, layout:'xcol', repCols:false, timeCol:0, eventCol:1, groupCol:null};
   ch.axes.y.title=label;
   ch.style.showLegend=T.names.length>1;
-  ch.caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background): the largest quantifiable band in each lane, ${label.charAt(0).toLowerCase()+label.slice(1)}; n.d., no quantifiable band.`;
-  ch.link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`};
-  if(typeof closeGelAnalysis==='function') closeGelAnalysis();
-  pushUndo();
+  ch.caption=caption;
+  ch.link=link;
   const w=380, h=280;
   let where='';
   if(layoutMode!=='freeform'){
@@ -28217,9 +28440,10 @@ function chartFromDensitometry(idx){
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     updateFreeformElemList(); if(typeof drawFreeformOverlay==='function') drawFreeformOverlay(); updateElemPropsBar();
   }
+  _samplePinSync();
   logAction('chartFromDensitometry',{panels:ids.length, metric});
   scheduleRender(0);
-  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}. Linked — a re-analysis updates it.${where}`,'ok');
+  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}; a lane with no band there is n.d.${notes.length?' — '+notes.join('; '):''}. Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
   return true;
 }
 
@@ -28235,7 +28459,7 @@ function _selectedChartEl(){
   const el=freeformElements[[...selectedElems][0]];
   return (el&&el.type==='chart')?el:null;
 }
-let _chartDraft=null, _chartDraftColours={}, _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
+let _chartDraft=null, _chartDraftColours={}, _chartDraftNames={}, _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
 function _chartModalOpen(){ const m=document.getElementById('chart-modal'); return !!(m&&m.classList.contains('open')); }
 // What the sig/ref/name editors act on: the draft while the dialog is open, else the chart.
 function _chartTarget(){ if(_chartDraft&&_chartModalOpen()) return _chartDraft; const el=_selectedChartEl(); return el?el.chart:null; }
@@ -28243,7 +28467,7 @@ function openChartModal(){
   const el=_selectedChartEl(); if(!el){ toast('Select a chart first','warn'); return; }
   _chartDraft=JSON.parse(JSON.stringify(el.chart));
   const d=_chartDraft; d.mapping=d.mapping||{}; d.axes=d.axes||{}; d.axes.x=d.axes.x||{}; d.axes.y=d.axes.y||{}; d.style=d.style||{}; d.fit=d.fit||{};
-  _chartDraftColours={};
+  _chartDraftColours={}; _chartDraftNames={};
   _chartModalSync();
   document.getElementById('chart-modal').classList.add('open');
   _chartPreview();
@@ -28445,11 +28669,12 @@ function _chartRenderNames(){
     (stat.seriesNames||[]).map(s=>({key:s.key, color:s.color}));
   const catOrder=stat.catKeys&&(stat.boxes||stat.catColours||(stat.groups&&(stat.seriesNames||[]).length===1))?stat.catKeys:null;
   const orderBtns=stat.catKeys&&!catOrder;   // series coloured, categories still reorderable below
-  const row=(it,i,arr)=>{ const c=_chartDraftColours[it.key]||it.color; const disp=(ch.names&&ch.names[it.key])||'';
+  const F=_sampleNames();
+  const row=(it,i,arr)=>{ const c=_chartDraftColours[it.key]||it.color; const disp=(ch.names&&ch.names[it.key])||(_own(F,it.key)?F[it.key]:'')||'';
     return `<div style="display:flex;gap:4px;align-items:center;margin-top:2px" data-key="${esc(it.key)}">
       <input type="color" value="${esc(_hex6(c))}" style="width:26px;height:20px;padding:0" title="${esc(it.key)}'s colour in every chart and the legend key" onchange="_chartColourEdit(this.closest('[data-key]').dataset.key,this.value)">
       <span style="min-width:90px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Name in the data">${esc(it.key)}</span>
-      <input type="text" value="${esc(disp)}" placeholder="shown as ${esc(it.key)}" style="flex:1;min-width:80px" title="Shown on the chart, its legend and the key as … (format marks work: *fliC* is italic)" oninput="_chartNameEdit(this.closest('[data-key]').dataset.key,this.value)">
+      <input type="text" value="${esc(disp)}" placeholder="shown as ${esc(it.key)}" style="flex:1;min-width:80px" title="Shown as … in every chart of the figure, their legends and the key (format marks work: *fliC* is italic)" oninput="_chartNameEdit(this.closest('[data-key]').dataset.key,this.value)">
       ${it.cat?`<button class="icon-btn" title="Move left" ${i?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,-1)">↑</button><button class="icon-btn" title="Move right" ${i<arr.length-1?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,1)">↓</button>`:''}</div>`; };
   let html=items.map(row).join('');
   if(orderBtns&&stat.catKeys.length>1) html+=`<div style="margin-top:4px;color:var(--muted);font-size:10px">Category order:</div>`+stat.catKeys.map((k,i,arr)=>row({key:k, color:'#ffffff', cat:true},i,arr).replace(/<input type="color"[^>]*>/,'<span style="width:26px"></span>')).join('');
@@ -28460,7 +28685,17 @@ function _chartNameEdit(key,val){
   const ch=_chartTarget(); if(!ch) return;
   ch.names=ch.names||{}; val=String(val??'');
   if(val.trim()===''||val===key) delete ch.names[key]; else ch.names[key]=val;
-  if(_chartDraft===ch) _chartPreview();
+  if(_chartDraft===ch){ _chartDraftNames[key]=(val.trim()===''||val===key)?null:val; _chartPreview(); }
+}
+// The figure's "shown as" names: {data name: shown as, or null to show the data name}.
+// Inside the caller's undo step; a chart's own name for one of these is dropped.
+function _setSampleNames(map){
+  const F=Object.assign({}, _sampleNames());
+  Object.entries(map).forEach(([k,v])=>{ if(v==null||String(v).trim()===''||v===k) delete F[k]; else F[k]=String(v);
+    _allCharts().forEach(el=>{ if(el.chart.names&&_own(el.chart.names,k)){ delete el.chart.names[k]; el._chartKey=''; el._chartStat=null; } }); });
+  sv('sample-names', Object.keys(F).length?JSON.stringify(F):'');
+  _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; if(_isDataPanel(el)) _dataPanelRefresh(el, true); });
+  logAction('sampleNames',{set:Object.keys(map)});
 }
 function _chartColourEdit(key,val){ if(!/^#[0-9a-f]{6}$/i.test(val)) return; _chartDraftColours[key]=val.toLowerCase(); _chartPreview(); }
 function _chartOrderMove(key,dir){
@@ -28505,15 +28740,24 @@ function applyChartModal(){
   if(changed){
     ch.data.source=(old.data.source==='file'?'file':old.data.source==='densitometry'?'paste':old.data.source==='demo'?'paste':(old.data.source||'paste'));
     logAction('chartImport',{rows:ch.data.rows.length, cols:nc, source:'paste'});
-    if(ch.link){ ch.link=null; toast('Chart data edited by hand — it is no longer linked to the densitometry','warn'); }
+    // Data brought in by ↻ Update from densitometry are the link's own; only data typed or
+    // pasted by hand unlink the chart.
+    if(ch.link){ const T=_chartLinkTable(ch);
+      if(T.error||JSON.stringify(T.columns)!==JSON.stringify(ch.data.columns)||JSON.stringify(T.rows)!==JSON.stringify(ch.data.rows)){ ch.link=null; toast('Chart data edited by hand — it is no longer linked to the densitometry','warn'); }
+      else ch.data.source='densitometry'; }
   }
   el.chart=ch;
   // Colours set here are the figure's sample colours: every chart and the key follow.
   if(Object.keys(_chartDraftColours).length){
     sv('sample-colours', JSON.stringify(Object.assign({}, _sampleColours(), _chartDraftColours)));
     logAction('sampleColours',{set:Object.keys(_chartDraftColours)});
-    if(typeof _labStyleSync==='function') _labStyleSync(); if(typeof _sampleColoursRender==='function') _sampleColoursRender();
+    if(typeof _labStyleSync==='function') _labStyleSync();
   }
+  // So are the names typed under "shown as": one per sample, in every chart (a chart's
+  // own older name for it gives way).
+  if(Object.keys(_chartDraftNames).length) _setSampleNames(_chartDraftNames);
+  _samplePinSync();
+  if(typeof _sampleColoursRender==='function') _sampleColoursRender();
   el._chartKey=''; el._chartStat=null;       // force stats recompute
   el.label=el.label||(ch.kind+' chart');
   _chartFreshId=null;

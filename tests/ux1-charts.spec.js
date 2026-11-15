@@ -461,8 +461,10 @@ test('charts-24/26: a colour set in one chart recolours every chart and the key;
   expect(r.bName).toBe('ΔfliC');                  // shown under its new name …
   expect(r.bCol).toBe('#882255');                 // … in the same colour
   expect(r.key).toContain('ΔfliC #882255');
-  expect(r.key).toContain('dfliC #882255');
-  expect(r.list).toContain('dfliC #882255');
+  // ux2 (charts2-06): the name is the sample's in every chart, so the bar chart shows ΔfliC
+  // too and the key has one row for it, not "ΔfliC" and "dfliC" in the same colour
+  expect(r.key).not.toContain('dfliC #882255');
+  expect(r.list).toContain('ΔfliC #882255');
   // Look › Sample colours: change it there, every chart follows; undo puts it back
   const r2 = await page.evaluate(() => {
     setSampleColour('dfliC', '#117733');
@@ -470,7 +472,7 @@ test('charts-24/26: a colour set in one chart recolours every chart and the key;
     undo();
     const undone = _sampleColours().dfliC;
     const ses = serializeSession(true);
-    return { after, undone, savedNames: ses.freeformElements.find(e => e.type === 'chart' && e.chart.names && e.chart.names.dfliC).chart.names.dfliC,
+    return { after, undone, savedNames: JSON.parse(ses.samples.names).dfliC,
       savedReg: JSON.stringify(ses).includes('#882255') };
   });
   expect(r2.after).toEqual(['#117733', '#117733']);
@@ -620,7 +622,8 @@ test('blot-01: “Chart these values” adds a linked grid chart panel of the no
   expect(r.panels).toBe(3);                     // a third panel beside the two blots
   expect(r.ff).toBe(0);
   expect(r.title).toBe('Band volume ÷ the loading control, relative to lane 1');
-  expect(r.caption).toMatch(/largest quantifiable band in each lane/);
+  // ux2 (blot2-01): one band position per panel, said in the caption, not each lane's largest band
+  expect(r.caption).toMatch(/the band at Rf 0\.50 \(the largest band in reference lane 1\)/);
   expect(r.cats).toEqual(['Lane 1', 'Lane 2', 'Lane 3', 'Lane 4']);
   [1, 1, 2, 2].forEach((v, i) => expect(Math.abs(r.vals[i] - v) / v).toBeLessThan(0.1));   // 40/30 : 80/60 : 80/30 : 120/45
   expect(r.link).toBe(true);

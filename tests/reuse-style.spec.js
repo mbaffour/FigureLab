@@ -167,6 +167,7 @@ test('lab style: font, sizes, colours and sample colours applied; unused keys li
     el.chart.data = { columns: ['Strain', 'MG1655', 'MG1655 + WT', 'other'], rows: [['a', 1, 2, 3], ['b', 2, 3, 4]], source: 'demo', sourceName: '' };
     el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1, 2, 3]; el.chart.kind = 'groupedBar';
     el._chartKey = ''; el._chartStat = null; render();
+    _samplePinSync();   // as an import or Apply does: the palette colours are the samples' own from now on
     const before = _chartStatsCached(el).seriesNames.map(s => s.color);
     const n0 = undoStack.length;
     const k = (render(), _physFacts().ptPerPx);

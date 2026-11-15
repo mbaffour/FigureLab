@@ -72,7 +72,8 @@ test.describe('a chart or gene map is a grid panel (blot-02, phage-03, phage-21)
     expect(r.mode).toBe('grid');
     expect(r.i).toBe(4);
     expect(r.label).toBe('E');
-    expect(r.keyNames).toContain('OD');          // the chart's series, as a freeform chart keys it
+    // ux2: a one-series bar chart is coloured by its groups, and the key lists them
+    expect(r.keyNames).toEqual(expect.arrayContaining(['WT', 'KO', 'Rescue']));
     expect(r.w2).toBeGreaterThan(r.w1 * 1.9);
     expect(r.drawnW).toBe(r.w2);                // drawn at the spanned cell's size
     // Editing the data through the editor is one undo step, and undo gives the old data back.
