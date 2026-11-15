@@ -507,3 +507,70 @@ test('blot2-06/07 Batch crop: typed boxes keep every typed value in either order
   expect(await box()).toEqual([136, 100, 600, 860]);
   expect(errors).toEqual([]);
 });
+
+test('phage2-12 Calibrate from image zooms to 1:1, so two clicks on ruler ticks of an 1800-px photo read the exact distance', async ({ page }) => {
+  // Old build: the photo was shown at 320 px with no zoom (5.6 image px per screen px);
+  // clicks on the 0 and 10 mm ticks gave 178.9 px for 180, and nothing said ticks are
+  // not snapped to.
+  const errors = await loadApp(page);
+  await page.evaluate(MICRO);
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 1800; c.height = 1200; const x = c.getContext('2d');
+    x.fillStyle = '#e8e2c8'; x.fillRect(0, 0, 1800, 1200);
+    x.fillStyle = '#111'; for (let mm = 0; mm <= 10; mm++) x.fillRect(300 + mm * 18, 1000, 1, mm % 5 ? 20 : 40);   // a mm ruler, 18 px/mm
+    const src = c.toDataURL('image/png');
+    await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, 'plate_B.jpg'); res(); }; img.src = src; }); render(); });
+  const row = await openDrawer(page, 0);
+  await row.locator('button', { hasText: 'Calibrate from image' }).click();
+  const m = page.locator('#calib-modal');
+  await expect(m).toContainText('Ruler ticks are not snapped to');
+  await m.locator('.calib-zoom[data-z="1"]').click();
+  const cc = m.locator('#calib-canvas');
+  // scroll the 1:1 view to the ruler and click the 0 and 10 mm ticks' centres
+  await page.evaluate(() => { const w = document.getElementById('calib-wrap'); w.scrollLeft = 200; w.scrollTop = 850; });
+  await cc.click({ position: { x: 300.4, y: 1020 } });
+  await cc.click({ position: { x: 480.6, y: 1020 } });
+  expect(await m.locator('#calib-px').inputValue()).toBe('180');
+  await expect(m.locator('#calib-status')).toContainText('180.0 px');
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES split: splitting a merge inside a bigger figure grows the grid so every new panel is drawn', async ({ page }) => {
+  // Old build: "the grid was left as it is", and the parts past its last cell were
+  // listed but not drawn until Columns/Rows were changed by hand.
+  const errors = await loadApp(page);
+  const f = v => field(32, 32, 100, v, v + 500);
+  const files = [];
+  for (const cond of ['Fed', 'EBSS']) for (const [c, ch] of [[1, 'DAPI'], [2, 'GFP'], [3, 'CellMask']]) files.push([tiff16([f(1000 * c)], { w: 32, h: 32, desc: IJ(), umPerPx: 0.1 }), `C${c}-U2OS_${cond}_f01_${ch}.tif`]);
+  await drop(page, files);
+  await page.locator('button', { hasText: 'Auto-channels' }).first().click();
+  await page.evaluate(() => { sv('cols', 3); sv('rows', 2); onLayoutChange(); render(); });
+  // tick Fed's three channels in the list and merge them
+  for (const i of [0, 1, 2]) await rowOf(page, i).locator('.panel-pick').check();
+  await page.evaluate(() => mergeTickedPanels());
+  const m = await page.evaluate(() => images.findIndex(im => im && (im.channels || []).length));
+  const row = await openDrawer(page, m);
+  await row.locator('[data-splitch]').click();
+  await expect(page.locator('#toast')).toContainText('kept their places');
+  const r = await page.evaluate(() => { render(); return { out: _gridPlacements().unplaced, drawn: _figurePanels().length }; });
+  expect(r.out).toBe(0);
+  expect(r.drawn).toBe(7);                // EBSS's three channels, three split parts and the merge
+  expect(errors).toEqual([]);
+});
+
+test('blot2-07 ✓ Apply & Next stays in view in a 1440 × 900 window', async ({ page }) => {
+  // Old build: the button was below the fold of the Batch crop dialog at 900 px.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = await loadApp(page);
+  await page.evaluate(MICRO);
+  await page.evaluate(async () => { for (const n of ['blot1.png', 'blot2.png']) await _micro({ name: n, w: 900, h: 1040, bg: '#eee', blob: '#333', blobs: 8 }); });
+  await page.evaluate(() => startBatchCrop());
+  const btn = page.locator('#crop-apply-btn');
+  await expect(btn).toContainText('Apply & Next');
+  // a box typed, as the blot guide does, which brings up the batch's size and edit rows
+  for (const [k, v] of [['w', 860], ['h', 210], ['x', 20], ['y', 75]]) await page.locator('#crop-px-' + k).fill(String(v));
+  const r = await btn.evaluate(b => { const q = b.getBoundingClientRect(); const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return { bottom: q.bottom, h: innerHeight, top: hit === b || b.contains(hit) }; });
+  expect(r.bottom).toBeLessThanOrEqual(r.h);
+  expect(r.top).toBe(true);
+  expect(errors).toEqual([]);
+});

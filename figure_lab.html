@@ -1706,8 +1706,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <h3>🔬 Scale Calibration</h3>
     <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
       Click two points on the image that span a known distance (e.g. the scale bar).
+      Clicks on a solid bar snap to its ends. Ruler ticks are not snapped to — a mm ruler's ticks are closer together than a click on a shrunk photo is accurate — so zoom to 1:1 and click the tick's centre, or type the pixel distance.
     </p>
-    <canvas id="calib-canvas" width="500" height="350"></canvas>
+    <div style="display:flex;gap:4px;align-items:center;font-size:10px;margin-bottom:4px"><span style="color:var(--muted)">Zoom</span>
+      <button class="btn calib-zoom" data-z="fit" style="padding:1px 7px;font-size:10px">Fit</button>
+      <button class="btn calib-zoom" data-z="1" style="padding:1px 7px;font-size:10px" title="One image pixel per screen pixel: scroll to the ruler and click to the pixel">1:1</button>
+      <button class="btn calib-zoom" data-z="2" style="padding:1px 7px;font-size:10px">2:1</button>
+      <span id="calib-zoom-note" style="color:var(--muted)"></span></div>
+    <div id="calib-wrap" style="max-width:490px;max-height:340px;overflow:auto"><canvas id="calib-canvas" width="500" height="350"></canvas></div>
     <div id="calib-status" style="font-size:11px;color:var(--muted);margin:6px 0">
       Click the first point…
     </div>
@@ -2704,7 +2710,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <select id="paste-dest" style="font-size:10px;padding:1px 3px;max-width:220px"></select>
       </label>
     </div>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+    <!-- Kept in view while the editor scrolls: in Batch crop, ✓ Apply & Next sat below
+         the fold of a 900-px window (blot2-07). -->
+    <div id="crop-foot" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;position:sticky;bottom:-20px;background:var(--surface);padding:8px 0 12px;margin-bottom:-12px;z-index:3;border-top:1px solid var(--border)">
       <button class="btn" onclick="resetCropEd()">↺ Reset</button>
       <button class="btn" id="crop-copy-group" onclick="copyCropTo('group')" title="Apply this exact crop to every panel in the same match group">⤳ To group</button>
       <button class="btn" id="crop-copy-all" onclick="copyCropTo('all')" title="Apply this exact crop to every panel">⤳ To all</button>
@@ -7575,11 +7583,19 @@ function splitChannelRow(srcIdx){
   // A split row reads by its channel names — DAPI, GFP, merge — so switch them on.
   const tc=document.getElementById('tag-channels'); if(tc) tc.checked=true;
   if(madeRow){ sv('cols',parts.length); sv('rows',1); onLayoutChange(); }
+  // The new panels are drawn: the grid grows by rows to hold them (it used to stay as it
+  // was, and the parts past its last cell were listed but not drawn).
+  let grown=null;
+  if(!madeRow){ _gridGrowBatch++; try{ _growGridToFit(); } finally{ _gridGrowBatch--; } grown=_gridGrowNote; _gridGrowNote=null; }
   renderImgList(); renderMiniGrid(); scheduleRender();
   logAction('splitChannels',{from:im.label,into:parts.length,row:madeRow});
+  const cols=gi('cols');
   toast(madeRow
     ? `Split into a row of ${parts.length}: each channel, then the merge`
-    : `Split into ${parts.length} panels (channels + merge), named by channel — the other panels kept their places and labels, so the grid was left as it is`,'ok');
+    : `Split into ${parts.length} panels (channels + merge), named by channel — the other panels kept their places and labels`
+      +(grown&&grown.to>grown.from?`; the grid grew to ${grown.cols} × ${grown.to} rows so the new panels are drawn`:'')
+      +(grown&&grown.out?`; ${grown.out} still fall outside the grid`:'')
+      +(cols!==parts.length?`. Arrange › Columns ${parts.length} gives each split field its own row`:''),(grown&&grown.out)?'warn':'ok');
 }
 
 // Gel/blot splice marker — a visible lane-divider line (journal integrity
@@ -21149,15 +21165,37 @@ function openCalib(imgIdx){
   document.getElementById('calib-um').value='';
   { const pe=document.getElementById('calib-px'); if(pe) pe.value=''; }
 
-  const cc=document.getElementById('calib-canvas');
   const maxW=480, maxH=320;
-  const scale=Math.min(maxW/calibState.img.width, maxH/calibState.img.height, 1);
-  cc.width=Math.round(calibState.img.width*scale);
-  cc.height=Math.round(calibState.img.height*scale);
-  calibState.scale=scale;
-
-  const ctx=cc.getContext('2d');
-  ctx.drawImage(calibState.img,0,0,cc.width,cc.height);
+  calibState.fit=Math.min(maxW/calibState.img.width, maxH/calibState.img.height, 1);
+  _calibZoom('fit');
+}
+// The dialog shows the photo fitted to 480 × 320 px: on an 1800-px plate photo one
+// screen pixel is 5.6 image pixels, and two clicks on ruler ticks were 0.6 % off with no
+// way to do better (phage2-12). 1:1 and 2:1 show the image's own pixels in a scrolling
+// view; the points are kept in image pixels, so they stay put across a zoom.
+function _calibZoom(z){
+  const s=calibState; if(!s||!s.img) return;
+  s.scale=z==='fit'?s.fit:+z||s.fit;
+  const cc=document.getElementById('calib-canvas');
+  cc.width=Math.max(1,Math.round(s.img.width*s.scale)); cc.height=Math.max(1,Math.round(s.img.height*s.scale));
+  cc.style.imageRendering=s.scale>=1?'pixelated':'';
+  // zoomed, the canvas keeps its size and the box around it scrolls
+  cc.style.maxWidth=s.scale>s.fit?'none':''; cc.style.margin=s.scale>s.fit?'0':'';
+  document.querySelectorAll('#calib-modal .calib-zoom').forEach(b=>b.classList.toggle('lut-active', b.dataset.z===String(z)));
+  const n=document.getElementById('calib-zoom-note');
+  if(n) n.textContent=s.scale<1?`1 screen px = ${(1/s.scale).toFixed(1)} image px`:'scroll to the part you need';
+  _calibDraw();
+  const p=(s.pts||[])[0], w=document.getElementById('calib-wrap');
+  if(p&&w&&s.scale>=1){ w.scrollLeft=Math.max(0,p.sx*s.scale-w.clientWidth/2); w.scrollTop=Math.max(0,p.sy*s.scale-w.clientHeight/2); }
+}
+function _calibDraw(){
+  const s=calibState, cc=document.getElementById('calib-canvas'); if(!s||!s.img||!cc) return;
+  const ctx=cc.getContext('2d'); ctx.imageSmoothingEnabled=s.scale<1;
+  ctx.clearRect(0,0,cc.width,cc.height); ctx.drawImage(s.img,0,0,cc.width,cc.height);
+  ctx.fillStyle='#f5a623'; ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5;
+  const P=(s.pts||[]).map(p=>({x:p.sx*s.scale, y:p.sy*s.scale}));
+  P.forEach(p=>{ ctx.beginPath(); ctx.arc(p.x,p.y,s.scale>=1?3:4,0,Math.PI*2); ctx.fill(); });
+  if(P.length===2){ ctx.beginPath(); ctx.moveTo(P[0].x,P[0].y); ctx.lineTo(P[1].x,P[1].y); ctx.stroke(); }
 }
 function closeCalib(){ document.getElementById('calib-modal').classList.remove('open'); }
 // Two clicks (source px) that lie along a uniform bright or dark bar: the bar's length,
@@ -21192,43 +21230,41 @@ function _calibSnap(img, x1, y1, x2, y2, tol){
 
 (function bindCalib(){
   const cc=document.getElementById('calib-canvas');
+  document.querySelectorAll('#calib-modal .calib-zoom').forEach(b=>b.addEventListener('click',()=>_calibZoom(b.dataset.z)));
   cc.addEventListener('click', e=>{
     if(calibState.imgIdx<0) return;
     const rect=cc.getBoundingClientRect();
     const x=(e.clientX-rect.left)*cc.width/rect.width;
     const y=(e.clientY-rect.top)*cc.height/rect.height;
-    calibState.pts.push({x,y});
-
-    const ctx=cc.getContext('2d');
-    ctx.clearRect(0,0,cc.width,cc.height);
-    ctx.drawImage(calibState.img,0,0,cc.width,cc.height);
-    ctx.fillStyle='#f5a623'; ctx.strokeStyle='#f5a623'; ctx.lineWidth=1.5;
-
-    calibState.pts.forEach(p=>{
-      ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
-    });
+    if(calibState.pts.length>=2) calibState.pts=[];
+    // at 1:1 and above, a click is the centre of the image pixel under it
+    const k=calibState.scale, q=v=>k>=1?Math.floor(v/k)+0.5:v/k;
+    calibState.pts.push({sx:q(x), sy:q(y), x, y});
+    _calibDraw();
     if(calibState.pts.length===2){
-      const [a,b]=calibState.pts;
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-      let pxDist=Math.hypot((b.x-a.x)/calibState.scale,(b.y-a.y)/calibState.scale);
+      const [a0,b0]=calibState.pts, a={x:a0.sx*calibState.scale, y:a0.sy*calibState.scale}, b={x:b0.sx*calibState.scale, y:b0.sy*calibState.scale};
+      let pxDist=Math.hypot(b0.sx-a0.sx, b0.sy-a0.sy);
       // The dialog shows the image shrunk (a 2048-px TEM image at 320 px: one screen
       // pixel is 6.4 image pixels), so two careful clicks on a burned-in bar were 1–2 %
       // off. When the line runs along a uniform bar, its ends are found in the image's
       // own pixels instead.
-      const snap=_calibSnap(calibState.img, a.x/calibState.scale, a.y/calibState.scale, b.x/calibState.scale, b.y/calibState.scale, 3/calibState.scale+2);
+      // A click a screen pixel beside a thin bar (9 image px tall, 2 screen px on a fitted
+      // 2048-px image) runs the line just off it: try the line moved sideways by up to
+      // the width of a screen pixel or two, nearest first.
+      let snap=null;
+      { const s=calibState.scale, ax=a.x/s, ay=a.y/s, bx=b.x/s, by=b.y/s, L=Math.hypot(bx-ax,by-ay)||1, nx=-(by-ay)/L, ny=(bx-ax)/L;
+        const reach=Math.ceil(Math.min(12, 1.5/s+1));
+        for(let k=0;k<=reach&&!snap;k++) for(const d of k?[-k,k]:[0]){ snap=_calibSnap(calibState.img, ax+nx*d, ay+ny*d, bx+nx*d, by+ny*d, 3/s+2); if(snap) break; } }
       if(snap) pxDist=snap;
       document.getElementById('calib-status').textContent=
-        `Distance: ${pxDist.toFixed(1)} px (original image)${snap?' — snapped to the ends of the bar':''}. Enter the real length below.`;
+        `Distance: ${pxDist.toFixed(1)} px (original image)${snap?' — snapped to the ends of the bar':calibState.scale<1?` — placed where you clicked, to ±${(0.5/calibState.scale).toFixed(1)} px; zoom to 1:1 to click to the pixel`:''}. Enter the real length below.`;
       document.getElementById('calib-result').textContent=`Pixel distance: ${pxDist.toFixed(1)} px`;
       document.getElementById('calib-apply').disabled=false;
       calibState.pxDist=pxDist;
       const pe=document.getElementById('calib-px'); if(pe) pe.value=+pxDist.toFixed(2);
-    } else if(calibState.pts.length>2){
-      calibState.pts=[{x,y}];
-      document.getElementById('calib-status').textContent='Click the second point…';
-      document.getElementById('calib-apply').disabled=true;
     } else {
       document.getElementById('calib-status').textContent='Click the second point…';
+      if(!calibState.pxTyped) document.getElementById('calib-apply').disabled=true;
     }
   });
 })();

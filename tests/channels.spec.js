@@ -55,9 +55,13 @@ test('splitting inside a bigger figure leaves the other panels alone and says so
     return { grid: [gv('cols'), gv('rows')], panels: images.length, said,
              logged: reproLog.filter(e => e.action === 'splitChannels').pop() };
   });
-  expect(r.grid).toEqual(['2', '2']);             // the other three panels keep their places
+  // the other three panels keep their places; the grid grows by a row so the two new
+  // panels are drawn (ux2: they used to be listed and not drawn)
+  expect(r.grid).toEqual(['2', '3']);
   expect(r.panels).toBe(6);
+  expect(r.said.length).toBe(1);
   expect(r.said[0]).toMatch(/kept their places/);
+  expect(r.said[0]).toMatch(/grid grew to 2 × 3/);
   expect(r.logged.row).toBe(false);
   expect(errors).toEqual([]);
 });
