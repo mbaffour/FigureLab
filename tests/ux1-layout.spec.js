@@ -328,7 +328,9 @@ test('phage-26 / freeform-45: a freeform canvas resize moves no annotation, and 
   expect(errors).toEqual([]);
 });
 
-test('freeform-10: a typed freeform crop keeps the picture\'s scale and leaves the kept pixels where they were', async ({ page }) => {
+// Usability round 2 (freeform2-06): a typed crop keeps the box's top-left corner, so a layout
+// typed by X / Y still holds after cropping; it used to follow the kept pixels and move.
+test('freeform-10: a typed freeform crop keeps the picture\'s scale and the box\'s top-left corner', async ({ page }) => {
   const errors = await loadApp(page);
   await seedFreeform(page, [{ type: 'image', x: 50, y: 100, w: 512, h: 144, iw: 2560, ih: 720 }]);
   await page.evaluate(() => { selectedElems.clear(); selectedElems.add(0); updateElemPropsBar(); });
@@ -339,7 +341,7 @@ test('freeform-10: a typed freeform crop keeps the picture\'s scale and leaves t
     return { x: e.x, y: e.y, w: e.w, h: e.h, srcAspect: (2560 * (1 - 0.40 - 0.21)) / 720 }; });
   expect(r.w / r.h).toBeCloseTo(r.srcAspect, 3);         // the cropped picture keeps its shape: not stretched
   expect(r.h).toBeCloseTo(144, 6);
-  expect(r.x).toBeCloseTo(50 + 0.40 * 512, 6);            // the kept pixels did not move on the canvas
+  expect([r.x, r.y]).toEqual([50, 100]);                  // the box keeps its top-left corner
   expect(errors).toEqual([]);
 });
 

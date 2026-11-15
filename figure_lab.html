@@ -1566,7 +1566,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
     <div id="ep-image-props" style="display:none;align-items:center;gap:6px">
       <div class="abar-sep"></div>
-      <span style="color:var(--muted);font-size:10px">Crop%:</span>
+      <span style="color:var(--muted);font-size:10px" title="Percent of the picture cut from each side. The box shrinks by what is cut, keeps its top-left corner (X, Y) and the picture keeps its proportions.">Crop%:</span>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">T<input type="number" id="ep-cropT" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropT',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">L<input type="number" id="ep-cropL" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropL',+this.value)"></label>
       <label style="display:flex;align-items:center;gap:2px;font-size:10px">B<input type="number" id="ep-cropB" min="0" max="49" step="0.1" value="0" style="width:36px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('cropB',+this.value)"></label>
@@ -1871,7 +1871,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
 <!-- ── Gene map / genetic circuit editor modal ──────────────── -->
 <div class="modal-bg" id="genemap-modal">
   <div class="modal" style="max-width:660px">
-    <button class="modal-close" onclick="closeGenemapModal()">×</button>
+    <button class="modal-close" onclick="cancelGenemapModal()">×</button>
     <h3>🧬 Gene map</h3>
     <div style="display:flex;gap:14px;flex-wrap:wrap">
       <div style="flex:1.2;min-width:300px">
@@ -1919,7 +1919,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
-      <button class="btn" onclick="closeGenemapModal()">Cancel</button>
+      <button class="btn" onclick="cancelGenemapModal()">Cancel</button>
       <button class="btn btn-primary" onclick="applyGenemapModal()">Apply</button>
     </div>
   </div>
@@ -6775,14 +6775,19 @@ function zoomToFit(){
   const canvas=document.getElementById('fig-canvas');
   const wrap=document.getElementById('canvas-wrap');
   if(!canvas.width||!canvas.height) return;
+  // The width and margins the last zoom held are let go first: after a canvas resize they
+  // still sized the box for the old canvas, and Fit measured that (73 % where 53 % fits).
+  { const cc=document.getElementById('canvas-container'); if(cc){ cc.style.margin=''; cc.style.width=''; cc.style.flexShrink=''; } }
   // Fit the canvas as laid out, not its backing store. #fig-canvas carries
   // max-width:100%, so in a window narrower than the figure it is already drawn
   // smaller than canvas.width — and scaling from canvas.width shrank it a second
   // time (a 988 px figure fitted on a phone came out 116 px wide). offsetWidth
   // ignores the zoom transform, so this is the size at 100%.
   const w=canvas.offsetWidth||canvas.width, h=canvas.offsetHeight||canvas.height;
-  const scaleX=(wrap.clientWidth-24)/w;
-  const scaleY=(wrap.clientHeight-24)/h;
+  // The room inside the wrap's padding (24 px a side; it was counted once).
+  const cs=getComputedStyle(wrap), padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0), padY=(parseFloat(cs.paddingTop)||0)+(parseFloat(cs.paddingBottom)||0);
+  const scaleX=(wrap.clientWidth-padX)/w;
+  const scaleY=(wrap.clientHeight-padY)/h;
   zoom=Math.max(0.1,Math.min(scaleX,scaleY,1));
   if(typeof applyZoom==='function') applyZoom();
   else document.getElementById('canvas-container').style.transform=`scale(${zoom})`;
@@ -15812,7 +15817,9 @@ function _tbLayout(a, W, H){
   const lines=raw.map((l,i)=>({runs:l.runs, str:l.runs.map(r=>r.t).join(''), w:l.w, x:bx+(bw-l.w)/2, y:top+i*lh+(lh-(asc+desc))/2+asc}));
   const inkTop=top+(lh-(asc+desc))/2, inkBot=top+(raw.length-1)*lh+(lh+(asc+desc))/2;
   return {bx, by, bw, bh, fs, font, lh, lines, shape:a.shape==='ellipse'?'ellipse':'rect',
-    fill:a.color||'#ffffff', fillColor:a.fillColor||'#000000', fillOpacity:a.fillOpacity??0.6,
+    // Fill unticked in its toolbar: no box at all (it was stored and ignored, the box stayed
+    // 60 % black). Every writer reads the box from here, so canvas, SVG, PDF and PowerPoint agree.
+    fill:a.color||'#ffffff', fillColor:a.fillColor||'#000000', fillOpacity:a.fill===false?0:(a.fillOpacity??0.6),
     overflow: inkTop<by-0.5 || inkBot>by+bh+0.5 || raw.some(l=>l.w>bw+0.5)};
 }
 function drawAnnotationSingle(ctx, a, W, H){
@@ -17146,7 +17153,7 @@ document.getElementById('ann-float-fill-color').addEventListener('input', e=>{
   const a=annotations[selectedAnnotation];
   a.fillColor=e.target.value;
   // Choosing a fill colour for an empty box fills it (it used to wait for Fill to be ticked).
-  if((a.type==='rect'||a.type==='ellipse')&&!a.fill){ a.fill=true; document.getElementById('ann-float-fill').checked=true; }
+  if(((a.type==='rect'||a.type==='ellipse')&&!a.fill)||(a.type==='textbox'&&a.fill===false)){ a.fill=true; document.getElementById('ann-float-fill').checked=true; }
   drawAnnOverlay(); scheduleRender(0);
 });
 document.getElementById('ann-float-bold').addEventListener('click', ()=>{
@@ -17367,16 +17374,21 @@ function _annFollow(mode, geo, W, H, ready){
   return moved;
 }
 // After a canvas resize: name what now hangs off the canvas (nothing is moved for you).
-function _ffCanvasResized(){
-  if(layoutMode!=='freeform') return;
+// Every path that sets the canvas size asks this — the W / H fields and the size presets
+// (graphical abstract, square, slide…), which used to leave an icon 48 px off the canvas
+// without a word.
+function _ffOffCanvas(){
   const W=Math.max(200,parseInt(gv('fm-canvas-w'))||1200), H=Math.max(200,parseInt(gv('fm-canvas-h'))||900);
   const off=freeformElements.filter(el=>el&&el.type!=='connector'&&(el.x<0||el.y<0||el.x+el.w>W+0.5||el.y+el.h>H+0.5));
   render();
   const offA=annotations.filter(a=>a&&_annPts(a).some(([x,y])=>x<0||y<0||x>1||y>1));
-  if(off.length||offA.length){
-    const nm=off.slice(0,4).map(el=>_rtText(formatLabel(el.label)||el.text||el.type)||el.type);
-    toast(`Canvas ${W}×${H}: ${off.length?`${off.length} object${off.length>1?'s':''} (${nm.join(', ')}${off.length>4?', …':''}) ${off.length>1?'reach':'reaches'} past the edge`:''}${off.length&&offA.length?' and ':''}${offA.length?`${offA.length} annotation${offA.length>1?'s':''} ${offA.length>1?'are':'is'} outside it`:''} — nothing was moved; drag ${off.length+offA.length>1?'them':'it'} in or make the canvas larger`,'warn');
-  }
+  if(!off.length&&!offA.length) return '';
+  const nm=off.slice(0,4).map(el=>_rtText(formatLabel(el.label)||el.text||el.name||el.type)||el.type);
+  return `Canvas ${W}×${H}: ${off.length?`${off.length} object${off.length>1?'s':''} (${nm.join(', ')}${off.length>4?', …':''}) ${off.length>1?'reach':'reaches'} past the edge`:''}${off.length&&offA.length?' and ':''}${offA.length?`${offA.length} annotation${offA.length>1?'s':''} ${offA.length>1?'are':'is'} outside it`:''} — nothing was moved; drag ${off.length+offA.length>1?'them':'it'} in or make the canvas larger`;
+}
+function _ffCanvasResized(){
+  if(layoutMode!=='freeform') return;
+  const m=_ffOffCanvas(); if(m) toast(m,'warn');
 }
 // Freeform objects a mark can be pinned to: pictures, charts and gene maps.
 function _ffPinGeo(){
@@ -17800,11 +17812,13 @@ function applyDeliverable(key){
   sv('export-dpi',String(d.dpi));
   sv('export-width-mm',String(d.widthMm));
   onLayoutChange(); scheduleRender(0); _syncPhysReadout();
+  const offMsg=_ffOffCanvas();
   showInfoModal(d.label, `<div style="font-size:11px;line-height:1.6">
     <p style="margin-bottom:6px">Canvas set to <b>${d.w}×${d.h}px</b>, exporting at <b>${d.dpi} DPI</b>
     (${d.widthMm} mm wide).</p>
+    ${offMsg?`<p id="deliverable-off" style="margin-bottom:6px;color:var(--warn)">⚠ ${esc(offMsg)}</p>`:''}
     <p style="color:var(--muted)">${esc(d.note)}</p></div>`);
-  toast(`${d.label} applied`,'ok');
+  toast(offMsg||`${d.label} applied`, offMsg?'warn':'ok');
 }
 
 function getTargetWidthMm(){ return parseFloat(gv('export-width-mm'))||0; }
@@ -20228,7 +20242,7 @@ async function exportPPTX(){
         // paragraph per line as the canvas breaks them, with their italics and scripts.
         const T=_tbLayout(a, W, H); if(!T) return;
         const fc=_pptxColor(T.fillColor);
-        const fill=`rgba(${fc.hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${T.fillOpacity})`;
+        const fill=T.fillOpacity>0?`rgba(${fc.hex.match(/../g).map(h=>parseInt(h,16)).join(',')},${T.fillOpacity})`:null;
         B.text(T.bx, T.by, T.bw, T.bh, T.lines.map(ln=>_pptxRunList(ln.runs, T.font, T.fill, ptPerPx)), 'Text box: '+_rtText(a.text||'').slice(0,40),
           {algn:'ctr', anchor:'ctr', prst:T.shape, fill, lnSpc:Math.round(1.3/1.2*100000)});
         nText++;
@@ -20594,7 +20608,7 @@ function _svgAnnMarkup(list, W, H){
       const shp=T.shape==='ellipse'
         ? `<ellipse cx="${f2(T.bx+T.bw/2)}" cy="${f2(T.by+T.bh/2)}" rx="${f2(T.bw/2)}" ry="${f2(T.bh/2)}"`
         : `<rect x="${f2(T.bx)}" y="${f2(T.by)}" width="${f2(T.bw)}" height="${f2(T.bh)}"`;
-      annSVG+=`<g data-type="textbox">${shp} fill="${esc(T.fillColor)}" fill-opacity="${+T.fillOpacity}" stroke="none"/>`
+      annSVG+=`<g data-type="textbox">${shp} ${T.fillOpacity>0?`fill="${esc(T.fillColor)}" fill-opacity="${+T.fillOpacity}"`:'fill="none"'} stroke="none"/>`
         +T.lines.filter(ln=>ln.str.trim()).map(ln=>`<text x="${f2(ln.x)}" y="${f2(ln.y)}" style="font:${esc(T.font)}" fill="${esc(T.fill)}">${_rtSVGSpans(ln.runs, T.font, esc)}</text>`).join('')+'</g>';
     } else if(a.type==='text'){
       const fs=a.fontSize||16;
@@ -23721,7 +23735,7 @@ const _DIALOGS = {
                        backdrop:false },   // the box, a tilt, pending multi-crop regions — Apply commits them
   'calib-modal':     { close:()=>closeCalib(), backdrop:false },        // two clicked points + a typed length
   'chart-modal':     { close:()=>cancelChartModal(), backdrop:false },  // pasted data, committed by Apply; a menu chart never applied goes
-  'genemap-modal':   { close:()=>closeGenemapModal(), backdrop:false }, // a feature table, committed by Apply
+  'genemap-modal':   { close:()=>cancelGenemapModal(), backdrop:false }, // a feature table, committed by Apply
   'cmd-palette':     { close:()=>closeCmdPalette() },
   'preflight-modal': { close:()=>closePreflight() },   // only a file name to lose; it always closed on the backdrop
   'customize-modal': {},                                // a greeting name; it always closed on the backdrop
@@ -23946,7 +23960,11 @@ function _zoomMargins(){
   // The size at 100% first: the margins take room from the wrap, and the canvas's
   // max-width:100% would shrink the figure into what is left. The width is held.
   cc.style.margin=''; cc.style.width=''; cc.style.flexShrink='';
-  const ex=Math.max(0,zoom-1)/2;
+  // Below 100% the box is pulled in by what the scale takes off (negative margins), so the
+  // wrap centres what is drawn: it used to centre the unscaled box, and a canvas taller than
+  // the pane sat low, its bottom under the window edge with an empty band above it (⊡ Fit
+  // on a freeform canvas left ~115 px of it out of view).
+  const ex=(zoom-1)/2;
   if(!ex) return;
   const w=cc.offsetWidth, h=cc.offsetHeight;
   cc.style.width=w+'px'; cc.style.flexShrink='0';
@@ -25537,10 +25555,16 @@ var _geoLast=null;
 function _geoSync(force){
   const T=_geoTarget(), k=_geoUnitK();
   const box=T?(T.kind==='el'?{x:T.el.x, y:T.el.y, w:T.el.w, h:T.el.h}:_ffBounds(T.items)):null;
+  // Each field remembers what it shows the box of. A field still focused after Enter or Esc
+  // (a click on the canvas does not take focus) kept the number typed for the last object
+  // when another was selected — "Y 350" beside a chart sitting at 538.
+  const refs=T?T.items.map(i=>i.ref):null;
+  const same=(a,b)=>!!a&&!!b&&a.length===b.length&&a.every((r,i)=>r===b[i]);
   ['x','y','w','h','a'].forEach(key=>{
     const inp=document.getElementById('geo-'+key); if(!inp) return;
     inp.disabled=!T || ((key==='w'||key==='h')&&!T.sized) || (key==='a'&&!T.angle);
-    if(!force && document.activeElement===inp) return;     // never overwrite what is being typed
+    if(!force && document.activeElement===inp && same(inp._geoFor, refs)) return;     // never overwrite what is being typed
+    inp._geoFor=refs;
     if(!T){ inp.value=''; return; }
     if(key==='a') inp.value=T.angle?String(+(+T.el.rotation||0).toFixed(2)):'';
     else inp.value=String(+(box[key]*k).toFixed(2));
@@ -28507,8 +28531,9 @@ function addGenemapElement(topology){
   if(layoutMode!=='freeform'){
     const im=_addDataPanel('genemap', map, w, h, (circ?'circular':'linear')+' gene map');
     logAction('genemapAdd',{topology:circ?'circular':'linear'});
-    toast(`Gene map added to the grid as panel ${_rtText(formatLabel(im.label))||'?'}`,'ok');
+    toast(`Gene map added to the grid as panel ${_rtText(formatLabel(im.label))||'?'} — Cancel removes it`,'ok');
     openDataPanelEditor(images.indexOf(im));
+    _gmFreshId=im.id;
     return;
   }
   addFreeformElement({type:'genemap', x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
@@ -28517,6 +28542,7 @@ function addGenemapElement(topology){
   logAction('genemapAdd',{topology:circ?'circular':'linear'});
   updateFreeformElemList(); drawFreeformOverlay(); scheduleRender(0);
   openGenemapModal();
+  _gmFreshId=freeformElements[ni]&&freeformElements[ni].id;
 }
 
 // ── Feature-table parsing ───────────────────────────────────────
@@ -28573,7 +28599,7 @@ function _parseGenBank(text){
   const name=locus?locus[1]:'';
   const topology=/^LOCUS\s.*\b(circular)\b/im.test(src)?'circular':'linear';
   const features=[];
-  let wrapped=0, joined=0;    // disclosed to the user after import
+  let wrapped=0, joined=0, merged=0;    // disclosed to the user after import
   const fm=/^FEATURES\s+Location\/Qualifiers\s*$/im.exec(src);
   if(fm){
     const rest=src.slice(fm.index+fm[0].length);
@@ -28581,38 +28607,66 @@ function _parseGenBank(text){
     const body=stop?rest.slice(0,stop.index):rest;
     const lines=body.split(/\r?\n/);
     let cur=null;
+    const recs=[];
     const push=()=>{ if(!cur) return;
       const loc=_gbLocation(cur.loc);
       // `source` spans the whole record in every GenBank file — it's metadata,
       // not a drawable feature, so it never becomes a glyph.
-      if(loc && !/^source$/i.test(cur.key)){
-        const nm=cur.name||cur.key, ty=_gmTypeAlias(cur.key);
-        const wrap=topology==='circular'?_gbWrapParts(loc,length):null;
-        if(wrap){
-          // origin-spanning: draw the two real arcs, not the whole molecule
-          wrap.forEach(w=>features.push({name:nm, type:ty, start:w.start, end:w.end, strand:loc.strand}));
-          wrapped++;
-        } else {
-          if(loc.segs && loc.segs.length>1) joined++;   // exon structure collapsed to its span
-          features.push({name:nm, type:ty, start:loc.start, end:loc.end, strand:loc.strand});
-        }
-      }
+      if(loc && !/^source$/i.test(cur.key)) recs.push({...cur, L:loc});
       cur=null; };
     for(const raw of lines){
       const mKey=/^ {1,10}(\S+)\s+(\S.*)$/.exec(raw);          // a new feature key
-      if(mKey && !/^\s*\//.test(raw)){ push(); cur={key:mKey[1], loc:mKey[2].trim(), name:''}; continue; }
+      if(mKey && !/^\s*\//.test(raw)){ push(); cur={key:mKey[1], loc:mKey[2].trim(), name:'', locus:'', gene:''}; continue; }
       if(!cur) continue;
       const mQual=/^\s+\/(\w+)=?"?([^"]*)"?/.exec(raw);
       if(mQual){
-        const q=mQual[1].toLowerCase();
+        const q=mQual[1].toLowerCase(), v=mQual[2].trim();
         if(!cur.name && (q==='label'||q==='gene'||q==='product'||q==='note'||q==='standardname'))
-          cur.name=mQual[2].trim();
+          cur.name=v;
+        if(q==='locus_tag'&&!cur.locus) cur.locus=v;
+        if(q==='gene'&&!cur.gene) cur.gene=v;
       } else if(/^\s+[\d<>(]/.test(raw)) cur.loc+=raw.trim();   // location continued
     }
     push();
+    // NCBI records give every gene twice: a `gene` feature and the CDS (or tRNA, rRNA…)
+    // it encodes, at the same place. Drawn as they came, each gene was two arrows with
+    // stacked labels ("int / int"). A gene with such a product is left out and the product
+    // drawn, named as the gene; a lone gene (a pseudogene) stays. Matched by locus_tag, else
+    // by gene name inside the gene's span, else by the same span and strand — never two
+    // CDSs into one.
+    const PROD=/^(cds|trna|rrna|tmrna|ncrna|misc_rna|mrna|precursor_rna)$/i;
+    const genes=recs.filter(r=>/^gene$/i.test(r.key)), prods=recs.filter(r=>PROD.test(r.key));
+    const drop=new Set();
+    for(const g of genes){
+      const kids=prods.filter(c=>{
+        if(c.L.strand!==g.L.strand) return false;
+        if(g.locus&&c.locus) return g.locus===c.locus;
+        const inside=c.L.start>=g.L.start&&c.L.end<=g.L.end;
+        if(g.gene&&c.gene) return g.gene===c.gene&&inside;
+        return c.L.start===g.L.start&&c.L.end===g.L.end;
+      });
+      if(!kids.length) continue;
+      drop.add(g); merged++;
+      kids.forEach(c=>{ if(!c.name) c.name=g.name; });
+      // Eukaryotic records add an mRNA beside the CDS: the CDS is the gene's arrow.
+      if(kids.some(c=>/^cds$/i.test(c.key))) kids.filter(c=>/^mrna$/i.test(c.key)).forEach(c=>drop.add(c));
+    }
+    for(const r of recs){
+      if(drop.has(r)) continue;
+      const loc=r.L, nm=r.name||r.key, ty=_gmTypeAlias(r.key);
+      const wrap=topology==='circular'?_gbWrapParts(loc,length):null;
+      if(wrap){
+        // origin-spanning: draw the two real arcs, not the whole molecule
+        wrap.forEach(w=>features.push({name:nm, type:ty, start:w.start, end:w.end, strand:loc.strand}));
+        wrapped++;
+      } else {
+        if(loc.segs && loc.segs.length>1) joined++;   // exon structure collapsed to its span
+        features.push({name:nm, type:ty, start:loc.start, end:loc.end, strand:loc.strand});
+      }
+    }
   }
   if(!length && features.length) length=features.reduce((m,f)=>Math.max(m,f.end),0);
-  return {length, topology, features, name, wrapped, joined};
+  return {length, topology, features, name, wrapped, joined, merged};
 }
 // GenBank location → {start,end,strand,segs}. `segs` keeps the ordered a..b pairs so a
 // caller can tell an origin-spanning feature (join(2600..2686,1..100) on a circular
@@ -28647,9 +28701,14 @@ function _gbWrapParts(loc, length){
 }
 // Tell the user what the parser had to do to their file, rather than letting the map
 // quietly differ from the record.
-function _gbImportNotes(parsed){
-  if(parsed.wrapped) toast(`${parsed.wrapped} feature(s) cross the origin — drawn as two arcs`,'ok');
-  if(parsed.joined) toast(`${parsed.joined} multi-segment feature(s) drawn as their overall span`,'warn');
+// One message: the import's own line and every note after it (one toast shows at a time, so
+// separate toasts used to hide all but the last).
+function _gbImportNotes(parsed, lead){
+  const n=[];
+  if(parsed.merged) n.push(`${parsed.merged} gene${parsed.merged===1?'':'s'} listed twice (gene + CDS or RNA) drawn once each`);
+  if(parsed.wrapped) n.push(`${parsed.wrapped} feature(s) cross the origin — drawn as two arcs`);
+  if(parsed.joined) n.push(`${parsed.joined} multi-segment feature(s) drawn as their overall span`);
+  if(lead||n.length) toast([lead].concat(n).filter(Boolean).join('. '), parsed.joined?'warn':'ok');
 }
 function _parseFASTA(text){
   const lines=String(text||'').split(/\r?\n/);
@@ -28684,8 +28743,7 @@ function _loadGeneFile(f, fail, opts){
     if(layoutMode!=='freeform'){
       const im=_addDataPanel('genemap', map, w, h, parsed.name||f.name);
       logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
-      toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)}) — gene map panel ${_rtText(formatLabel(im.label))||'?'} in the grid`,'ok');
-      _gbImportNotes(parsed);
+      _gbImportNotes(parsed, `Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)}) — gene map panel ${_rtText(formatLabel(im.label))||'?'} in the grid`);
       if(!hold) openDataPanelEditor(images.indexOf(im));
       added=true; return;
     }
@@ -28694,8 +28752,7 @@ function _loadGeneFile(f, fail, opts){
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     logAction('genemapImport',{features:parsed.features.length, bp:parsed.length, format:isFasta?'fasta':'genbank'});
     updateFreeformElemList(); if(!hold) drawFreeformOverlay(); scheduleRender(0);
-    toast(`Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
-    _gbImportNotes(parsed);
+    _gbImportNotes(parsed, `Imported ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`);
     if(!hold) openGenemapModal();
     added=true;
     } finally { settle(added); }
@@ -28719,7 +28776,20 @@ function openGenemapModal(){
   _genemapModalSync();
   document.getElementById('genemap-modal').classList.add('open');
 }
-function closeGenemapModal(){ document.getElementById('genemap-modal').classList.remove('open'); _dataPanelEdit=null; }
+function closeGenemapModal(){ document.getElementById('genemap-modal').classList.remove('open'); _dataPanelEdit=null; _gmFreshId=null; }
+// A gene map just added from 🧬 Linear / ◯ Circular holds a sample construct. Cancel (×, Esc)
+// takes it away again until it has been applied or a file imported into it — as a chart
+// just added from the menu does. It used to stay on the figure, sample and all.
+var _gmFreshId=null;
+function cancelGenemapModal(){
+  const fresh=_gmFreshId; closeGenemapModal();
+  if(fresh==null) return;
+  const i=freeformElements.findIndex(e=>e&&e.id===fresh&&e.type==='genemap');
+  if(i>=0){ freeformElements.splice(i,1); selectedElems.clear(); updateFreeformElemList(); if(typeof drawFreeformOverlay==='function') drawFreeformOverlay(); updateElemPropsBar(); scheduleRender(0); return; }
+  const k=images.findIndex(p=>p&&p.id===fresh&&p.type==='genemap');
+  if(k>=0){ images.splice(k,1); if(selectedPanel>=images.length) selectedPanel=images.length-1;
+    renderImgList(); if(typeof renderMiniGrid==='function') renderMiniGrid(); scheduleRender(0); }
+}
 
 function _genemapModalSync(){
   const el=_selectedGenemapEl(); if(!el) return;
@@ -28767,6 +28837,7 @@ function applyGenemapModal(){
   else el.label=(el.map.style.title||el.label||'gene map');
   logAction('genemapEdit',{features:parsed.features.length, bp:len, topology:el.map.topology});
   updateFreeformElemList(); scheduleRender(0); _genemapModalStat();
+  closeGenemapModal();    // applied: the map stays, and the dialog closes as the chart's Apply does
   if(parsed.bad.length) toast(`Skipped ${parsed.bad.length} unreadable row(s): ${parsed.bad.slice(0,5).join(', ')}`,'warn');
   if(over.length) toast(`${over.length} feature(s) extend past ${_bpLabel(len)} and were clipped to the backbone`,'warn');
   else if(!parsed.bad.length) toast(`Gene map updated — ${parsed.features.length} features over ${_bpLabel(len)}`,'ok');
@@ -28810,10 +28881,9 @@ function _gmImportFile(input){
       pushUndo();
       el.map.length=parsed.length; el.map.topology=parsed.topology;
       el.map.features=parsed.features; el.map.style.title=parsed.name||f.name;
-      el._genemapCache=null;
+      el._genemapCache=null; _gmFreshId=null;    // an imported file is kept even if the dialog is cancelled
       _genemapModalSync(); updateFreeformElemList(); scheduleRender(0);
-      toast(`Loaded ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`,'ok');
-      _gbImportNotes(parsed);
+      _gbImportNotes(parsed, `Loaded ${parsed.features.length} features from ${f.name} (${_bpLabel(parsed.length)})`);
     }
   };
   reader.readAsText(f);
@@ -33808,18 +33878,17 @@ function updateElemProp(prop, val){
 // A freeform crop used to keep the object's box and stretch what was left of the picture
 // to fill it: at L 40 / R 21 a panorama was drawn 2.56x wider than tall, and a micrograph
 // silently distorted. Now the box loses exactly what the crop removes, at the scale the
-// picture is drawn at, and the pixels that stay do not move on the canvas (a crop from the
-// left moves the box's left edge in). Marks pinned to the picture stay on their pixels.
+// picture is drawn at. Typed Crop% keeps the box's top-left corner where it is, so the X / Y
+// a layout was typed with still hold: the box used to follow the kept pixels instead, and a
+// crop of T 12.5 / B 12.5 moved it 32 px down without a word (crop first, then place, did
+// not work by numbers). Marks pinned to the picture stay on their pixels.
 function _ffCropKeepScale(el, prop, val){
   const img=el._imgEl||el.img, iw=img&&(img.naturalWidth||img.width), ih=img&&(img.naturalHeight||img.height);
   val=Math.max(0, Math.min(49, +val||0));
   if(!iw||!ih){ el[prop]=val; return; }
   const visW=f=>iw*(1-((f.cropL||0)+(f.cropR||0))/100), visH=f=>ih*(1-((f.cropT||0)+(f.cropB||0))/100);
   const kx=el.w/(visW(el)||1), ky=el.h/(visH(el)||1);       // figure px per source px, as drawn now
-  const before={cropL:el.cropL||0, cropT:el.cropT||0};
   el[prop]=val;
-  el.x+=((el.cropL||0)-before.cropL)/100*iw*kx;
-  el.y+=((el.cropT||0)-before.cropT)/100*ih*ky;
   el.w=Math.max(1, visW(el)*kx); el.h=Math.max(1, visH(el)*ky);
 }
 // Connector props-bar controls.

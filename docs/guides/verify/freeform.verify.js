@@ -217,14 +217,14 @@ const { step, expect, btn } = L;
     expect(c && c.x === 20 && c.y === 538 && c.w === 460 && c.h === 240, JSON.stringify(c));
   });
 
-  await step(T, '3.2 Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA… → Apply → ×; W 446, H 160, rough X/Y, then ⊤T and ⇿ with the chart', async () => {
+  await step(T, '3.2 Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA… → Apply (the dialog closes); W 446, H 160, rough X/Y, then ⊤T and ⇿ with the chart', async () => {
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '🧬 Linear').click();
     const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
     await L.pickFiles(T, m.getByText('GenBank / FASTA…'), [gb]);
     const info = (await m.innerText()).match(/[\d.]+ kb · \d+ features/);
     await m.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(300);
-    await m.getByText('×').first().click(); await p.waitForTimeout(200);
+    await m.waitFor({ state: 'hidden' });   // Apply closes the dialog, as the chart's does
     const maps = (await els()).filter(e => e.type === 'genemap');
     expect(maps.length === 1, maps.length + ' gene maps');
     await pickRow('linear gene map');

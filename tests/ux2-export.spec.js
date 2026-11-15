@@ -70,6 +70,187 @@ test.describe('PowerPoint at the printed size', () => {
   });
 });
 
+const path = require('path');
+const GB = path.join(__dirname, 'fixtures', 'phage_lysis_ncbi.gb');
+async function openSection(page, name) {
+  const summary = page.locator('details > summary').filter({ hasText: new RegExp('^\\s*' + name) }).first();
+  if (!(await summary.evaluate(s => s.parentElement.open))) await summary.click();
+  await summary.scrollIntoViewIfNeeded();
+}
+
+test.describe('gene maps', () => {
+  test('freeform2-02: an NCBI GenBank record (gene + CDS pairs, tRNAs, a join()) draws each gene once', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 200 }]);
+    await openSection(page, 'Annotate & Draw');
+    await page.getByRole('button', { name: '🧬 Linear' }).click();
+    const m = page.locator('#genemap-modal');
+    await m.waitFor({ state: 'visible' });
+    await m.locator('input[type=file]').setInputFiles(GB);
+    await expect(m.locator('#gm-stat')).toContainText('11 features');
+    const note = await page.locator('#toast').innerText();
+    await m.getByRole('button', { name: 'Apply', exact: true }).click();
+    await m.waitFor({ state: 'hidden' });
+    const r = await page.evaluate(() => {
+      const g = freeformElements.find(e => e.type === 'genemap');
+      return { n: freeformElements.filter(e => e.type === 'genemap').length, f: g.map.features.map(f => [f.name, f.type, f.start, f.end, f.strand].join(' ')) };
+    });
+    expect(r.n).toBe(1);
+    expect(r.f).toEqual([
+      'int cds 120 1430 1', 'cI cds 1500 2210 -1', 'cro cds 2300 2520 1', 'tRNA-Arg ncrna 2600 2676 1', 'tRNA-Met ncrna 2700 2775 -1',
+      'G cds 3000 4380 1', 'G cds 3000 3935 1',                       // two CDSs of one gene are both kept
+      "pR' promoter 4900 4935 1", 'S cds 5000 5250 1', 'R cds 5240 5740 1', 'orf62 cds 6000 6800 1']);   // a lone (pseudo)gene stays
+    // the import says what it did, in one message
+    expect(note).toMatch(/Loaded 11 features/);
+    expect(note).toMatch(/8 genes listed twice \(gene \+ CDS or RNA\) drawn once each/);
+    expect(note).toMatch(/1 multi-segment feature\(s\) drawn as their overall span/);
+    expect(errors).toEqual([]);
+  });
+
+  test('ISSUES phage: 🧬 Linear then Cancel takes the sample map away again, in freeform and in the grid; Apply keeps it and closes', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 200 }]);
+    await openSection(page, 'Annotate & Draw');
+    const m = page.locator('#genemap-modal');
+    const maps = () => page.evaluate(() => freeformElements.filter(e => e.type === 'genemap').length + images.filter(i => i && i.type === 'genemap').length);
+    await page.getByRole('button', { name: '🧬 Linear' }).click();
+    await m.waitFor({ state: 'visible' });
+    expect(await maps()).toBe(1);
+    await m.getByRole('button', { name: 'Cancel' }).click();
+    expect(await maps()).toBe(0);
+    await page.getByRole('button', { name: '🧬 Linear' }).click();
+    await m.getByRole('button', { name: 'Apply', exact: true }).click();
+    await m.waitFor({ state: 'hidden' });
+    expect(await maps()).toBe(1);
+    // Reopening the applied map and pressing Cancel keeps it
+    await page.evaluate(() => { selectedElems.clear(); selectedElems.add(freeformElements.findIndex(e => e.type === 'genemap')); openGenemapModal(); });
+    await m.getByRole('button', { name: 'Cancel' }).click();
+    expect(await maps()).toBe(1);
+    // grid
+    await page.evaluate(() => { freeformElements.length = 0; document.getElementById('layout-mode').value = 'grid'; setLayoutMode('grid'); });
+    await seedPanels(page, 2);
+    const n0 = await page.evaluate(() => images.length);
+    await openSection(page, 'Annotate & Draw');
+    await page.getByRole('button', { name: '🧬 Linear' }).click();
+    await m.waitFor({ state: 'visible' });
+    expect(await page.evaluate(() => images.length)).toBe(n0 + 1);
+    await page.keyboard.press('Escape');
+    await m.waitFor({ state: 'hidden' });
+    expect(await page.evaluate(() => images.length)).toBe(n0);
+    expect(errors).toEqual([]);
+  });
+});
+
+// Real mouse clicks on the freeform canvas at a logical point.
+async function clickAt(page, x, y, modifiers) {
+  const p = await page.evaluate(([x, y]) => { const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+    return [r.left + x * r.width / (canvasLogicalW || c.width), r.top + y * r.height / (canvasLogicalH || c.height)]; }, [x, y]);
+  if (modifiers) await page.keyboard.down(modifiers);
+  await page.mouse.click(p[0], p[1]);
+  if (modifiers) await page.keyboard.up(modifiers);
+  await page.waitForTimeout(80);
+}
+
+test.describe('freeform editing', () => {
+  test('freeform2-04: X/Y/W/H show the new selection after a value was typed for another object', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 150 }, { type: 'image', x: 240, y: 20, w: 200, h: 150 },
+      { type: 'image', x: 20, y: 300, w: 200, h: 150 }]);
+    await clickAt(page, 120, 375);                       // the third picture
+    await page.locator('#geo-y').fill('350'); await page.locator('#geo-y').press('Enter');
+    expect(await page.evaluate(() => freeformElements[2].y)).toBe(350);
+    await page.keyboard.press('Escape');
+    await clickAt(page, 120, 95);
+    await clickAt(page, 340, 95, 'Shift');
+    const v = await page.evaluate(() => ['x', 'y', 'w', 'h'].map(k => document.getElementById('geo-' + k).value));
+    expect(v).toEqual(['20', '20', '420', '150']);
+    // one object after another
+    await clickAt(page, 120, 420);
+    await page.locator('#geo-y').fill('360'); await page.locator('#geo-y').press('Enter');
+    await clickAt(page, 340, 95);
+    expect(await page.locator('#geo-y').inputValue()).toBe('20');
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-12 / freeform-45: a size preset that leaves an object off the canvas says which', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 400, h: 300, name: 'phase.png' }]);
+    await page.evaluate(() => { applyDeliverable('graphicalAbstract'); document.getElementById('info-modal-bg')?.remove(); });
+    await page.evaluate(() => { const e = freeformElements[0]; e.x = 1028; e.y = 200; e.w = 220; e.h = 220; render(); });
+    // ⌘K › square graphical abstract (1200 × 1200): the 220 px object at x 1028 ends at 1248
+    await page.keyboard.press('ControlOrMeta+k');
+    await page.locator('#cmdp-input').fill('square graphical abstract');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#deliverable-off')).toContainText('1 object');
+    await expect(page.locator('#deliverable-off')).toContainText('reaches past the edge');
+    await expect(page.locator('#toast')).toContainText('past the edge');
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-05: ⊡ Fit shows the whole freeform canvas inside the pane', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300 }]);
+    for (const [w, h] of [[958, 798], [1200, 1200]]) {
+      await page.locator('#fm-canvas-w').fill(String(w)); await page.locator('#fm-canvas-w').press('Enter');
+      await page.locator('#fm-canvas-h').fill(String(h)); await page.locator('#fm-canvas-h').press('Enter');
+      await page.waitForTimeout(150);
+      await page.getByRole('button', { name: '⊡ Fit' }).click();
+      await page.waitForTimeout(150);
+      const r = await page.evaluate(() => { const c = document.getElementById('fig-canvas').getBoundingClientRect(), w = document.getElementById('canvas-wrap').getBoundingClientRect();
+        return { top: c.top - w.top, bottom: w.bottom - c.bottom, left: c.left - w.left, right: w.right - c.right, h: c.height }; });
+      expect(r.top).toBeGreaterThanOrEqual(0);
+      expect(r.bottom).toBeGreaterThanOrEqual(0);
+      expect(r.left).toBeGreaterThanOrEqual(0);
+      expect(r.right).toBeGreaterThanOrEqual(0);
+      expect(Math.abs(r.top - r.bottom)).toBeLessThan(30);   // centred, no empty band above
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('freeform2-06: Crop% typed in the bar keeps the box\'s top-left corner (crop first, then place, works by numbers)', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 744, y: 332, w: 194, h: 259, iw: 600, ih: 800 }, { type: 'image', x: 20, y: 20, w: 500, h: 400, iw: 1200, ih: 960 }]);
+    await clickAt(page, 840, 460);
+    for (const [k, v] of [['T', '12.5'], ['B', '12.5']]) { await page.locator('#ep-crop' + k).fill(v); await page.locator('#ep-crop' + k).press('Tab'); }
+    const d = await page.evaluate(() => { const e = freeformElements[0]; return [e.x, e.y, +e.w.toFixed(2), +e.h.toFixed(2)]; });
+    expect(d).toEqual([744, 332, 194, +(259 * 0.75).toFixed(2)]);
+    await clickAt(page, 200, 200);
+    for (const [k, v] of [['L', '4.17'], ['R', '4.17']]) { await page.locator('#ep-crop' + k).fill(v); await page.locator('#ep-crop' + k).press('Tab'); }
+    await page.locator('#geo-w').fill('506'); await page.locator('#geo-w').press('Enter');
+    const a = await page.evaluate(() => { const e = freeformElements[1]; return [e.x, e.y, e.x + e.w]; });
+    expect(a).toEqual([20, 20, 526]);
+    expect(errors).toEqual([]);
+  });
+
+  test('ISSUES freeform: unticking Fill on a text box leaves no box, on the canvas, in the SVG and in the PowerPoint', async ({ page }) => {
+    const errors = await loadApp(page);
+    await seedFreeform(page, [{ type: 'image', x: 600, y: 600, w: 100, h: 100 }]);
+    await page.evaluate(H);
+    await page.evaluate(() => { const W = canvasLogicalW, Hh = canvasLogicalH;
+      annotations.push({ type: 'textbox', xf: 100 / W, yf: 100 / Hh, x2f: 400 / W, y2f: 160 / Hh, text: 'Title', fill: true, fillColor: '#000000', fillOpacity: 0.6, shape: 'rect', fontSize: 18, color: '#ffffff' });
+      render(); });
+    await clickAt(page, 110, 105);
+    await expect(page.locator('#ann-float-fill')).toBeVisible();
+    await page.locator('#ann-float-fill').uncheck();
+    const r = await page.evaluate(async () => {
+      const c = renderExportCanvas(96), k = c.width / canvasLogicalW;
+      const px = [...c.getContext('2d').getImageData(Math.round(105 * k), Math.round(105 * k), 1, 1).data].slice(0, 3);
+      document.getElementById('export-svg-mode').value = 'layered';
+      const svg = new TextDecoder().decode((await _captureDownload(() => exportSVG('f', 96, document.getElementById('fig-canvas')))).data);
+      const g = (svg.match(/<g data-type="textbox">.*?<\/g>/s) || [''])[0];
+      const s = (await __pptx())['ppt/slides/slide1.xml'];
+      const sp = (s.match(/<p:sp>(?:(?!<\/p:sp>).)*name="Text box:(?:(?!<\/p:sp>).)*<\/p:sp>/s) || [''])[0];
+      return { px, svgNone: /<rect[^>]*fill="none"/.test(g), pptNoFill: /<\/a:prstGeom><a:noFill\/>/.test(sp), fill: annotations[0].fill };
+    });
+    expect(r.fill).toBe(false);
+    expect(r.px).toEqual([255, 255, 255]);              // the canvas shows through (it was 102,102,102)
+    expect(r.svgNone).toBe(true);
+    expect(r.pptNoFill).toBe(true);
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe('PDF and PowerPoint text', () => {
   test('freeform2-11: Greek, Δ, φ, the true minus and ≥ are selectable text in the PDF (Symbol, with a ToUnicode map); ✓ stays in the picture', async ({ page }) => {
     const errors = await loadApp(page);

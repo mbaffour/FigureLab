@@ -331,7 +331,7 @@ const { step, expect, btn } = L;
   });
 
   // ---- 7 gene map -----------------------------------------------------------------------
-  await step(T, 'Gene map: Annotate & Draw › 🧬 Linear → 📄 GenBank / FASTA… → title → Apply → ×', async () => {
+  await step(T, 'Gene map: Annotate & Draw › 🧬 Linear → 📄 GenBank / FASTA… → title → Apply (the dialog closes)', async () => {
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '🧬 Linear').click();
     const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
@@ -342,7 +342,7 @@ const { step, expect, btn } = L;
     await m.locator('#gm-title').fill('*Escherichia* phage phiGuide, late region');
     await m.locator('button', { hasText: /^Apply$/ }).click();
     await p.waitForTimeout(300);
-    await m.locator('button', { hasText: '×' }).first().click();
+    await m.waitFor({ state: 'hidden' });   // Apply closes the dialog
     const st = await p.evaluate(() => { const g = images.find(i => i && i.type === 'genemap'); return g && { label: formatLabel(g.label), n: g.map.features.length, len: g.map.length, topo: g.map.topology }; });
     expect(st && st.label === 'F' && st.n === 12 && st.len === 10800 && st.topo === 'linear', JSON.stringify(st));
     return `panel ${st.label}: ${st.n} features, ${st.len} bp, ${st.topo}`;
