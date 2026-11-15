@@ -8896,12 +8896,12 @@ function runGelAnalysis(idx,opts){
       if(lc.error) dropped=`Loading control dropped: ${lc.error}`; else a.loading=lc; }
   }
   _gelApplyLadder(a);
-  if(prev&&prev.chartBand) a.chartBand=prev.chartBand;
   const kept=_gelReapplyEdits(a, prev);
   pushUndo();
   im.gelAnalysis=a;
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
-  if(kept.deleted||kept.added) toast([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
+  if(kept.deleted||kept.added||kept.lost||kept.bandLost) toast([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
+    kept.lost||kept.bandLost?`${kept.lost?`${kept.lost} band${kept.lost>1?'s':''} you had deleted`:''}${kept.lost&&kept.bandLost?' and ':''}${kept.bandLost?'the band picked to chart':''} could not be found again (the crop or the lanes changed and no ladder gives sizes) — ${kept.lost&&kept.bandLost?'delete them and pick it again':kept.lost?'delete them again':'pick it again'}`:'',
     kept.added?`${kept.added} band${kept.added>1?'s':''} you had added by hand ${kept.added>1?'were':'was'} not re-made — click ${kept.added>1?'them':'it'} in again`:''].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection','warn');
   if(!a.lanes.length) toast(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
   else if(dropped) toast(dropped,'warn');
@@ -8941,17 +8941,22 @@ function gelDeleteBand(idx,li,bi){
   return _gelEdit(idx,a=>{ const L=a.lanes[li]; if(!L||!L.bands[bi]) return false;
     // Where it was, so a re-detection (a re-crop, a replaced scan) deletes it again.
     const rf=_gelRf(a,L.bands[bi]), fit=a.ladder&&a.ladder.fit;
-    a.deleted=(a.deleted||[]).concat({lane:li, rf, kda:fit&&a.ladder.lane!==li?Math.pow(10,fit.intercept+fit.slope*rf):null, h:(L.bands[bi].y1-L.bands[bi].y0)/a.frame.sh});
+    a.deleted=(a.deleted||[]).concat({lane:li, rf, kda:fit&&a.ladder.lane!==li?Math.pow(10,fit.intercept+fit.slope*rf):null, h:(L.bands[bi].y1-L.bands[bi].y0)/a.frame.sh, frame:_gelFrameKey(a)});
     L.bands.splice(bi,1); a.edits=(a.edits||0)+1; });
 }
 // A re-detection finds every band again, those deleted by hand too. Each deletion is
 // re-applied at its position (same lane; ±10% in kDa with a ladder, else within half a
 // band height in Rf) and said; bands added by hand are not re-made, and that is said.
+// Where a band is: by size when a ladder is fitted, else by Rf and lane number, which
+// mean the same only on the same crop with the same lanes.
+function _gelFrameKey(a){ const f=a.frame; return [Math.round(f.sx),Math.round(f.sy),Math.round(f.sw),Math.round(f.sh),a.lanes.length].join('|'); }
 function _gelReapplyEdits(a, prev){
-  const out={deleted:0, where:[], added:0};
+  const out={deleted:0, where:[], added:0, lost:0, bandLost:false};
   if(!prev) return out;
-  const fit=a.ladder&&a.ladder.fit;
-  (prev.deleted||[]).forEach(d=>{ const L=a.lanes[d.lane]; if(!L) return;
+  const fit=a.ladder&&a.ladder.fit, same=_gelFrameKey(a)===_gelFrameKey(prev);
+  if(prev.chartBand){ if((prev.chartBand.kda>0&&fit)||same) a.chartBand=prev.chartBand; else out.bandLost=true; }
+  (prev.deleted||[]).forEach(d=>{ const L=a.lanes[d.lane];
+    if(!L||!((d.kda>0&&fit)||(d.frame?d.frame===_gelFrameKey(a):same))){ out.lost++; return; }
     let best=-1, bd=Infinity;
     L.bands.forEach((b,bi)=>{ const rf=_gelRf(a,b);
       let dd;
@@ -8960,7 +8965,7 @@ function _gelReapplyEdits(a, prev){
       if(dd<bd){ bd=dd; best=bi; } });
     if(best>=0){ L.bands.splice(best,1); out.deleted++; out.where.push(`lane ${d.lane+1} at ${d.kda>0?_gelFmt(d.kda,1)+' kDa':'Rf '+_gelFmt(d.rf,2)}`); }
   });
-  if(prev.deleted&&prev.deleted.length) a.deleted=prev.deleted.slice();
+  if(prev.deleted&&prev.deleted.length&&!out.lost) a.deleted=prev.deleted.slice();
   out.added=prev.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.manual).length,0);
   return out;
 }
@@ -23631,11 +23636,12 @@ ${k==='line'?`    ax${i}.errorbar(xs, ys, yerr=es if any(es) else None, color=co
         xr = np.array([min(xs), max(xs)]); ax${i}.plot(xr, m*xr+b, "--", color=col)`:''}`;
   }
   if(k==='box'){
+    const sc=ch.mapping.seriesCol, scs=sc!=null&&sc!==''?+sc:null;
     return `groups_${i} = {}
 for r in data_${i}:
     for yc in ycols_${i}:
         v = r[yc]
-        if isinstance(v,(int,float)): groups_${i}.setdefault(str(r[xcol_${i}]), []).append(v)
+        if isinstance(v,(int,float)): groups_${i}.setdefault(str(r[xcol_${i}])${scs!=null?` + "\\n" + str(r[${scs}])`:''}, []).append(v)  # ${scs!=null?'one box per group and series, as the figure draws them':'one box per group'}
 ax${i}.boxplot(list(groups_${i}.values()), labels=list(groups_${i}.keys()))`;
   }
   // bar family
@@ -27017,10 +27023,16 @@ function _parseDelimited(text){
   const isCmt=l=>/^\s*#(\s|$)/.test(l);
   if(isCmt(s)){
     const L=s.split(/\r?\n/); let i=0; while(i<L.length&&isCmt(L[i])) i++;
+    // Notes are FigureLab's own ("# Source data for …"), or "#" lines with no separator
+    // over a table that has one. "# colonies,strain" is a header.
+    const own=/^\s*#\s*Source data for /.test(L[0]), sepd=l=>/[,;\t]/.test(l);
+    if(!own&&(L.slice(0,i).some(sepd)||!sepd(L[i]||''))) i=0;
     comments=i; const rest=L.slice(i);
+    if(i>0||own){
     let k=-1; for(let j=1;j<rest.length;j++){ if(rest[j].trim()) continue; const nx=rest.slice(j+1).find(x=>x.trim()); if(nx!=null&&isCmt(nx)){ k=j; break; } }
     if(k>0){ cutBlock=(rest.slice(k+1).find(x=>x.trim())||'').replace(/^\s*#\s*/,'').split(/[:(]/)[0].trim(); s=rest.slice(0,k).join('\n'); } else s=rest.join('\n');
     if(!s.trim()) return {columns:[],rows:[],delim:',',comments};
+    }
   }
   // Detect the delimiter from the first non-empty line, counting only outside quotes.
   const firstLine=(()=>{ let inq=false,out=''; for(let i=0;i<s.length;i++){ const c=s[i]; if(c==='"') inq=!inq; if((c==='\n'||c==='\r')&&!inq) break; out+=c; } return out; })();
@@ -27242,7 +27254,7 @@ function _chartErrMap(ch){
 const _CH_ID_RE=/^(rep|reps|replicates?|replikate?|replicat[aeo]|r[ée]plicas?|r[ée]pliques?|wiederholung|wdh|(bio(logical)?|tech(nical)?)[\s_.]*rep(licate)?s?|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|probe[\s_#.]*(nr|no)|well|#|index|row|run|tube)$/i;
 // A header that names a measured or x quantity, not a group: a two-column table of these
 // is x against y (a scatter), of anything else one group per column.
-const _CH_QTY_RE=/time|zeit|temps|tiempo|hour|stunde|min|day|tag|dose|dosis|conc|konz|od\d*|abs|a\d{3}|fluor|signal|intens|area|fl[äa]che|length|l[äa]nge|width|diam|mass|weight|gewicht|temp|^ph$|^x$|^y$|count|cfu|pfu|titer|titre|rate|ratio|yield|volume|value|wert|\(.*\)/i;
+const _CH_QTY_RE=new RegExp('(^|[^a-zäöü])(time|zeit|temps|tiempo|hours?|hrs?|h|min|mins|minutes?|stunden?|days?|tage?|d|weeks?|wochen?|months?|passages?|cycles?|generations?|gen|rounds?|visits?|stages?|dilutions?|doses?|dosis|conc|concentration|konz|od|od\\d+|abs|absorbance|a\\d{3}|fluor|fluorescence|signal|intensity|area|fl[äa]che|length|l[äa]nge|width|diam|diameter|mass|weight|gewicht|temp|temperature|ph|x|y|counts?|cfu|pfu|titer|titre|rate|ratio|yield|volume|value|wert|mm|µm|um|nm|ml|µg|ug|mg)(?=$|[^a-zäöü])|\\(.*\\)','i');
 // Which kinds plot a numeric x, and which read categories.
 function _chartNumericX(kind){ return kind==='line'||kind==='scatter'; }
 function _chartCategorical(kind){ return ['bar','groupedBar','stackedBar','box','violin','beeswarm'].includes(kind); }
@@ -27474,7 +27486,9 @@ function _chartStats(el){
       S.skeys.forEach((sk,si)=>{ const v=byC.get(c+'\u0001'+sk); if(v&&v.length) boxes.push(one(v, {name:sNames[si], key:sk, color:scol[si], ci, si, cat:cats[ci]})); });
     });
     // A beeswarm's whisker is the error the dialog asks for: SD, SEM, or none.
-    const ek=kind==='beeswarm'?(ch.error==='sem'?'sem':ch.error==='none'?'none':'sd'):'sd';
+    // ("none" counts only when picked for this beeswarm: one saved before Error bars drove
+    // the whisker, or added from the menu, keeps its SD.)
+    const ek=kind==='beeswarm'?(ch.error==='sem'?'sem':(ch.error==='none'&&ch.whiskerOff)?'none':'sd'):'sd';
     boxes.forEach(b=>{ b.err=ek==='none'?0:ek==='sem'?b.sem:b.sd; b.errKind=ek; });
     const all=boxes.flatMap(b=>b.raw);
     if(kind==='beeswarm') boxes.forEach(b=>{ if(b.err>0){ all.push(b.mean+b.err); if(!(S.yLog&&b.mean-b.err<=0)) all.push(b.mean-b.err); } });
@@ -28225,6 +28239,7 @@ function addChartElement(kind){
     push('WT',6,1.1); push('KO',10,1.6);
     ch.data={columns:['Group','Value'], rows:g, source:'demo', sourceName:''};
     ch.mapping.xCol=0; ch.mapping.yCols=[1]; ch.style.showPoints=(kind==='violin');
+    if(kind==='beeswarm') ch.error='sd';
     ch.axes.y.title='Expression';
   }
   if(layoutMode!=='freeform'){
@@ -28549,6 +28564,7 @@ function openChartModal(){
   const el=_selectedChartEl(); if(!el){ toast('Select a chart first','warn'); return; }
   _chartDraft=JSON.parse(JSON.stringify(el.chart));
   const d=_chartDraft; d.mapping=d.mapping||{}; d.axes=d.axes||{}; d.axes.x=d.axes.x||{}; d.axes.y=d.axes.y||{}; d.style=d.style||{}; d.fit=d.fit||{};
+  if(d.kind==='beeswarm'&&d.error==='none'&&!d.whiskerOff) d.error='sd';   // the menu says what is drawn
   _chartDraftColours={}; _chartDraftNames={};
   _chartModalSync();
   document.getElementById('chart-modal').classList.add('open');
@@ -28668,6 +28684,7 @@ function _chartReadControls(){
   // A beeswarm draws its mean with the whisker Error bars names; switched to from a chart
   // with none, it starts at SD, as it always drew.
   if(ch.kind==='beeswarm'&&wasKind!=='beeswarm'&&ch.error==='none'){ ch.error='sd'; sv('chart-err','sd'); }
+  if(ch.kind==='beeswarm'){ if(ch.error==='none') ch.whiskerOff=true; else delete ch.whiskerOff; }
   if(ch.error==='column'){ const per={}; document.querySelectorAll('#chart-errcols select[data-yc]').forEach(s=>{ if(s.value!=='') per[s.dataset.yc]=+s.value; });
     if(document.querySelector('#chart-errcols select[data-yc]')){ m.errCols=per; m.errCol=null; } }
   ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
@@ -28794,13 +28811,16 @@ function _chartNameEdit(key,val){
 }
 // The figure's "shown as" names: {data name: shown as, or null to show the data name}.
 // Inside the caller's undo step; a chart's own name for one of these is dropped.
-function _setSampleNames(map){
-  const F=Object.assign({}, _sampleNames());
+function _setSampleNames(map, self){
+  const F=Object.assign({}, _sampleNames()), keys=Object.keys(map);
+  // The other charts that show one of these names, so the toast can say where it changed.
+  const also=_allCharts().filter(el=>el!==self&&_sampleDrawn(el).some(o=>keys.includes(o.key))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
   Object.entries(map).forEach(([k,v])=>{ if(v==null||String(v).trim()===''||v===k) delete F[k]; else F[k]=String(v);
     _allCharts().forEach(el=>{ if(el.chart.names&&_own(el.chart.names,k)){ delete el.chart.names[k]; el._chartKey=''; el._chartStat=null; } }); });
   sv('sample-names', Object.keys(F).length?JSON.stringify(F):'');
   _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; if(_isDataPanel(el)) _dataPanelRefresh(el, true); });
   logAction('sampleNames',{set:Object.keys(map)});
+  return also;
 }
 function _chartColourEdit(key,val){ if(!/^#[0-9a-f]{6}$/i.test(val)) return; _chartDraftColours[key]=val.toLowerCase(); _chartPreview(); }
 function _chartOrderMove(key,dir){
@@ -28860,7 +28880,7 @@ function applyChartModal(){
   }
   // So are the names typed under "shown as": one per sample, in every chart (a chart's
   // own older name for it gives way).
-  if(Object.keys(_chartDraftNames).length) _setSampleNames(_chartDraftNames);
+  const renamedIn=Object.keys(_chartDraftNames).length?_setSampleNames(_chartDraftNames, el):[];
   _samplePinSync();
   if(typeof _sampleColoursRender==='function') _sampleColoursRender();
   el._chartKey=''; el._chartStat=null;       // force stats recompute
@@ -28869,7 +28889,8 @@ function applyChartModal(){
   if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   closeChartModal(); updateElemPropsBar(); scheduleRender(0);
   if(_isDataPanel(el)) renderImgList();
-  toast('Chart updated','ok');
+  toast(renamedIn.length?`Chart updated — the new name${Object.keys(_chartDraftNames).length>1?'s':''} also show${Object.keys(_chartDraftNames).length>1?'':'s'} in ${_listAnd(renamedIn)}`:'Chart updated','ok');
+  _chartDraftNames={};
 }
 // Significance annotations (user-entered marks — never computed).
 function _chartSigCats(){

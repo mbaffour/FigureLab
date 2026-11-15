@@ -324,19 +324,29 @@ test('blot2-03: the link survives a cleared letter and a session reload, ↻ Upd
   expect(errors).toEqual([]);
 });
 
-test('blot2-04: bands deleted by hand stay deleted when the panel is re-detected, and the dialog says so', async ({ page }) => {
+test('blot2-04: bands deleted by hand stay deleted when the scan is replaced and re-analysed, and the dialog says so; on another crop without a ladder they are not guessed', async ({ page }) => {
   const errors = await gelSetup(page);
   await page.evaluate(async () => {
     await __gelMake(__blot('KatG.png', [[[50, 60], [110, 30]], [[50, 120], [110, 30]], [[110, 30]]]));
+    runGelAnalysis(0); gelSetRefLane(0, 0);
+  });
+  expect(await page.evaluate(() => images[0].gelAnalysis.lanes.map(L => L.bands.length))).toEqual([2, 2, 1]);
+  await page.evaluate(() => { gelDeleteBand(0, 0, 1); gelDeleteBand(0, 1, 1); gelDeleteBand(0, 2, 0); gelSetChartBand(0, _gelRows(images[0].gelAnalysis)[0].rf); });
+  // the re-run scan, same crop: re-analysed, the three deletions are re-applied and said
+  await page.evaluate(async () => {
+    const src = __gelPng(__blot('KatG_rerun.png', [[[50, 70], [110, 30]], [[50, 110], [110, 30]], [[110, 30]]], 23));
+    const blob = await (await fetch(src)).blob();
+    await replacePanelImage(images[0].id, new File([blob], 'KatG_rerun.png', { type: 'image/png' }));
     runGelAnalysis(0);
   });
-  const n0 = await page.evaluate(() => images[0].gelAnalysis.lanes.map(L => L.bands.length));
-  expect(n0).toEqual([2, 2, 1]);
-  await page.evaluate(() => { gelDeleteBand(0, 0, 1); gelDeleteBand(0, 1, 1); gelDeleteBand(0, 2, 0); });
-  await page.evaluate(() => { images[0].cropT = 2; render(); runGelAnalysis(0); });
-  const n1 = await page.evaluate(() => images[0].gelAnalysis.lanes.map(L => L.bands.length));
-  expect(n1).toEqual([1, 1, 0]);
+  expect(await page.evaluate(() => images[0].gelAnalysis.lanes.map(L => L.bands.length))).toEqual([1, 1, 0]);
+  expect(await page.evaluate(() => !!images[0].gelAnalysis.chartBand)).toBe(true);
   expect((await toasts(page)).join(' ')).toMatch(/3 bands you had deleted were found again and deleted again/);
+  // re-cropped, no ladder: Rf no longer means the same place — nothing is guessed, and it says so
+  await page.evaluate(() => { images[0].cropT = 30; render(); runGelAnalysis(0); });
+  expect(await page.evaluate(() => images[0].gelAnalysis.lanes[2].bands.length)).toBe(1);   // lane 3's band, deleted on the old crop, is back: not guessed
+  expect(await page.evaluate(() => !!images[0].gelAnalysis.chartBand)).toBe(false);
+  expect((await toasts(page)).join(' ')).toMatch(/3 bands you had deleted and the band picked to chart could not be found again/);
   expect(errors).toEqual([]);
 });
 
@@ -571,5 +581,32 @@ test('ISSUES "one sample under several names": MOI_0, MOI 0 and "MOI 0 mean" tak
   await openLook(page);
   const rows = await page.locator('#sample-colours-list [data-name]').evaluateAll(r => r.map(e => JSON.parse(e.dataset.keys)));
   expect(rows.find(k => k.includes('MOI_0')).sort()).toEqual(['MOI 0', 'MOI 0 mean', 'MOI_0']);
+  expect(errors).toEqual([]);
+});
+
+test('charts2-17: a beeswarm added from the menu, or saved before, still draws its SD whisker and its menu says SD', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => addChartElement('beeswarm'));
+  expect(await modal(page).locator('#chart-err').inputValue()).toBe('sd');
+  await apply(page);
+  // one saved with Error bars "none" (before the menu drove the whisker)
+  const r = await page.evaluate(() => {
+    const el = images.find(p => p && p.type === 'chart'); el.chart.error = 'none'; delete el.chart.whiskerOff; el._chartKey = '';
+    const st = _chartStatsCached(el); return st.boxes.every(b => b.err > 0 && Math.abs(b.err - b.sd) < 1e-12);
+  });
+  expect(r).toBe(true);
+  await edit(page, 'A');
+  expect(await modal(page).locator('#chart-err').inputValue()).toBe('sd');
+  expect(errors).toEqual([]);
+});
+
+test('charts2-03: a header that starts with "# " is a header — only notes over a table are skipped', async ({ page }) => {
+  const errors = await loadApp(page);
+  const p1 = await page.evaluate(() => _parseDelimited('# colonies,strain\n12,WT\n4,KO\n'));
+  expect(p1.columns).toEqual(['# colonies', 'strain']);
+  expect(p1.rows.length).toBe(2);
+  const p2 = await page.evaluate(() => _parseDelimited('# exported from the plate reader\n# 2026-11-10\nwell,OD600\nA1,0.5\n'));
+  expect(p2.columns).toEqual(['well', 'OD600']);
+  expect(p2.comments).toBe(2);
   expect(errors).toEqual([]);
 });
