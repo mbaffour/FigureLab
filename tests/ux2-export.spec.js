@@ -524,7 +524,7 @@ test.describe('PDF and PowerPoint text', () => {
       Object.assign(ch, { x: 20, y: 20, w: 520, h: 360 }); Object.assign(gm, { x: 20, y: 420, w: 700, h: 200 });
       render(); const W = canvasLogicalW, Hh = canvasLogicalH;
       setKeyOnFigure(true); render();                    // Export › Legend key › Place the key on the figure
-      const key0 = annotations.find(a => a.type === 'legend'); key0.xf = 560 / W; key0.yf = 560 / Hh;
+      const key0 = annotations.find(a => a.type === 'legend'); key0.xf = 560 / W; key0.yf = 560 / Hh; key0.auto = false;   // as if dragged there: a dragged key stays put (ux2-check)
       annotations.push({ type: 'rect', xf: 30 / W, yf: 430 / Hh, x2f: 105 / W, y2f: 520 / Hh, fill: true, fillColor: '#ffffff', fillOpacity: 1, color: '#000000', width: 1 });
       render();
       renderExportCanvas(150, { skipLabels: _pdfCanTypeset, dataText: _pdfCanTypeset });
