@@ -10386,7 +10386,7 @@ function _samplePinSync(){
 // What one chart draws in a colour of its own: {key (data name), disp (shown as), color}.
 function _sampleDrawn(el){
   let st=null; try{ st=_chartStatsCached(el); }catch(e){ return []; }
-  const L=st.catColours||st.boxes||(st.groups?null:st.series)||st.seriesNames||((st.curves&&!st.singleGroup)?st.curves:null)||[];
+  const L=st.catColours||(st.boxes&&!(st.nSeries>1)?st.boxes:null)||(st.groups?null:st.series)||st.seriesNames||((st.curves&&!st.singleGroup)?st.curves:null)||[];
   return L.map(x=>({key:String(x.key??x.name), disp:String(x.name), color:x.color}));
 }
 function _chartAxisW(){ const v=parseFloat(gv('chart-axis-w')); return v>0?v:1; }
@@ -23515,7 +23515,8 @@ function _chartPlotted(el){
   const ek=ch.error==='sd'?'SD (n-1)':ch.error==='sem'?'SEM = SD/sqrt(n)':ch.error==='column'?'from a column':'';
   if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, x:p.x, n:p.n, mean:p.y, err:p.err, kind:p.err>0?ek:''})));
   else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, x:g.cat, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.err>0?ek:''})));
-  else if(st.boxes) st.boxes.forEach(b=>out.push({series:'', x:b.name, n:b.n, mean:b.mean, err:b.sd, kind:'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
+  else if(st.boxes) st.boxes.forEach(b=>out.push({series:st.nSeries>1?b.name:'', x:st.nSeries>1?b.cat:b.name, n:b.n, mean:b.mean,
+    err:ch.kind==='beeswarm'?b.err:b.sd, kind:ch.kind==='beeswarm'?(b.errKind==='sem'?'SEM = SD/sqrt(n)':b.errKind==='none'?'':'SD (n-1)'):'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
   return {rows:out, numericX:!!st.series, boxes:!!st.boxes, ylog:!!(ch.axes&&ch.axes.y&&ch.axes.y.log&&!_chartLogWhy(ch.kind,'y')), xlog:!!(st.series&&ch.axes&&ch.axes.x&&ch.axes.x.log)};
 }
 function _chartPythonSnippet(el, idx){
@@ -27203,7 +27204,11 @@ function _chartErrMap(ch){
   return out;
 }
 // Column ids that are never a plotted value: replicate number, sample id, well.
-const _CH_ID_RE=/^(rep|reps|replicate|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|well|#|index|row|run|tube)$/i;
+// In other languages too (Replikat, réplica, Wiederholung), and biological/technical replicate.
+const _CH_ID_RE=/^(rep|reps|replicates?|replikate?|replicat[aeo]|r[ée]plicas?|r[ée]pliques?|wiederholung|wdh|(bio(logical)?|tech(nical)?)[\s_.]*rep(licate)?s?|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|probe[\s_#.]*(nr|no)|well|#|index|row|run|tube)$/i;
+// A header that names a measured or x quantity, not a group: a two-column table of these
+// is x against y (a scatter), of anything else one group per column.
+const _CH_QTY_RE=/time|zeit|temps|tiempo|hour|stunde|min|day|tag|dose|dosis|conc|konz|od\d*|abs|a\d{3}|fluor|signal|intens|area|fl[äa]che|length|l[äa]nge|width|diam|mass|weight|gewicht|temp|^ph$|^x$|^y$|count|cfu|pfu|titer|titre|rate|ratio|yield|volume|value|wert|\(.*\)/i;
 // Which kinds plot a numeric x, and which read categories.
 function _chartNumericX(kind){ return kind==='line'||kind==='scatter'; }
 function _chartCategorical(kind){ return ['bar','groupedBar','stackedBar','box','violin','beeswarm'].includes(kind); }
@@ -27286,7 +27291,13 @@ function _chartGuess(parsed){
   const repeats=(keyFn)=>{ const s=new Set(); for(const r of rows){ const k=keyFn(r); if(s.has(k)) return true; s.add(k); } return false; };
   if(textCols.length){
     M.xCol=textCols[0];
-    const vals=valueCols(M.xCol);
+    let vals=valueCols(M.xCol);
+    // A column numbering the replicates 1, 2, 3 … inside every group (whatever its header
+    // says) counts them; it is no x and no value.
+    const repIdx=i=>{ const by=new Map(); for(const r of rows){ const v=r[i]; if(typeof v!=='number'||!Number.isInteger(v)) return false; const k=String(r[M.xCol]); if(!by.has(k)) by.set(k,[]); by.get(k).push(v); }
+      const L=[...by.values()]; if(!L.length||L.some(a=>a.length<2)) return false;
+      return L.every(a=>a.slice().sort((x,y)=>x-y).every((v,j)=>v===j+1)); };
+    if(vals.length>=2&&!_CH_QTY_RE.test(String(cols[vals[0]]))&&repIdx(vals[0])) vals=vals.slice(1);
     // Tidy data: a text column of groups and two numeric columns or more (x and a value)
     // where the first takes several values inside a group — a time course or a dose series.
     const xi=vals.length>=2?vals[0]:-1;
@@ -27301,8 +27312,9 @@ function _chartGuess(parsed){
     const sIdx=vals.slice(0,-1).find(i=>{ const d=distinct(i); return d>=2&&d<=12&&d<=rows.length/3; });
     if(sIdx!=null){ M.seriesCol=sIdx; M.yCols=[vals[vals.length-1]]; }
     else M.yCols=vals;
-  } else if(nc>=3){
-    // All numbers in no order: each column is a group of replicates (wide).
+  } else if(nc>=3||(nc===2&&!cols.some(c=>_CH_QTY_RE.test(String(c))))){
+    // All numbers in no order: each column is a group of replicates (wide), as Prism's
+    // column tables are laid out — two columns too, unless their headers name quantities.
     M.layout='columns'; M.xCol=0; M.yCols=numCols.filter(i=>!errLike[i]); g.kind='bar';
   } else { M.xCol=0; M.yCols=nc>1?[1]:[0]; g.kind='scatter'; }
   if(!M.yCols.length) M.yCols=[Math.min(1,nc-1)];
@@ -27410,21 +27422,33 @@ function _chartStats(el){
 
   if(kind==='box'||kind==='violin'||kind==='beeswarm'){
     // Each category = the pooled numeric values across the value columns; box/violin/
-    // beeswarm all summarise or display this same distribution.
-    const ccol=catColOf(catKeys);
-    const byC=new Map(); catKeys.forEach(c=>byC.set(c,[])); obs.forEach(o=>{ const l=byC.get(o.cat); if(l) l.push(o.y); });
-    const boxes=catKeys.map((c,ci)=>{
-      const vals=byC.get(c).slice().sort((a,b)=>a-b);
+    // beeswarm all summarise or display this same distribution. With a series column
+    // (tidy strain × time data) each series is its own cloud or box beside the others in
+    // the category, coloured by series: the strains used to be pooled into one mean ± SD
+    // with no word.
+    const multi=S.sc!=null&&S.skeys.length>1;
+    const sNames=S.skeys.map(disp), scol=multi?_seriesColours(S.skeys, colours, sNames):null;
+    const ccol=multi?null:catColOf(catKeys);
+    const byC=new Map(); obs.forEach(o=>{ const k=multi?o.cat+'\u0001'+o.s:o.cat; let l=byC.get(k); if(!l){ l=[]; byC.set(k,l); } l.push(o.y); });
+    const one=(vals,extra)=>{ vals=vals.slice().sort((a,b)=>a-b);
       const q=p=>{ if(!vals.length) return 0; const idx=(vals.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx); return vals[lo]+(vals[hi]-vals[lo])*(idx-lo); };
-      return {name:cats[ci], key:c, color:ccol[ci], min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd:_sd(vals), n:vals.length, raw:vals};
+      const sd=_sd(vals);
+      return Object.assign({min:vals[0]||0, q1:q(0.25), med:q(0.5), q3:q(0.75), max:vals[vals.length-1]||0, mean:_mean(vals), sd, sem:vals.length>1?sd/Math.sqrt(vals.length):0, n:vals.length, raw:vals}, extra); };
+    const boxes=[];
+    catKeys.forEach((c,ci)=>{
+      if(!multi){ boxes.push(one(byC.get(c)||[], {name:cats[ci], key:c, color:ccol[ci], ci, si:0})); return; }
+      S.skeys.forEach((sk,si)=>{ const v=byC.get(c+'\u0001'+sk); if(v&&v.length) boxes.push(one(v, {name:sNames[si], key:sk, color:scol[si], ci, si, cat:cats[ci]})); });
     });
+    // A beeswarm's whisker is the error the dialog asks for: SD, SEM, or none.
+    const ek=kind==='beeswarm'?(ch.error==='sem'?'sem':ch.error==='none'?'none':'sd'):'sd';
+    boxes.forEach(b=>{ b.err=ek==='none'?0:ek==='sem'?b.sem:b.sd; b.errKind=ek; });
     const all=boxes.flatMap(b=>b.raw);
-    if(kind==='beeswarm') boxes.forEach(b=>{ if(b.sd>0){ all.push(b.mean+b.sd); if(!(S.yLog&&b.mean-b.sd<=0)) all.push(b.mean-b.sd); } });
+    if(kind==='beeswarm') boxes.forEach(b=>{ if(b.err>0){ all.push(b.mean+b.err); if(!(S.yLog&&b.mean-b.err<=0)) all.push(b.mean-b.err); } });
     let yd=[_arrMin(all,0),_arrMax(all,1)];
     if(kind==='violin'&&!S.yLog){ const pad=((yd[1]-yd[0])*0.14)||1; yd=[yd[0]-pad, yd[1]+pad]; }  // headroom for KDE tails
-    return {kind, boxes, categories:cats, catKeys, series:null, yDomain:yd, warn};
+    return {kind, boxes, categories:cats, catKeys, series:null, nSeries:multi?S.skeys.length:1,
+      seriesNames:multi?S.skeys.map((k,si)=>({name:sNames[si], key:k, color:scol[si]})):undefined, yDomain:yd, warn};
   }
-
   // bar / groupedBar / stackedBar: categories on x, one bar per series per category.
   const skeys=S.skeys, snames=skeys.map(disp), scol=_seriesColours(skeys, colours, snames);
   // A one-series bar chart of samples (strains on the x axis, or one column per strain)
@@ -27734,6 +27758,10 @@ function _chartDraw(el, emit){
   if(stat.categories){
     const cats=stat.categories, nC=cats.length||1, band=pw/nC;
     const xCenter=ci=>px0+band*(ci+0.5);
+    // Box, violin and beeswarm: one per series side by side in a category when the chart
+    // has a series column (bW is the width each gets), else one per category.
+    const nBS=stat.nSeries||1, bW=nBS>1?band/nBS*0.95:band;
+    const bX=b=>xCenter(b.ci)+(nBS>1?(b.si-(nBS-1)/2)*band/nBS:0);
     // Rotate crowded labels ~40° (right-anchored at the tick) so they never overlap.
     if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9*u, font(T), ink, 'right', 'middle', -40));
     else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14*u, font(T), ink, 'center', 'alphabetic'));
@@ -27742,9 +27770,9 @@ function _chartDraw(el, emit){
     const lift=(ci,y)=>{ if(isFinite(y)) top[ci]=Math.min(top[ci], Math.max(py0, y)); };
 
     if(stat.kind==='violin'){
-      const bw=band*0.44, pr=Math.max(1.5,(st.pointSize||4)-2);
-      stat.boxes.forEach((b,ci)=>{
-        const cx=xCenter(ci), kde=_kde(b.raw,48);
+      const bw=bW*0.44, pr=Math.max(1.5,(st.pointSize||4)-2);
+      stat.boxes.forEach(b=>{
+        const ci=b.ci, cx=bX(b), kde=_kde(b.raw,48);
         if(kde.length){
           const maxD=_arrMax(kde.map(p=>p.d),1);
           const cy=v=>Math.max(py0,Math.min(py1,yScale(v)));   // keep the density inside the plot
@@ -27759,24 +27787,24 @@ function _chartDraw(el, emit){
         if(st.showPoints && b.raw) b.raw.forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.5, yScale(v), pr, 'rgba(20,20,20,0.5)', null, 0); });
       });
     } else if(stat.kind==='beeswarm'){
-      const bw=band*0.4, pr=Math.max(2,(st.pointSize||4)-1);
-      stat.boxes.forEach((b,ci)=>{
-        const cx=xCenter(ci);
+      const bw=bW*0.4, pr=Math.max(2,(st.pointSize||4)-1);
+      stat.boxes.forEach(b=>{
+        const ci=b.ci, cx=bX(b), e=b.err!=null?b.err:b.sd;
         clipOn(px0,py0,pw,ph);
         emit.line(cx-bw*0.85,yScale(b.mean),cx+bw*0.85,yScale(b.mean),'#222222',2.2);   // mean bar
-        if(b.sd>0){ const lo=(yLog&&b.mean-b.sd<=0)?ymin:b.mean-b.sd;
-          emit.line(cx,yScale(lo),cx,yScale(b.mean+b.sd),'#222222',1.2);
-          emit.line(cx-bw*0.3,yScale(b.mean+b.sd),cx+bw*0.3,yScale(b.mean+b.sd),'#222222',1.2);
-          if(!(yLog&&b.mean-b.sd<=0)) emit.line(cx-bw*0.3,yScale(b.mean-b.sd),cx+bw*0.3,yScale(b.mean-b.sd),'#222222',1.2);
-          lift(ci, yScale(b.mean+b.sd)); }  // ±SD
+        if(e>0){ const lo=(yLog&&b.mean-e<=0)?ymin:b.mean-e;
+          emit.line(cx,yScale(lo),cx,yScale(b.mean+e),'#222222',1.2);
+          emit.line(cx-bw*0.3,yScale(b.mean+e),cx+bw*0.3,yScale(b.mean+e),'#222222',1.2);
+          if(!(yLog&&b.mean-e<=0)) emit.line(cx-bw*0.3,yScale(b.mean-e),cx+bw*0.3,yScale(b.mean-e),'#222222',1.2);
+          lift(ci, yScale(b.mean+e)); }  // ± SD or SEM, as Error bars says
         clipOff();
         if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr); });
       });
     } else if(stat.kind==='box'){
-      const bw=band*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
+      const bw=bW*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
       clipOn(px0,py0,pw,ph);
-      stat.boxes.forEach((b,ci)=>{
-        const cx=xCenter(ci), x0=cx-bw/2;
+      stat.boxes.forEach(b=>{
+        const ci=b.ci, cx=bX(b), x0=cx-bw/2;
         emit.line(cx,yScale(b.min),cx,yScale(b.max),ink,1);          // whisker
         emit.line(cx-bw*0.25,yScale(b.min),cx+bw*0.25,yScale(b.min),ink,1);
         emit.line(cx-bw*0.25,yScale(b.max),cx+bw*0.25,yScale(b.max),ink,1);
@@ -27786,7 +27814,7 @@ function _chartDraw(el, emit){
       });
       clipOff();
       // Overlay every raw value (jittered) — exposes n + spread the box summarises.
-      if(st.showPoints) stat.boxes.forEach((b,ci)=>{ const cx=xCenter(ci); (b.raw||[]).forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.7, yScale(v), pr, 'rgba(20,20,20,0.55)', null, 0); }); });
+      if(st.showPoints) stat.boxes.forEach(b=>{ const cx=bX(b); (b.raw||[]).forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.7, yScale(v), pr, 'rgba(20,20,20,0.55)', null, 0); }); });
     } else {
       // Bar family. On a log axis the bars rise from the bottom of the axis (its floor
       // decade), as Prism draws them; on a linear one from zero.
@@ -28494,9 +28522,9 @@ const _CHART_HINTS={
   stackedBar:'A group column and one value column per stacked segment.',
   line:'An x column (time, dose) and one column per series — or tidy rows with a series column. Rows sharing an x are averaged (mean ± SD/SEM); replicate columns WT_r1, WT_r2 … average into one series; WT and WT_SD pair as value and error.',
   scatter:'An x column and one or more y columns. With error bars on, points sharing an x are averaged.',
-  box:'One row per value: a group column and a value column (or one column per group).',
-  violin:'One row per value: a group column and a value column (or one column per group).',
-  beeswarm:'One row per value: a group column and a value column (or one column per group). Draws every value with mean ± SD.',
+  box:'One row per value: a group column and a value column (or one column per group); a series column puts each series beside the others in its group.',
+  violin:'One row per value: a group column and a value column (or one column per group); a series column puts each series beside the others in its group.',
+  beeswarm:'One row per value: a group column and a value column (or one column per group); a series column puts each series beside the others in its group. Draws every value with the mean and, as Error bars says, ± SD or SEM (or no whisker).',
   heatmap:'A row-label column and one column per sample; each cell is one value.',
   survival:'One row per subject: time, event (1 = event, 0 = censored) and an optional group.',
 };
@@ -28559,19 +28587,33 @@ function _chartRenderErrCols(){
 function _chartReadControls(){
   const ch=_chartDraft; if(!ch) return;
   const m=ch.mapping, num=id=>{ const v=gv(id); return v===''||!isFinite(+v)?null:+v; };
+  const wasKind=ch.kind;
   ch.kind=gv('chart-kind');
   m.xCol=+gv('chart-xcol')||0;
+  const wasLayout=m.layout;
   m.layout=gv('chart-layout')==='columns'?'columns':'xcol';
   const scv=gv('chart-seriescol'); m.seriesCol=scv===''?null:+scv;
   m.repCols=gc('chart-repcols');
   m.yCols=[...document.querySelectorAll('#chart-ycols input[type=checkbox]')].filter(c=>c.checked).map(c=>+c.value).sort((a,b)=>a-b);
+  // Columns as groups: every numeric column is a group, the former X column too.
+  if(m.layout==='columns'&&wasLayout!=='columns'){
+    const rows=ch.data.rows||[], numCol=i=>rows.some(r=>typeof r[i]==='number')&&rows.every(r=>r[i]===''||r[i]==null||typeof r[i]==='number');
+    const all=(ch.data.columns||[]).map((_,i)=>i).filter(i=>numCol(i)&&_chartErrBase(ch.data.columns[i])==null);
+    if(all.length) m.yCols=all;
+    document.querySelectorAll('#chart-ycols input[type=checkbox]').forEach(c=>{ c.checked=m.yCols.includes(+c.value); });
+  }
   ch.error=gv('chart-err');
+  // A beeswarm draws its mean with the whisker Error bars names; switched to from a chart
+  // with none, it starts at SD, as it always drew.
+  if(ch.kind==='beeswarm'&&wasKind!=='beeswarm'&&ch.error==='none'){ ch.error='sd'; sv('chart-err','sd'); }
   if(ch.error==='column'){ const per={}; document.querySelectorAll('#chart-errcols select[data-yc]').forEach(s=>{ if(s.value!=='') per[s.dataset.yc]=+s.value; });
     if(document.querySelector('#chart-errcols select[data-yc]')){ m.errCols=per; m.errCol=null; } }
   ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
   ch.axes.x.min=num('chart-xmin'); ch.axes.x.max=num('chart-xmax'); ch.axes.y.min=num('chart-ymin'); ch.axes.y.max=num('chart-ymax');
+  // A log box the chart type greys out keeps the chart's choice: Stacked bar on the way
+  // to Beeswarm used to drop log Y while the box still showed it ticked.
   const xl=document.getElementById('chart-xlog'), yl=document.getElementById('chart-ylog');
-  ch.axes.x.log=!xl.disabled&&xl.checked; ch.axes.y.log=!yl.disabled&&yl.checked;
+  if(!xl.disabled) ch.axes.x.log=xl.checked; if(!yl.disabled) ch.axes.y.log=yl.checked;
   ch.style.palette=gv('chart-palette');
   ch.style.showLegend=gc('chart-legend'); ch.style.showGrid=gc('chart-grid'); ch.style.showPoints=gc('chart-points');
   ch.fit.on=gc('chart-fit'); ch.fit.showR2=gc('chart-fit-r2'); ch.fit.showEq=gc('chart-fit-r2');
@@ -28609,7 +28651,7 @@ function _chartModalRefresh(){
   show('chart-heat-wrap', k==='heatmap', 'flex');
   show('chart-layout-wrap', cat, 'block');
   show('chart-xcol-wrap', !wide&&k!=='survival', 'block');
-  show('chart-series-wrap', numX||['bar','groupedBar','stackedBar'].includes(k), 'block');
+  show('chart-series-wrap', numX||(cat&&!wide), 'block');
   show('chart-xlim-wrap', numX, 'inline-flex');
   document.getElementById('chart-ycols-lbl').textContent=wide?'Group columns (each is one group)':numX?'Y columns (series)':'Y columns';
   const cols=ch.data.columns||[], hasRep=numX&&_chartHasRepGroups(cols, ch.mapping.yCols||[]);
@@ -28662,12 +28704,12 @@ function _chartRenderNames(){
   const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
   const items=stat.curves?stat.curves.map(c=>({key:c.name, color:c.color})):
     stat.series?stat.series.map(s=>({key:s.key, color:s.color})):
-    stat.boxes?stat.boxes.map(b=>({key:b.key, color:b.color, cat:true})):
+    (stat.boxes&&!(stat.nSeries>1))?stat.boxes.map(b=>({key:b.key, color:b.color, cat:true})):
     stat.catColours?stat.catColours.map(c=>({key:c.key, color:c.color, cat:true})):
     // One series of bars: the categories are the samples, so they carry the colours.
     (stat.groups&&(stat.seriesNames||[]).length===1)?stat.groups.map(g=>({key:g.key, color:g.bars[0].color, cat:true})):
     (stat.seriesNames||[]).map(s=>({key:s.key, color:s.color}));
-  const catOrder=stat.catKeys&&(stat.boxes||stat.catColours||(stat.groups&&(stat.seriesNames||[]).length===1))?stat.catKeys:null;
+  const catOrder=stat.catKeys&&((stat.boxes&&!(stat.nSeries>1))||stat.catColours||(stat.groups&&(stat.seriesNames||[]).length===1))?stat.catKeys:null;
   const orderBtns=stat.catKeys&&!catOrder;   // series coloured, categories still reorderable below
   const F=_sampleNames();
   const row=(it,i,arr)=>{ const c=_chartDraftColours[it.key]||it.color; const disp=(ch.names&&ch.names[it.key])||(_own(F,it.key)?F[it.key]:'')||'';

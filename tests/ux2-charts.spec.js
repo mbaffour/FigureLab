@@ -355,3 +355,81 @@ test('blot2-05: deleting a band does not move the band table under the pointer (
   expect(Math.abs((await top()) - y0)).toBeLessThan(1);
   expect(errors).toEqual([]);
 });
+
+// ── Beeswarm, box and violin with a series column ─────────────────────────────────
+test('charts2-04: a strain × time table switched to Beeswarm keeps one cloud per strain in each time, and log Y stays on through Stacked bar', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, GROWTH, 'growth.csv');
+  await modal(page).locator('#chart-ylog').check();
+  for (const k of ['groupedBar', 'stackedBar', 'beeswarm']) await modal(page).locator('#chart-kind').selectOption(k);
+  expect(await modal(page).locator('#chart-ylog').isChecked()).toBe(true);
+  expect(await modal(page).locator('#chart-series-wrap').isVisible()).toBe(true);
+  await modal(page).locator('#chart-xcol').selectOption({ label: 'time_h' });
+  await modal(page).locator('#chart-seriescol').selectOption({ label: 'strain' });
+  await apply(page);
+  const r = await page.evaluate(() => {
+    const el = images.find(p => p && p.type === 'chart'); el._chartKey = '';
+    const st = _chartStatsCached(el), T = [], C = [];
+    _chartDraw(el, { rect() {}, line() {}, poly() {}, circle(x, y, r, f) { C.push({ x, f }); }, text(s, x, y, f, fi, al) { if (al === 'right') T.push(s); } });
+    return { log: el.chart.axes.y.log, boxes: st.boxes.map(b => [b.cat, b.name, b.n, b.mean, b.err]), ticks: T, legend: (st.seriesNames || []).map(s => s.name),
+      xs: [...new Set(C.map(c => c.f))].map(f => C.filter(c => c.f === f).map(c => c.x)) };
+  });
+  expect(r.log).toBe(true);
+  expect(r.ticks.every(t => /^10\^\{\d+\}$/.test(t))).toBe(true);     // decades, no negative tick
+  expect(r.boxes.map(b => b.slice(0, 3))).toEqual([['0', 'PAO1', 3], ['0', 'dpilA', 3], ['4', 'PAO1', 3], ['4', 'dpilA', 3]]);
+  const pao4 = [67414000, 70123000, 61002000], dp4 = [9000000, 700000000, 11000000];
+  expect(Math.abs(r.boxes[2][3] - mean(pao4)) / mean(pao4)).toBeLessThan(1e-9);
+  expect(Math.abs(r.boxes[3][4] - sd(dp4)) / sd(dp4)).toBeLessThan(1e-9);
+  expect(r.legend).toEqual(['PAO1', 'dpilA']);
+  // the two strains' dots are drawn apart in each time, each in its own colour
+  expect(r.xs.length).toBe(2);
+  const m3 = a => a.slice().sort((x, y) => x - y).slice(0, 3).reduce((s, v) => s + v, 0) / 3;
+  expect(Math.abs(m3(r.xs[0]) - m3(r.xs[1]))).toBeGreaterThan(10);
+  expect(errors).toEqual([]);
+});
+
+test('charts2-17: a beeswarm\'s whisker follows Error bars — SD, SEM or none — and starts at SD', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'PAO1,dpilA\n17.4,7.0\n12.8,4.2\n12.6,6.4\n12.0,7.9\n', 'twitch_wide.csv');
+  await modal(page).locator('#chart-kind').selectOption('beeswarm');
+  expect(await modal(page).locator('#chart-err').inputValue()).toBe('sd');
+  const whisk = () => page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el._chartKey = '';
+    const L = []; _chartDraw(el, { rect() {}, line(x1, y1, x2, y2, s, w) { if (x1 === x2 && w === 1.2) L.push(Math.abs(y2 - y1)); }, poly() {}, circle() {}, text() {} }); return L; });
+  await apply(page);
+  const sdW = await whisk();
+  expect(sdW.length).toBe(2);
+  await edit(page, 'A'); await modal(page).locator('#chart-err').selectOption('sem'); await apply(page);
+  const semW = await whisk();
+  semW.forEach((w, i) => expect(w / sdW[i]).toBeCloseTo(1 / 2, 2));          // n = 4: SEM = SD/2
+  await edit(page, 'A'); await modal(page).locator('#chart-err').selectOption('none'); await apply(page);
+  expect(await whisk()).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+// ── What a dropped table is guessed as ───────────────────────────────────────────
+test('charts2-07: a German tidy file (Stamm;Replikat;Biofilm, units row, decimal commas) is guessed as a bar per strain with SD, not lines across replicates', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'Stamm;Replikat;Biofilm\n;;A550\nPAO1;1;1,109\nPAO1;2;1,394\nPAO1;3;1,306\ndpilA;1;0,412\ndpilA;2;0,388\ndpilA;3;0,455\n', 'biofilm_EU.csv');
+  const d = await page.evaluate(() => ({ kind: gv('chart-kind'), x: document.getElementById('chart-xcol').selectedOptions[0].text, s: gv('chart-seriescol'), err: gv('chart-err'), pts: gc('chart-points'), y: gv('chart-ytitle') }));
+  expect(d).toEqual({ kind: 'bar', x: 'Stamm', s: '', err: 'sd', pts: true, y: 'Biofilm (A550)' });
+  // a replicate column with any header (1, 2, 3 in every group) counts replicates too
+  await modal(page).getByRole('button', { name: 'Cancel' }).click();
+  await drop(page, 'strain,Nr,value\nWT,1,5\nWT,2,6\nWT,3,7\nKO,1,2\nKO,2,3\nKO,3,2\n', 'nr.csv');
+  expect(await page.evaluate(() => gv('chart-kind'))).toBe('bar');
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES "wide table guessed as scatter": two columns of groups are guessed as Bar, Data layout › Columns, both ticked; x against y stays a scatter', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'Untreated,Phage-treated\n36.1,26.0\n38.5,27.9\n41.2,24.8\n35.9,28.1\n38.1,26.8\n', 'swim_wide.csv');
+  const d = await page.evaluate(() => ({ kind: gv('chart-kind'), layout: gv('chart-layout'), y: [...document.querySelectorAll('#chart-ycols input:checked')].map(i => i.parentElement.textContent.trim()), err: gv('chart-err') }));
+  expect(d).toEqual({ kind: 'bar', layout: 'columns', y: ['Untreated', 'Phage-treated'], err: 'sd' });
+  await modal(page).getByRole('button', { name: 'Cancel' }).click();
+  await drop(page, 'OD600,CFU\n0.1,1e7\n0.4,5e7\n0.2,2e7\n', 'od.csv');
+  expect(await page.evaluate(() => gv('chart-kind'))).toBe('scatter');
+  // switching a table to Columns ticks every numeric column, the former X too
+  await modal(page).locator('#chart-kind').selectOption('bar');
+  await modal(page).locator('#chart-layout').selectOption('columns');
+  expect(await page.evaluate(() => [...document.querySelectorAll('#chart-ycols input:checked')].map(i => i.parentElement.textContent.trim()))).toEqual(['OD600', 'CFU']);
+  expect(errors).toEqual([]);
+});
