@@ -98,13 +98,17 @@ const { step, expect, btn } = L;
     await it.locator('button', { hasText: '🔍 Auto-detect scale bar' }).click();
     await p.waitForTimeout(800);
     const det = p.locator('#sbdetect-modal');
-    if (await det.isVisible().catch(() => false)) {
-      await det.locator('.sbd-pick', { hasText: '200 nm' }).click();
-      return 'auto-detect found the bar';
-    }
-    const msg = await L.toasts(T);
-    expect(/No scale bar found/.test(msg), 'neither a dialog nor a message: ' + msg);
-    return 'auto-detect: "' + msg.slice(0, 70) + '…" (ISSUES.md: misses this bar)';
+    const found = await det.isVisible().catch(() => false);
+    const msg = found ? '' : await L.toasts(T);
+    expect(found, 'auto-detect should find the white 400-px bar in the black strip: ' + msg);
+    if (!found) return 'auto-detect: "' + msg.slice(0, 70) + '…"';
+    const said = (await det.textContent()).match(/([\d.]+) px/);
+    expect(said && Math.abs(+said[1] - 400) <= 0.5, 'bar length ' + (said && said[1]));
+    await det.locator('.sbd-pick', { hasText: '200 nm' }).click();
+    await p.waitForTimeout(300);
+    const um = await p.evaluate(() => images[0].umPerPx);
+    expect(Math.abs(um * 1000 - 0.5) / 0.5 < 0.01, 'nm/px ' + um * 1000);
+    return `auto-detect found the bar: ${said[1]} px = 200 nm → ${(um * 1000).toFixed(3)} nm/px`;
   });
 
   await step(T, 'TEM: ⚙ › 🔬 Calibrate from image → click both bar ends (snaps to 400 px) → 200 nm → Apply', async () => {

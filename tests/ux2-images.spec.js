@@ -249,3 +249,140 @@ test('newcomer2-20 recovering an autosave names the 16-bit panels that come back
   await expect(page.locator('#toast')).toContainText('confocal_GFP.tif');
   expect(errors).toEqual([]);
 });
+
+// ── Synthetic micrographs with burned-in scale bars ──────────────────────────────────
+// Drawn on a canvas with seeded noise and objects, so a bar sits on a textured field or
+// in an info strip as it does on a real one; fractional bar coordinates give anti-
+// aliased ends, as a bar burned in by a camera at a non-integer scale has.
+const MICRO = `window._micro = async (spec) => {
+  const { w, h, name } = spec;
+  let s = spec.seed || 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  x.fillStyle = spec.bg; x.fillRect(0, 0, w, h);
+  // objects: cells, virions, nuclei
+  for (let k = 0; k < (spec.blobs || 0); k++) { x.fillStyle = spec.blob; x.beginPath();
+    x.ellipse(rnd() * w, rnd() * h, 6 + rnd() * 40, 6 + rnd() * 30, rnd() * 3, 0, Math.PI * 2); x.fill(); }
+  // sensor noise
+  const id = x.getImageData(0, 0, w, h), d = id.data, amp = spec.noise || 0;
+  for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 2 * amp; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  x.putImageData(id, 0, 0);
+  if (spec.strip) { x.fillStyle = spec.strip.fill; x.fillRect(spec.strip.x || 0, spec.strip.y, spec.strip.w || w, spec.strip.h); }
+  if (spec.box) { x.fillStyle = spec.box.fill; x.fillRect(spec.box.x, spec.box.y, spec.box.w, spec.box.h); }
+  if (spec.bar) { x.fillStyle = spec.bar.fill; x.fillRect(spec.bar.x, spec.bar.y, spec.bar.w, spec.bar.h);
+    if (spec.bar.text) { x.font = (spec.bar.font || 28) + 'px sans-serif'; x.textAlign = 'center';
+      x.fillText(spec.bar.text, spec.bar.x + spec.bar.w / 2, spec.bar.y - 8); } }
+  const src = c.toDataURL('image/png');
+  await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, name, null, null); res(); }; img.src = src; });
+  render(); return images.length - 1; };`;
+
+test('phage2-01 Auto-detect finds standard burned-in bars, in or out of an info strip, white or black, with ends between pixels', async ({ page }) => {
+  // Old build (shrunk to 1000 px before searching): "No scale bar found" for the 250-px
+  // bar in a 2048-px TEM's black strip and the 400-px bar on a 1024-px TEM.
+  const errors = await loadApp(page);
+  await page.evaluate(MICRO);
+  const cases = [
+    { name: 'phiKBA3_UA_stain_0117.tif', w: 2048, h: 1536, bg: '#7d7d7d', blob: '#4a4a4a', blobs: 60, noise: 22,
+      strip: { fill: '#000', y: 1416, h: 120 }, bar: { fill: '#fff', x: 1730.4, y: 1488, w: 250, h: 13, text: '100 nm' }, want: 250 },
+    { name: 'tem_1024.tif', w: 1024, h: 1024, bg: '#808080', blob: '#555', blobs: 30, noise: 18,
+      strip: { fill: '#000', y: 954, h: 70 }, bar: { fill: '#efefef', x: 40, y: 985, w: 400, h: 9, text: '200 nm', font: 20 }, want: 400 },
+    { name: 'tem_1024_offgrid.tif', w: 1024, h: 1024, bg: '#808080', blob: '#555', blobs: 30, noise: 18,
+      strip: { fill: '#000', y: 954, h: 70 }, bar: { fill: '#fff', x: 40.5, y: 985, w: 400.3, h: 9 }, want: 400.3 },
+    { name: 'brightfield_40x.png', w: 1600, h: 1200, bg: '#d8d8d8', blob: '#8c8c8c', blobs: 80, noise: 14,
+      bar: { fill: '#000', x: 1220.3, y: 1130, w: 300.6, h: 10, text: '50 µm' }, want: 300.6 },
+    { name: 'GFP_63x.png', w: 1280, h: 1024, bg: '#0a0a0a', blob: '#2a9a2a', blobs: 50, noise: 10,
+      bar: { fill: '#fff', x: 1040.5, y: 980, w: 200, h: 8 }, want: 200 },
+    { name: 'he_section_box.png', w: 1400, h: 1050, bg: '#b0a0b0', blob: '#705070', blobs: 90, noise: 16,
+      box: { fill: '#fff', x: 1000, y: 900, w: 300, h: 110 }, bar: { fill: '#000', x: 1040.25, y: 975, w: 180, h: 6, text: '100 µm', font: 22 }, want: 180 },
+    { name: 'sem_whitestrip.png', w: 1360, h: 1024, bg: '#6a6a6a', blob: '#999', blobs: 40, noise: 25,
+      strip: { fill: '#fff', y: 960, h: 64 }, bar: { fill: '#000', x: 60.7, y: 990, w: 500, h: 10 }, want: 500 },
+  ];
+  const got = [];
+  for (const c of cases) {
+    const i = await page.evaluate(spec => _micro(spec), c);
+    const bar = await page.evaluate(k => _findBurnedBar(images[k].img), i);
+    got.push([c.name, bar && bar.px, bar && bar.bright]);
+    expect(bar, c.name).not.toBeNull();
+    expect(Math.abs(bar.px - c.want), `${c.name}: ${bar.px} px for ${c.want}`).toBeLessThanOrEqual(0.6);
+    expect(bar.bright, c.name).toBe(c.bar.fill !== '#000');
+  }
+  // no bar: a textured micrograph with cells and nothing burned in
+  const none = await page.evaluate(() => _micro({ name: 'nobar.png', w: 1200, h: 900, bg: '#c8c8c8', blob: '#707070', blobs: 120, noise: 20 }));
+  expect(await page.evaluate(k => _findBurnedBar(images[k].img), none)).toBeNull();
+  // through the UI on the phage TEM: ⚙ › 🔍 Auto-detect scale bar, 100 nm
+  const row = await openDrawer(page, 0);
+  await row.locator('button', { hasText: 'Auto-detect scale bar' }).click();
+  const dlg = page.locator('#sbdetect-modal');
+  await expect(dlg).toContainText('250 px');
+  await dlg.locator('.sbd-pick', { hasText: '100 nm' }).click();
+  expect(await page.evaluate(() => images[0].umPerPx)).toBeCloseTo(0.0004, 6);
+  expect(errors).toEqual([]);
+});
+
+// Right-click a panel on the canvas, as a person does.
+async function rightClickPanel(page, i) {
+  await page.evaluate((i) => { render(); const b = panelBounds.find(p => p.idx === i);
+    const c = document.getElementById('ann-canvas'), r = c.getBoundingClientRect();
+    const k = r.width / canvasLogicalW;
+    c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + (b.x + b.w / 2) * k, clientY: r.top + (b.y + b.h / 2) * k })); }, i);
+}
+
+test('newcomer2-01 a scale bar on an uncalibrated micrograph: ⌘K "add scale bar" and the right-click menu lead to the calibration', async ({ page }) => {
+  // Old build: ⌘K "add scale bar" jumped to Look › Bar height ("length is per panel"),
+  // the right-click menu had no scale-bar item, and Help still pointed at a "⚠ calibrate"
+  // badge uncalibrated panels no longer show.
+  const errors = await loadApp(page);
+  await page.evaluate(MICRO);
+  await page.evaluate(async () => { await _micro({ name: 'tile_scan.jpg', w: 600, h: 400, bg: '#d0d0d0', blob: '#888', blobs: 30, noise: 10 });
+    await _micro({ name: 'blot.png', w: 300, h: 120, bg: '#fff' }); });
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.locator('#cmdp-input').fill('add scale bar');
+  await page.keyboard.press('Enter');
+  const row = rowOf(page, 0);
+  await expect(row.locator('.img-settings')).toHaveClass(/open/);
+  await expect(row.locator('.f-obj')).toBeFocused();
+  await expect(page.locator('#toast')).toContainText('has no calibration yet');
+  await row.locator('.f-obj').selectOption({ index: 3 });
+  let r = await page.evaluate(() => { render(); return { um: images[0].umPerPx > 0, on: images[0].sbOn, drawn: _scaleBarDrawn(images[0]) }; });
+  expect(r).toEqual({ um: true, on: true, drawn: true });
+  // the right-click menu names it too
+  await rightClickPanel(page, 1);
+  await expect(page.locator('#panel-ctx-menu')).toContainText('Scale bar / calibrate…');
+  await page.locator('#panel-ctx-menu').getByText('Scale bar / calibrate…').click();
+  await expect(rowOf(page, 1).locator('.f-obj')).toBeFocused();
+  // Help no longer sends people to a badge that is not there
+  const help = await page.evaluate(() => document.body.innerHTML.includes("badge under a panel's name opens it"));
+  expect(help).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES fluorescence: ≡ Same bar on all calibrated keeps the length just typed in a panel’s ⚙; a new inset gets a bar that fits; fluor2-09 the inset picker says the ppi', async ({ page }) => {
+  // Old build: the button gave every panel the median 10 µm, overwriting the 20 µm just
+  // typed in A's ⚙ (only a click on A made it count); an inset inherited 20 µm on a
+  // 13 µm field and drew no bar; the inset picker said nothing about resolution.
+  const errors = await loadApp(page);
+  const f = () => field(512, 512, 200, 3000, 4000);
+  await drop(page, [[tiff16([f()], { w: 512, h: 512, desc: IJ(), umPerPx: 0.1 }), 'a_GFP.tif'],
+    [tiff16([f()], { w: 512, h: 512, desc: IJ(), umPerPx: 0.1 }), 'b_GFP.tif']]);
+  const row = await openDrawer(page, 0);
+  await row.locator('.f-sbum').fill('20');
+  await row.locator('.f-sbum').dispatchEvent('input');
+  await row.locator('[data-gear]').click();             // close ⚙ again
+  await page.evaluate(() => { selectedPanel = -1; document.querySelector('button[onclick="uniformScaleBars()"]').click(); });
+  await expect(page.locator('#toast')).toContainText('the length typed last');
+  expect(await page.evaluate(() => images.map(im => _sbLabel(im)))).toEqual(['20 µm', '20 µm']);
+  // an inset of A from its right-click menu: a 100-px region of a 51 µm field
+  await rightClickPanel(page, 0);
+  await page.locator('#panel-ctx-menu div', { hasText: 'Add linked inset' }).click();
+  await expect(page.locator('#crop-modal')).toHaveClass(/open/);
+  await page.evaluate(() => { Object.assign(cropEdState, { cx: 0.2, cy: 0.2, cw: 100 / 512, ch: 100 / 512, hasBox: true }); drawCropEd(); });
+  const vals = await page.locator('#crop-ed-vals').textContent();
+  expect(vals).toMatch(/region 100×100 px, prints at about \d+ ppi/);
+  expect(vals).toContain('draw a region at least');
+  await page.evaluate(() => applyCropModal());
+  const r = await page.evaluate(() => { render(); const ins = images[1]; return { of: ins.insetOf === images[0].id, drawn: _scaleBarDrawn(ins), um: ins.sbUm }; });
+  expect(r.of).toBe(true);
+  expect(r.drawn).toBe(true);
+  expect(r.um).toBeLessThan(10);
+  expect(errors).toEqual([]);
+});

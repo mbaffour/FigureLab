@@ -970,7 +970,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     </div>
 
     <div class="divider"></div>
-    <div class="sec-lbl">Scale bar appearance (all panels) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="These control only how the bar LOOKS. A bar appears once a panel has a µm/px calibration: open that panel's ⚙ and press Calibrate, or click the ⚠ calibrate badge beside its name. The bar's length is per panel, in the same place.">?</span></div>
+    <div class="sec-lbl">Scale bar appearance (all panels) <span class="help-chip" tabindex="0" role="button" aria-label="About scale bars" data-tip="These control only how the bar LOOKS. A bar appears once a panel has a µm/px calibration: right-click the panel › Scale bar / calibrate… (or ⌘K “add scale bar”), then pick its Objective, 🔬 Calibrate from image or 🔍 Auto-detect. The bar's length is per panel, in its ⚙ › Scale bar.">?</span></div>
     <div class="field"><label>Bar height (px)</label>
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
@@ -2010,7 +2010,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <li>Open <span class="help-ui">figure_lab.html</span> in your browser (Chrome or Firefox recommended).</li>
   <li>Drag images onto the drop zone — or click it to browse and pick files.</li>
   <li>Set your grid: choose the number of <b>rows</b> and <b>columns</b> in the Arrange section.</li>
-  <li>Adjust panel labels (A/B/C) in Look, and calibrate the panels that need a scale bar (the <span class="help-ui">⚠ calibrate</span> badge under a panel's name opens it).</li>
+  <li>Adjust panel labels (A/B/C) in Look, and give each micrograph a scale bar: right-click it › <span class="help-ui">📏 Scale bar / calibrate…</span> (or ⌘K “add scale bar”), then pick its <span class="help-ui">Objective</span>, or <span class="help-ui">🔬 Calibrate from image</span> and click both ends of something of known length. A Fiji or OME-TIFF arrives calibrated, with its bar on; photos, blots and charts need none.</li>
   <li>Press <kbd>R</kbd> (or click <span class="help-ui">⟳ Render</span>) to preview the figure.</li>
   <li>Set a file name and the DPI your journal asks for, then export with the <span class="help-ui">↓ PNG / PDF / TIFF / SVG</span> buttons above the figure. Can't find a control? Press <kbd>⌘K</kbd> / <kbd>Ctrl+K</kbd> and type what you want to do (“span two rows”, “change font”).</li>
 </ol>
@@ -4826,6 +4826,7 @@ const CMD_REGISTRY=[
   {label:'Printed width (journal column width)', keys:'width mm column single double journal printed physical size 183 89 page', run:()=>_cmdpGoto('export-width-mm','Pick your journal column width')},
   // Scale bar — the palette had no way to add or calibrate one.
   {label:'Calibrate a panel (µm per pixel)', keys:'calibrate scale bar micron um µm microns per pixel calibration size real world', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean); if(i>=0) openCalib(i); else toast('Add an image first','warn'); }},
+  {label:'Scale bar: add one to a micrograph (calibrate it)…', keys:'add scale bar put insert show micrograph calibrate calibration objective magnification lens uncalibrated micron µm um per pixel jpeg png tile scan', run:()=>addScaleBarTo()},
   {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar text label font thickness', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
   // Panel letters — every obvious phrasing returned nothing.
   {label:'Labels: panel letters A, B, C', keys:'label labels letter a b c panel letters lettering caption tag name abc numbering', run:()=>_cmdpGoto('show-labels','Show, then size, colour and position below')},
@@ -5129,6 +5130,31 @@ function _cmdpGoto(id, note){
   if(note) toast(note,'ok');
 }
 
+// Put a scale bar on a panel: what "add scale bar" means to someone with a micrograph.
+// A calibrated panel gets its bar switched on (one undo step) and the cursor in Bar
+// length; an uncalibrated one opens its ⚙ at the Scale bar block with Objective in focus
+// and a toast naming the three ways to calibrate. Until now ⌘K "add scale bar" jumped
+// to Look › Bar height and nothing said the panel needed a calibration (newcomer2-01).
+// idx: the panel; else the selected one; else the first uncalibrated picture.
+function addScaleBarTo(idx){
+  const ok=i=>i>=0&&images[i]&&!_isDataPanel(images[i]);
+  if(!ok(idx)) idx=ok(selectedPanel)?selectedPanel:images.findIndex((im,i)=>ok(i)&&!(im.umPerPx>0)&&!im.excluded);
+  if(!ok(idx)) idx=images.findIndex((im,i)=>ok(i));
+  if(!ok(idx)){ toast(images.some(Boolean)?'Charts and gene maps have no scale bar — add a micrograph first':'Add an image first','warn'); return; }
+  if(layoutMode==='freeform'){ toast('In freeform, select the image and use Props › Scale bar','warn'); return; }
+  const im=images[idx], lbl=_rtText(formatLabel(im.label))||String(idx+1);
+  if(im.umPerPx>0&&!im.sbOn){ pushUndo(); im.sbOn=true; if(!_sbFits(im)) _fitScaleBar(im); scheduleRender(0); }
+  renderImgList();
+  const d=document.getElementById('settings-'+idx);
+  if(!d){ toast('Open the panel’s ⚙ settings › Scale bar','warn'); return; }
+  d.classList.add('open');
+  const el=d.querySelector(im.umPerPx>0?'.f-sbum':'.f-obj');
+  if(el){ try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ el.scrollIntoView(); }catch(e2){} }
+    setTimeout(()=>{ try{ el.focus({preventScroll:true}); }catch(e){} }, 60);
+    el.classList.add('cmdp-flash'); setTimeout(()=>el.classList.remove('cmdp-flash'),1400); }
+  if(im.umPerPx>0) toast(`Panel ${lbl}: scale bar on, ${_sbLabel(im)} — type another length in Bar length`,'ok');
+  else toast(`Panel ${lbl} has no calibration yet, so no bar can be drawn. Pick its Objective, or 🔬 Calibrate from image (click both ends of something of known length), or 🔍 Auto-detect a bar burned into the image`,'info');
+}
 // Both halves of a merge live at the bottom of a 1400 px per-panel drawer, past fifty
 // other controls and 875 px below the fold even once the drawer is open. The palette
 // opens the right panel's drawer and scrolls the control into view.
@@ -6334,7 +6360,7 @@ function renderImgList(){
       item.querySelector('.f-obj').value=''; scheduleRender();
     });
     item.querySelector('.f-umppx').addEventListener('change', ()=>{ if(images[idx].umPerPx>0){ _calDone(); scheduleRender(); } });
-    item.querySelector('.f-sbum').addEventListener('input', e=>{ const im=images[idx]; const u=im.sbUnit||'µm'; im.sbUnit=u; im.sbUm=(parseFloat(e.target.value)||0)*_sbUnitFactor(u); scheduleRender(); });
+    item.querySelector('.f-sbum').addEventListener('input', e=>{ const im=images[idx]; const u=im.sbUnit||'µm'; im.sbUnit=u; im.sbUm=(parseFloat(e.target.value)||0)*_sbUnitFactor(u); _sbLastTyped=im.id; scheduleRender(); });
     { const us=item.querySelector('.f-sbunit'); if(us) us.addEventListener('change', e=>{ const im=images[idx]; im.sbUnit=e.target.value; const inp=item.querySelector('.f-sbum'); if(inp) inp.value=+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit)*1000)/1000); scheduleRender(); }); }
 
     // Crop
@@ -6821,10 +6847,16 @@ function matchScalePhysical(){
 // length near a fifth of the median field. A panel on which that length could not be
 // drawn sensibly (a 43 µm-wide inset given a 40 µm bar) gets its own fitted length and
 // is named; it used to lose its bar without a word.
+// The panel whose ⚙ › Bar length was typed in last (by id): with no panel selected,
+// ≡ Same bar on all calibrated takes its length. Typing 20 µm in a panel's ⚙ does not
+// select it, and the button used to overwrite those 20 µm with a median 10 µm.
+var _sbLastTyped=null;
 function uniformScaleBars(){
   const cal=images.filter(im=>im&&im.img&&im.umPerPx>0&&!im.excluded);
   if(cal.length<2){ toast('Need two or more calibrated panels (set µm/px first)','warn'); return; }
-  const sel=(selectedPanel>=0&&images[selectedPanel]&&images[selectedPanel].umPerPx>0&&images[selectedPanel].sbUm>0)?images[selectedPanel]:null;
+  const usable=im=>im&&im.umPerPx>0&&im.sbUm>0&&!im.excluded;
+  const typed=_sbLastTyped!=null?images.find(im=>im&&im.id===_sbLastTyped):null;
+  const sel=(selectedPanel>=0&&usable(images[selectedPanel]))?images[selectedPanel]:(usable(typed)?typed:null);
   let um;
   if(sel) um=sel.sbUm;
   else {
@@ -6841,7 +6873,7 @@ function uniformScaleBars(){
   renderImgList(); scheduleRender(0);
   const lab={sbUm:um, sbUnit:(sel&&sel.sbUnit)||_sbUnitFor(um)};
   logAction('uniformScaleBars',{panels:cal.length,um,from:sel?formatLabel(sel.label):'median',own:own.join(', ')});
-  toast(`Scale bar ${_sbLabel(lab)} on ${cal.length-own.length} calibrated panel${cal.length-own.length!==1?'s':''}${sel?` (from ${_rtText(formatLabel(sel.label))})`:''}`
+  toast(`Scale bar ${_sbLabel(lab)} on ${cal.length-own.length} calibrated panel${cal.length-own.length!==1?'s':''}${sel?` (from ${_rtText(formatLabel(sel.label))}${sel===typed&&!(selectedPanel>=0&&images[selectedPanel]===sel)?', the length typed last':''})`:' (no panel selected: about a fifth of the median field)'}`
     +(own.length?` · too long or short for ${own.length}, which got their own: ${own.join(', ')} — state both lengths in the legend`:''),own.length?'warn':'ok');
 }
 
@@ -12442,8 +12474,9 @@ function drawCropEd(){
   const over=tilted&&q.some(([x,y])=>x<-0.5||y<-0.5||x>W+0.5||y>H+0.5);
   const warn=over?' · ⚠ extends past the image':'';
   const el=document.getElementById('crop-ed-vals');
-  el.textContent=`T:${T}% L:${L}% B:${B}% R:${R}%${angTxt}${extra}${warn}`;
-  el.style.color=over?'var(--warn)':'';
+  const ip=_insetPpiNote();
+  el.textContent=`T:${T}% L:${L}% B:${B}% R:${R}%${angTxt}${extra}${warn}${ip?ip.txt:''}`;
+  el.style.color=(over||(ip&&ip.low))?'var(--warn)':'';
   const ai=document.getElementById('crop-angle');
   if(ai && document.activeElement!==ai) ai.value=(+cropEdState.ang||0).toFixed(1);
   _syncCropAngleNote();
@@ -12453,6 +12486,21 @@ function drawCropEd(){
   if(cropEdState.batch) _batchSyncSize();
 }
 
+// While an inset's region is drawn: how many source pixels it holds and the ppi it
+// will print at in a cell the size of its panel's, live — a 256-px region printed at
+// 200 ppi at eLife width, which the export dialog then flagged (fluor2-09).
+function _insetPpiNote(){
+  try{
+    const s=cropEdState; if(!s||s._insetOf==null||!s.hasBox&&s.cw>0.97) return null;
+    const pi=s._insetOfId!=null?_pidx(s._insetOfId):s._insetOf, p=images[pi]; if(!p) return null;
+    const b=panelBounds.find(q=>q.idx===pi); if(!b) return null;
+    const g=_cropGeom(p), rw=s.cw*g.sw, rh=s.ch*g.sh; if(!(rw>=1&&rh>=1)) return null;
+    const fit=_panelFitScale(rw, rh, 0, b.w/Math.max(1,p.colSpan||1), b.h/Math.max(1,p.rowSpan||1)); if(!(fit>0)) return null;
+    const ppi=1/(fit*_inchPerLogicalPx(getExportDPI())), low=ppi<PANEL_MIN_PPI;
+    return {low, ppi, txt:` · region ${Math.round(rw)}×${Math.round(rh)} px, prints at about ${Math.round(ppi)} ppi in a cell like its panel's`
+      +(low?` — under ${PANEL_MIN_PPI}: draw a region at least ${Math.ceil(rw*PANEL_MIN_PPI/ppi)} px wide`:'')};
+  }catch(e){ return null; }
+}
 // ── Loupe ─────────────────────────────────────────────────────
 // The editor draws a ≤520 px thumbnail of an image that may be 4000 px wide, so a
 // crop edge placed "on" a cell wall is in truth placed within ±4 source pixels of it.
@@ -16684,6 +16732,7 @@ function showPanelMenu(idx, cx, cy){
       row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
       if(im.insetOf!=null) row('⧉  Edit inset region…', ()=>{ const idx=here(); if(idx<0) return; pickInsetRegion(idx); });
       else row('⧉  Add linked inset…', ()=>{ const idx=here(); if(idx<0) return; selectedPanel=idx; pickInsetRegion(); });
+      row(im.umPerPx>0?'📏  Scale bar…':'📏  Scale bar / calibrate…', ()=>{ const idx=here(); if(idx<0) return; addScaleBarTo(idx); });
     }
     row('⚙  Open settings', ()=>{
       const idx=here(); if(idx<0) return;
@@ -18928,6 +18977,9 @@ function addLinkedInset(fx,fy,fw,fh){
   inset.panelAnns=[];
   _syncInsetFromParent(inset);
   inset.excluded=false;
+  // Its own bar: the parent's 20 µm on a 13 µm inset field was switched on and drew
+  // nothing. A length that does not fit the inset's field gets a round one that does.
+  if(inset.umPerPx>0&&inset.sbOn&&!_sbFits(inset)) _fitScaleBar(inset);
   // Next to its panel: inserted right after it. It used to go to the end of the list
   // (after any hidden source files), so a figure of three merges got its three insets in
   // a row of their own; now three insets and one more column give each row its zoom.
@@ -33276,57 +33328,97 @@ function initAIQuickPrompts(){
 // ═══════════════════════════════════════════════════════════════
 // AUTO SCALE BAR DETECTION
 // ═══════════════════════════════════════════════════════════════
-// Find a burned-in scale bar: a bright (or dark) run that stands out from the pixels on
-// both sides of it, in the bottom third of the image, at least two rows thick and
-// shorter than 90 % of the width — the info strip a TEM writes under the image is a
-// full-width dark band, not a bar. The run is measured again on the full-resolution
-// row, and the dialog asks what length it is, in nm, µm or mm or typed.
-// (It used to throw "refV is not defined" before showing anything, and offered µm only.)
+// Find a burned-in scale bar: a solid bright or dark bar that stands out from what is
+// around it, in the bottom 45 % of the image — white on a black microscope info strip,
+// black on a white strip, or either straight on the picture. Rows are read at full
+// resolution (up to 4096 px wide); in each row a bar is a run of pixels far from the
+// row's median, of one even value, at least 2 % and under 90 % of the width (the strip
+// itself is a full-width band, not a bar). Runs that line up over two or more rows make
+// a candidate box, which must be thin (no taller than 30 % of its length) and have
+// something else directly above and below it, so the top edge of a white label box or a
+// band of the picture is not taken for a bar. The longest wins. Its length is then
+// measured on the full-resolution rows inside it with the anti-aliased end pixels counted
+// in proportion, so a bar whose ends fall between pixels measures what it was drawn at.
+// The detector used to work on a copy shrunk to 1000 px, where a bar end on a partly
+// covered pixel broke the run and failed its contrast test: it missed a clean 250-px
+// white bar in a black TEM strip and a 400-px bar on a 1024-px TEM (phage2-01).
+// (Before that it threw "refV is not defined" before showing anything.)
 function _findBurnedBar(img){
   const W0=img.naturalWidth||img.width, H0=img.naturalHeight||img.height;
-  const sc=Math.min(1,1000/W0);
-  const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(W0*sc)); c.height=Math.max(1,Math.round(H0*sc));
-  const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(img,0,0,c.width,c.height);
-  const W=c.width, H=c.height, d=ctx.getImageData(0,0,W,H).data;
-  const L=(x,y)=>{ const k=(y*W+x)*4; return (d[k]+d[k+1]+d[k+2])/3; };
-  // A bar is the odd one out in its row (white on a dark strip, black on a light
-  // image): its value is far from the row's median, which rules out the background
-  // runs between a bar and its label.
-  const runsOf=y=>{ const out=[]; let x0=0, ref=L(0,y);
-    const row=[]; for(let x=0;x<W;x+=Math.max(1,W>>7)) row.push(L(x,y)); row.sort((a,b)=>a-b);
-    const med=row[row.length>>1];
-    for(let x=1;x<=W;x++){ const v=x<W?L(x,y):-999;
-      if(x<W&&Math.abs(v-ref)<30) continue;
-      if(x-x0>=Math.max(4,W*0.02)&&x-x0<W*0.9&&Math.abs(ref-med)>=60){
-        const left=x0>0?L(x0-1,y):null, right=x<W?L(x,y):null;
-        const cl=left==null?0:Math.abs(ref-left), cr=right==null?0:Math.abs(ref-right);
-        if(Math.min(left==null?cr:cl, right==null?cl:cr)>=60) out.push({x0, x1:x, v:ref, y});
-      }
-      x0=x; ref=x<W?v:0; }
+  if(!(W0>8&&H0>8)) return null;
+  const sc=Math.min(1,4096/W0);
+  const W=Math.max(1,Math.round(W0*sc)), H=Math.max(1,Math.round(H0*sc));
+  const y0=Math.floor(H*0.55), RH=H-y0;
+  const c=document.createElement('canvas'); c.width=W; c.height=RH;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,0,y0/sc,W0,RH/sc,0,0,W,RH);
+  const d=ctx.getImageData(0,0,W,RH).data;
+  const G=new Float32Array(W*RH); for(let i=0,k=0;i<G.length;i++,k+=4) G[i]=(d[k]+d[k+1]+d[k+2])/3;
+  const T=50, minLen=Math.max(8,Math.round(W*0.02)), maxLen=W*0.9;
+  const medOf=y=>{ const row=[]; const st=Math.max(1,W>>8); for(let x=0;x<W;x+=st) row.push(G[y*W+x]); row.sort((p,q)=>p-q); return row[row.length>>1]; };
+  const meds=new Float32Array(RH); for(let y=0;y<RH;y++) meds[y]=medOf(y);
+  // runs of one row: [{x0,x1,v,sign}] — x1 exclusive
+  const runsOf=y=>{ const out=[], med=meds[y], o=y*W; let x=0;
+    while(x<W){ const v=G[o+x], dv=v-med;
+      if(Math.abs(dv)<T){ x++; continue; }
+      const sg=dv>0?1:-1; let x1=x, lo=v, hi=v, sum=0;
+      while(x1<W){ const w=G[o+x1]; if((w-med)*sg<T) break; if(Math.abs(w-v)>Math.max(40,Math.abs(dv)*0.45)) break; lo=Math.min(lo,w); hi=Math.max(hi,w); sum+=w; x1++; }
+      if(x1===x) x1=x+1;
+      const len=x1-x;
+      if(len>=minLen&&len<maxLen) out.push({x0:x, x1, v:sum/len, sign:sg});
+      x=x1; }
     return out; };
-  let best=null;
-  for(let y=Math.floor(H*0.66);y<H-1;y++){
-    for(const r of runsOf(y)){
-      // the same run one row down (a bar has thickness; a single bright row is noise)
-      const nb=runsOf(y+1).find(q=>Math.abs(q.x0-r.x0)<=2&&Math.abs(q.x1-r.x1)<=2&&Math.abs(q.v-r.v)<30);
-      if(!nb) continue;
-      if(!best||(r.x1-r.x0)>(best.x1-best.x0)) best=r;
-    }
+  // runs that line up row after row become boxes
+  const done=[]; let open=[];
+  for(let y=0;y<=RH;y++){
+    const rs=y<RH?runsOf(y):[]; const next=[];
+    rs.forEach(r=>{ const k=open.findIndex(b=>b.sign===r.sign&&Math.abs(b.x0-r.x0)<=2&&Math.abs(b.x1-r.x1)<=2&&Math.abs(b.v-r.v)<40);
+      if(k>=0){ const b=open.splice(k,1)[0]; b.y1=y+1; b.rows.push(r); b.x0=r.x0; b.x1=r.x1; b.v=r.v; next.push(b); }
+      else next.push({x0:r.x0, x1:r.x1, v:r.v, sign:r.sign, y0:y, y1:y+1, rows:[r]}); });
+    done.push(...open); open=next;
   }
+  const minH=sc<0.75?1:2;
+  // the rows just above and below a bar are not the bar: most of their pixels over its
+  // span are far from its value
+  const unlike=(y,x0,x1,v)=>{ if(y<0||y>=RH) return y>=RH; let n=0, m=0; for(let x=x0;x<x1;x++){ m++; if(Math.abs(G[y*W+x]-v)>=T*0.6) n++; } return m>0&&n/m>=0.75; };
+  let best=null;
+  done.forEach(b=>{
+    const h=b.y1-b.y0, len=Math.min(...b.rows.map(r=>r.x1-r.x0));
+    if(h<minH||h>Math.max(3,len*0.3)) return;
+    const xa=Math.max(...b.rows.map(r=>r.x0)), xb=Math.min(...b.rows.map(r=>r.x1));
+    if(xb-xa<minLen) return;
+    if(!unlike(b.y0-1,xa,xb,b.v)||!unlike(b.y1,xa,xb,b.v)) return;
+    if(!best||len>best.len||(len===best.len&&b.y0>best.y0)) best={...b, len, xa, xb};
+  });
   if(!best) return null;
-  // Measure the run again on the full-resolution row.
-  const yF=Math.min(H0-1,Math.round((best.y+0.5)/sc)), x0F=Math.max(0,Math.floor(best.x0/sc)-4), x1F=Math.min(W0,Math.ceil(best.x1/sc)+4);
-  const rc=document.createElement('canvas'); rc.width=x1F-x0F; rc.height=1;
-  const rx=rc.getContext('2d',{willReadFrequently:true}); rx.drawImage(img,x0F,yF,x1F-x0F,1,0,0,x1F-x0F,1);
-  const rd=rx.getImageData(0,0,x1F-x0F,1).data, at=i=>(rd[i*4]+rd[i*4+1]+rd[i*4+2])/3;
-  const mid=Math.round((best.x0+best.x1)/2/sc)-x0F, ref=at(Math.max(0,Math.min(x1F-x0F-1,mid)));
-  let a=mid, b=mid; while(a>0&&Math.abs(at(a-1)-ref)<30) a--; while(b<x1F-x0F-1&&Math.abs(at(b+1)-ref)<30) b++;
-  return {px:b-a+1, x:x0F+a, y:yF, bright:ref>127};
+  // Measure on the full-resolution rows inside the box (its edge rows left out when it
+  // is thick enough), the end pixels counted by how far they are from bar to background.
+  const fy0=Math.ceil((y0+best.y0)/sc), fy1=Math.floor((y0+best.y1)/sc);
+  const ya=fy1-fy0>2?fy0+1:fy0, yb=fy1-fy0>2?fy1-1:Math.max(fy0+1,fy1);
+  const fx0=Math.max(0,Math.floor(best.xa/sc)-8), fx1=Math.min(W0,Math.ceil(best.xb/sc)+8);
+  const rc=document.createElement('canvas'); rc.width=fx1-fx0; rc.height=Math.max(1,yb-ya);
+  const rx=rc.getContext('2d',{willReadFrequently:true}); rx.drawImage(img,fx0,ya,fx1-fx0,rc.height,0,0,fx1-fx0,rc.height);
+  const rd=rx.getImageData(0,0,rc.width,rc.height).data, RW=rc.width;
+  const at=(x,y)=>{ const k=(y*RW+x)*4; return (rd[k]+rd[k+1]+rd[k+2])/3; };
+  const lens=[], starts=[];
+  for(let y=0;y<rc.height;y++){
+    const mid=Math.round(((best.xa+best.xb)/2)/sc)-fx0, B=at(Math.max(0,Math.min(RW-1,mid)),y);
+    let a=mid, z=mid; while(a>0&&Math.abs(at(a-1,y)-B)<T) a--; while(z<RW-1&&Math.abs(at(z+1,y)-B)<T) z++;
+    // a in-between pixel next to each end: the share of it the bar covers
+    const part=(x,bg)=>{ if(x<0||x>=RW) return 0; const v=at(x,y); return Math.max(0,Math.min(1,(v-bg)/((B-bg)||1))); };
+    const bgL=a-2>=0?at(a-2,y):(z+2<RW?at(z+2,y):B), bgR=z+2<RW?at(z+2,y):bgL;
+    const fl=part(a-1,bgL), fr=part(z+1,bgR);
+    // the "solid" end pixels themselves may be partly covered too
+    const el=Math.max(0,Math.min(1,(at(a,y)-bgL)/((B-bgL)||1))), er=Math.max(0,Math.min(1,(at(z,y)-bgR)/((B-bgR)||1)));
+    lens.push((z-a-1)+el+er+fl+fr); starts.push(fx0+a-fl);
+  }
+  lens.sort((p,q)=>p-q); const px=lens[lens.length>>1];
+  return {px:Math.round(px*10)/10, x:Math.round(starts[0]), y:Math.round((ya+yb)/2), bright:best.sign>0};
 }
 function autoDetectScaleBar(imgIdx){
   const im=images[imgIdx]; if(!im||!im.img) return;
   const bar=_findBurnedBar(im.img);
-  if(!bar){ toast('No scale bar found in the bottom third of the image — use 🔬 Calibrate from image and click its ends','warn'); return; }
+  if(!bar){ toast('No scale bar found in the bottom half of the image (a solid bar, lighter or darker than what is around it) — use 🔬 Calibrate from image and click its ends, or Objective if you know the lens','warn'); return; }
   const pid=_pidOf(imgIdx);
   const pick=[['nm',[10,20,50,100,200,500]],['µm',[1,2,5,10,20,50,100,200,500]],['mm',[1,2,5,10]]];
   const btns=pick.map(([u,vals])=>`<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:4px"><span style="font-size:10px;color:var(--muted);width:24px">${u}</span>`
@@ -33336,7 +33428,7 @@ function autoDetectScaleBar(imgIdx){
   modal.innerHTML=`<div class="modal" style="max-width:460px;padding:22px">
     <div style="font-weight:600;margin-bottom:10px">Scale bar found</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
-      A ${bar.bright?'bright':'dark'} bar <b>${bar.px} px</b> long (measured on the full-resolution image, row ${bar.y}).<br>
+      A ${bar.bright?'bright':'dark'} bar <b>${+bar.px.toFixed(1)} px</b> long (measured on the full-resolution image, row ${bar.y}).<br>
       What length does it show?
     </div>
     ${btns}
@@ -33358,9 +33450,11 @@ function autoDetectScaleBar(imgIdx){
 function applyScaleDetect(imgIdx,barPx,um){
   const im=images[imgIdx]; if(!im){ toast(_PANEL_GONE,'warn'); return; }
   pushUndo();
-  im.umPerPx=+(um/barPx).toPrecision(6); im.sbUm=um; im.sbUnit=_sbUnitFor(um); im.sbOn=true;
-  // the burned-in bar's own length, unless it is too long or short to redraw on the crop
-  if(!_sbFits(im)) _fitScaleBar(im);
+  im.umPerPx=+(um/barPx).toPrecision(6);
+  // The same bar as 🔬 Calibrate from image gives for the same calibration (a length the
+  // author chose that fits is kept, else about a fifth of the field), so the two ways of
+  // calibrating one image cannot give two different figures.
+  _afterCalibration(im);
   logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx});
   renderImgList(); scheduleRender(0);
   toast(`Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)})}) · scale bar ${_sbLabel(im)}`,'ok');

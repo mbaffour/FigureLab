@@ -99,7 +99,7 @@ test('newcomer-12 / freeform-01 / freeform-15: plain phrases with leading verbs 
       'align': /^Align selected objects/, 'reorder': /reorder panels/, 'swap panels': /reorder panels/,
       'lowercase labels': /^Letter style/, 'scale bar text': /^Scale bar length and style/, 'font family': /^Font \(typeface\)/,
       'lock': /^Lock \/ unlock/, 'front': /to front/, 'background colour': /Background — Color/, 'margin': /^Margins/,
-      'how do i add a scale bar': /^Scale bar length and style/,
+      'how do i add a scale bar': /^Scale bar: add one to a micrograph/,   // ux2 newcomer2-01: to the calibration, not Look › Bar height
     };
     const out = [];
     for (const [q, re] of Object.entries(want)) {
