@@ -542,7 +542,8 @@ test('F16: a freeform figure is checked as drawn, and grid-panel rows say they d
   const by = l => c.find(x => x.label === l);
   expect(by('Red/green').icon).toBe('✓');
   expect(by('Panel labels').icon).toBe('ℹ');
-  expect(by('Panel labels').text).toMatch(/Does not apply in freeform layout/);
+  // usability round 3: the label rows read freeform objects (freeform2-09); an empty canvas has none to letter
+  expect(by('Panel labels').text).toMatch(/Does not apply — the figure has no pictures/);
   expect(by('Scale-bar calibration').icon).toBe('ℹ');
   // nothing about the grid's panels fails or warns (width and font are the freeform figure's own)
   const GRID = ['Red/green', 'Panel labels', 'Panel labels unique', 'Scale-bar calibration', 'Scale bar drawn', 'Display ranges by channel', 'Min panel size', 'Adjustment sanity'];

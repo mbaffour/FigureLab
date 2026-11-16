@@ -6099,7 +6099,7 @@ function _afterCalibration(im){
 // chart screenshot or a gene map has no µm/px and needs no bar; the badge, the export
 // warning and the compliance row all offer this beside "Calibrate".
 function scaleBarsOffUncalibrated(){
-  const list=(layoutMode==='freeform'?[]:images).filter(im=>im&&im.sbOn&&!(im.umPerPx>0));
+  const list=(layoutMode==='freeform'?freeformElements.filter(e=>e&&(e.type==='image'||e.type==='aiicon')):images).filter(im=>im&&im.sbOn&&!(im.umPerPx>0));
   if(!list.length){ toast('Every panel with a scale bar switched on is calibrated','ok'); return 0; }
   pushUndo();
   list.forEach(im=>{ im.sbOn=false; im._sbSkip=null; });
@@ -14954,22 +14954,28 @@ function _checkCompliance(asJ){
   const labelPt=Math.max(1,gf('label-size')||8)*_pf.ptPerPx;
   const bg=gv('bg-color');
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
-  // In freeform the grid's panels are not drawn, so no row judges them.
+  // In freeform the grid's panels are not drawn: the rows read the freeform pictures (and,
+  // for letters, charts and gene maps) instead. Eight rows said "Does not apply in freeform"
+  // on a lettered six-panel figure with calibrated pictures (freeform2-09).
   const _shownPanels=_ff?[]:_figurePanels();
-  const panelsWithImages=_shownPanels.length;
-  const panelsWithLabels=_shownPanels.filter(im=>im.label).length;
+  const _ffPics=_ff?freeformElements.filter(e=>e&&!e.hidden&&(e.type==='image'||e.type==='aiicon')):[];
+  const _P=_ff?_ffPics:_shownPanels;                 // the pictures the figure shows
+  const _lblOf=o=>(o.type==='chart'||o.type==='genemap')&&_ff?o.letter:o.label;
+  const _lblObjs=_ff?freeformElements.filter(e=>e&&!e.hidden&&['image','aiicon','chart','genemap'].includes(e.type)):_shownPanels;
+  const panelsWithImages=_lblObjs.length;
+  const panelsWithLabels=_lblObjs.filter(im=>_lblOf(im)).length;
   // Two panels under one label make every "(B)" in the caption point at two pictures.
   // The labelled count above passed them, so a figure with two 30s read "30/30
   // panels labelled". Compared as printed, so a typed "3" and a lettered C collide
   // under the 1 2 3 format.
   const _lblN=new Map();
-  _shownPanels.forEach(im=>{ const l=formatLabel(im.label); if(l) _lblN.set(l,(_lblN.get(l)||0)+1); });
+  _lblObjs.forEach(im=>{ const l=formatLabel(_lblOf(im)); if(l) _lblN.set(l,(_lblN.get(l)||0)+1); });
   const _dupLbls=[..._lblN].filter(([,n])=>n>1).map(([l,n])=>`${l} (${n} panels)`);
   const bgIsWhite=bg.toLowerCase()==='#ffffff'||bg==='#fff';
   // Only the panels the reader sees: a hidden (or spanned-out) uncalibrated panel
   // used to fail this line and offer Calibrate for a panel that is not in the figure,
   // while the label line beside it already counted the shown panels only.
-  const uncal=_shownPanels.filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
+  const uncal=_P.filter(im=>im.sbOn&&!(im.umPerPx>0)).length;
   const _sbNotDrawn=_scaleBarsNotDrawn();
   const _Gc=gridGeom();
   const _rowHs=_Gc ? (Array.isArray(_Gc.ph)?_Gc.ph:[_Gc.ph]) : [gi('panel-h')];
@@ -14977,15 +14983,15 @@ function _checkCompliance(asJ){
   // Megapixels at the scale the export ACTUALLY uses — _physFacts already resolved
   // the printed-width target, and dpi/96 is only the right scale without one.
   const exportPx=W*H*Math.pow(_pf.scale,2);
-  const extreme=_shownPanels.filter(im=>(im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2).length;
+  const extreme=_P.filter(im=>(im.gamma&&(im.gamma<0.4||im.gamma>2.5))||im.brightness>2||im.brightness<0.4||im.contrast>2).length;
   // Insets likewise: an orphaned inset that is hidden cannot mislead a reader.
   const _orphanInsets=_shownPanels.filter(im=>im.insetOrphaned).length;
   const _linkedInsets=_shownPanels.filter(im=>im.insetOf).length;
   // Display range per channel: every visible panel and extra channel, grouped by the
   // channel it shows; more than one distinct black–white range in a group is drift.
   const _ranges=new Map();
-  _shownPanels.forEach(im=>{
-    if(!im.img) return;
+  _P.forEach(im=>{
+    if(!(im.img||im._imgEl)) return;
     const lbl=_rtText(formatLabel(im.label))||'?';
     // In native units when the samples are kept: two 16-bit panels at 0–12000 counts
     // match even though their 8-bit black/white points differ.
@@ -15001,7 +15007,7 @@ function _checkCompliance(asJ){
   // OME metadata, TFEB-GFP typed for the rest) made two groups, each matched with itself, so
   // a real mismatch between conditions passed (fluor2-02). channelIdentityGroups names the
   // colours shown under more than one name; one shown at different ranges is flagged.
-  const _cig=(layoutMode==='freeform')?[]:channelIdentityGroups();
+  const _cig=channelIdentityGroups();
   const _nameSplit=(_cig.sameColourSplit||[]).map(({lut,names})=>{
     const per=names.map(nm=>{ const g=_cig.find(x=>x.name===nm); const ms=g?g.members.filter(m=>m.lut===lut&&m.panel&&m.panel.img):[];
       return {nm, who:[...new Set(ms.map(m=>m.who))], r:[...new Set(ms.map(m=>_rangeText(m.obj)))]}; }).filter(e=>e.who.length);
@@ -15027,22 +15033,34 @@ function _checkCompliance(asJ){
     _textFloorRow(_pf.ptPerPx, null),
     {label:'Background',    ok:bgIsWhite, warn:false, note:bgIsWhite?'White ✓':`${esc(bg)} — most journals require white`,
       fix:bgIsWhite?null:{a:'white',t:'Make white'}},
-    {label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
-      note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null},
+    panelsWithImages?{label:'Panel labels',  ok:panelsWithLabels===panelsWithImages, warn:panelsWithLabels>0&&panelsWithLabels<panelsWithImages,
+      note:`${panelsWithLabels}/${panelsWithImages} panels labelled`, fix:panelsWithLabels<panelsWithImages?{a:'labels',t:'Show labels'}:null}
+      :{label:'Panel labels', ok:true, info:true, uncounted:true, note:'Does not apply — the figure has no pictures, charts or gene maps to letter'},
     {label:'Panel labels unique', ok:_dupLbls.length===0, warn:false,
       note:_dupLbls.length ? `${esc(_dupLbls.join(', '))} — the same label on more than one panel; rename one in the panel list or use Relabel A, B, C` : 'Every panel has its own label ✓'},
-    {label:'Scale-bar calibration', ok:uncal===0, warn:false, info:!_shownPanels.some(im=>im.sbOn), uncounted:!_shownPanels.some(im=>im.sbOn),
-      note:uncal?`${uncal} scale bar(s) switched on without a calibration (${esc(_shownPanels.filter(im=>im.sbOn&&!(im.umPerPx>0)).map(im=>_rtText(formatLabel(im.label))||'?').join(', '))}) — calibrate a micrograph; a blot, gel, chart or photo with no scale needs no bar`
-        :(_shownPanels.some(im=>im.sbOn)?'All calibrated ✓':'Does not apply — no panel has a scale bar switched on'),
-      fix:uncal?{a:'calibrate',t:'Calibrate…'}:null, fix2:uncal?{a:'sboffuncal',t:'No scale bar on these'}:null},
+    // A picture that looks like a micrograph (pseudocoloured, native 16-bit samples, or a
+    // name that says phase, DIC, 100x, TEM, a fluorophore…) with no calibration and no bar
+    // is asked about, not passed as "does not apply" (charts2-14); "No scale needed" marks
+    // the ones that truly have none, and the mark is kept with the figure.
+    (()=>{ const sus=_P.filter(_ckMicrographNoScale), nmS=im=>_rtText(formatLabel(_lblOf(im)))||'?';
+      const anyOn=_P.some(im=>im.sbOn);
+      if(uncal) return {label:'Scale-bar calibration', ok:false, warn:false,
+        note:`${uncal} scale bar(s) switched on without a calibration (${esc(_P.filter(im=>im.sbOn&&!(im.umPerPx>0)).map(nmS).join(', '))}) — calibrate a micrograph${_ff?' (its µm/px in the object bar)':''}; a blot, gel, chart or photo with no scale needs no bar`,
+        fix:{a:'calibrate',t:'Calibrate…'}, fix2:{a:'sboffuncal',t:'No scale bar on these'}};
+      if(sus.length) return {label:'Scale-bar calibration', ok:false, warn:true,
+        note:`${esc(sus.map(im=>`${nmS(im)} (${im.name||'picture'})`).join(', '))} ${sus.length>1?'look':'looks'} like ${sus.length>1?'micrographs':'a micrograph'} — ${esc(_ckMicroWhy(sus[0]))} — with no calibration and no scale bar: calibrate ${sus.length>1?'them':'it'} and switch the bar on, or say a picture needs no scale (a photo of a plate, a gel)`,
+        fix:{a:'calibrate',t:'Calibrate…'}, fix2:{a:'noscale',t:'No scale needed'}};
+      return {label:'Scale-bar calibration', ok:true, warn:false, info:!anyOn, uncounted:!anyOn,
+        note:anyOn?'All calibrated ✓':'Does not apply — no panel has a scale bar switched on, and none looks like a micrograph'};
+    })(),
     // A calibrated bar that falls outside the drawable range is simply not painted —
     // no bar, no label, no handle. Calibration alone therefore cannot be the test:
     // a mistyped µm/px used to ship a figure with no scale bar and a green report.
     {label:'Scale bar drawn', ok:_sbNotDrawn.length===0, warn:false,
       note:_sbNotDrawn.length
         ? `${_sbNotDrawn.length} scale bar(s) enabled but NOT drawn — ${_sbNotDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}`
-        : (_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)?(uncal?'Every calibrated scale bar is drawn (the uncalibrated ones above are not)':'Every enabled scale bar is drawn ✓'):'Does not apply — no calibrated scale bar is switched on'),
-      info:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0), uncounted:!_sbNotDrawn.length&&!_shownPanels.some(im=>im.sbOn&&im.umPerPx>0)},
+        : (_P.some(im=>im.sbOn&&im.umPerPx>0)?(uncal?'Every calibrated scale bar is drawn (the uncalibrated ones above are not)':'Every enabled scale bar is drawn ✓'):'Does not apply — no calibrated scale bar is switched on'),
+      info:!_sbNotDrawn.length&&!_P.some(im=>im.sbOn&&im.umPerPx>0), uncounted:!_sbNotDrawn.length&&!_P.some(im=>im.sbOn&&im.umPerPx>0)},
     {label:'Adjustment sanity', ok:extreme===0, warn:extreme>0, note:extreme?`${extreme} panel(s) with extreme brightness/contrast/gamma`:'Within normal range ✓'},
     // Compared panels showing the same channel at different display ranges is the
     // classic silent unfairness: the reader assumes GFP in A and GFP in B were shown the
@@ -15054,7 +15072,7 @@ function _checkCompliance(asJ){
                               : (_rangeKeys ? (_nameSplit.length?`Same range within each channel name (${esc(_rangeKeys)})`:`Same range per channel across panels ✓ (${esc(_rangeKeys)})`) : 'Does not apply — no pseudocoloured panels'))
         +(_nameSplit.length?`. One colour under more than one name, shown at different ranges: ${esc(_nameSplit.join('; '))} — if they are one channel, give it one name (Export › Legend key › Channel names, or ⚙ › Channel on the panels that differ) so they are compared, synced and described together; if they are different channels that share a colour, the legend should say so`:''),
       info:!_rangeKeys, uncounted:!_rangeKeys,
-      fix:_rangeDrift.length?{a:'synclevels',t:'Sync by channel'}:null},
+      fix:_rangeDrift.length&&!_ff?{a:'synclevels',t:'Sync by channel'}:null},
     {label:'Export size', ok:exportPx<=60e6, warn:false, note:`${(exportPx/1e6).toFixed(0)} MP at ${dpi} DPI${exportPx>60e6?' — exceeds ~60 MP cap':''}`,
       fix:exportPx>60e6?{a:'dpi300',t:'Lower DPI'}:null},
     // Read the rows the renderer draws, not the panel-height field: with rows hugging
@@ -15095,7 +15113,7 @@ function _checkCompliance(asJ){
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
   const J=_targetJournal();
-  const rowsOut=J ? _journalRows(J,{pf:_pf, dpi, ppis:_ppis, shown:_shownPanels, labelPt, checks})
+  const rowsOut=J ? _journalRows(J,{pf:_pf, dpi, ppis:_ppis, shown:_P, labelPt, checks})
                   : checks.concat(_accessRows(null));
   const html=rowsOut.map(_complianceRowHtml).join('');
   const unv=rowsOut.filter(c=>c.unverified).length;
@@ -15120,11 +15138,28 @@ function _checkCompliance(asJ){
     } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Go to the figure's alt text box (embedded in PNG, SVG and PDF exports)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
   { const m=document.getElementById('info-modal-bg'); if(m){ if(asJ) m.dataset.asJournal=asJ; else delete m.dataset.asJournal; } }
 }
+// A shown picture that looks like a micrograph but has no calibration, no bar and no
+// "no scale needed" mark. Blots, gels, charts, gene maps, drawings and AI icons are not.
+const _MICRO_NAME=/(^|[^a-z0-9])(\d{2,3}x|phase|dic|brightfield|bright-field|confocal|widefield|epifluor\w*|tem|sem|cryo-?em|micrograph|gfp|egfp|msfgfp|yfp|cfp|dapi|hoechst|mcherry|rfp|fitc|tritc|cy3|cy5|alexa\d*)(?=$|[^a-z])/i;
+function _ckMicrographNoScale(im){
+  if(!im||im.noScale||im.umPerPx>0||im.sbOn||im.isVector||im.type==='chart'||im.type==='genemap'||im.type==='aiicon') return false;
+  if(im.gelAnalysis||(im.laneTable&&_ltHasContent(im.laneTable))) return false;
+  if(!(im.img||im._imgEl)) return false;
+  return !!_ckMicroWhy(im);
+}
+function _ckMicroWhy(im){
+  if(im.lut&&im.lut!=='none') return 'it is pseudocoloured';
+  if((im.channels||[]).length) return 'it is a channel merge';
+  if(typeof _rawOf==='function'&&_rawOf(im)) return 'it keeps native camera samples';
+  const m=_MICRO_NAME.exec(String(im.name||'').replace(/\.[a-z0-9]{2,5}$/i,'').replace(/_/g,' '));
+  return m?`its file name says “${m[2]}”`:'';
+}
 // The general rows that read grid panels, and what they say in a freeform figure.
-const _FF_NA=new Set(['Panel labels','Panel labels unique','Scale-bar calibration','Adjustment sanity',
-  'Display ranges by channel','Min panel size','Linked insets','Scale bars','Scale-bar length','Bar length in legend']);
+// Min panel size reads grid cells and Linked insets grid insets; the rest read freeform pictures too.
+const _FF_NA=new Set(['Min panel size','Linked insets']);
 const _ffNaRow=label=>({label, ok:true, info:true, uncounted:true,
-  note:'Does not apply in freeform layout — it reads grid panels, and this figure is drawn from freeform objects'});
+  note:label==='Min panel size'?'Does not apply in freeform layout — objects have no cells; the Panel resolution row reads each picture at its printed size'
+    :'Does not apply in freeform layout — freeform pictures have no linked insets'});
 function _auditFix(action){
   // In a "Check against …" report the fixes and the re-run are that journal's.
   const _m0=document.getElementById('info-modal-bg'), as=_m0&&_m0.dataset.asJournal&&JOURNALS[_m0.dataset.asJournal]?_m0.dataset.asJournal:'';
@@ -15153,11 +15188,25 @@ function _auditFix(action){
   }
   else if(action==='ckkeyfree'){ _ckKeyToFree(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
+  else if(action==='noscale'){
+    // The pictures the row asked about need no scale: marked, one undo step, kept with the figure.
+    const L=(layoutMode==='freeform'?freeformElements.filter(e=>e&&!e.hidden):_figurePanels()).filter(_ckMicrographNoScale);
+    if(L.length){ pushUndo(); L.forEach(im=>{ im.noScale=true; }); renderImgList(); scheduleRender(0);
+      toast(`Marked as needing no scale: ${L.map(im=>_rtText(formatLabel(im.label))||'?').join(', ')} — calibrating one later clears the mark`,'ok'); }
+  }
+  else if(action==='calibrate'&&layoutMode==='freeform'){
+    // A freeform picture is calibrated in its object bar (µm/px): select the first one.
+    let i=freeformElements.findIndex(e=>e&&!e.hidden&&(e.type==='image'||e.type==='aiicon')&&e.sbOn&&!(e.umPerPx>0));
+    if(i<0) i=freeformElements.findIndex(e=>e&&!e.hidden&&_ckMicrographNoScale(e));
+    if(i>=0){ if(m) m.remove(); selectedElems.clear(); selectedElems.add(i); if(typeof updateFreeformElemList==='function') updateFreeformElemList(); if(typeof updateElemPropsBar==='function') updateElemPropsBar(); scheduleRender(0);
+      toast(`${_rtText(formatLabel(freeformElements[i].label))||'This picture'} is selected — type its µm/px in the object bar above the canvas`,'ok'); return; }
+  }
   else if(action==='calibrate'){
     // The first uncalibrated panel the figure SHOWS: the report no longer counts
     // hidden ones, so opening the calibrator on one would fix nothing it flagged.
     const shown=new Set(_figurePanels());
-    const idx=images.findIndex(im=>im&&shown.has(im)&&im.sbOn&&!(im.umPerPx>0));
+    let idx=images.findIndex(im=>im&&shown.has(im)&&im.sbOn&&!(im.umPerPx>0));
+    if(idx<0) idx=images.findIndex(im=>im&&shown.has(im)&&_ckMicrographNoScale(im));
     if(idx>=0){ if(m) m.remove(); if(typeof openCalib==='function') openCalib(idx); return; }
   }
   _rerun();   // re-run to refresh the report
@@ -19826,7 +19875,9 @@ function _gelMarkerSpan(im){
   const sizes=_gelParseSizes(a.ladder.sizes)||[];
   const lb=a.lanes[a.ladder.lane].bands.slice().sort((x,y)=>x.yc-y.yc);
   const marks=lb.slice(0,sizes.length).map((b,i)=>({yc:b.yc, kda:sizes[i]}));
-  const bands=[]; a.lanes.forEach((L,li)=>{ if(li!==a.ladder.lane) L.bands.forEach(b=>bands.push(b.yc)); });
+  // A band under 10 noise SEs (flagged "near noise" in the CSV) is not a band a marker must
+  // bracket: a 70 kDa speck kept the row at ⚠ (blot3-14).
+  const bands=[]; a.lanes.forEach((L,li)=>{ if(li!==a.ladder.lane) L.bands.forEach(b=>{ if(!b.nearNoise) bands.push(b.yc); }); });
   return {marks, bands};
 }
 function _blotRows(J, shown){
@@ -20033,15 +20084,14 @@ function _journalRows(J, g){
   rows.push(..._accessRows(J));
   // scale bars
   const shown=g.shown;
-  if(J.scaleBar&&layoutMode==='freeform') rows.push(_ffNaRow('Scale bars'));
-  else if(J.scaleBar==='required'){
-    const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip)&&!im.sbBurnedIn);
+  if(J.scaleBar==='required'){
+    const miss=shown.filter(im=>(im.img||im._imgEl)&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip)&&!im.sbBurnedIn);
     rows.push({label:'Scale bars', ok:!miss.length, src,
       note:(miss.length?`${miss.map(im=>esc(_rtText(formatLabel(im.label))||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
         +` — ${nm}: scale bars on micrographs. Panels without a calibration are not checked: FigureLab cannot tell a micrograph from a photograph`,
       fix:miss.length?{a:'jsbon',t:'Show bars'}:null});
   }
-  if(J.scaleBar==='legend'&&layoutMode!=='freeform'){
+  if(J.scaleBar==='legend'){
     const bars=shown.filter(im=>im.sbOn&&im.umPerPx>0&&!im._sbSkip);
     if(bars.length){
       const onBar=gc('sb-text');
@@ -20161,7 +20211,7 @@ function _journalFix(action){
   if(action==='jlzw'){ _setTiffLzw(true); return true; }
   if(action==='jname'){ const T=_journalNameTarget(J); if(!T.ok&&T.name){ pushUndo(); sv('export-name',T.name); } return true; }
   if(action==='jsbtext'){ pushUndo(); sc('sb-text',false); render(); return true; }
-  if(action==='jsbon'){ pushUndo(); _figurePanels().forEach(im=>{ if(im&&im.img&&im.umPerPx>0) im.sbOn=true; }); renderImgList(); render(); return true; }
+  if(action==='jsbon'){ pushUndo(); (layoutMode==='freeform'?freeformElements.filter(e=>e&&(e.type==='image'||e.type==='aiicon')):_figurePanels()).forEach(im=>{ if(im&&(im.img||im._imgEl)&&im.umPerPx>0) im.sbOn=true; }); renderImgList(); render(); return true; }
   if(action==='jfmt'){ if(m) m.remove(); doExportPreflight(J.formats[0]); return 'done'; }
   if(action==='jlowppi'){
     const low=_panelPpiList(getExportDPI()).filter(p=>p.ppi<J.dpiPhoto-0.5).sort((a,b)=>a.ppi-b.ppi)[0];
@@ -28776,7 +28826,9 @@ function _chartDraw(el, emit){
   if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`);
   if(outside) notes.push(`${outside} value${outside>1?'s':''} outside the axis range not shown`);
   if(cut) notes.push(`${cut} error bar${cut>1?'s':''} cut at the axis limit`);
-  if(ch.link&&!_chartGesturing()&&_chartLinkState(el).stale) notes.push('⚠ out of date with the densitometry it was made from');
+  // Short, so it fits a one-column chart (it was cut at "…it was mad": blot3-14); the
+  // Chart dialog says what changed and updates it.
+  if(ch.link&&!_chartGesturing()&&_chartLinkState(el).stale) notes.push('⚠ out of date');
   const noteH=notes.length?notes.length*(T+1)+2*u:0;
   // Significance brackets need room above the tallest group.
   const cats0=stat.categories||[];
@@ -32365,6 +32417,18 @@ function _dupRegionSeeds(A,B,pairs){
 // gave cross-panel regions read "same" with 9 textured cells; regions of one plate matched
 // to their mirror image across the dish (the rim) read "same" with 9–49 cells and 0–6
 // unbalanced; lanes of one blot matched to each other read "near".
+// Whether region b is region a turned k quarter-turns (or, k ≥ 4, mirrored across a line)
+// about the picture's centre (W × H px): both centres the same distance out (within 8 % of
+// the picture), for a turn at the angle apart it gives (within 20°), and not at the centre.
+function _dupRotSym(a, b, W, H, k){
+  const cx=W/2, cy=H/2, ax=a.x+a.w/2-cx, ay=a.y+a.h/2-cy, bx=b.x+b.w/2-cx, by=b.y+b.h/2-cy;
+  const ra=Math.hypot(ax,ay), rb=Math.hypot(bx,by), m=Math.min(W,H);
+  if(ra<0.1*m||rb<0.1*m||Math.abs(ra-rb)>0.08*m) return false;
+  if(k>=4) return true;                         // a mirror through the centre keeps the distance
+  let d=Math.abs(Math.atan2(by,bx)-Math.atan2(ay,ax))*180/Math.PI; d=d%360; if(d>180) d=360-d;
+  const want=k===2?180:90;
+  return Math.abs(d-want)<=20;
+}
 function _dupRegionClass(v, within){
   if(v.cls!=='same'&&v.cls!=='near') return v.cls;
   const fi=v.fine;
@@ -32434,6 +32498,10 @@ function _dupVerified(opt){
       // to the original, or a symmetric object under its own mirror) is not a repeat.
       const a=f.rectApx, b=f.rectBpx, ix=Math.max(0,Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x)), iy=Math.max(0,Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y));
       if(G.pa===G.pb && ix*iy>0.2*Math.min(a.w*a.h,b.w*b.h)) f.cls='layout';
+      // A round object turned or mirrored about its own centre (a plate, a dish) matches
+      // itself: the two regions sit the same distance from the picture's centre (and, for a
+      // turn, the turn's angle apart). That is the object's symmetry, not a repeat (newcomer3-23).
+      else if(G.pa===G.pb && G.k>=1 && _dupRotSym(a, b, A.W, A.H, G.k)) f.cls='layout';
       else { const v=_xdVerify(A,B,f); f.verify=v; f.cls=_dupRegionClass(v, G.pa===G.pb); }
     }
     G.f=f;
@@ -33487,7 +33555,10 @@ function _reuseSentence(d, st){
     t=sub(t,d.letterA,st.A); if(d.scope==='within') t=sub(t,d.letterB,st.B);
     return t.trim();
   }
-  return String(d.tpl||d.sentence||'').replace(/\{A\}/g,st.A).replace(/\{B\}/g,st.B||'').trim();
+  // Letters as the figure prints them (a b c, not the stored C: newcomer3-24).
+  const L=l=>{ if(!l) return l; const own=_xdThisPanels().some(p=>p.label===l)&&(images.some(im=>im&&im.label===l)||(freeformElements||[]).some(e=>e&&e.label===l));
+    return own?(_rtText(formatLabel(l))||l):l; };
+  return String(d.tpl||d.sentence||'').replace(/\{A\}/g,L(st.A)).replace(/\{B\}/g,L(st.B)||'').trim();
 }
 function _reuseSentences(){
   return Object.values(_reuse.decisions).filter(d=>d.verdict==='intentional').map(d=>_reuseSentence(d)).filter(Boolean);
@@ -33733,6 +33804,14 @@ function _xdRenderLib(){
     <span><b>${esc(r.name)}</b> — ${r.imgs.length} image${r.imgs.length===1?'':'s'}${r.noPix?` · ${r.noPix} saved without pixels (not comparable)`:''}${r.self?' · <i>this figure saved earlier: the same images as this figure — unticked</i>':''}${r.related?' · <i>this figure was opened from or saved as this entry, but its images differ now — compared, so an image kept from it is reported. If it is only an earlier version of this figure, untick it.</i>':''}</span></label>`).join('');
   el.querySelectorAll('[data-xd-lib]').forEach(cb=>cb.onchange=()=>{ _xdUI.lib[+cb.dataset.xdLib].on=cb.checked; });
 }
+// What a saved session calls its figure: its export name ("Figure 1"), else its title; the
+// caption said “Figure 1-session”, the file's name (newcomer3-24). '' when it names none.
+function _xdSavedFigName(data){
+  const n=String((data&&data.exportName)||'').trim();
+  if(n&&n.toLowerCase()!=='figure') return n.slice(0,80);
+  const t=_rtText(String((data&&data.layout&&data.layout.figTitle)||'').trim());
+  return t?t.slice(0,80):'';
+}
 // The images a saved figure holds, with the crop it showed them at.
 function _xdFigureImages(data, figName){
   const out=[], crop=d=>({cropL:d.cropL||0,cropR:d.cropR||0,cropT:d.cropT||0,cropB:d.cropB||0,cropAngle:d.cropAngle||0});
@@ -33754,7 +33833,7 @@ async function _xdAddFiles(list){
     if(/\.(json|figlab)$/.test(low)||f.type==='application/json'){
       let data=null; try{ data=JSON.parse(await f.text()); }catch(e){}
       if(!data||typeof data!=='object'){ toast(`${n} is not a FigureLab session file`,'warn'); continue; }
-      const imgs=_xdFigureImages(data, n.replace(/\.(json|figlab)$/i,''));
+      const imgs=_xdFigureImages(data, _xdSavedFigName(data)||n.replace(/\.(json|figlab)$/i,''));
       const noPix=_xdNoPixels(data), t=_xdIsThisFigure(data, null, imgs);
       _xdUI.files.push({name:n, kind:'session', imgs, noPix, self:t.self});
       if(!imgs.length) toast(`${n} has no images saved in it${noPix?' (saved as settings only)':''} — nothing to compare`,'warn');

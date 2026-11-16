@@ -200,7 +200,7 @@ const GEL = () => {
   window.__blot = (name, lanes, seed) => ({ w: 60 + 70 * lanes.length, h: 160, bg: 228, name, seed,
     lanes: lanes.map((bands, k) => ({ x0: 30 + 70 * k, x1: 75 + 70 * k, bands: bands.map(([y, amp]) => ({ y, s: 3, amp })) })) });
   // Whether the chart draws its "out of date" note, read from what it draws
-  window.__recNotes = el => { const T = []; el._chartKey = ''; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.some(s => /out of date with the densitometry/.test(s)); };
+  window.__recNotes = el => { const T = []; el._chartKey = ''; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.some(s => /⚠ out of date/.test(s)); };
 };
 async function gelSetup(page) {
   const errors = await loadApp(page);

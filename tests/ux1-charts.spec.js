@@ -640,7 +640,7 @@ test('blot-01: “Chart these values” adds a linked grid chart panel of the no
   await page.evaluate(() => { images[0].cropL = 30; render(); openDataPanelEditor(images.findIndex(p => p.type === 'chart')); });
   expect(await page.locator('#chart-link-note').textContent()).toMatch(/has changed since/);
   expect(await page.locator('#chart-link-note button').textContent()).toMatch(/Update from densitometry/);
-  const note = await page.evaluate(() => __rec(images.find(p => p.type === 'chart')).texts.some(t => /out of date with the densitometry/.test(t.str)));
+  const note = await page.evaluate(() => __rec(images.find(p => p.type === 'chart')).texts.some(t => /⚠ out of date/.test(t.str)));
   expect(note).toBe(true);
   expect(errors).toEqual([]);
 });

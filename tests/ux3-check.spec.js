@@ -443,3 +443,112 @@ test('phage3-09: the key draws a chart point at the radius the chart draws it', 
   expect(r.chart).toContain(3);
   expect(errors).toEqual([]);
 });
+
+// ── Rows that read the panels ────────────────────────────────────────────────────────
+// freeform2-09: eight rows said "Does not apply in freeform layout" on a lettered six-panel
+// freeform figure with calibrated pictures — and "Scale bar drawn" said no bar was on.
+test('freeform2-09: the label, calibration, bar and adjustment rows read freeform pictures', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 220, label: 'A' }, { type: 'image', x: 340, y: 20, w: 300, h: 220, label: 'B' },
+                            { type: 'image', x: 20, y: 260, w: 300, h: 220, label: 'A' }]);
+  await page.evaluate(HELPERS);
+  const r = await page.evaluate(() => {
+    sc('show-labels', true);
+    freeformElements.forEach(e => { e.umPerPx = 0.1; e.sbOn = true; e.sbUm = 5; });
+    freeformElements[1].gamma = 3.2;
+    sv('target-journal', 'cell'); _syncJournalFromControl(); render();
+    const rows = __report().rows; __close(); return rows;
+  });
+  const row = l => r.find(x => x.label === l);
+  expect(r.filter(x => /Does not apply in freeform/.test(x.text)).map(x => x.label).sort()).toEqual(['Linked insets', 'Min panel size'].filter(l => row(l)));
+  expect(row('Panel labels').text).toMatch(/3\/3 panels labelled/);
+  expect(row('Panel labels unique').text).toMatch(/A \(2 panels\)/);
+  expect(row('Scale-bar calibration').text).toMatch(/All calibrated ✓/);
+  expect(row('Scale bar drawn').text).toMatch(/Every enabled scale bar is drawn ✓/);
+  expect(row('Adjustment sanity').icon).toBe('⚠');
+  expect(errors).toEqual([]);
+});
+
+// charts2-14: an uncalibrated phase-contrast micrograph (PAO1_phase_100x_0031.png, no bar)
+// passed as "Scale-bar calibration — Does not apply".
+test('charts2-14: a picture that looks like a micrograph with no calibration is asked about; No scale needed is kept with the figure', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(PICS); await page.evaluate(HELPERS);
+  await page.evaluate(async () => { await __pics([['PAO1_phase_100x_0031.png', '#888888'], ['plate_photo.jpg', '#e0d0b0']]);
+    images.forEach(im => { im.sbOn = false; im.umPerPx = 0; }); sv('cols', '2'); sv('rows', '1'); onLayoutChange(); sv('target-journal', 'plos'); _syncJournalFromControl(); render(); });
+  const a = await page.evaluate(() => { const r = __row('Scale-bar calibration'); __close(); return r; });
+  expect(a.icon).toBe('⚠');
+  expect(a.text).toMatch(/PAO1_phase_100x_0031\.png/);
+  expect(a.text).not.toMatch(/plate_photo/);
+  expect(a.fixes).toEqual(['Calibrate…', 'No scale needed']);
+  expect(await clickFix(page, 'Scale-bar calibration', 'No scale needed')).toBe(true);
+  const b = await page.evaluate(() => { __close(); const r = __row('Scale-bar calibration'); __close();
+    const saved = JSON.parse(JSON.stringify(serializeSession(false))); return { r, kept: saved.images[0].noScale }; });
+  expect(b.r.icon).toBe('ℹ');
+  expect(b.kept).toBe(true);
+  // undone, it is asked again
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => { const r = __row('Scale-bar calibration'); __close(); return r.icon; })).toBe('⚠');
+  expect(errors).toEqual([]);
+});
+
+// ── Duplication check ────────────────────────────────────────────────────────────────
+// newcomer3-24: Intentional reuse wrote "The image in panel C is reused from panel A of
+// “Figure 1-session”." — capital C while the figure's letters are a b c, and the session
+// file's name instead of the figure's.
+test('newcomer3-24: the reuse sentence takes the figure\'s letter format and the saved figure\'s name', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(async () => {
+    sv('label-format', 'abc'); render();
+    const saved = JSON.parse(JSON.stringify(serializeSession(true))); saved.exportName = 'Figure 1';
+    const file = new File([JSON.stringify(saved)], 'Figure 1-session.json', { type: 'application/json' });
+    openCrossFigureCheck();
+    await _xdAddFiles([file]);
+    const f = _xdUI.files[0];
+    const d = { verdict: 'intentional', scope: 'cross', aId: images[2].id, aKey: _xdThisPanels()[2].key, letterA: images[2].label,
+      tpl: `The image in panel {A} is reused from panel ${f.imgs[0].panel} of “${f.imgs[0].fig}”.` };
+    _reuse.decisions['t'] = d;
+    const out = _reuseSentence(d);
+    document.querySelectorAll('.modal-bg.open').forEach(m => m.remove());
+    delete _reuse.decisions['t'];
+    return { out, fig: f.imgs[0].fig };
+  });
+  expect(r.fig).toBe('Figure 1');
+  expect(r.out).toBe('The image in panel c is reused from panel A of “Figure 1”.');
+  expect(errors).toEqual([]);
+});
+
+// newcomer3-23: a plate photo (a round dish, noise σ 4, JPEG q88) was flagged as an internal
+// repeat "rotated 90°": a dish turned a quarter about its centre matches itself.
+test('newcomer3-23: a round dish turned about its own centre is not an internal repeat', async ({ page }) => {
+  const errors = await loadApp(page);
+  // the tester's generated plate (a radially symmetric dish, noise σ 4, JPEG q88), at a quarter size
+  const b64 = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'round3', 'plate_8812_small.jpg')).toString('base64');
+  const r = await page.evaluate(async (b64) => {
+    const src = 'data:image/jpeg;base64,' + b64;
+    images.length = 0;
+    await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, 'IMG_8812.JPG'); res(); }; img.src = src; });
+    render(); runDuplicateScan();
+    const m = [...document.querySelectorAll('.modal-bg.open')].pop(), sec = m.querySelector('[data-xd-scale]');
+    for (let i = 0; i < 1200 && sec && /Comparing panel pairs/.test(sec.textContent); i++) await new Promise(r => setTimeout(r, 50));
+    const fails = [...m.querySelectorAll('.cc-fail')].map(e => e.textContent.replace(/\s+/g, ' ').trim());
+    m.remove(); return fails;
+  }, b64);
+  expect(r.filter(t => /internal repeat/.test(t))).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+// blot3-14: the MW-marker row warned about a 70 kDa near-noise speck the CSV itself flags.
+test('blot3-14: a near-noise band is left out of the MW-marker bracket check', async ({ page }) => {
+  const errors = await loadApp(page);
+  const r = await page.evaluate(() => {
+    const span = { a: null };
+    const im = { gelAnalysis: { ladder: { lane: 0, sizes: '70,55,35' }, lanes: [
+      { bands: [{ yc: 20 }, { yc: 50 }, { yc: 80 }] },
+      { bands: [{ yc: 60 }, { yc: 10, nearNoise: true }] }] } };
+    return _gelMarkerSpan(im);
+  });
+  expect(r.bands).toEqual([60]);
+  expect(errors).toEqual([]);
+});
