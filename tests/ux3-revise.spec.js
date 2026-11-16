@@ -258,8 +258,9 @@ test('freeform3-13 / freeform3-14: package panel files carry their own letters a
     const out = {}; for (const k of Object.keys(z).filter(k => k.startsWith('panels/'))) { const bm = await createImageBitmap(new Blob([z[k]], { type: 'image/png' })); out[k] = (bm.width / bm.height).toFixed(1); } return out; });
   expect(Object.keys(files)).toEqual(['panels/panel_1_A.png', 'panels/panel_2_B.png', 'panels/panel_3_C.png', 'panels/panel_4_D.png']);
   expect(files['panels/panel_4_D.png']).toBe('2.0');                               // the new 2:1 picture, not another panel
-  // back to the grid: the deleted picture is not drawn there either
+  // back to the grid: the deleted picture is not drawn there either, and the grid says the new one is not in it
   await page.locator('#layout-mode').selectOption('grid');
+  await expect(page.locator('#toast')).toContainText('1 picture added on the freeform canvas (D) is not in it');
   expect(await page.evaluate(() => _figurePanels().map(im => im.label))).toEqual(['A', 'B', 'C']);
   expect(errors).toEqual([]);
 });
@@ -278,5 +279,131 @@ test('freeform3-14: a TextBox made on the freeform canvas comes back where it wa
   await page.evaluate(() => { sv('panel-w', 250); sv('panel-h', 250); onLayoutChange(); render(); });   // then changed while visited
   await page.locator('#layout-mode').selectOption('freeform');
   expect(await px()).toEqual(p0);                                                      // was 8 px off and narrower
+  expect(errors).toEqual([]);
+});
+
+test('charts2-13 / blot2-08: removing a panel offers Relabel when the letters skip, and a full grid gives back its empty row', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 6);
+  await page.evaluate(() => { sv('cols', 3); sv('rows', 2); onLayoutChange(); render(); });
+  // × beside panel C in Images
+  await page.locator('#img-list [data-del]').nth(2).click();
+  await expect(page.locator('#toast')).toContainText('The letters now skip C');
+  const btn = page.locator('#toast button', { hasText: 'Relabel' });
+  await expect(btn).toBeVisible();
+  await btn.click();
+  expect(await page.evaluate(() => images.map(im => im.label))).toEqual(['A', 'B', 'C', 'D', 'E']);
+  // a 3 × 2 grid with 4 panels after a second removal: the empty row is not kept
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 3); onLayoutChange(); render(); });
+  await page.locator('#img-list [data-del]').nth(4).click();
+  expect(await page.evaluate(() => [gi('cols'), gi('rows')])).toEqual([2, 2]);      // was: 2 × 3 with two empty numbered cells
+  await expect(page.locator('#toast')).toContainText('grid now 2 × 2');
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => [images.length, gi('rows')])).toEqual([5, 3]);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer2-19: ↻ with nothing selected still turns every photo, but says so, names them, skips charts and offers Undo', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  await page.evaluate(() => addFiles([new File(['strain,cfu\nWT,10\nWT,12\nKO,3\nKO,4\n'], 'cfu.csv', { type: 'text/csv' })]));
+  await page.waitForFunction(() => document.getElementById('chart-modal').classList.contains('open'));
+  await page.locator('#chart-modal').getByRole('button', { name: 'Apply' }).click();
+  await page.evaluate(() => { selectedPanel = -1; render(); });
+  await page.locator('button[aria-label="Rotate 90 degrees clockwise"]').click();
+  await expect(page.locator('#toast')).toContainText('No panel was selected, so all 3 photos (A, B and C) turned clockwise');   // was "All 4 photos"
+  expect(await page.evaluate(() => images.map(im => im.rotate || 0))).toEqual([90, 90, 90, 0]);
+  await page.locator('#toast button', { hasText: 'Undo' }).click();
+  expect(await page.evaluate(() => images.map(im => im.rotate || 0))).toEqual([0, 0, 0, 0]);
+  expect(errors).toEqual([]);
+});
+
+test('freeform2-15: ✕ New keeps the font family and says so', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 1);
+  await page.evaluate(() => { _ensureFontOption('Arial, sans-serif'); sv('label-font', 'Arial, sans-serif'); sv('axis-font', 'Arial, sans-serif'); render(); });
+  await page.getByRole('button', { name: '✕ New' }).click();
+  await expect(page.locator('#cm-body')).toContainText('except the font (Arial), which the new figure keeps');
+  await page.locator('#cm-ok').click();
+  expect(await page.evaluate(() => [images.length, gv('label-font'), gv('axis-font')])).toEqual([0, 'Arial, sans-serif', 'Arial, sans-serif']);   // was System Sans
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => images.length)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+async function commitSized(page, w, h, name) {
+  await page.evaluate(async ([w, h, name]) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+    x.fillStyle = '#446'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff'; x.fillRect(w / 4, h / 4, w / 8, h / 8);
+    const src = c.toDataURL('image/png'); await new Promise(r => { const i = new Image(); i.onload = () => { _commitImage(i, src, name); r(); }; i.src = src; }); render(); }, [w, h, name]);
+}
+
+test('fluor3-08: Edit inset region picks the inset’s bar again for its new field, as on creation', async ({ page }) => {
+  const errors = await loadApp(page);
+  await commitSized(page, 600, 600, 'field.png');
+  await page.evaluate(() => { images[0].umPerPx = 0.065; images[0].sbOn = true; images[0].sbUm = 10; selectedPanel = 0; addLinkedInset(0.3, 0.3, 1 / 3, 1 / 3); render(); });
+  const made = await page.evaluate(() => images[1].sbUm);
+  expect(made).toBe(2);
+  // ⚙ › ⧉ Edit inset region…, a wider region, ✓ Update inset
+  await page.evaluate(() => pickInsetRegion(1));
+  await page.evaluate(() => { cropEdState.cw = 440 / 600; cropEdState.ch = 440 / 600; cropEdState.cx = 0.1; cropEdState.cy = 0.1; });
+  await page.locator('#crop-apply-btn').click();
+  expect(await page.evaluate(() => images[1].sbUm)).toBe(5);                        // was 2 µm: a dash on a 28.6 µm field
+  await expect(page.locator('#toast')).toContainText('its scale bar is 5 µm for the new field');
+  // a length typed by the author is kept while it fits
+  await page.evaluate(() => { images[1].sbUm = 4; pickInsetRegion(1); cropEdState.cw = 400 / 600; cropEdState.ch = 400 / 600; });
+  await page.locator('#crop-apply-btn').click();
+  expect(await page.evaluate(() => images[1].sbUm)).toBe(4);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer3-10: a journal preset keeps the panel shape Fit panels to images made', async ({ page }) => {
+  const errors = await loadApp(page);
+  for (const n of ['a', 'b', 'c', 'd']) await commitSized(page, 400, 300, n + '.png');
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange(); fitPanelsToContent(); render(); });
+  expect(await page.evaluate(() => [gi('panel-w'), gi('panel-h')])).toEqual([300, 225]);
+  await page.locator('#target-journal').selectOption('plos');
+  const r = await page.evaluate(() => [gi('panel-w'), gi('panel-h')]);
+  expect(r[1] / r[0]).toBeCloseTo(0.75, 2);                                          // was 300 × 300: the white bars came back
+  await expect(page.locator('#toast')).toContainText('(their shape kept)');
+  expect(errors).toEqual([]);
+});
+
+test('newcomer3-12: fitting mixed shapes offers Crop to fill cells for aligned edges', async ({ page }) => {
+  const errors = await loadApp(page);
+  await commitSized(page, 300, 400, 'plate.png'); await commitSized(page, 400, 300, 'm1.png'); await commitSized(page, 400, 300, 'm2.png');
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange(); render(); });
+  await page.evaluate(() => fitPanelsToContent());
+  const btn = page.locator('#toast button', { hasText: 'Crop to fill cells' });
+  await expect(btn).toBeVisible();
+  await btn.click();
+  expect(await page.evaluate(() => images.map(im => +_panelContentAspect(im).toFixed(2)))).toEqual([1.33, 1.33, 1.33]);
+  expect(errors).toEqual([]);
+});
+
+test('fluor2-12: an export with no printed width or journal says how wide it prints and leads to the journal', async ({ page }) => {
+  test.setTimeout(60000);
+  const errors = await loadApp(page);
+  await seedPanels(page, 5);
+  await page.evaluate(() => { sv('cols', 5); sv('rows', 1); onLayoutChange(); render(); });
+  await Promise.all([page.waitForEvent('download'), page.evaluate(() => doExport('png'))]);
+  await expect(page.locator('#toast')).toContainText(/prints \d+ mm wide, because no printed width or journal is chosen/);   // was "Saved figure.png"
+  await page.locator('#toast button', { hasText: 'Choose the journal' }).click();
+  await expect(page.locator('#target-journal')).toBeFocused();
+  // with a journal chosen, the plain "Saved"
+  await page.locator('#target-journal').selectOption('elife');
+  await Promise.all([page.waitForEvent('download'), page.evaluate(() => doExport('png'))]);
+  await expect(page.locator('#toast')).toHaveText(/^Saved figure\.png$/);
+  expect(errors).toEqual([]);
+});
+
+test('freeform3-15: making the printed width narrower after layout says the text grows against the pictures', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange(); render(); });
+  await page.evaluate(() => _cmdpGoto('export-width-mm'));
+  const w = page.locator('#export-width-mm');
+  await w.focus(); await w.selectOption('174'); await w.blur();
+  await w.focus(); await w.selectOption('114');
+  await expect(page.locator('#toast')).toContainText('Printed width 174 → 114 mm: text keeps its point size, so it is 1.53× larger');
   expect(errors).toEqual([]);
 });

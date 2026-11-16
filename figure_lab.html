@@ -1179,7 +1179,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <option value="1200">1200 (line art)</option>
       </select></div>
     <div class="field"><label>Printed width <span class="help-chip" tabindex="0" role="button" aria-label="About printed width" data-tip="The physical width the figure will occupy in the journal. Journals specify this in millimetres, not pixels. Setting it makes the export land at exactly that size at the chosen DPI, and lets FigureLab tell you the true point size of your text.">?</span></label>
-      <select id="export-width-mm" onchange="_syncPhysReadout();scheduleRender(0)">
+      <select id="export-width-mm" onfocus="this._wasMm=_physFacts().wMm" onpointerdown="this._wasMm=_physFacts().wMm" onchange="_syncPhysReadout();scheduleRender(0);_printedWidthChanged(this)">
         <option value="0" selected>Free (whatever the canvas gives)</option>
         <option value="89">89 mm — single column (Nature)</option>
         <option value="183">183 mm — double column (Nature; eLife preset)</option>
@@ -4451,9 +4451,9 @@ function _replaceInto(im, d){
 let _replaceTarget=null;
 function openReplaceImage(idx){
   if(layoutMode==='freeform'){
-    // The picture right-clicked, else the one selected on the canvas.
-    let el=(idx!=null&&idx>=0)?freeformElements[idx]:null;
-    if(!el||el.type!=='image') el=[...selectedElems].map(i=>freeformElements[i]).find(e=>e&&e.type==='image')||null;
+    // The selected picture (right-click selects it first). ⌘K passes the grid's selected
+    // panel, whose number names no object here, so it is not used.
+    const el=[...selectedElems].map(i=>freeformElements[i]).find(e=>e&&e.type==='image')||null;
     if(!el){ toast('Select a picture first (click it on the canvas), then ⇄ Replace image','warn'); return; }
     _replaceTarget={ff:el.id};
     const inp=document.getElementById('replace-input'); if(inp){ inp.value=''; inp.click(); }
@@ -4663,6 +4663,29 @@ function _sourceName(im){
   if(!im) return '';
   const n=im.name||'';
   return im.srcPage ? `${n} (page ${im.srcPage}${im.srcPages?` of ${im.srcPages}`:''})` : n;
+}
+// Remove one grid panel (the × in Images, right-click › Remove panel, ⌘K): one undo step.
+// A grid that was exactly full gives back the row the panel leaves empty — two empty
+// numbered cells stayed until a panel was added again (blot2-08) — and when the letters
+// now skip one, the toast says so and offers Relabel (charts2-13).
+function removePanelAt(idx){
+  const im=images[idx]; if(im===undefined) return;
+  const grid=layoutMode!=='freeform', cols=Math.max(1,gi('cols')), from=Math.max(1,gi('rows'));
+  const tight=grid&&im&&!im.excluded&&from>1&&_gridPlacements(cols,from-1).unplaced>0;
+  pushUndo();
+  _withWaiting(()=>images.splice(idx,1));
+  let rows=from;
+  if(tight){ while(rows>1&&!_gridPlacements(cols,rows-1).unplaced) rows--; if(rows!==from){ sv('rows',rows); onLayoutChange(); } }
+  renderImgList(); renderMiniGrid(); scheduleRender();
+  if(!im) return;
+  const nm=_rtText(formatLabel(im.label))||_sourceName(im)||'';
+  const grew=rows!==from?` · grid now ${cols} × ${rows}`:'';
+  // A letter of the automatic run (A, B, C…) that a later shown panel goes on past.
+  const L=String(im.label||''), k=ALPHABET.indexOf(L);
+  const shown=images.filter(p=>p&&!p.excluded).map(p=>String(p.label||''));
+  const gap=k>=0&&!im.excluded&&!shown.includes(L)&&shown.some(l=>ALPHABET.indexOf(l)>k);
+  if(gap) toastAction(`Panel ${nm} removed — Ctrl+Z brings it back${grew}. The letters now skip ${nm}`,'ok','🔤 Relabel A, B, C…',()=>relabelPanels());
+  else toast(`Panel ${nm} removed${grew} — Ctrl+Z brings it back`,'ok');
 }
 function nextLabel(){
   const used = new Set(images.map(i=>i&&i.label));
@@ -5059,9 +5082,7 @@ const CMD_REGISTRY=[
   {label:'Remove the selected panel', phrases:['delete panel','remove panel','delete this panel','remove this panel','delete the panel','remove the panel','delete image','remove image'], keys:'remove delete panel image picture photo discard drop take out', run:()=>{
      const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:-1;
      if(i<0){ toast('Click the panel to remove on the canvas first (or use × beside it in Images)','warn'); return; }
-     const nm=_rtText(formatLabel(images[i].label))||_sourceName(images[i])||'';
-     pushUndo(); _withWaiting(()=>images.splice(i,1)); selectedPanel=-1; renderImgList(); renderMiniGrid(); scheduleRender();
-     toast(`Panel ${nm} removed — Ctrl+Z brings it back`,'ok'); }},
+     removePanelAt(i); }},
   {label:'Save to session library (a named copy of this figure)',  keys:'library session save named multiple figures duplicate figure copy variant version save as', run:()=>saveToLibrary()},
   {label:'Load example figure',      keys:'example demo sample try',       run:()=>loadExampleFigure()},
   {label:'Auto-arrange panels',      keys:'auto arrange layout grid surprise', run:()=>autoArrange()},
@@ -6626,10 +6647,7 @@ function renderImgList(){
       if(bb) bb.addEventListener('click', e=>{ const t=e.target.closest('[data-calib],[data-sboff]'); if(!t) return; e.stopPropagation();
         if(t.dataset.calib!=null) openCalib(+t.dataset.calib);
         else { const im=images[+t.dataset.sboff]; if(im){ pushUndo(); im.sbOn=false; renderImgList(); scheduleRender(0); toast(`No scale bar on ${_rtText(formatLabel(im.label))||'this panel'}`,'ok'); } } }); }
-    item.querySelector('[data-del]').addEventListener('click', ()=>{
-      pushUndo();
-      _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
-    });
+    item.querySelector('[data-del]').addEventListener('click', ()=>removePanelAt(idx));
     item.querySelector('[data-dup]').addEventListener('click', ()=>{
       pushUndo();
       const clone = {...images[idx], id:Date.now()+Math.random(), label:nextLabel(),
@@ -7384,7 +7402,8 @@ function rotateSelectedPanel(delta){
 // that are all lying on their side is the ordinary case, and turning them one at a time
 // is the kind of work this tool exists to remove.
 function rotateAllPanels(delta){
-  const idx=images.map((im,i)=>({im,i})).filter(o=>o.im&&o.im.img&&!o.im.excluded).map(o=>o.i);
+  // Photos only: a chart or gene map is not turned (the count said "4 photos" for three).
+  const idx=images.map((im,i)=>({im,i})).filter(o=>o.im&&o.im.img&&!o.im.excluded&&!_isDataPanel(o.im)).map(o=>o.i);
   if(!idx.length){ toast('Add images first','warn'); return 0; }
   pushUndo();
   idx.forEach(i=>setPanelAngle(i, _panelAngle(i)+delta, {quiet:true}));
@@ -7397,8 +7416,11 @@ function rotateAllPanels(delta){
 function rotateFromToolbar(delta){
   if(layoutMode==='freeform'){ if(selectedElems.size) _ffRotateSel(delta); else toast('Select an object first, then turn it (or type its angle in ∠ above the canvas)','warn'); return; }
   if(selectedPanel>=0&&images[selectedPanel]){ rotateSelectedPanel(delta); return; }
+  // Nothing selected turns every photo (deliberately: a folder of captures lying on their
+  // side). It is said loudly, with the panels named, and one Ctrl+Z turns them all back.
   const n=rotateAllPanels(delta);
-  if(n) toast(`All ${n} photo${n>1?'s':''} turned ${delta>0?'clockwise':'anticlockwise'} — click one first to turn just that one`,'ok');
+  if(n){ const who=images.filter(im=>im&&im.img&&!im.excluded&&!_isDataPanel(im)).map(im=>_rtText(formatLabel(im.label))).filter(Boolean);
+    toastAction(`No panel was selected, so all ${n} photo${n>1?'s':''}${who.length&&who.length<=8?` (${_listAnd(who)})`:''} turned ${delta>0?'clockwise':'anticlockwise'} — click one first to turn just that one`,'warn','↶ Undo',()=>undo()); }
 }
 function straightenFromToolbar(){
   if(layoutMode==='freeform'){ if(selectedElems.size) _ffRotateSel(0, true); else toast('Select an object first, then straighten it','warn'); return; }
@@ -13286,9 +13308,17 @@ function applyCropModal(){
       // Editing an inset's region: the inset re-derives its crop from it, and the outline
       // on the parent follows.
       pushUndo();
-      const ins=images[ei]; ins.insetRect={x:cx,y:cy,w:cw,h:ch}; _syncInsetFromParent(ins);
+      const ins=images[ei];
+      // The bar the inset was given for its old field is picked again for the new one, as
+      // on creation (a 2 µm bar stayed a dash on a field four times as wide, fluor3-08). A
+      // length that is not the old field's automatic one was typed, and is kept while it fits.
+      const w0=ins.umPerPx>0?_visibleSrcWidth(ins)*ins.umPerPx:0, auto0=w0>0&&+ins.sbUm===_sbFitUm(w0), sb0=ins.sbUm;
+      ins.insetRect={x:cx,y:cy,w:cw,h:ch}; _syncInsetFromParent(ins);
+      let sbNote='';
+      if(ins.sbOn&&ins.umPerPx>0&&(auto0||!_sbFits(ins))&&_fitScaleBar(ins)&&ins.sbUm!==sb0)
+        sbNote=`; its scale bar is ${_sbLabel(ins)} for the new field`;
       renderImgList(); scheduleRender(0);
-      toast(`Inset ${_rtText(formatLabel(ins.label))} now magnifies ${(+(1/Math.max(cw,ch))).toFixed(1)}×`,'ok');
+      toast(`Inset ${_rtText(formatLabel(ins.label))} now magnifies ${(+(1/Math.max(cw,ch))).toFixed(1)}×${sbNote}`,'ok');
     }
     else if(pi>=0&&images[pi]){ selectedPanel=pi; addLinkedInset(cx,cy,cw,ch); }
     else toast(_PANEL_GONE,'warn');
@@ -17672,11 +17702,7 @@ function showPanelMenu(idx, cx, cy){
     const sep=document.createElement('div');
     sep.style.cssText='height:1px;background:var(--border);margin:3px 0';
     menu.appendChild(sep);
-    row('✕  Remove panel', ()=>{
-      const idx=here(); if(idx<0) return;
-      pushUndo();
-      _withWaiting(()=>images.splice(idx,1)); renderImgList(); renderMiniGrid(); scheduleRender();
-    }, true);
+    row('✕  Remove panel', ()=>{ const idx=here(); if(idx<0) return; removePanelAt(idx); }, true);
   } else {
     row('＋  Add image here', ()=>{ document.getElementById('file-input').click(); });
   }
@@ -18340,11 +18366,17 @@ function clearAnnotations(){
   });
 }
 function confirmNewFigure(){
-  showConfirmModal('Start a new figure?','Everything in this figure is cleared — panels, annotations, objects, title, notes, layout and style go back to a blank figure. Ctrl+Z brings it back.',()=>{
+  // The font is the author's house style, not this figure's: it is kept (freeform2-15 —
+  // Arial had to be chosen again for every figure). Everything else goes back to blank.
+  // A font that came with a loaded lab style goes with the rest of that style.
+  const lf=gv('label-font'), af=gv('axis-font'), dflt=_ctlDefault('label-font'), keepFont=lf&&lf!==dflt&&!gv('lab-style-src');
+  const fname=keepFont?(String(lf).split(',')[0].replace(/['"]/g,'').trim()):'';
+  showConfirmModal('Start a new figure?',`Everything in this figure is cleared — panels, annotations, objects, title, notes, layout and style go back to a blank figure${keepFont?`, except the font (${fname}), which the new figure keeps`:''}. Ctrl+Z brings it back.`,()=>{
     // One undo step: clearing the history as well made a mis-click unrecoverable.
     if(typeof _tutAbort==='function'){ _tutSaved=null; _tutAbort('Tutorial ended — you started a new figure.'); }
     pushUndo({boundary:true});
     _resetFigureState();
+    if(keepFont){ _ensureFontOption(lf); sv('label-font', lf); if(af){ _ensureFontOption(af); sv('axis-font', af); } }
     logAction('newFigure');
     panelBounds=[];
     hideAnnFloat(); renderImgList(); renderMiniGrid();
@@ -18355,7 +18387,7 @@ function confirmNewFigure(){
     document.getElementById('canvas-info').textContent='No figure rendered';
     render();      // the Export readout and the texts follow the empty figure
     setStatus('Drop images to get started.');
-    toast('New figure started','ok');
+    toast(keepFont?`New figure started — font ${fname} kept`:'New figure started','ok');
   });
 }
 // ── Generic confirm modal ────────────────────────────────────
@@ -18537,6 +18569,18 @@ function applyDeliverable(key){
   toast(offMsg||`${d.label} applied`, offMsg?'warn':'ok');
 }
 
+// A printed width made narrower after the figure was laid out: its type is set in points,
+// so it grows against the pictures, charts and gene maps, and tick labels, map labels and a
+// scale bar's text can run together or past a panel's edge. Nothing said so; the check
+// fails only text below the journal's minimum (freeform3-15). Said once, with the factor.
+function _printedWidthChanged(sel){
+  const was=+sel._wasMm||0; sel._wasMm=0;
+  if(!(was>0)) return;
+  render();
+  const now=_physFacts().wMm, k=was/now;
+  if(k>=1.15&&(images.some(Boolean)||freeformElements.length))
+    toast(`Printed width ${Math.round(was)} → ${Math.round(now)} mm: text keeps its point size, so it is ${k.toFixed(2)}× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge`,'warn');
+}
 function getTargetWidthMm(){ return parseFloat(gv('export-width-mm'))||0; }
 
 // Pixels per logical unit needed to land the figure at its target physical size.
@@ -20013,6 +20057,11 @@ async function doExport(fmt, opts){
     const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt==='tiff'?_tiffExt():fmt);
     if(fmt==='webp') toast(`Saved ${name}.webp — WebP has no print-resolution field, so it opens at your software's default DPI: set the size by hand, or use PNG/TIFF`, 'warn');
     else if(_altStale) toast(`Saved ${name}.${_ext} — with your alt text as written, though the figure has changed since: check it under Export › Alt text`, 'warn');
+    // A figure exported with no printed width and no journal prints at 1 px = 1/96 in: a
+    // guide followed to its end gave a 445 mm TIFF that every journal refuses, and only the
+    // compliance check (if run) said so (fluor2-12). Said here, with the way to fix it.
+    else if(!_svgWarned&&fmt!=='jpeg'&&!getTargetWidthMm()&&!_targetJournal()&&_physFacts().wMm>190)
+      toastAction(`Saved ${name}.${_ext} — it prints ${Math.round(_physFacts().wMm)} mm wide, because no printed width or journal is chosen; journals print figures at most about 180 mm wide`,'warn','Choose the journal',()=>_cmdpGoto('target-journal','Pick the journal: it sets the printed width, the fonts and the DPI (or choose Export › Printed width)'));
     else if(!_svgWarned) toast(`Saved ${name}.${_ext}`, 'ok');
   } catch(err){
     console.error('Export failed',err);
@@ -22678,9 +22727,17 @@ function applyPreset(name){
   // The figure now targets this journal. Poster is a size preset, not a journal.
   sv('target-journal', J?name:'none');
   const nice=J?J.label:name.charAt(0).toUpperCase()+name.slice(1);
-  let _gapsCleared=false;
+  let _gapsCleared=false, _shapeNote='';
   if(p){
-    sv('panel-w',p.panelW); sv('panel-h',p.panelH);
+    // The panel's shape is the author's layout (Fit panels to images made it 300 × 225 so
+    // the photos have no bars): the preset sets the panel width and keeps that shape. It
+    // used to put every figure back to square panels, and the white bars came back
+    // (newcomer3-10).
+    const cw=gi('panel-w'), ch=gi('panel-h');
+    if(images.some(Boolean)&&cw>0&&ch>0&&cw!==ch){
+      const h=Math.max(20,Math.round(p.panelW*ch/cw));
+      sv('panel-w',p.panelW); sv('panel-h',h); _shapeNote=`, panels ${p.panelW} × ${h} px (their shape kept)`;
+    } else { sv('panel-w',p.panelW); sv('panel-h',p.panelH); }
     _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${nice} preset applied`);
     sv('label-pt',p.labelPt); sv('axis-pt',p.axisPt); sv('text-pt',p.textPt);
     sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
@@ -22719,7 +22776,7 @@ function applyPreset(name){
       did.push(`${fw} mm wide — the widest that keeps it within ${J.maxH} mm tall with the key`); _syncWidthOptions(); _syncPhysReadout(); } }
   const _f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
   const sizes=p?` — letters ${_f1(gv('label-pt'))} pt, headings ${_f1(gv('axis-pt'))} pt, text ${_f1(gv('text-pt'))} pt${_ltN?`, lane table${_ltN>1?'s':''} with the headings`:''}${J&&J.ptMin==null&&J.verified?` (${J.short||J.label} states no type size)`:''}`:'';
-  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}${_keyMsg?' · '+_keyMsg:''}`, labNote?'warn':'ok');
+  if(!_gapsCleared) toast(`${nice} ${p?'preset':'figure guide'} applied${did.length?' — '+did.join(', '):''}${sizes}${_shapeNote}${J&&!J.verified?' (its rules are unverified — check the journal’s page)':''}${labNote}${_keyMsg?' · '+_keyMsg:''}`, labNote?'warn':'ok');
   else if(labNote||_keyMsg) toast(`${nice} preset applied${labNote}${_keyMsg?' · '+_keyMsg:''}`,labNote?'warn':'ok');
 }
 
@@ -25597,9 +25654,21 @@ function setStatus(l,r=''){ document.getElementById('status-l').textContent=l; d
 let _toastT=null;
 function toast(msg,type=''){
   const el=document.getElementById('toast');
-  el.textContent=msg; el.className='show'+(type?' '+type:'');
+  el.textContent=msg; el.className='show'+(type?' '+type:''); el.style.pointerEvents=''; el.style.whiteSpace=''; el.style.maxWidth='';
   // Up long enough to read: 3.2 s for a short one, about 45 ms a character for a long one.
   clearTimeout(_toastT); _toastT=setTimeout(()=>el.className='',Math.min(12000,Math.max(3200,1500+String(msg).length*45)));
+}
+// A toast that offers the one obvious next step as a button, shown a little longer.
+function toastAction(msg, type, label, fn){
+  toast(msg, type);
+  const el=document.getElementById('toast');
+  if(el.textContent!==msg) return;              // toasts are muted (an export captured for a package)
+  const b=document.createElement('button');
+  b.className='btn'; b.textContent=label; b.style.cssText='margin-left:10px;padding:2px 8px;font-size:11px';
+  b.addEventListener('click',()=>{ el.className=''; fn(); });
+  // wrapped, so a long message never pushes its button off the screen
+  el.appendChild(b); el.style.pointerEvents='auto'; el.style.whiteSpace='normal'; el.style.maxWidth='min(760px, calc(100vw - 24px))';
+  clearTimeout(_toastT); _toastT=setTimeout(()=>{ el.className=''; el.style.pointerEvents=''; },8000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -25616,7 +25685,12 @@ function setLayoutMode(mode){
     // panels seem to vanish (charts and gene maps can be grid panels now, so no one has to
     // come here for them).
     else if(mode==='freeform'&&layoutMode==='grid'&&images.some(Boolean)&&!freeformElements.length)
-      toast('Freeform is a separate canvas — your grid is kept as it is (switch Layout back to see it). To bring its panels here, use ⇱ Pop out to free layout','ok'); }
+      toast('Freeform is a separate canvas — your grid is kept as it is (switch Layout back to see it). To bring its panels here, use ⇱ Pop out to free layout','ok');
+    // and the other way: pictures added on the canvas are not grid panels (freeform3-14)
+    else if(mode==='grid'&&layoutMode==='freeform'){
+      const only=freeformElements.filter(e=>e&&e.type==='image'&&!(e.fromPanel!=null&&images.some(im=>im&&im.id===e.fromPanel)));
+      if(only.length) toast(`The grid is a separate layout: ${only.length} picture${only.length>1?'s':''} added on the freeform canvas (${_listAnd(only.slice(0,4).map(e=>_rtText(formatLabel(e.label||''))||e.name||'picture'))}${only.length>4?', …':''}) ${only.length>1?'are':'is'} not in it — kept on the canvas; switch back to Freeform to see ${only.length>1?'them':'it'}`,'warn');
+    } }
   layoutMode=mode;
   document.getElementById('grid-controls').style.display=mode==='grid'?'':'none';
   document.getElementById('freeform-controls').style.display=mode==='freeform'?'':'none';
@@ -30423,7 +30497,10 @@ function fitPanelsToContent(opts){
   if(!quiet){
     toast(`Panels fitted to ${med.toFixed(2)}:1 — the white bars are gone`,'ok');
     // Cells can only be one shape, so mixed content still letterboxes. Say so.
-    if(hi/lo>1.05) toast(`Your panels aren't all the same shape (${lo.toFixed(2)}:1 to ${hi.toFixed(2)}:1) — fitted to the middle one, so the odd ones still have some bars`,'warn');
+    // Cells can be only one shape: the odd ones are letterboxed, their pictures do not share
+    // edges with their neighbours, and a letter sits on the bar. The way to aligned edges
+    // is one button away (newcomer3-12).
+    if(hi/lo>1.05) toastAction(`Your panels aren't all the same shape (${lo.toFixed(2)}:1 to ${hi.toFixed(2)}:1) — fitted to the middle one, so the odd ones still have bars and their edges do not line up. Crop to fill cells crops each to the cell's shape`,'warn','⛶ Crop to fill cells',()=>fillCellsAll());
   }
   return true;
 }
