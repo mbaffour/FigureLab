@@ -32,6 +32,24 @@ const { step, expect, btn } = L;
     return st.map(s => `${s.n.split('_').pop()}: ${s.um ? s.um.toFixed(5) + ' µm/px' : 'uncalibrated'}`).join('; ');
   });
 
+  // ux2: a micrograph without calibration had no way to a scale bar from the quick start.
+  await step(T, '1b2. Right-click a panel › 📏 Scale bar / calibrate… opens its ⚙ at the calibration (Objective, 🔬 Calibrate from image, 🔍 Auto-detect)', async () => {
+    const cr = await p.locator('#fig-canvas').boundingBox();
+    const b = await p.evaluate(() => panelBounds.find(x => (x.idx ?? x.i) === 3));
+    await p.mouse.click(cr.x + b.x + b.w / 2, cr.y + b.y + b.h / 2, { button: 'right' });
+    await p.locator('#panel-ctx-menu').waitFor({ state: 'visible' });
+    await p.locator('#panel-ctx-menu').getByText('📏 Scale bar / calibrate…').click();
+    await p.waitForTimeout(500);
+    const st = await p.evaluate(() => { const a = document.activeElement, it = a && a.closest('.img-item');
+      return { cls: a && a.className, name: it ? it.querySelector('.img-name, .name')?.textContent || it.innerText.split('\n').find(l => /\.tif/.test(l)) : '', btns: it ? [...it.querySelectorAll('button')].map(b => b.innerText.trim()).filter(t => /Calibrate from image|Auto-detect/.test(t)) : [] }; });
+    expect(/f-obj/.test(st.cls) && /PhoA_blot/.test(st.name) && st.btns.length === 2, JSON.stringify(st));
+    await p.keyboard.press('Escape');
+    // the same place by ⌘K
+    const hits = await L.cmdk(T, 'add scale bar', { enter: false });
+    expect(/^Scale bar: add one to a micrograph/.test(hits[0]), hits[0]);
+    return `focus in Objective of ${st.name.trim()}; buttons ${st.btns.join(', ')}; ⌘K "add scale bar" → ${hits[0]}`;
+  });
+
   await step(T, '1c. Images › Auto-channels colours the channels from their file names', async () => {
     await btn(T, 'Auto-channels').click(); await p.waitForTimeout(500);
     const luts = await p.evaluate(() => images.filter(Boolean).map(im => im.lut || im.fluorLut || ''));
@@ -91,12 +109,12 @@ const { step, expect, btn } = L;
     await btn(T, '✓ Check journal compliance').click();
     let rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const tc = rep.locator('.compliance-row', { hasText: 'Text contrast' });
-    if (await tc.getByRole('button', { name: 'Auto contrast' }).count()) {
-      await tc.getByRole('button', { name: 'Auto contrast' }).click();
-      await p.waitForTimeout(400);
-      const t = await p.locator('#toast').textContent();
-      expect(/Auto contrast on/.test(t), 'toast: ' + t);
-    }
+    const before = (await tc.innerText()).replace(/\s+/g, ' ');
+    expect(await tc.getByRole('button', { name: 'Auto contrast' }).count() === 1 && !/^✓/.test(before), 'no Auto contrast button on a failing row: ' + before);
+    await tc.getByRole('button', { name: 'Auto contrast' }).click();
+    await p.waitForTimeout(400);
+    const t = await p.locator('#toast').textContent();
+    expect(/Auto contrast on/.test(t), 'toast: ' + t);
     expect(await p.locator('#label-bg').isChecked(), 'Background was unticked');
     rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const txt = await rep.innerText();
@@ -104,7 +122,7 @@ const { step, expect, btn } = L;
     expect(/✓/.test(row), 'Text contrast row: ' + row);
     const title = await p.locator('#im-title').innerText();
     await p.keyboard.press('Escape');
-    return title;
+    return title + ' — before: ' + before.slice(0, 60) + ' | toast: ' + t.slice(0, 90);
   });
 
   await step(T, '5c. Printed height passes: the preset already chose 89 mm — single column (Nature) for the 2 × 2', async () => {
@@ -122,15 +140,7 @@ const { step, expect, btn } = L;
   });
 
   let pdfFile;
-  await step(T, '6a. ↓ TIFF → Save TIFF is 300 dpi at 89 mm', async () => {
-    const r = await L.exportVia(T, 'TIFF', { name: 'Fig1' });
-    const info = L.tiffInfo(fs.readFileSync(r.file));
-    const mm = info.w / info.xres * 25.4;
-    expect(Math.abs(info.xres - 300) < 1 && Math.abs(mm - 89) < 1, JSON.stringify(info));
-    return `${info.w}×${info.h} px, ${info.xres} dpi, ${mm.toFixed(1)} mm`;
-  });
-
-  await step(T, '6b. ↓ PDF lossless → Save PDF writes an 89 mm wide page (saved last)', async () => {
+  await step(T, '6a. ↓ PDF lossless → Save PDF writes an 89 mm wide page', async () => {
     const r = await L.exportVia(T, 'PDF lossless', { name: 'Fig1' });
     pdfFile = r.file;
     const s = fs.readFileSync(pdfFile, 'latin1');
@@ -141,22 +151,32 @@ const { step, expect, btn } = L;
     return path.basename(pdfFile) + ': ' + mm.toFixed(1) + ' × ' + ((+mb[2]) / 72 * 25.4).toFixed(1) + ' mm';
   });
 
-  await step(T, '7. Re-check: the Export format row now passes (PDF was saved last)', async () => {
+  await step(T, '6b. ↓ TIFF → Save TIFF is 300 dpi at 89 mm (saved after the PDF)', async () => {
+    const r = await L.exportVia(T, 'TIFF', { name: 'Fig1' });
+    const info = L.tiffInfo(fs.readFileSync(r.file));
+    const mm = info.w / info.xres * 25.4;
+    expect(Math.abs(info.xres - 300) < 1 && Math.abs(mm - 89) < 1, JSON.stringify(info));
+    return `${path.basename(r.file)}: ${info.w}×${info.h} px, ${info.xres} dpi, ${mm.toFixed(1)} mm`;
+  });
+
+  // ux2: the row used to check only the format saved last, so PDF then TIFF failed under Nature.
+  await step(T, '7. Re-check: the Export format row passes — it counts every format saved since the figure last changed', async () => {
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const txt = await rep.innerText();
     const row = (txt.match(/Export format\n([^\n]*)/) || [])[1] || '';
-    expect(/✓/.test(row), 'Export format: ' + row);
+    expect(/✓/.test(row) && /since the figure last changed/.test(row), 'Export format: ' + row);
     const title = await p.locator('#im-title').innerText();
     const open = [...txt.matchAll(/\n([⚠✗])\n([^\n]+)/g)].map(m => m[1] + ' ' + m[2]);
     await p.keyboard.press('Escape');
-    return title + (open.length ? ' — still open: ' + open.join(', ') : '');
+    return title + ' — ' + row.split(' · ')[0] + (open.length ? ' — still open: ' + open.join(', ') : '');
   });
 
   await step(T, 'screenshot: the figure after the quick start', async () => {
     const got = p.locator('button', { hasText: 'Got it' });
     if (await got.count()) await got.first().click().catch(() => {});
+    await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } }); await p.keyboard.press('Escape');   // deselect
     await btn(T, '⟳ Render').click(); await p.waitForTimeout(600);
     await L.shot(T, 'quickstart-figure', p.locator('#canvas-container'), { doc: true });
   });

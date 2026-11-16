@@ -16,7 +16,9 @@ const CSV = {
     .map(([t, a, b]) => a.map((v, i) => `${t},0,${i + 1},${v}`).concat(b.map((v, i) => `${t},1,${i + 1},${v}`)).join('\n')).join('\n') + '\n',
   'lysis_mean_sd.csv': 'time_min,MOI 0 mean,MOI 0 SD,MOI 1 mean,MOI 1 SD\n0,0.11,0.01,0.11,0.01\n60,0.44,0.04,0.30,0.05\n120,1.00,0.05,0.08,0.03\n',
   'swim_wide.csv': 'Untreated,Phage-treated\n36.1,26.0\n38.5,27.9\n41.2,24.8\n35.9,28.1\n38.1,26.8\n',
-  'swim_semicolon.csv': 'Stamm;Durchmesser\n;mm\nWT;12,5\nWT;13,1\nWT;12,8\nΔfliC;3,2\nΔfliC;3,6\nΔfliC;3,4\n',
+  'swim_semicolon.csv': 'Stamm;Durchmesser\n;mm\nWT;12,5\nWT;13,1\nWT;12,8\ndfliC;3,2\ndfliC;3,6\ndfliC;3,4\n',
+  // a tidy German file: strain, replicate number, value, a units row and decimal commas
+  'biofilm_de.csv': 'Stamm;Replikat;Biofilm\n;;A550\nWT;1;1,20\nWT;2;1,31\nWT;3;1,25\nΔpelA;1;0,40\nΔpelA;2;0,38\nΔpelA;3;0,45\n',
 };
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 const sd = a => { const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)); };
@@ -24,7 +26,7 @@ const TRUTH = {
   A: { WT: [1.9e9, 2.0e9, 2.02e9], dfliC: [8.1e8, 7.6e8, 8.4e8], dmotA: [1.2e9, 1.1e9, 1.3e9] },
   B: { 'MOI_0@60': [0.40, 0.44, 0.48], 'MOI_1@120': [0.05, 0.08, 0.11] },
   E: { Untreated: [36.1, 38.5, 41.2, 35.9, 38.1], 'Phage-treated': [26.0, 27.9, 24.8, 28.1, 26.8] },
-  F: { WT: [12.5, 13.1, 12.8], 'ΔfliC': [3.2, 3.6, 3.4] },
+  F: { WT: [12.5, 13.1, 12.8], dfliC: [3.2, 3.6, 3.4] },
 };
 
 (async () => {
@@ -98,8 +100,31 @@ const TRUTH = {
   await step(T, 'T3 Tidy rows with a Series (group) column: one averaged line per MOI', async () => {
     const d = await importCsv('lysis_tidy.csv');
     expect(d.kind === 'Line' && d.x === 'time_min' && d.series === 'MOI' && d.ycols.join() === 'OD600', JSON.stringify(d));
+    expect(!(await chart.locator('#chart-layout').isVisible()), 'Data layout shown for a line chart');
     await apply();
-    return `X ${d.x}, Series ${d.series}, Y ${d.ycols}`;
+    return `X ${d.x}, Series ${d.series}, Y ${d.ycols}; no Data layout field for Line`;
+  });
+  await step(T, 'T3b Box, violin and beeswarm with a Series column draw each series side by side; Error bars sets the beeswarm whisker', async () => {
+    const pt = await panelPoint('C');
+    await p.mouse.dblclick(pt.x, pt.y);
+    await chart.waitFor({ state: 'visible' });
+    await chart.locator('#chart-kind').selectOption({ label: 'Beeswarm (dots)' });
+    const got = [];
+    for (const [lab, want] of [['SEM (SD/√n)', 'sem'], ['SD (n−1)', 'sd']]) {
+      await chart.locator('#chart-err').selectOption({ label: lab }); await p.waitForTimeout(300);
+      const st = await p.evaluate(() => { const s = _chartStats({ chart: _chartDraft, w: 300, h: 200 }); return { n: s.boxes.length, kinds: [...new Set(s.boxes.map(b => b.errKind))], series: [...new Set(s.boxes.map(b => b.name))] }; });
+      expect(st.n === 6 && st.kinds.join() === want && st.series.length === 2, JSON.stringify(st));
+      got.push(`${lab}: ${st.n} clouds (${st.series.join(', ')} side by side at each time), whisker ${want}`);
+    }
+    for (const k of ['Box & whisker', 'Violin']) {
+      await chart.locator('#chart-kind').selectOption({ label: k }); await p.waitForTimeout(300);
+      const st = await p.evaluate(() => { const s = _chartStats({ chart: _chartDraft, w: 300, h: 200 }); return { n: s.boxes.length, series: [...new Set(s.boxes.map(b => b.name))] }; });
+      expect(st.n === 6 && st.series.length === 2, k + ' ' + JSON.stringify(st));
+      got.push(`${k}: ${st.n} boxes`);
+    }
+    await chart.getByRole('button', { name: 'Cancel' }).click(); await p.waitForTimeout(300);
+    expect(await p.evaluate(() => images.find(im => im && im.label === 'C').chart.kind) === 'line', 'Cancel did not keep the line chart');
+    return got.join('; ');
   });
 
   // ---- Task 4: mean and SD columns --------------------------------------------------------
@@ -128,6 +153,8 @@ const TRUTH = {
     const box = sec.locator('input[type=text]');
     expect(await box.getAttribute('maxlength') === '40', 'label limit is not 40');
     await box.fill('p = 0.0008 (Welch t-test)');
+    await p.waitForTimeout(200);
+    expect(/25\/40/.test(await sec.innerText()), 'no 25/40 counter: ' + (await sec.innerText()).replace(/\s+/g, ' '));
     await p.waitForTimeout(3300);   // let the import toast fade before the screenshot
     await L.shot(T, 'charts-dialog', chart.locator('xpath=./*[1]'), { doc: true });
     await apply();
@@ -139,6 +166,18 @@ const TRUTH = {
     expect(/units row: Durchmesser mm/.test(d.status) && d.ytitle === 'Durchmesser (mm)' && d.kind === 'Bar', JSON.stringify(d));
     await apply();
     return d.status + '; Y title "' + d.ytitle + '"';
+  });
+
+  await step(T, 'T6b A tidy German file (Stamm;Replikat;Biofilm) is guessed as a bar per strain; Cancel takes the just-dropped chart away', async () => {
+    const n0 = (await charts()).length, rows0 = await p.evaluate(() => rows.value);
+    const d = await importCsv('biofilm_de.csv');
+    expect(d.kind === 'Bar' && d.x === 'Stamm' && d.series === '— none —' && d.ycols.join() === 'Biofilm' && d.err === 'SD (n−1)' && d.ytitle === 'Biofilm (A550)', JSON.stringify(d));
+    await L.toasts(T);
+    await chart.getByRole('button', { name: 'Cancel' }).click(); await p.waitForTimeout(400);
+    const t = await L.toasts(T);
+    const n1 = (await charts()).length, rows1 = await p.evaluate(() => rows.value);
+    expect(n1 === n0 && rows1 === rows0 && /Cancelled — the chart was not added/.test(t), `${n0} → ${n1} panels, rows ${rows0} → ${rows1}, toast ${t}`);
+    return `${d.kind}, X ${d.x}, Y ${d.ycols}, ${d.err}, Y title "${d.ytitle}"; Cancel: "${t}", ${n1} panels`;
   });
 
   await step(T, 'Six chart panels A–F, still a grid', async () => {
@@ -190,36 +229,80 @@ const TRUTH = {
   });
 
   // ---- Names & colours --------------------------------------------------------------------
-  await step(T, 'N1 Names & colours: WT swatch → blue, dfliC shown as Δ*fliC*, Apply', async () => {
+  // Colours and shown names as each chart draws them, by data name.
+  const drawn = (label) => p.evaluate((label) => { const el = images.find(im => im && im.label === label); const s = _chartStats({ chart: el.chart, w: 300, h: 200 }); return Object.fromEntries(s.catColours.map(c => [c.key, { name: c.name, color: c.color }])); }, label);
+  await step(T, 'N0 Names & colours ↑: moving dfliC left keeps every colour', async () => {
+    const before = await drawn('A');
+    const names = chart.locator('#chart-names');
+    await names.locator('[data-key="dfliC"] button', { hasText: '↑' }).click(); await p.waitForTimeout(300);
+    const order = await names.locator('[data-key]').evaluateAll(r => r.map(e => e.dataset.key));
+    expect(order.join() === 'dfliC,WT,dmotA', order.join());
+    const after = await p.evaluate(() => { const s = _chartStats({ chart: _chartDraft, w: 300, h: 200 }); return Object.fromEntries(s.catColours.map(c => [c.key, { name: c.name, color: c.color }])); });
+    const moved = Object.keys(before).filter(k => before[k].color !== after[k].color);
+    expect(!moved.length, 'colour changed for ' + moved.join(', '));
+    return `order ${order.join(', ')}; colours ${Object.entries(after).map(([k, v]) => k + ' ' + v.color).join(', ')}`;
+  });
+  await step(T, 'N1 Names & colours: WT swatch → blue, dfliC shown as Δ*fliC*, Apply: the name also shows in panel F', async () => {
     const names = chart.locator('#chart-names');
     // A colour input opens the system picker; set its value the way the picker does.
-    await names.locator('input[type=color]').first().evaluate(el => { el.value = '#0072b2'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+    await names.locator('[data-key="WT"] input[type=color]').evaluate(el => { el.value = '#0072b2'; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
     const shown = names.locator('input[placeholder="shown as dfliC"]');
     await shown.click(); await shown.fill('Δ*fliC*');
     await p.waitForTimeout(300);
+    await L.toasts(T);
     await apply();
+    const t = await L.toasts(T, { all: true });
+    expect(/Chart updated — the new name also shows in panel F/.test(t), 'toast: ' + t.split(' | ').slice(-2).join(' | '));
+    const f = await drawn('F'), a = await drawn('A');
+    expect(f.dfliC.name === 'Δ*fliC*' && f.dfliC.color === a.dfliC.color && a.WT.color === '#0072b2' && f.WT.color === '#0072b2', JSON.stringify({ a, f }));
     const row = await p.locator('#sample-colours-list [data-name="WT"]').getAttribute('data-name').catch(() => null);
     expect(row === 'WT', 'WT not in Look › Sample colours');
+    return 'toast "' + t.split(' | ').filter(x => /new name/.test(x)).pop() + '"; panel F shows Δ*fliC* in ' + f.dfliC.color;
   });
   await step(T, 'N2 The key text follows: WT blue, ΔfliC by its shown name', async () => {
     await L.openSection(T, 'Export');
     const key = await p.evaluate(() => document.getElementById('key-text') ? document.getElementById('key-text').value || document.getElementById('key-text').textContent : '');
-    expect(/WT \(blue, filled bars\)/.test(key) && /ΔfliC/.test(key), key);
+    expect(/WT \(blue, filled bars\)/.test(key) && (key.match(/ΔfliC/g) || []).length === 1, key);
     return key.slice(0, 160) + '…';
+  });
+  await step(T, 'N3 MOI_0 (panel B) and "MOI 0 mean" (panel D) share one colour; shown as "MOI 0" in B gives them one key row', async () => {
+    await L.openSection(T, 'Export');
+    const keyText = () => p.evaluate(() => document.getElementById('key-text').value);
+    const k0 = await keyText();
+    const c0 = (k0.match(/MOI_0 \(([^)]*)\)/) || [])[1], c1 = (k0.match(/MOI 0 \(([^)]*)\)/) || [])[1];
+    expect(c0 && c0 === c1, 'before: ' + k0);
+    const pt = await panelPoint('B');
+    await p.mouse.dblclick(pt.x, pt.y);
+    await chart.waitFor({ state: 'visible' });
+    await chart.locator('#chart-names input[placeholder="shown as MOI_0"]').fill('MOI 0');
+    await p.waitForTimeout(300);
+    await apply();
+    const k1 = await keyText();
+    expect(!/MOI_0/.test(k1) && (k1.match(/MOI 0 \(/g) || []).length === 1, 'after: ' + k1);
+    return `before: MOI_0 (${c0}) and MOI 0 (${c1}); after: ${(k1.match(/MOI 0 \([^)]*\)/) || [''])[0]} once`;
   });
 
   // ---- Look › Sample colours, lab style -----------------------------------------------------
   let styleFile;
-  await step(T, 'S1 Look › Sample colours › ⬇ Save as paper_style.json writes the colours you set', async () => {
+  await step(T, 'S0 Look › Sample colours lists each sample by its shown name, with the data names behind it in brackets', async () => {
     await L.openSection(T, 'Look');
+    const rows = await p.evaluate(() => [...document.querySelectorAll('#sample-colours-list [data-name]')].map(r => r.innerText.replace(/\s+/g, ' ').trim()));
+    expect(rows.some(r => /^ΔfliC \(dfliC\)/.test(r)) && rows.some(r => /^MOI 0 \(MOI_0, MOI 0 mean\)/.test(r)) && rows.some(r => /^WT ×/.test(r)), rows.join(' | '));
+    return rows.join(' | ');
+  });
+  await step(T, 'S1 Look › Sample colours › ⬇ Save as paper_style.json writes every sample colour, palette ones too', async () => {
+    await L.openSection(T, 'Look');
+    await L.toasts(T);
     styleFile = await L.download(T, () => btn(T, '⬇ Save as paper_style.json').click(), /paper_style\.json$/);
     const js = JSON.parse(fs.readFileSync(styleFile, 'utf8'));
-    expect(js.settings.sample_palette.WT.toLowerCase() === '#0072b2', JSON.stringify(js));
+    const pal = js.settings.sample_palette;
+    const t = await L.toasts(T);
+    expect(pal.WT.toLowerCase() === '#0072b2' && pal.dmotA && pal.dfliC && pal.Untreated && /paper_style\.json saved with \d+ sample colours \(1 set by hand, \d+ from the palette/.test(t), JSON.stringify(js) + ' | ' + t);
     const h = p.locator('.sec-lbl', { hasText: /^Sample colours/i });
     await h.scrollIntoViewIfNeeded();
     const b1 = await h.boundingBox(), b2 = await btn(T, '⬇ Save as paper_style.json').boundingBox();
     await L.shot(T, 'charts-sample-colours', { x: b1.x - 6, y: b1.y - 6, width: 296, height: b2.y + b2.height - b1.y + 12 }, { doc: true });
-    return JSON.stringify(js.settings);
+    return `${Object.keys(pal).length} names; toast "${t}"`;
   });
   await step(T, 'S2 × beside WT puts it back on the palette', async () => {
     await p.locator('#sample-colours-list [data-name="WT"] button', { hasText: '×' }).click();
@@ -271,6 +354,16 @@ const TRUTH = {
     return `fonts ${fams.join(' / ')}; tick labels ${tick.toFixed(2)} pt`;
   });
 
+  await step(T, 'Y3 Check › ✓ Check journal compliance: the Text size row measures chart text, superscripts at their printed size', async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const row = ((await rep.innerText()).match(/Text size\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape');
+    expect(/charts/.test(row) && /Superscripts and subscripts print at 70%/.test(row), row);
+    return row.slice(0, 400);
+  });
+
   // ---- Source data -----------------------------------------------------------------------
   await step(T, 'D1 📦 Export submission package (ZIP) carries source-data/<letter>.csv with the plotted mean, SD, n', async () => {
     await L.openSection(T, 'Export');
@@ -294,6 +387,8 @@ const TRUTH = {
     // series: the data's name ("MOI 1 mean"); series_shown_as: the name the chart shows ("MOI 1")
     const D = plotted('D'); if (!D.some(r => r.series === 'MOI 1 mean' && r.series_shown_as === 'MOI 1' && r.x === '60' && +r.error === 0.05 && r.error_type === 'from a column')) bad.push('D pairing');
     if (!plotted('A').some(r => r.category === 'dfliC' && r.category_shown_as === 'ΔfliC')) bad.push('A: dfliC not written with its shown name ΔfliC');
+    const fRaw = L.zipRead(zip, 'source-data/F.csv').toString('utf8').split(/# Plotted values/)[0];
+    if (!/WT,12\.5/.test(fRaw) || /12,5/.test(fRaw)) bad.push('F: decimal commas not written as points: ' + fRaw.replace(/\n/g, ' / '));
     expect(!bad.length, bad.join('; '));
     return `${src.length} source-data CSVs; means and SDs match the truth (A WT ${(mean(TRUTH.A.WT) / 1e9).toFixed(4)}e9 ± ${(sd(TRUTH.A.WT) / 1e7).toFixed(3)}e7, E Untreated ${mean(TRUTH.E.Untreated).toFixed(2)} ± ${sd(TRUTH.E.Untreated).toFixed(3)}, F decimal commas ${mean(TRUTH.F.WT).toFixed(1)})`;
   });
@@ -308,8 +403,8 @@ const TRUTH = {
   });
 
   // ---- ⌘K Add bar chart and Cancel ---------------------------------------------------------
-  await step(T, 'K1 ⌘K "add bar chart" → Enter adds a chart panel; Cancel removes it again', async () => {
-    const n0 = (await charts()).length;
+  await step(T, 'K1 ⌘K "add bar chart" → Enter adds a chart panel; Cancel removes it again and the grid keeps its size', async () => {
+    const n0 = (await charts()).length, g0 = await p.evaluate(() => cols.value + '×' + rows.value);
     const hits = await L.cmdk(T, 'add bar chart');
     expect(/^Add bar chart/.test(hits[0]), 'top hit ' + hits[0]);
     await chart.waitFor({ state: 'visible' });
@@ -317,8 +412,28 @@ const TRUTH = {
     await chart.getByRole('button', { name: 'Cancel' }).click();
     await p.waitForTimeout(400);
     const n2 = (await charts()).length;
-    expect(n1 === n0 + 1 && n2 === n0, `${n0} → ${n1} → ${n2}`);
-    return `${n0} → ${n1} → ${n2} panels`;
+    const g2 = await p.evaluate(() => cols.value + '×' + rows.value);
+    expect(n1 === n0 + 1 && n2 === n0 && g2 === g0, `${n0} → ${n1} → ${n2}, grid ${g0} → ${g2}`);
+    return `${n0} → ${n1} → ${n2} panels; grid ${g0} → ${g2}`;
+  });
+
+  // ---- Source data read back ---------------------------------------------------------------
+  await step(T, 'D2 source-data/A.csv from the package, dropped back in, charts the same means and SDs', async () => {
+    const zip = T.downloads.filter(f => /submission-package\.zip$/.test(f)).pop();
+    const back = path.join(inp, 'A_source-data.csv');
+    fs.writeFileSync(back, L.zipRead(zip, 'source-data/A.csv'));
+    await L.toasts(T);
+    await L.pickFiles(T, dropZone(), [back]);
+    await chart.waitFor({ state: 'visible', timeout: 8000 }); await p.waitForTimeout(400);
+    const d = await draft();
+    await apply();
+    const t = await L.toasts(T);
+    expect(/2 comment lines \(#\) over the table skipped; the “Plotted values” block below it left out/.test(t), 'toast: ' + t);
+    const rowsP = await p.evaluate(() => _chartPlotted(images.filter(Boolean).slice(-1)[0]).rows.map(r => ({ k: r.xkey, mean: r.mean, err: r.err, n: r.n })));
+    const close = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    const bad = rowsP.filter(r => { const tr = TRUTH.A[r.k]; return !tr || !close(r.mean, mean(tr)) || !close(r.err, sd(tr)) || r.n !== 3; });
+    expect(d.kind === 'Bar' && d.x === 'strain' && rowsP.length === 3 && !bad.length, JSON.stringify({ d, rowsP }));
+    return `${d.kind}, X ${d.x}, Y ${d.ycols}; toast "${t.split(' | ').find(x => /Imported/.test(x))}"`;
   });
 
   await L.finish(T);

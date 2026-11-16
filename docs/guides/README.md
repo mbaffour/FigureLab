@@ -2,7 +2,7 @@
 
 Task-by-task walkthroughs for the figures scientists make most often. Open `figure_lab.html` in Chrome or Firefox and follow along; every step uses the buttons and menus you see on screen.
 
-Every guide was followed step by step on this build by a script in [`verify/`](verify/README.md), on generated images and data whose true values are known (tilts, band amounts, calibrations, plaque counts, means and SDs). Where a result is quoted, it was measured on those test inputs. Problems found while checking are listed in [`verify/ISSUES.md`](verify/ISSUES.md).
+Every guide was followed step by step on this build by a script in [`verify/`](verify/README.md) (in the FigureLab repository, beside these guides), on generated images and data whose true values are known (tilts, band amounts, calibrations, plaque counts, means and SDs). Where a result is quoted, it was measured on those test inputs. Problems found while checking are listed in [`verify/ISSUES.md`](verify/ISSUES.md).
 
 ## Which guide?
 
@@ -23,16 +23,16 @@ This is the shortest path from images to a file you can submit. Each step links 
 
 ![The quick-start figure: three fluorescence channels with 10 µm scale bars and a blot, lettered A–D](img/quickstart-figure.png)
 
-1. **Add images.** In **Images**, click **Drop or click to add images** (or drag files onto the window) and pick your files. Each becomes a lettered panel. A Fiji/ImageJ TIFF carries its calibration, and its panel gets a scale bar at once; a file without calibration gets none.
+1. **Add images.** In **Images**, click **Drop or click to add images** (or drag files onto the window) and pick your files. Each becomes a lettered panel. A Fiji/ImageJ TIFF carries its calibration, and its panel gets a scale bar at once; a file without calibration gets none. To give a micrograph without calibration a bar, right-click it › **📏 Scale bar / calibrate…** (or ⌘K `add scale bar`): its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**. Photos, blots and charts need no bar.
 2. **Colour the channels.** If your files are channels named like `C1-…_DAPI.tif`, click **🎨 Auto-channels** in **Images**. → [Fluorescence](fluorescence.md)
 3. **Set the grid.** Open **Arrange** and type **Columns** and **Rows** (here 2 and 2).
 4. **Letters.** Panels are lettered A, B, C… in order. To change the style, use **Look › Panel Labels (A, B, C…) › Label format** (for example `a b c`).
-5. **Journal preset.** Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd> on Windows/Linux), type the journal's name (`nature`, `plos`, `elife`, `asm`…) and press <kbd>Enter</kbd> on **Journal: …**. This sets the printed width, font, type sizes in points and DPI. → [Journal submission](journal-submission.md)
+5. **Journal preset.** Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd> on Windows/Linux), type the journal's name or abbreviation (`nature`, `plos`, `elife`, `mbio`, `jbc`…) and press <kbd>Enter</kbd> on **Journal: …**. This sets the printed width, font, type sizes in points and DPI. The width is the widest the journal allows that keeps the figure within its height limit: for this 2 × 2 figure the toast reads "Nature preset applied — 89 mm wide — the widest that keeps it within 170 mm tall". A journal FigureLab has no preset for (`nat comms`) says so and changes nothing. → [Journal submission](journal-submission.md)
 6. **Check.** Open **Check** and click **✓ Check journal compliance**. Read the ✗ and ⚠ rows; most have a fix button. Two you are likely to meet:
-   - **Text contrast** fails on light panels: untick **Look › Panel Labels (A, B, C…) › Background**. Auto contrast switches on and each letter turns black or white to suit its panel.
-   - **Printed height** fails: the figure is taller than the journal allows at that width. Choose a narrower **Export › Printed width** (for a 2 × 2 figure, **89 mm — single column (Nature)**), or use fewer rows.
+   - **Text contrast** warns or fails on light panels: click the row's **Auto contrast** button. The chips behind the letters darken and every letter reads against its panel; **Background** stays ticked. The row then passes (the toast starts "Auto contrast on").
+   - **Printed height** fails only if you widen the figure after the preset: the row's button (**Set 89 mm** here) narrows it again. Fewer rows also work.
 7. **Export.** Click the format the journal wants in the toolbar (**↓ PDF lossless**, **↓ TIFF**…), check the name and resolution in the dialog, and click **Save**. The file carries the printed size: in the test, Fig1.pdf was 89.0 × 86.4 mm and Fig1.tiff 1051 px wide at 300 dpi.
-8. **Check again.** Run the compliance check once more. The **Export format** row checks the format you saved last, so export in the journal's format before this final check.
+8. **Check again.** Run the compliance check once more. The **Export format** row counts every format you saved since the figure last changed, so a PDF then a TIFF passes under Nature ("exported as PDF (lossless), TIFF since the figure last changed ✓").
 
 ![The compliance report for Nature after step 6](img/quickstart-compliance.png)
 

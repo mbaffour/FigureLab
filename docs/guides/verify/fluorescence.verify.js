@@ -70,7 +70,10 @@ const { step, expect, btn } = L;
     expect(/16-bit scaled to 8-bit for display; native samples kept for measurement/.test(ts), 'toasts: ' + ts.slice(0, 200));
     const chips = await p.locator('#img-list button.f-chan-chip').allInnerTexts();
     expect(['DAPI', 'GFP', 'CellMask'].every(c => chips.includes(c)), 'channel chips: ' + chips);
-    return '6 panels, 16-bit, 0.10833 µm/px from the ImageJ tags; chips ' + [...new Set(chips)].join(', ');
+    // each calibrated panel gets a bar of a round length, about a fifth of its field
+    const bars = await p.evaluate(() => [...new Set(images.filter(Boolean).map(im => (im.sbOn ? 'on ' : 'off ') + im.sbUm + ' ' + (im.sbUnit || 'µm')))]);
+    expect(bars.join() === 'on 10 µm', 'bars at import: ' + bars);
+    return '6 panels, 16-bit, 0.10833 µm/px from the ImageJ tags; chips ' + [...new Set(chips)].join(', ') + '; bars ' + bars.join(', ');
   });
 
   await step(T, '2. Images › 🎨 Auto-channels colours each file by its channel word', async () => {
@@ -117,8 +120,10 @@ const { step, expect, btn } = L;
       await st.locator('button', { hasText: '⑃ Split channels into panels' }).click(); await p.waitForTimeout(1000);
       const t2 = await toast();
       await closeAllSettings();
-      expect(/Split into 4 panels/.test(t2), 'split toast: ' + t2);
-      return t1.split(' — ')[0] + '; ' + t2.split(' — ')[0];
+      expect(/Split into 4 panels/.test(t2) && /Arrange › Columns 4 gives each split field its own row/.test(t2), 'split toast: ' + t2);
+      // ux2: the first split, inside a 3 × 2 grid, grows the grid so the new panels are drawn
+      if (cond === 'DMSO') expect(/the grid grew to 3 × 3 rows so the new panels are drawn/.test(t2), 'split toast: ' + t2);
+      return t1.split(' — ')[0] + '; ' + t2.split(' — ')[1];
     });
   }
 
@@ -153,19 +158,19 @@ const { step, expect, btn } = L;
     return out.join('; ');
   });
 
-  await step(T, '6. ⚙ on A › Auto picks a bar; type 20 µm; click A on the canvas › Look › ≡ Same bar on all calibrated', async () => {
+  await step(T, '6. ⚙ on A › Auto picks a bar; type 20 µm › Look › ≡ Same bar on all calibrated copies it (no canvas click needed)', async () => {
     const st = await openSettings(row('A'));
     await st.getByRole('button', { name: 'Auto', exact: true }).click(); await p.waitForTimeout(300);
     const t1 = await toast();
     await st.locator('input.f-sbum').fill('20'); await st.locator('input.f-sbum').press('Tab');
     await closeAllSettings();
-    await clickPanel('A');
     await L.openSection(T, 'Look');
     await btn(T, '≡ Same bar on all calibrated').click(); await p.waitForTimeout(400);
     const t2 = await toast();
     const lens = await p.evaluate(() => panelBounds.map(b => images[b.idx].sbUm));
-    expect(lens.every(v => +v === 20), 'bar lengths ' + lens);
-    expect(/20 µm on 8 calibrated panels \(from A\)/.test(t2), t2);
+    // ux2: the panel whose Bar length was typed last counts as the one to copy from
+    expect(lens.every(v => +v === 20), 'bar lengths ' + lens + ' toast ' + t2);
+    expect(/20 µm on 8 calibrated panels \(from A, the length typed last\)/.test(t2), t2);
     return t1 + ' → ' + t2;
   });
 
@@ -192,11 +197,14 @@ const { step, expect, btn } = L;
       await m.locator('button', { hasText: '⧉ Add inset' }).click(); await p.waitForTimeout(700);
       const t = await toast();
       expect(new RegExp(`Inset \\w of ${parent} placed right after it`).test(t), t);
-      return title + ' → ' + t.split(' — ')[0];
+      // ux2: a new inset gets its own round bar length (its 13.9 µm field cannot hold 20 µm)
+      const ib = await p.evaluate(() => { const im = images.filter(Boolean).filter(i => i.insetOf != null).pop(); return { on: im.sbOn, um: im.sbUm }; });
+      expect(ib.on && +ib.um === 2, 'inset bar ' + JSON.stringify(ib));
+      return title + ' → ' + t.split(' — ')[0] + '; its bar 2 µm';
     });
   }
 
-  await step(T, '8. Arrange › Columns 5 › 🔤 Relabel: each inset sits after its merge; ⚙ › Auto gives each inset its own bar', async () => {
+  await step(T, '8. Arrange › Columns 5, Rows 2 › 🔤 Relabel: each inset sits after its merge, with its own 2 µm bar', async () => {
     await L.openSection(T, 'Arrange');
     await p.getByLabel('Columns', { exact: true }).fill('5'); await p.getByLabel('Columns', { exact: true }).press('Tab');
     await p.getByLabel('Rows', { exact: true }).fill('2'); await p.getByLabel('Rows', { exact: true }).press('Tab');
@@ -210,7 +218,6 @@ const { step, expect, btn } = L;
     const bars = [];
     for (const Lt of ['E', 'J']) {
       const st = await openSettings(row(Lt));
-      await st.getByRole('button', { name: 'Auto', exact: true }).click(); await p.waitForTimeout(300);
       bars.push(Lt + ' ' + await st.locator('input.f-sbum').inputValue() + ' µm');
     }
     await closeAllSettings();
@@ -277,27 +284,50 @@ const { step, expect, btn } = L;
     return 'fixed to ' + lut + '; Display ranges row: ' + dr.slice(0, 90);
   });
 
-  await step(T, '14. Arrange › Margins Right 90, then Export › Place the key on the figure: key sits in the margin', async () => {
-    await L.openSection(T, 'Arrange');
-    await p.locator('#m-right').fill('90'); await p.locator('#m-right').press('Tab'); await p.waitForTimeout(300);
+  // ux2: the placed key goes into free space (a margin, an empty cell or a free corner) and
+  // never over a panel or letter; with no room a margin grows and a toast says so. The old
+  // way (widen Margins › Right by hand, untick and tick again) is not needed.
+  await step(T, '14. Export › Place the key on the figure: the right margin grows and the key sits there; Where › Right edge; back to Free space', async () => {
     await L.openSection(T, 'Export');
-    await p.getByLabel('Place the key on the figure').check(); await p.waitForTimeout(600);
-    const k = await p.evaluate(() => {
-      const kk = annotations.filter(a => a && a.type === 'legend');
+    await L.toasts(T);
+    await p.getByLabel('Place the key on the figure').check(); await p.waitForTimeout(800);
+    const geo = () => p.evaluate(() => {
+      const k = annotations.filter(a => a && a.type === 'legend'), W = document.getElementById('fig-canvas').width;
       const right = panelBounds.reduce((m, b) => Math.max(m, b.x + b.w), 0);
-      return { n: kk.length, x: kk[0] && Math.round(kk[0].xf * document.getElementById('fig-canvas').width), right: Math.round(right) };
+      return { n: k.length, x: k[0] && Math.round(k[0].xf * W), where: k[0] && k[0].where, right: Math.round(right), mr: document.getElementById('m-right').value };
     });
-    expect(k.n === 1, 'placed keys: ' + k.n);
-    expect(k.x >= k.right - 6, `key at x ${k.x}, panels end at ${k.right}`);
-    return `key at x ${k.x}, right of the panels (which end at ${k.right})`;
+    const g1 = await geo();
+    const t1 = await L.toasts(T);
+    expect(g1.n === 1 && g1.x >= g1.right && g1.where === 'auto', JSON.stringify(g1));
+    expect(/The legend key needed free space, so the right margin grew from 16 to 96 px/.test(t1), 'toast: ' + t1);
+    const opts = await p.locator('#key-where option').allInnerTexts();
+    expect(opts.join('|') === 'Free space|Top right|Top left|Bottom right|Bottom left|Right edge|Below', opts.join('|'));
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const kr = ((await rep.innerText()).match(/Legend key on the figure\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape');
+    expect(/sits in free space/.test(kr), 'compliance: ' + kr);
+    await L.openSection(T, 'Export');
+    await p.locator('#key-where').selectOption({ label: 'Right edge' }); await p.waitForTimeout(600);
+    const g2 = await geo();
+    expect(g2.where === 'right' && g2.x >= g2.right, JSON.stringify(g2));
+    await p.locator('#key-where').selectOption({ label: 'Free space' }); await p.waitForTimeout(600);
+    return `key at x ${g1.x} (panels end at ${g1.right}); toast "${t1.slice(0, 110)}…"; compliance: ${kr}; Where: ${opts.join(', ')}`;
   });
 
-  await step(T, '15. Export › ⬇ Download key writes the key file; ✎ Write Methods paragraph states GFP 400–12000', async () => {
+  await step(T, '15. Export › ⬇ Download key writes the key file; ✎ Write Methods paragraph and ✦ Generate Caption state GFP 400–12000, no 0–255 range', async () => {
     const f = await L.download(T, () => btn(T, '⬇ Download key').click(), /-key\./);
     await btn(T, '✎ Write Methods paragraph').click(); await p.waitForTimeout(500);
     const m = await p.locator('#methods-out').inputValue();
     expect(/GFP 400–12000 \(panels/.test(m), 'Methods: ' + (m.match(/display ranges in native values[^.]*/) || [m.slice(0, 200)])[0]);
-    fs.writeFileSync(path.join(T.out, 'methods.txt'), m);   // ISSUES.md: merged panels also get a 0–255 range per condition
+    fs.writeFileSync(path.join(T.out, 'methods.txt'), m);
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600);
+    const cap = await p.locator('#caption-out').inputValue();
+    fs.writeFileSync(path.join(T.out, 'caption.txt'), cap);
+    // ux2: no second range "on the 0–255 display scale" for the merges, in Methods or the caption
+    expect(!/0–255/.test(m) && !/0–255/.test(cap), 'a 0–255 range is back');
+    expect(/Display ranges in the files’ own 16-bit values: DAPI 0–10000 \(panels A, D, E, F, I and J\); GFP 400–12000/.test(cap), 'caption: ' + cap.slice(-300));
     return path.basename(f) + ' (' + fs.statSync(f).size + ' B); ' + (m.match(/display ranges in native values[^.]*/) || [''])[0];
   });
 
@@ -313,6 +343,26 @@ const { step, expect, btn } = L;
     await btn(T, '⟳ Render').click(); await p.waitForTimeout(500);
     // the whole figure: two condition rows, the insets, and the placed key in the right margin
     await L.shot(T, 'fluorescence-figure', p.locator('#fig-canvas'), { doc: true, pad: 0 });
+  });
+
+  // ux2 (fluor2-08): a 16-bit file whose few hot pixels reach far above the cells opens
+  // with White below them, and its ⚙ says so. Added after the screenshot, then removed.
+  await step(T, '17. A 16-bit file with a few hot pixels opens with White below them; ⚙ says so', async () => {
+    const hot = path.join(inp, 'C2-HeLa_DMSO_60x_GFP_hotpix.tif');
+    const pts = new Set(Array.from({ length: 8 }, (_, i) => (37 + i * 61) * 512 + 23 + i * 57));
+    L.writeTiff16(hot, 512, 512, (x, y) => pts.has(y * 512 + x) ? 62000 : 400 + 2600 * Math.exp(-((x - 256) ** 2 + (y - 256) ** 2) / 8000), { umPerPx: 0.108333 });
+    const n0 = await p.evaluate(() => images.filter(Boolean).length);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [hot]);
+    await p.waitForFunction(n => images.filter(Boolean).length === n + 1, n0, { timeout: 10000 });
+    const r = p.locator('#img-list > .img-item').filter({ hasText: 'hotpix' }).first();
+    const st = await openSettings(r);
+    const note = (await st.locator('.f-lv-note').first().innerText()).replace(/\s+/g, ' ');
+    const w = await st.locator('input.f-wpt-v').inputValue();
+    await closeAllSettings();
+    await r.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(400);
+    const n1 = await p.evaluate(() => images.filter(Boolean).length);
+    expect(/It opened with White at/.test(note) && +w < 62000 && n1 === n0, JSON.stringify({ note, w, n1, n0 }));
+    return 'White ' + w + ' — ' + note;
   });
 
   await L.finish(T);

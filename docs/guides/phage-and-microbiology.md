@@ -2,9 +2,9 @@
 
 ## What you'll make
 
-A one-grid figure for an ASM journal: a calibrated TEM of the virion with head and tail measured, two plaque plates at the same magnification with their plaques counted, a spot assay with a dilution row over it, lysis curves from a replicate CSV, and a gene map read from a GenBank file.
+A one-grid figure for an ASM journal: a calibrated TEM of the virion with head and tail measured, two plaque plates at the same magnification with their plaques counted, a spot assay with a dilution row over it, lysis curves from a replicate CSV, a gene map read from a GenBank file, and the legend key under them.
 
-![A six-panel phage figure: TEM, two plates, spot assay, lysis curves, gene map](img/phage-figure.png)
+![A six-panel phage figure: TEM, two plates and a spot assay with its dilution row on top, lysis curves and a gene map below, and the legend key under them](img/phage-figure.png)
 
 ## You need
 
@@ -23,11 +23,11 @@ Everything here stays a grid panel: charts and gene maps get letters, spans, the
 
 ## 2. Calibrate the TEM from its burned-in bar
 
-1. Open panel A's ⚙ (in its row in the image list).
-2. Try **🔍 Auto-detect scale bar** first. If it finds the bar, pick its length (nm, µm or mm) in the dialog that opens.
-3. If it says *No scale bar found in the bottom third of the image*, click **🔬 Calibrate from image**.
+1. Open panel A's ⚙ (in its row in the image list). Right-clicking the panel on the canvas › **📏 Scale bar / calibrate…**, or ⌘K `add scale bar`, leads to the same place.
+2. Click **🔍 Auto-detect scale bar**. It finds the burned-in bar and opens a dialog with its length in pixels (400 px here); pick the length printed on it (**200 nm**). The toast reads *Scale set: 0.5 nm/px (400 px = 200 nm) · scale bar 100 nm*: the bar drawn on the panel is a round length that fits the field, and need not equal the burned-in one.
+3. If it says *No scale bar found in the bottom third of the image*, click **🔬 Calibrate from image** instead.
 4. In the Scale Calibration dialog, click near the left end of the bar, then near the right end. The clicks snap to the bar's real ends: the dialog reads *Distance: 400.0 px (original image) — snapped to the ends of the bar*.
-5. Type the bar's length in **Known length** (200), set the unit to **nm**, and click **Apply**. The toast reads *Scale set: 0.5 nm/px (400.0 px = 200 nm)*, and a bar is switched on at a round length that fits the field (100 nm here).
+5. Type the bar's length in **Known length** (200), set the unit to **nm**, and click **Apply**. The calibration is the same 0.5 nm/px, and a 100 nm bar is switched on.
 6. To use another length, type it in ⚙ › Scale bar › **Bar length** and pick the unit beside it, or click **Auto**.
 
 ![The calibration dialog after the clicks snapped to the bar ends](img/phage-calibrate.png)
@@ -36,8 +36,8 @@ If you know the bar's length in pixels, type it in **Pixel distance** instead of
 
 ## 3. Crop off the info strip
 
-1. In panel A's ⚙, under **Clip shape**, the four boxes **T**, **L**, **B**, **R** are the percent cut from each side.
-2. Type the strip's height as a percent of the image height in **B** (a 70-px strip on a 1024-px image: **7**), and press **⟳ Render** (or **R**).
+1. In panel A's ⚙, under **Clip shape**, the four boxes **T**, **L**, **B**, **R** under **Crop % cut from each edge** are the percent cut from each side.
+2. Type the strip's height as a percent of the image height in **B** (a 70-px strip on a 1024-px image: **7**), and press **R** (it redraws even with the cursor still in the box) or click **⟳ Render**.
 
 The calibration and the bar stay: they are in source pixels, not in the crop.
 
@@ -53,21 +53,21 @@ On the test micrograph (0.5 nm/px) three capsids read 70.1 ± 0.4 nm against a t
 
 ## 5. Plaque plates at the same magnification
 
-1. Plate B's ⚙ › **🔬 Calibrate from image**. Click the 0 and the 10 mm marks of the ruler in the photo (or type the distance in **Pixel distance**), type **10** in Known length, pick **mm**, **Apply**. A 10 mm bar is switched on.
+1. Plate B's ⚙ › **🔬 Calibrate from image**. Click the 0 and the 10 mm marks of the ruler in the photo (or type the distance in **Pixel distance**), type **10** in Known length, pick **mm**, **Apply**. A 10 mm bar is switched on. Clicks snap to a solid bar's ends but not to ruler ticks: click **1:1** above the picture to see one photo pixel per screen pixel, scroll to the ruler and click each tick's centre (**Fit** shows the whole photo again). In the test, clicks on the fitted photo gave 219.88 px for the true 220.
 2. Tick the checkboxes of rows B and C (left of each row), then in B's ⚙ click **⇉ Same µm/px on ticked panels**. The toast reads *45.45 µm/px from B → C (10 mm bar)*. Use this only for photos taken with the same camera set-up.
 3. Untick the rows.
 
 ## 6. Count plaques in the dish
 
 1. Measure › **🔢 Count**.
-2. Set the menu to **dark objects (plaques)** and tick **round (a dish)**.
+2. Set the menu to **dark objects (plaques)** and tick **round (a dish)** (the box or its words).
 3. Drag a box around the dish on the canvas, from one side of the rim to the other. The count is made inside the ellipse that box draws.
 4. Read the result under the tools: *Objects detected*, the equivalent diameter (mean ± SD, in the panel's units) and the foreground area. Each counted object is marked on the panel so you can check it.
-5. **⬇ Export Measurements CSV** saves the result. Click **🔢 Count** again to turn the tool off.
+5. **⬇ Export Measurements CSV** saves the result: one row per count, with the objects counted (dark or bright), the region (ellipse or box), how many plaques the rim cut and left out, and the equivalent diameters (mean, SD, median, unit, and each object's). Click **🔢 Count** again to turn the tool off.
 
 ![Count result beside the plate it counted](img/phage-count.png)
 
-On test plates with 45 and 30 plaques, Count found 45 and 30. It is a single intensity threshold: touching plaques count as one, so move **Threshold** and count again if the marks show merged plaques.
+On test plates with 45 and 30 plaques, Count found 45 and 30 (equivalent diameter 861 ± 115 µm on plate B). It is a single intensity threshold: touching plaques count as one, so move **Threshold** and count again if the marks show merged plaques.
 
 ## 7. Spot assay with a dilution row
 
@@ -91,27 +91,28 @@ To edit the chart later: its ⚙ › **📊 Edit chart data and style…**. For 
 
 ## 9. Gene map from GenBank
 
-1. Annotate & Draw › **🧬 Linear**. A gene map panel is added straight away with a sample construct, and the **Gene map** dialog opens.
-2. Click **📄 GenBank / FASTA…** and pick your file. The feature table, length and title fill in; the line under the import button reads, for example, *10.8 kb · 12 features*.
-3. Edit **Title** if you like (`*Escherichia* phage phiGuide, late region`; `*…*` is italic) and click **Apply**. The dialog stays open so you can keep editing; close it with ×.
+1. Annotate & Draw › **🧬 Linear**. The **Gene map** dialog opens on a new gene map panel holding a sample construct; **Cancel** takes that panel away again.
+2. Click **📄 GenBank / FASTA…** and pick your file. The feature table, length and title fill in; the line under the import button reads, for example, *10.8 kb · 12 features · 40.9 bp per pixel*. A gene listed twice, as a gene and its CDS (NCBI files do this), is drawn once, and the toast says so: *Loaded 12 features from phiGuide_late.gb (10.8 kb). 10 genes listed twice (gene + CDS or RNA) drawn once each*.
+3. Edit **Title** if you like (`*Escherichia* phage phiGuide, late region`; `*…*` is italic) and click **Apply** (the dialog closes).
 4. To change it later: its ⚙ › **🧬 Edit gene map…**.
 
 The map shows only what the file declares (the LOCUS length and the FEATURES table); nothing is inferred.
 
 ## 10. One grid for pictures, chart and map
 
-1. Give the chart and the gene map more width: each one's ⚙ › **Panel span (grid mode)** › **Col span** 2.
-2. Arrange › **⊞ Fit grid to panels**. With four pictures, a chart and a map at span 2, it gives 4 × 2: the pictures in the top row, the chart and the map below.
+1. Give the wide panels more width, each in its ⚙ › **Panel span (grid mode)** › **Col span**: the spot assay 2 (at journal type size its eight dilution labels need two columns), the chart 2, the gene map 3.
+2. Arrange › **⊞ Fit grid to panels**. It gives 5 × 2: the TEM, the plates and the spot assay in the top row, the chart and the map below.
 
 ## 11. Journal, check, export
 
-1. **⌘K** › type `asm` › **Enter** on *Journal: ASM (mBio, J Bacteriol, J Virol…)*: 177.8 mm wide, Arial, type sizes in points.
-2. Check › **✓ Check journal compliance**. See [journal-submission.md](journal-submission.md) for what each row means.
-3. If **Text contrast** fails on white letters over a chart or gene map, untick Look › Panel Labels › **Background**; Auto contrast switches on and those letters turn black.
-4. If it still names a mid-grey micrograph (TEM backgrounds often are), Auto contrast kept white text there. Darken the panel's display slightly: its ⚙ › **Black pt** (for the test TEM, 10000 in the file's own counts). Export › **✎ Write Methods paragraph** then states it (*display ranges in native values: 10000–62000 (panel A)*), along with where each calibration came from (*copied from panel B* for plate C). Check again; the test figure then passed 19/19.
-5. Export › **File name**, then **↓ TIFF** › **Save TIFF** (ASM asks for TIFF). The test figure saved as 2100 × 1074 px at 300 dpi, 177.8 mm wide.
-6. **↓ SVG** › **Save SVG** gives a layered file in which the chart, the gene map, the dilution row and the scale-bar labels are real text.
-7. Export › Legend key › **⬇ Download key** saves the key for the curves and the gene-map glyphs; the legend text starter under the caption helper reads *Uninfected (black, solid line with filled circles); MOI 1 (orange, …); Promoter (green, bent arrow); CDS / gene (blue, arrow); …*.
+1. **⌘K** › type `asm` › **Enter** on *Journal: ASM (mBio, J Bacteriol, J Virol…)*: 177.8 mm wide, Arial, type sizes in points. Lane tables, such as the dilution row, take the journal's type size too.
+2. Put the key on the figure: Export › Legend key › **Where** › **Below**. With no key yet, choosing a place puts it there and ticks **Place the key on the figure**. This grid has no free space, so the bottom margin grows to hold the key and the toast says so (*The legend key needed free space, so the bottom margin grew from 16 to 199 px …*). **Free space**, the default when you tick the switch, would widen the right margin instead and shrink the panels of a wide figure; choose the place before you tick.
+3. Check › **✓ Check journal compliance**. See [journal-submission.md](journal-submission.md) for what each row means. The test figure read 19/20, with **Text contrast** ⚠ for the white letters over the chart and the gene map (3.35:1) and the TEM's scale-bar text (4.06:1).
+4. Click **Auto contrast** on the **Text contrast** row. Letters keep their chips, now darker, and turn white; the toast says what is still under 4.5:1. Here that was the TEM's scale-bar text: *scale-bar text “100 nm” (#111111) 4.3:1*. A mid-grey micrograph (TEM backgrounds often are) leaves bar text without a chip under 4.5:1 in black or in white.
+5. Only if the row still names text on a micrograph: darken that panel's display slightly, with its ⚙ › **Black pt** (for the test TEM, 10000 in the file's own counts), and check again. The test figure then passed 20/20. Export › **✎ Write Methods paragraph** states the change (*display ranges in native values: 10000–62000 (panel A)*), along with where each calibration came from (*copied from panel B* for plate C).
+6. Export › **File name**, then **↓ TIFF** › **Save TIFF** (ASM asks for TIFF). The test figure saved as 2100 × 1109 px at 300 dpi, 177.8 mm wide.
+7. **↓ SVG** › **Save SVG** gives a layered file in which the chart, the gene map, the dilution row and the scale-bar labels are real text. **↓ PDF lossless** writes the same words as selectable text in the PDF's standard fonts (named, not embedded).
+8. Export › Legend key › **⬇ Download key** saves the key on its own, in the format you exported last (the button reads **⬇ Download key (PDF)** after the PDF). The legend text starter under the caption helper reads *Uninfected (black, solid line with filled circles); MOI 1 (orange, …); Promoter (green, bent arrow); CDS / gene (blue, arrow); …*.
 
 ## Tips
 
@@ -120,18 +121,19 @@ The map shows only what the file declares (the LOCUS length and the FEATURES tab
 - Name rulers as you go; the per-name mean ± SD updates at once and goes into the CSV.
 - Rulers drawn on a panel stay on what they measure when you change the panel's span.
 - `^{…}` superscript, `_{…}` subscript and `*…*` italic work in chart titles, the lane table, gene-map titles and headings.
-- A chart in a single grid cell at journal type size can run its tick labels together; give it a column span of 2.
+- A chart in a single grid cell at journal type size can run its tick labels together; give it a column span of 2. A lane table follows the journal's type size, so a long row (a dilution series) needs a panel wide enough for its labels.
 - Save your work with **Ctrl+S** (a session file with the images inside). More in [tips-and-tricks.md](tips-and-tricks.md).
 
 ## If something looks wrong
 
 - **No scale bar on a panel.** Panels without calibration start with the bar off. Calibrate them (step 2 or 5); for a chart or a gene map there is nothing to do.
 - **Auto-detect says "No scale bar found".** Use 🔬 Calibrate from image; the clicks snap to the bar ends.
+- **The dilution labels show as "…".** At journal type size they do not fit their columns. Give the spot assay a wider panel (⚙ › **Col span** 2) or shorter labels.
 - **The TEM bar is too short or too long.** Type your own **Bar length** and unit in ⚙ › Scale bar, or click **Auto**.
 - **Count merged two plaques or picked up the rim.** Move **Threshold** and drag again; draw the box just inside the rim.
 - **Dilution labels are not over their spots.** Crop the panel so the spot columns fill it evenly (step 7.1) and check the preview in the lane table dialog.
 - **The whole dilution row went into one cell.** Separate the cells with commas, not spaces.
-- **A gene map you did not want is in the grid.** 🧬 Linear adds a panel as soon as you click it, and Cancel keeps it; remove it with × in its image-list row.
+- **The key went into the right margin and the panels shrank.** Choose **Where** › **Below**, then set **Arrange › Margins › Right** back to 16: a margin the key grew stays when the key moves.
 - More in [troubleshooting.md](troubleshooting.md).
 
-*Every step above was followed on this build by [verify/phage-and-microbiology.verify.js](verify/phage-and-microbiology.verify.js) on synthetic inputs (a 0.5 nm/px TEM with a 200 nm bar, plates with 45 and 30 plaques, a 4 × 8 spot assay, a triplicate lysis CSV, a 10.8 kb GenBank file).*
+*Every step above was followed on this build by [verify/phage-and-microbiology.verify.js](verify/phage-and-microbiology.verify.js) on synthetic inputs (a 0.5 nm/px TEM with a 200 nm bar, plates with 45 and 30 plaques, a 4 × 8 spot assay, a triplicate lysis CSV, a 10.8 kb GenBank file listing each gene as gene + CDS).*

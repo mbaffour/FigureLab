@@ -18,7 +18,10 @@ const { step, expect, btn } = L;
   const bact = await I.bacteriaPhoto(T, path.join(inp, 'phase_rods.png'));            // 800×600 (4:3)
   const plate = await I.platePhoto(T, path.join(inp, 'plate_MG1655.jpg'));            // 1200×1200
   const tem = I.temTiff(path.join(inp, 'phi_TEM_0042.tif'));                          // 1024×1024
-  const gb = I.phageGenBank(path.join(inp, 'phiGuide_late.gb'));
+  // An NCBI-style record: each gene listed twice, as a gene and as its CDS.
+  const gb = path.join(inp, 'phiGuide_late.gb');
+  fs.writeFileSync(gb, fs.readFileSync(I.phageGenBank(path.join(inp, 'phiGuide_late_cds.gb')), 'utf8')
+    .replace(/     CDS             (\S+)\n                     \/gene="([^"]+)"/g, (m, loc, g) => `     gene            ${loc}\n                     /gene="${g}"\n` + m));
   const csv = path.join(inp, 'lysis_OD600.csv');
   fs.writeFileSync(csv, 'time_min,MOI_0_r1,MOI_0_r2,MOI_0_r3,MOI_1_r1,MOI_1_r2,MOI_1_r3\n0,0.10,0.11,0.10,0.10,0.10,0.11\n30,0.20,0.21,0.19,0.19,0.20,0.21\n60,0.40,0.42,0.41,0.30,0.31,0.29\n90,0.70,0.72,0.69,0.22,0.24,0.23\n120,0.95,0.97,0.96,0.12,0.13,0.12\n');
 
@@ -81,20 +84,31 @@ const { step, expect, btn } = L;
     return 'canvas 958×798 px';
   });
 
-  await step(T, '1.2 Drop or click to add images → four pictures of different shapes become objects', async () => {
+  await step(T, '1.2 Export › Printed width 183 mm; Look › Typography says what 1 pt is (before: 1 px = 1/96 in)', async () => {
+    await L.openSection(T, 'Look');
+    const before = await p.locator('#type-readout').innerText();
+    await L.openSection(T, 'Export');
+    await p.locator('#export-width-mm').selectOption({ label: '183 mm — double column (Nature; eLife preset)' });
+    await p.waitForTimeout(300);
+    await L.openSection(T, 'Look');
+    const after = await p.locator('#type-readout').innerText();
+    expect(/no printed width chosen: 1 px prints at 1\/96 in/.test(before) && /183 mm printed width/.test(after), JSON.stringify({ before, after }));
+    return `before: "${before.slice(0, 150)}…" → after: "${after}"`;
+  });
+
+  await step(T, '1.3 Drop or click to add images → four pictures become objects, side by side up to 300 px wide; ⊡ Fit shows the whole canvas', async () => {
     await L.pickFiles(T, p.getByText('Drop or click to add images'), [gfp, bact, plate, tem]);
     await p.waitForFunction(() => freeformElements.filter(e => e.type === 'image').length === 4, null, { timeout: 15000 });
     await btn(T, 'Got it').click({ timeout: 800 }).catch(() => {});
-    await btn(T, '⊡ Fit').click(); await p.waitForTimeout(300);
-    // ⊡ Fit leaves the bottom of a tall canvas under the window edge (ISSUES.md): one − shows it all.
-    await btn(T, '－').click(); await p.waitForTimeout(300);
-    const R = await p.locator('#fig-canvas').boundingBox(); const wrap = await p.locator('#canvas-wrap').boundingBox();
-    expect(R.y + R.height <= wrap.y + wrap.height, 'canvas still cut off');
     const e = await els();
-    return e.map(x => `${x.name} ${x.w}×${x.h}`).join('; ');
+    expect(e.every(x => x.w <= 300 && x.h <= 300) && e.some(x => x.y > e[0].y), 'arrival ' + JSON.stringify(e));
+    await btn(T, '⊡ Fit').click(); await p.waitForTimeout(300);
+    const R = await p.locator('#fig-canvas').boundingBox(); const wrap = await p.locator('#canvas-wrap').boundingBox();
+    expect(R.y >= wrap.y && R.y + R.height <= wrap.y + wrap.height, `canvas ${R.y}–${R.y + R.height}, pane ${wrap.y}–${wrap.y + wrap.height}`);
+    return e.map(x => `${x.name} ${x.w}×${x.h} at ${x.x},${x.y}`).join('; ') + ` — after ⊡ Fit the canvas ends ${(wrap.y + wrap.height - R.y - R.height).toFixed(0)} px above the pane's bottom`;
   });
 
-  await step(T, '1.3 Drag a picture by its middle to move it', async () => {
+  await step(T, '1.4 Drag a picture by its middle to move it', async () => {
     const d0 = await byName(/TEM/);
     const a = [d0.x + d0.w / 2, d0.y + d0.h / 2];
     await beside(); await drag(a, [a[0] + 40, a[1] + 30]);
@@ -110,7 +124,11 @@ const { step, expect, btn } = L;
     await pickRow('phi_TEM_0042.tif'); await typeGeo({ w: 194, x: 760, y: 352 });
     const b = await byName(/phase_rods/), c = await byName(/plate/), d = await byName(/TEM/);
     expect(b.h === 300 && c.h === 194 && d.h === 194, JSON.stringify([b, c, d]));
-    return `B 400×${b.h} (4:3 kept), C ${c.w}×${c.h}, D ${d.w}×${d.h}`;
+    // the fields follow the object you pick: no stale numbers from the previous one
+    await pickRow('phase_rods.png'); const gb_ = await geoVals();
+    await pickRow('plate_MG1655.jpg'); const gc = await geoVals();
+    expect(+gb_[0] === b.x && +gb_[1] === b.y && +gb_[2] === 400 && +gc[0] === c.x && +gc[1] === c.y && +gc[2] === 194, JSON.stringify({ gb_, gc }));
+    return `B 400×${b.h} (4:3 kept), C ${c.w}×${c.h}, D ${d.w}×${d.h}; fields follow the picked object (B X ${gb_[0]} → C X ${gc[0]})`;
   });
 
   await step(T, '2.2 Big panel A exactly: X 20, Y 20, W 506 (H follows: 506)', async () => {
@@ -211,23 +229,42 @@ const { step, expect, btn } = L;
     const m = p.locator('#chart-modal'); await m.waitFor({ state: 'visible' });
     await m.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(400);
     await pickRow('lysis_OD600.csv');
-    await p.locator('#geo-keep').uncheck();
+    const keep = await p.locator('#geo-keep').isChecked();
+    expect(!keep, '⛓ is ticked for a chart');
     await typeGeo({ x: 20, y: 538, w: 460, h: 240 });
     const c = (await els()).find(e => e.type === 'chart');
     expect(c && c.x === 20 && c.y === 538 && c.w === 460 && c.h === 240, JSON.stringify(c));
+    return '⛓ already unticked for the chart';
   });
 
-  await step(T, '3.2 Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA… → Apply (the dialog closes); W 446, H 160, rough X/Y, then ⊤T and ⇿ with the chart', async () => {
+  await step(T, '3.2a Annotate & Draw › 🧬 Linear, then Cancel: the map it added is removed again', async () => {
+    await L.openSection(T, 'Annotate & Draw');
+    const n0 = (await els()).length;
+    await btn(T, '🧬 Linear').click();
+    const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
+    const n1 = (await els()).length;
+    await m.locator('button', { hasText: /^Cancel$/ }).click(); await m.waitFor({ state: 'hidden' }); await p.waitForTimeout(200);
+    const n2 = (await els()).length;
+    expect(n1 === n0 + 1 && n2 === n0, `${n0} → ${n1} → ${n2} objects`);
+    return `${n0} → ${n1} → ${n2} objects`;
+  });
+
+  await step(T, '3.2 Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA… (gene + CDS pairs drawn once) → Apply (the dialog closes); W 446, H 160, rough X/Y, then ⊤T and ⇿ with the chart', async () => {
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '🧬 Linear').click();
     const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
+    await L.toasts(T);
     await L.pickFiles(T, m.getByText('GenBank / FASTA…'), [gb]);
-    const info = (await m.innerText()).match(/[\d.]+ kb · \d+ features/);
+    await p.waitForTimeout(300);
+    const info = (await m.innerText()).match(/[\d.]+ kb · \d+ features[^\n]*/);
+    const tst = await L.toasts(T);
+    expect(info && /^10\.8 kb · 12 features/.test(info[0]) && /10 genes listed twice \(gene \+ CDS or RNA\) drawn once each/.test(tst), JSON.stringify({ info, tst }));
     await m.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(300);
     await m.waitFor({ state: 'hidden' });   // Apply closes the dialog, as the chart's does
     const maps = (await els()).filter(e => e.type === 'genemap');
     expect(maps.length === 1, maps.length + ' gene maps');
     await pickRow('linear gene map');
+    expect(!(await p.locator('#geo-keep').isChecked()), '⛓ is ticked for a gene map');
     await typeGeo({ w: 446, h: 160, x: 520, y: 560 });   // roughly below B; ⊤T then lines it up with the chart
     await beside();
     const ch = (await els()).find(e => e.type === 'chart');
@@ -237,7 +274,7 @@ const { step, expect, btn } = L;
     await barBtn('⊤T').click(); await barBtn('⇿').click(); await p.waitForTimeout(200);
     const g2 = (await els()).find(e => e.type === 'genemap');
     expect(g2.x === 492 && g2.y === 538 && g2.x + g2.w === 938, JSON.stringify(g2));
-    return info && info[0];
+    return `"${info[0]}"; toast "${tst}"`;
   });
 
   await step(T, '3.3 Arrange › 🔤 Relabel A, B, C… letters the pictures A–D and the chart and gene map E, F', async () => {
@@ -252,10 +289,9 @@ const { step, expect, btn } = L;
     return `pictures ${imgs}, chart ${lc}, gene map ${lg}`;
   });
 
-  await step(T, '3.4 Export › Printed width 183 mm; Look › Panel Labels (A, B, C…) › Size 8 pt (px follows)', async () => {
+  await step(T, '3.4 Look › Panel Labels (A, B, C…) › Size 8 pt (px follows, at the 183 mm printed width)', async () => {
     await beside();
-    await L.openSection(T, 'Export');
-    await p.locator('#export-width-mm').selectOption({ label: '183 mm — double column (Nature; eLife preset)' });
+    expect(await p.locator('#export-width-mm').inputValue() === '183', 'printed width ' + await p.locator('#export-width-mm').inputValue());
     await L.openSection(T, 'Look');
     await p.locator('#label-pt').fill('8'); await p.locator('#label-pt').press('Enter'); await p.waitForTimeout(300);
     const px = await p.locator('#label-size').inputValue();
@@ -301,12 +337,14 @@ const { step, expect, btn } = L;
     await setColour('#ann-float-fill-color', '#dbe9ff'); await p.waitForTimeout(150);
     const ticked = await p.locator('#ann-float-fill').isChecked();
     await p.locator('#ann-float-rad').fill('12'); await p.locator('#ann-float-rad').press('Enter');
+    const tb = await p.locator('#ann-float').boundingBox().catch(() => null);
+    const vw = p.viewportSize().width;
     await p.locator('#ann-float-back').click(); await p.waitForTimeout(250);
     const toast = (await L.toasts(T)).split(' | ').pop();
     const r = (await anns()).find(x => x.type === 'rect');
     const front = await p.locator('#ann-float-front').isVisible().catch(() => false);
     expect(r && r.fill && r.fillColor === '#dbe9ff' && r.radius === 12 && r.z === 1 && ticked, JSON.stringify(r));
-    return `Fill ticked by the colour: ${ticked}; ⬆ Front shown: ${front}; toast "${toast}"`;
+    return `Fill ticked by the colour: ${ticked}; ⬆ Front shown: ${front}; toast "${toast}"; toolbar right edge ${tb ? (tb.x + tb.width).toFixed(0) : '?'} of ${vw} px`;
   });
 
   await step(T, 'screenshot: the results figure and the position bar', async () => {
@@ -315,7 +353,7 @@ const { step, expect, btn } = L;
     await btn(T, '⊡ Fit').click(); await p.waitForTimeout(400);
     await L.shot(T, 'freeform-figure', p.locator('#fig-canvas'), { doc: true, pad: 2 });
     await p.setViewportSize({ width: 1440, height: 1000 });
-    await btn(T, '⊡ Fit').click(); await btn(T, '－').click(); await p.waitForTimeout(300);
+    await btn(T, '⊡ Fit').click(); await p.waitForTimeout(300);
     await pickRow('phi_TEM_0042.tif');
     const bar = await p.locator('#geo-x').boundingBox(); const props = await p.locator('#elem-props-bar').boundingBox();
     await L.shot(T, 'freeform-bar', { x: 312, y: bar.y - 10, width: 1110, height: props.y + props.height - bar.y + 14 }, { doc: true });
@@ -354,8 +392,14 @@ const { step, expect, btn } = L;
     const f = await L.download(T, () => btn(T, '📊 Export editable PowerPoint (.pptx)').click(), /\.pptx$/, 60000);
     const x = L.zipRead(f, 'ppt/slides/slide1.xml').toString('utf8');
     const runs = [...x.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]);
-    expect(['A', 'B', 'C', 'D', 'ompC'].every(t => runs.includes(t)) && / i="1"/.test(x), 'runs ' + runs.join('|'));
-    return 'text runs: ' + runs.join(' | ') + ' — ' + (await L.toasts(T)).split(' | ').pop();
+    expect(['A', 'B', 'C', 'D', 'E', 'F', 'ompC'].every(t => runs.includes(t)) && / i="1"/.test(x), 'runs ' + runs.join('|'));
+    // the chart's and the gene map's words are editable text too
+    expect(['MOI_0', 'MOI_1', 'portal', 'endolysin'].every(t => runs.includes(t)), 'chart/map runs ' + runs.join('|'));
+    // the slide is the printed size, so type sizes read as printed
+    const sz = L.zipRead(f, 'ppt/presentation.xml').toString('utf8').match(/<p:sldSz cx="(\d+)" cy="(\d+)"/);
+    const mmW = +sz[1] / 36000, mmH = +sz[2] / 36000;
+    expect(Math.abs(mmW - 183) < 0.2, 'slide ' + mmW + ' mm wide');
+    return `slide ${mmW.toFixed(1)} × ${mmH.toFixed(1)} mm; text runs: ${runs.join(' | ').slice(0, 260)}… — ${(await L.toasts(T)).split(' | ').pop()}`;
   });
 
   await step(T, '5.4 ↓ PDF lossless: the Save dialog says fonts are named, not embedded; letters are real text', async () => {
@@ -369,7 +413,8 @@ const { step, expect, btn } = L;
     }
     const fonts = [...new Set([...d.toString('latin1').matchAll(/\/BaseFont\s*\/([\w-]+)/g)].map(m => m[1]))];
     expect(note && ['A', 'B', 'C', 'D', 'E', 'F'].every(l => tj.includes(l)) && !/FontFile/.test(d.toString('latin1')), JSON.stringify({ note, tj, fonts }));
-    return `real text: ${tj.join(', ')}; fonts ${fonts.join(', ')}, none embedded`;
+    expect(['MOI_0', 'portal', 'endolysin'].every(l => tj.includes(l)), 'chart and gene-map words not real text: ' + tj.join('|'));
+    return `real text: ${tj.join(', ').slice(0, 300)}…; fonts ${fonts.join(', ')}, none embedded`;
   });
 
   await step(T, '5.5 Layer ⬇⬇ sends a picture to the back of the objects', async () => {
@@ -380,13 +425,13 @@ const { step, expect, btn } = L;
     return 'drawing order now: ' + z.join(' < ');
   });
 
-  await step(T, '5.6 Props › Crop% L 10 on D: the box narrows by 10 % and the picture keeps its proportions', async () => {
+  await step(T, '5.6 Props › Crop% L 10 on D: the box narrows by 10 %, keeps its X and Y, and the picture keeps its proportions', async () => {
     await pickRow('phi_TEM_0042.tif');
     const d0 = await byName(/TEM/);
     await p.locator('#ep-cropL').fill('10'); await p.locator('#ep-cropL').press('Enter'); await p.waitForTimeout(250);
     const d1 = await byName(/TEM/);
-    expect(near(d1.w, d0.w * 0.9, 0.6) && d1.h === d0.h, JSON.stringify([d0, d1]));
-    return `W ${d0.w} → ${d1.w.toFixed(1)}, H ${d1.h}`;
+    expect(near(d1.w, d0.w * 0.9, 0.6) && d1.h === d0.h && d1.x === d0.x && d1.y === d0.y, JSON.stringify([d0, d1]));
+    return `W ${d0.w} → ${d1.w.toFixed(1)}, H ${d1.h}; X ${d1.x}, Y ${d1.y} kept`;
   });
 
   await step(T, '5.7 Marks drawn over an object move with it (Shift+→ on A moves its arrow 10 px)', async () => {
@@ -495,7 +540,7 @@ const { step, expect, btn } = L;
     return 'W ' + w + ' mm';
   });
 
-  await step(T, '7.4 ⬜ TextBox title: X 80, Y 16, W 1168, H 64; text with *E. coli* and 10^{8}; Fnt 28; Color dark; Fill colour white', async () => {
+  await step(T, '7.4 ⬜ TextBox title: X 80, Y 16, W 1168, H 64; text with *E. coli* and 10^{8}; Fnt 28; Color dark; untick Fill: no box', async () => {
     await beside();
     await btn(T, '⬜ TextBox').click();
     await drag([300, 20], [900, 80]);
@@ -506,14 +551,21 @@ const { step, expect, btn } = L;
     await p.locator('#ann-float-tb-text').press('Enter');
     await p.locator('#ann-float-font').fill('28'); await p.locator('#ann-float-font').press('Enter');
     await setColour('#ann-float-color', '#111111');
-    await setColour('#ann-float-fill-color', '#ffffff'); await p.waitForTimeout(200);
+    const fill0 = { ticked: await p.locator('#ann-float-fill').isChecked(), colour: await p.locator('#ann-float-fill-color').inputValue() };
+    await p.locator('#ann-float-fill').uncheck(); await p.waitForTimeout(200);
     const tb = (await anns()).find(x => x.type === 'textbox');
-    expect(tb && tb.fontSize === 28 && tb.fillColor === '#ffffff' && /\*E\. coli\*/.test(tb.text), JSON.stringify(tb));
+    expect(tb && tb.fontSize === 28 && tb.fill === false && /\*E\. coli\*/.test(tb.text), JSON.stringify(tb));
+    // what is drawn: a corner of the box, away from the text, is the white canvas
+    await beside(); await btn(T, '⟳ Render').click(); await p.waitForTimeout(400);
+    const px = await p.evaluate(() => { const c = document.getElementById('fig-canvas'), W = +document.getElementById('fm-canvas-w').value, k = c.width / W;
+      return [[84, 20], [1244, 76]].map(([x, y]) => [...c.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3)); });
+    expect(px.every(v => v.every(c => c > 245)), 'box corners drawn ' + JSON.stringify(px));
+    return `new TextBox: Fill ${fill0.ticked ? 'ticked' : 'unticked'} (${fill0.colour}); unticked: box corners ${JSON.stringify(px)}`;
   });
 
-  await step(T, '7.5 Annotate & Draw › Fnt 18, then two ↗ Arrows and two T Text labels (dark on the white canvas by default)', async () => {
+  await step(T, '7.5 Annotate & Draw › Fnt 26, then two ↗ Arrows and two T Text labels (dark on the white canvas by default)', async () => {
     await beside();
-    await p.locator('#ann-font').fill('18'); await p.locator('#ann-font').press('Tab');
+    await p.locator('#ann-font').fill('26'); await p.locator('#ann-font').press('Tab');
     await btn(T, '↗ Arrow').click();
     await drag([260, 266], [455, 266]); await drag([805, 266], [1005, 266]);
     await btn(T, 'T Text').click();
@@ -524,8 +576,19 @@ const { step, expect, btn } = L;
     await btn(T, '↖ Select').click(); await beside();
     const a = await anns();
     const texts = a.filter(x => x.type === 'text');
-    expect(a.filter(x => x.type === 'arrow').length === 2 && texts.length === 2 && texts.every(t => t.color === '#111111' && t.fontSize === 18), JSON.stringify(a));
+    expect(a.filter(x => x.type === 'arrow').length === 2 && texts.length === 2 && texts.every(t => t.color === '#111111' && t.fontSize === 26), JSON.stringify(a));
     return texts.map(t => `"${t.text}" ${t.color} ${t.fontSize}px`).join('; ');
+  });
+
+  await step(T, '7.6 Check › ✓ Check journal compliance: the Text size row passes with labels at Fnt 26 (6 pt at 112.4 mm)', async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const txt = await rep.innerText();
+    const row = (txt.match(/Text size\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape');
+    expect(/✓/.test(row), 'Text size: ' + row);
+    return row.slice(0, 200);
   });
 
   await step(T, 'screenshot: the graphical abstract', async () => {
@@ -546,7 +609,9 @@ const { step, expect, btn } = L;
     const x = L.zipRead(f, 'ppt/slides/slide1.xml').toString('utf8');
     const runs = [...x.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]);
     expect(runs.includes('E. coli') && runs.includes('infects') && runs.includes('ompC'), runs.join('|'));
-    return runs.join(' | ') + ' — ' + (await L.toasts(T)).split(' | ').pop();
+    const sz = L.zipRead(f, 'ppt/presentation.xml').toString('utf8').match(/<p:sldSz cx="(\d+)"/);
+    expect(Math.abs(+sz[1] / 36000 - 112.4) < 0.2, 'slide ' + (+sz[1] / 36000) + ' mm wide');
+    return `slide ${(+sz[1] / 36000).toFixed(1)} mm wide; ` + runs.join(' | ') + ' — ' + (await L.toasts(T)).split(' | ').pop();
   });
 
   await step(T, '8.3 ↓ PDF lossless: the title, "infects" and "Δ…" are real text (Δ in the standard Symbol font)', async () => {
@@ -569,12 +634,14 @@ const { step, expect, btn } = L;
   });
 
   await step(T, '8.4 ⌘K "square graphical abstract" sets a square canvas and says it is a custom size', async () => {
+    await L.toasts(T);
     const hits = await L.cmdk(T, 'square graphical abstract');
+    const tst = await L.toasts(T);
     const info = await p.locator('#info-modal-bg').innerText().catch(() => '');
     await p.keyboard.press('Escape');
     const c = await p.evaluate(() => [document.getElementById('fm-canvas-w').value, document.getElementById('fm-canvas-h').value]);
     expect(c[0] === c[1], 'canvas ' + c);
-    return `${c[0]}×${c[1]} px — ${(info.split('\n').find(l => /custom|check/i.test(l)) || hits[0] || '').slice(0, 120)}`;
+    return `${c[0]}×${c[1]} px — ${(info.split('\n').find(l => /custom|check/i.test(l)) || hits[0] || '').slice(0, 120)}; toast "${tst}"`;
   });
 
   await L.finish(T);

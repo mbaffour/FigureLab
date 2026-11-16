@@ -61,7 +61,8 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
 
   // ---------------------------------------------------------------- Task 2
   const m = p.locator('#crop-modal');
-  const setBox = async (o) => { for (const k of ['w', 'h', 'x', 'y']) if (o[k] != null) { const i = m.locator('#crop-px-' + k); await i.fill(String(o[k])); await i.press('Tab'); } await p.waitForTimeout(200); };
+  // Types the px fields in the order given (ux2: any order works; a typed box counts as drawn).
+  const setBox = async (o, order = ['w', 'h', 'x', 'y']) => { for (const k of order) if (o[k] != null) { const i = m.locator('#crop-px-' + k); await i.fill(String(o[k])); await i.press('Tab'); } await p.waitForTimeout(200); };
   const level = async (s) => {
     await m.locator('button', { hasText: '📐 Level' }).click(); await p.waitForTimeout(200);
     const c = p.locator('#crop-ed-canvas'); const bb = await c.boundingBox();
@@ -69,35 +70,45 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     for (const x of LANE_X) { await c.click({ position: { x: x * sx, y: (s.bandY + (x - 450) * Math.tan(s.tilt * Math.PI / 180)) * sy } }); await p.waitForTimeout(200); }
     return +(await m.locator('#crop-angle').inputValue());
   };
-  const tilts = [];
+  const boxNow = () => p.evaluate(() => ['x', 'y', 'w', 'h'].map(k => +document.getElementById('crop-px-' + k).value));
+  const tilts = []; let lastBox = null;   // the box as the previous scan left it (Level turns it about its centre)
   await step(T, '2.1 ⌘K "batch crop" opens ✂ Batch Crop (1 / 4)', async () => {
     const hits = await L.cmdk(T, 'batch crop');
     expect(/Batch crop/.test(hits[0]), hits[0]);
     await m.waitFor({ state: 'visible' });
     expect(/Batch Crop \(1 \/ 4\)/.test(await m.innerText()), 'title');
   });
-  await step(T, '2.2 Strip 1: type px W 860, H 210, X 20, Y 75; 📐 Level on the band row; ✓ Apply & Next', async () => {
-    await setBox({ w: 860, h: 210, x: 20, y: scans[0].cropY });
+  await step(T, '2.2 Strip 1: type px X 20, Y 75, W 860, H 210 (Y before H); the box keeps all four; 📐 Level on the band row; ✓ Apply & Next', async () => {
+    await setBox({ w: 860, h: 210, x: 20, y: scans[0].cropY }, ['x', 'y', 'w', 'h']);
+    const box = await boxNow();
+    expect(box.join(',') === '20,75,860,210', 'typed box became ' + box);
+    const hint = await m.locator('#batch-crop-hint').innerText();
+    expect(!/Draw to set crop size/.test(hint), 'status still says: ' + hint);
     tilts.push(await level(scans[0]));
+    lastBox = await boxNow();
     expect(Math.abs(tilts[0] - scans[0].tilt) <= 0.3, 'tilt ' + tilts[0]);
     const warn = await m.innerText();
     expect(!/extends past the image/.test(warn), 'box extends past the image');
     await topShot('western-blot-batch-crop', m.locator('xpath=./*[1]'), 470);
     await m.locator('button', { hasText: '✓ Apply & Next' }).click(); await p.waitForTimeout(600);
-    return 'Tilt ' + tilts[0] + '° (true ' + scans[0].tilt + '°)';
+    return 'box ' + box.join(', ') + ' (after Level ' + lastBox.join(', ') + '); status "' + hint + '"; Tilt ' + tilts[0] + '° (true ' + scans[0].tilt + '°)';
   });
-  await step(T, '2.3 Strips 2–3 keep the box size: type Y only, Level, Apply & Next', async () => {
+  await step(T, '2.3 Strips 2–3 open with the same box (X, Y, W, H): type Y only, Level, Apply & Next', async () => {
+    const carried = [], xs = [];
     for (const s of [scans[1], scans[2]]) {
-      const keep = await p.evaluate(() => [document.getElementById('crop-px-w').value, document.getElementById('crop-px-h').value]);
-      expect(keep[0] === '860' && keep[1] === '210', 'box size not carried: ' + keep);
+      const keep = await boxNow(); carried.push(keep.join(','));
+      expect(keep.join(',') === lastBox.join(','), 'box not carried: ' + keep + ' (previous scan ' + lastBox + ')');
       await setBox({ y: s.cropY }); tilts.push(await level(s));
+      lastBox = await boxNow(); xs.push(lastBox[0]);
       await m.locator('button', { hasText: '✓ Apply & Next' }).click(); await p.waitForTimeout(600);
     }
     expect(Math.abs(tilts[1] - scans[1].tilt) <= 0.3 && Math.abs(tilts[2] - scans[2].tilt) <= 0.3, 'tilts ' + tilts);
-    return 'tilts ' + tilts.slice(1).join('°, ') + '° (true −0.8°, 0.6°)';
+    return 'opened with X,Y,W,H ' + carried.join(' / ') + '; X after Level ' + xs.join(', ') + '; tilts ' + tilts.slice(1).join('°, ') + '° (true −0.8°, 0.6°)';
   });
-  await step(T, '2.4 Total-protein strip: taller box (H 380, Y 20), ✨ Auto, ✓ Apply & Done', async () => {
-    await setBox({ h: 380, y: 20 });
+  await step(T, '2.4 Total-protein strip: taller box (Y 20, then H 380), ✨ Auto, ✓ Apply & Done', async () => {
+    await setBox({ h: 380, y: 20 }, ['y', 'h']);
+    const box = await boxNow();
+    expect(box[1] === 20 && box[3] === 380, 'typed Y 20, H 380 became ' + box);
     await m.locator('button', { hasText: '✨ Auto' }).click(); await p.waitForTimeout(600);
     const a = +(await m.locator('#crop-angle').inputValue()); tilts.push(a);
     expect(Math.abs(a - 1.0) <= 0.3, 'Auto tilt ' + a);
@@ -127,14 +138,17 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     return (t.match(/Lanes at x:[^\n]*/) || [''])[0].slice(0, 90);
   });
   await step(T, '3.2 Ladder lane = lane 1, sizes "75, 50, 37" → Fit', async () => {
+    const pre = await g.locator('#gel-ladder-sizes').inputValue();
     await g.locator('#gel-ladder-lane').selectOption({ label: 'lane 1' }); await p.waitForTimeout(300);
+    await p.waitForTimeout(300);
+    const fit0 = ((await g.locator('#gel-fit').innerText()).trim() + ' ' + await L.toasts(T)).trim();
     await g.locator('#gel-ladder-sizes').fill('75, 50, 37');
     await g.locator('button', { hasText: /^Fit$/ }).click(); await p.waitForTimeout(500);
     const r = await tableRows();
     const kda = r.filter(x => x[0] === '1').map(x => x[9]);
     expect(kda.join(',') === '75,50,37', 'ladder kDa ' + kda);
     const fit = ((await g.innerText()).match(/R²\s*=?\s*[\d.]+/) || [''])[0];
-    return 'ladder bands 75/50/37 kDa ' + fit;
+    return `prefilled "${pre}" → on picking lane 1: "${fit0.slice(0, 90)}"; typed 75/50/37 kDa ${fit}`;
   });
   await step(T, '3.3 Reference lane = lane 3; Loading control = panel D, Total protein (whole lane)', async () => {
     await g.locator('#gel-ref').selectOption({ label: 'lane 3' }); await p.waitForTimeout(300);
@@ -148,7 +162,9 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     TRUTH.measuredA = got;
     TRUTH.PhoA.forEach((v, k) => expect(Math.abs(got[k] - v) < 0.05 + 0.03 * v, `lane ${k + 2}: ${got[k]} vs ${v}`));
     await topShot('western-blot-lanes-bands', g.locator('xpath=./*[1]'), 560);
-    return 'PhoA ÷ total protein, rel. lane 3: ' + got.map(v => v.toFixed(3)).join(' / ') + ' (truth 0.3 / 1 / 0 / 0 / 0.4 / 1.6)';
+    const band = await g.locator('#gel-chart-band option:checked').innerText();
+    expect(/^Band to chart: auto — at [\d.]+ kDa \(the largest band in reference lane 3\)/.test(band), 'Band to chart: ' + band);
+    return 'PhoA ÷ total protein, rel. lane 3: ' + got.map(v => v.toFixed(3)).join(' / ') + ' (truth 0.3 / 1 / 0 / 0 / 0.4 / 1.6); "' + band + '"';
   });
   await step(T, '3.3b Alternative: Loading control = panel C, Loading band(s) gives the same ratios; then back to total protein', async () => {
     await g.locator('#gel-lc').selectOption({ label: 'panel C' }); await p.waitForTimeout(300);
@@ -167,6 +183,22 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const csv = fs.readFileSync(file, 'utf8');
     expect(/kDa|kda/i.test(csv) && csv.split('\n').length > 6, 'csv content');
     return path.basename(file);
+  });
+
+  // A second target blot, analysed but not yet normalised (no reference lane, no loading
+  // control): the chart in 6.1 must leave it out and name it.
+  await step(T, '3.5 Strip B: ⫼ Lanes & bands, ladder lane 1 "75, 50, 37" → Fit, no reference lane or loading control yet; back to strip A', async () => {
+    await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    const title = await openGel(1);
+    expect(/panel B/.test(title), title);
+    await g.locator('#gel-ladder-lane').selectOption({ label: 'lane 1' }); await p.waitForTimeout(300);
+    await g.locator('#gel-ladder-sizes').fill('75, 50, 37');
+    await g.locator('button', { hasText: /^Fit$/ }).click(); await p.waitForTimeout(500);
+    const fitB = ((await g.locator('#gel-fit').innerText()).trim() + ' ' + await L.toasts(T)).trim();
+    await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    const t2 = await openGel(0);
+    expect(/panel A/.test(t2), t2);
+    return title + ' analysed (' + fitB.slice(0, 160) + '); ' + t2 + ' open again';
   });
 
   // ---------------------------------------------------------------- Task 4
@@ -217,33 +249,86 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
   });
 
   // ---------------------------------------------------------------- Task 6
-  await step(T, '6.1 📊 Chart these values adds a linked chart panel E in the grid', async () => {
+  await step(T, '6.1 📊 Chart these values adds a linked chart panel E; n.d. lanes; strip B (not normalised) left out and named; the loading control is not charted', async () => {
+    await L.toasts(T);
     await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1200);
     const t = await L.toasts(T);
-    expect(/Charted 6 lanes/.test(t) && /Linked/.test(t), t);
-    const st = await p.evaluate(() => ({ mode: layoutMode, n: images.length, last: images[images.length - 1].type }));
-    expect(st.mode === 'grid' && st.last === 'chart', JSON.stringify(st));
-    return t.slice(0, 140);
+    expect(/Charted 6 lanes × 1 panel/.test(t) && /Linked/.test(t), t);
+    expect(/a lane with no band there is n\.d\./.test(t), 'n.d. not said: ' + t);
+    expect(/left out Panel B \(no loading control and no reference lane\)/.test(t), 'B not named as left out: ' + t);
+    const st = await p.evaluate(() => ({ mode: layoutMode, n: images.length, last: images[images.length - 1].type, charts: images.filter(i => i && i.type === 'chart').length }));
+    expect(st.mode === 'grid' && st.last === 'chart' && st.charts === 1, JSON.stringify(st));
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(400);
+    await L.shot(T, 'chart-default-title', p.locator('#canvas-container'));   // to look at: the default Y title
+    return t;
+  });
+  // Pressing 📊 Chart these values in the left-out strip B's own dialog adds a second chart
+  // (the first is linked to A only; see ISSUES.md). The guide says: Ctrl/⌘+Z, then press it
+  // again in strip A's dialog, which updates the chart A is in.
+  await step(T, '6.1b Strip B: reference lane 3, loading control panel D Total protein, Band to chart picked; 📊 Chart these values there adds a second chart (Ctrl/⌘+Z), in strip A\'s dialog it updates the same chart (two series)', async () => {
+    const title = await openGel(1);
+    expect(/panel B/.test(title), title);
+    await g.locator('#gel-ref').selectOption({ label: 'lane 3' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc').selectOption({ label: 'panel D' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc-mode').selectOption({ label: 'Total protein (whole lane)' }); await p.waitForTimeout(1200);
+    const opts = await g.locator('#gel-chart-band option').allInnerTexts();
+    expect(opts.length >= 2 && /^Band to chart: auto/.test(opts[0]) && /^Band to chart: lane 3 band 1, at ([\d.]+ kDa|Rf [\d.]+)$/.test(opts[1]), 'options: ' + opts.join(' | '));
+    await g.locator('#gel-chart-band').selectOption({ index: 1 }); await p.waitForTimeout(500);
+    const picked = await g.locator('#gel-chart-band option:checked').innerText();
+    await L.toasts(T);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1200);
+    const tB = await L.toasts(T);
+    const n1 = await p.evaluate(() => images.filter(i => i && i.type === 'chart').length);
+    await p.mouse.click(5, 880); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(800);
+    const n2 = await p.evaluate(() => images.filter(i => i && i.type === 'chart').length);
+    expect(n2 === 1, `charts after undo: ${n2} (before ${n1})`);
+    const tA = await openGel(0);
+    expect(/panel A/.test(tA), tA);
+    await L.toasts(T);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1200);
+    const t = await L.toasts(T);
+    expect(/^Updated the linked chart \(panel E\)/.test(t), t);
+    const st = await p.evaluate(() => { const c = images.filter(i => i && i.type === 'chart'); return { charts: c.length, series: c[0].chart.data.columns.slice(1), n: images.length }; });
+    expect(st.charts === 1 && st.series.join('|') === 'Panel A|Panel B', JSON.stringify(st));
+    return `options: ${opts.join(' | ')}; picked "${picked}"; from B's dialog: ${n1} charts ("${tB.slice(-30)}"), after undo ${n2}; from A's dialog → ${t}`;
   });
   const chartDlg = p.locator('#chart-modal');
   await step(T, '6.2 Double-click the chart panel: the Chart dialog shows the normalised values', async () => {
     const q = await panelPoint(4); await p.mouse.dblclick(q.x, q.y);
     await chartDlg.waitFor({ state: 'visible' });
     const data = await chartDlg.locator('textarea').first().inputValue();
-    const vals = data.split('\n').slice(1).map(l => l.split('\t')[1]).map(v => v === '' ? 0 : +v);
+    const cells = data.split('\n').slice(1).map(l => l.split('\t'));
+    const vals = cells.map(c => c[1]).map(v => v === '' ? 0 : +v);
     TRUTH.PhoA.forEach((v, k) => expect(Math.abs(vals[k] - v) < 0.05 + 0.03 * v, `lane ${k + 2}: ${vals[k]} vs ${v}`));
+    expect(cells[2][1] === '' && cells[3][1] === '', 'lanes 4–5 (no band) should be empty (n.d.): ' + cells[2] + ' / ' + cells[3]);
+    const b = cells.map(c => +c[2]);
+    TRUTH.PhoB.forEach((v, k) => expect(Math.abs(b[k] - v / TRUTH.PhoB[1]) < 0.08 + 0.05 * v, `PhoB lane ${k + 2}: ${b[k]} vs ${v}`));
     return data.replace(/\n/g, ' | ');
   });
-  await step(T, '6.3 Names & colours "shown as": WT −, WT +, … ; Y title "PhoA / total protein" → Apply', async () => {
-    const shown = chartDlg.locator('input[placeholder^="shown as"]');
-    const names = ['WT −', 'WT +', 'Δ −', 'Δ +', 'C −', 'C +'];
-    const n = await shown.count(); expect(n === 6, 'shown-as fields: ' + n);
-    for (let k = 0; k < 6; k++) { await shown.nth(k).fill(names[k]); }
+  await step(T, '6.3 Names & colours "shown as": the lanes WT −, WT +, … and the series PhoA, PhoB; Y title "÷ total protein, rel. WT +" → Apply', async () => {
+    const keys = await chartDlg.locator('[data-key]').evaluateAll(rs => rs.filter(r => r.querySelector('input[placeholder^="shown as"]')).map(r => r.dataset.key));
+    const want = { 'Lane 2': 'WT −', 'Lane 3': 'WT +', 'Lane 4': 'Δ −', 'Lane 5': 'Δ +', 'Lane 6': 'C −', 'Lane 7': 'C +', 'Panel A': 'PhoA', 'Panel B': 'PhoB' };
+    const filled = [];
+    for (const k of keys) if (want[k]) { await chartDlg.locator(`[data-key="${k}"] input[placeholder^="shown as"]`).fill(want[k]); filled.push(k); }
+    expect(filled.length === 8, 'shown-as rows: ' + keys.join(', '));
     const yt = chartDlg.getByLabel('Y title').or(chartDlg.locator('input[placeholder*="Y"]')).first();
-    await yt.fill('PhoA / total protein');
+    await yt.fill('÷ total protein, rel. WT +');
     await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
-    const cats = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return _chartStatsCached(el).categories; });
-    return 'categories drawn as: ' + cats.join(', ');
+    const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); const S = _chartStatsCached(el); return { cats: S.categories, series: (S.seriesNames || []).map(x => x.name || x.key || x) }; });
+    expect(st.cats.join(',') === 'WT −,WT +,Δ −,Δ +,C −,C +', 'categories ' + st.cats);
+    return 'rows: ' + keys.join(', ') + ' → categories ' + st.cats.join(', ') + '; series ' + JSON.stringify(st.series);
+  });
+
+  await step(T, '6.4 A new reference lane in strip A\'s ⫼ Lanes & bands updates the linked chart by itself (lane 7, then back to lane 3)', async () => {
+    const val = () => p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return el.chart.data.rows.map(r => r[1]); });
+    await openGel(0);
+    await g.locator('#gel-ref').selectOption({ label: 'lane 7' }); await p.waitForTimeout(800);
+    const v7 = await val();
+    await g.locator('#gel-ref').selectOption({ label: 'lane 3' }); await p.waitForTimeout(800);
+    const v3 = await val();
+    await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    expect(Math.abs(+v7[5] - 1) < 1e-6 && Math.abs(+v3[1] - 1) < 1e-6, `rel. lane 7: ${v7} / rel. lane 3: ${v3}`);
+    return `PhoA rel. lane 7: ${v7.map(v => v === '' ? 'n.d.' : (+v).toFixed(2)).join(' / ')}; back to lane 3: ${v3.map(v => v === '' ? 'n.d.' : (+v).toFixed(2)).join(' / ')}`;
   });
 
   // ---------------------------------------------------------------- Task 7
@@ -318,7 +403,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(st.link && !st.stale, JSON.stringify(st));
     return 'note: "' + nt.slice(0, 120) + '"; Update → toast "' + t.slice(0, 120) + '"; after Apply: linked, up to date';
   });
-  await step(T, '9.4 Re-open ⫼ Lanes & bands on strip A: the re-analysis kept reference/loading/ladder, and the chart holds its values', async () => {
+  await step(T, '9.4 ⫼ Lanes & bands on strip A shows the re-analysis (same reference, loading control, ladder; the chart holds its values); ⬇ CSV saves the new numbers', async () => {
     await L.toasts(T);
     const title = await openGel(0);
     const t = await g.innerText();
@@ -326,6 +411,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const head = t.split('\n').find(l => /^Lane\tBand/.test(l)).split('\t'); const col = head.indexOf('÷LC rel ref');
     const r = await tableRows();
     const tab = [2, 3, 4, 5, 6, 7].map(l => { const row = r.find(x => x[0] === String(l) && x[1] === '1'); return row ? +row[col] : 0; });
+    const csv = await L.download(T, () => g.locator('button', { hasText: /^⬇ CSV$/ }).click(), /\.csv$/);
     await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(400);
     const toast = await L.toasts(T);
     const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return { stale: _chartLinkState(el).stale, v: _chartStatsCached(el).groups.map(g => g.bars[0] ? g.bars[0].value : 0) }; });
@@ -333,7 +419,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(!st.stale, 'chart still stale');
     tab.forEach((v, k) => expect(Math.abs(st.v[k] - v) < 1e-3, `chart ${st.v[k]} vs table ${v}`));
     TRUTH.PhoA.forEach((v, k) => expect(Math.abs(tab[k] - v) < 0.05 + 0.03 * v, `lane ${k + 2}: ${tab[k]} vs ${v}`));
-    return 'toast "' + toast.slice(0, 90) + '"; re-run PhoA: ' + tab.map(v => v.toFixed(3)).join(' / ') + '; ' + ((t.match(/tilted crop [^,]*/) || [''])[0]);
+    return path.basename(csv) + '; re-run PhoA: ' + tab.map(v => v.toFixed(3)).join(' / ') + '; ' + ((t.match(/tilted crop [^,]*/) || [''])[0]);
   });
 
   await step(T, '10. Export › 📦 Export submission package (ZIP) carries the S1 originals and each analysed blot\'s densitometry', async () => {

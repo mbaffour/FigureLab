@@ -31,6 +31,15 @@ const PHRASES = {
   'sample colours': /^Sample colours/,
   'nature': /^Journal: Nature/,
   'plos': /^Journal: PLOS ONE/,
+  'mbio': /^Journal: ASM/,
+  'j bacteriol': /^Journal: ASM/,
+  'jbc': /^Journal: JBC/,
+  'nat comms': /^Journal: no preset for Nature Communications/,
+  'add scale bar': /^Scale bar: add one to a micrograph/,
+  'save my work': /^Save session/,
+  'add images': /^Add images/,
+  'delete panel': /^Remove the selected panel/,
+  'make text bigger': /^Text size in points/,
   'check against plos': /^Check against PLOS ONE/,
   'legend key': /^Legend key on the figure/,
   'alt text': /^Alt text/,
@@ -69,10 +78,15 @@ const PHRASES = {
     await p.keyboard.press('Tab');
     const a = await p.evaluate(() => document.activeElement.textContent.trim());
     expect(/Skip to the figure toolbar/.test(a), 'first Tab: ' + a);
+    // ux2: a second Tab skips to the welcome card (add images, load a session, tutorials)
+    await p.keyboard.press('Tab');
+    const w = await p.evaluate(() => document.activeElement.textContent.trim());
+    expect(/^Skip to the welcome card/.test(w), 'second Tab: ' + w);
+    await p.keyboard.press('Shift+Tab');
     await p.keyboard.press('Enter'); await p.waitForTimeout(200);
     const b = await p.evaluate(() => document.activeElement.textContent.trim());
     expect(/Render/.test(b), 'after Enter: ' + b);
-    return `"${a}" → ${b}`;
+    return `"${a}" → ${b}; second Tab: "${w}"`;
   });
 
   await step(T, 'add four images', async () => {
@@ -91,7 +105,7 @@ const PHRASES = {
     expect(!bad.length, bad.join('; '));
   });
 
-  await step(T, 'Trim borders (⌘K "trim") previews each panel; a blot starts unticked, a dark fluorescence field starts ticked', async () => {
+  await step(T, 'Trim borders (⌘K "trim") previews each panel; the blot and the dark fluorescence fields start unticked', async () => {
     await L.cmdk(T, 'trim');
     const m = p.locator('#info-modal-bg');
     await m.waitFor({ state: 'visible' });
@@ -99,11 +113,44 @@ const PHRASES = {
     expect(/Trim borders/.test(txt), txt.slice(0, 80));
     const rows = await m.locator('input[type=checkbox]').evaluateAll(els =>
       els.map(e => ({ t: (e.closest('label') || e.parentElement).innerText.replace(/\s+/g, ' ').trim(), on: e.checked })));
-    const blot = rows.find(r => /PhoA_blot/.test(r.t)), dapi = rows.find(r => /DAPI/.test(r.t));
+    const blot = rows.find(r => /PhoA_blot/.test(r.t)), dapi = rows.find(r => /DAPI/.test(r.t)), gfp = rows.find(r => /GFP/.test(r.t));
     expect(blot && !blot.on, 'blot row: ' + JSON.stringify(blot));
+    // ux2 (was ISSUES.md): dark-background fluorescence fields used to start ticked
+    expect(dapi && !dapi.on && gfp && !gfp.on, 'fluorescence rows: ' + JSON.stringify([dapi, gfp]));
     await L.shot(T, 'tips-trim', m.locator('xpath=./*[1]'), { doc: true });
     await p.keyboard.press('Escape');
-    return rows.map(r => `${r.on ? '☑' : '☐'} ${r.t.slice(0, 60)}`).join(' | ') + (dapi && dapi.on ? '  (DAPI ticked: see ISSUES)' : '');
+    return rows.map(r => `${r.on ? '☑' : '☐'} ${r.t.slice(0, 60)}`).join(' | ');
+  });
+
+  // ux2: panels can be picked, swapped and opened from the keyboard.
+  // A click on a panel does not give the figure the keyboard: Tab to it. It comes right
+  // after the figure toolbar, so: Skip to the figure toolbar, then Tab past the toolbar.
+  await step(T, 'Keyboard: Tab to the figure (after the toolbar), → picks a panel, Shift+← swaps it with A, Enter opens its settings; Ctrl/⌘+Z undoes the swap', async () => {
+    const names0 = await p.evaluate(() => images.filter(Boolean).map(i => formatLabel(i.label) + ':' + i.name.split('_').pop()).join(' '));
+    // where "Skip to the figure toolbar" lands (checked in the first step)
+    await p.locator('#render-btn').focus();
+    let n = 0;
+    while (n < 40 && await p.evaluate(() => document.activeElement.id) !== 'ann-canvas') { await p.keyboard.press('Tab'); n++; }
+    expect(n < 40, 'Tab never reached the figure');
+    await p.keyboard.press('ArrowRight'); await p.waitForTimeout(250);
+    let live1 = await p.locator('#panel-kb-live').innerText();
+    if (!/^Panel B /.test(live1)) { await p.keyboard.press('ArrowRight'); await p.waitForTimeout(250); live1 = await p.locator('#panel-kb-live').innerText(); }
+    expect(/^Panel B .*selected/.test(live1), 'after →: ' + live1);
+    const tabs = n;
+    await p.keyboard.press('Shift+ArrowLeft'); await p.waitForTimeout(400);
+    const live2 = await p.locator('#panel-kb-live').innerText();
+    const names1 = await p.evaluate(() => images.filter(Boolean).map(i => formatLabel(i.label) + ':' + i.name.split('_').pop()).join(' '));
+    expect(/^Moved: .* is now panel A/.test(live2) && names1.startsWith('A:GFP.tif B:DAPI.tif'), live2 + ' | ' + names1);
+    await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    const live3 = await p.locator('#panel-kb-live').innerText();
+    const open = await p.evaluate(() => { const a = document.activeElement, it = a && a.closest('.img-item'); return it ? it.innerText.split('\n').find(l => /\.tif|\.png/.test(l)) : ''; });
+    expect(/^Settings of Panel A/.test(live3) && /GFP/.test(open), live3 + ' | focus in ' + open);
+    await p.keyboard.press('Escape');
+    await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } });
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(400);
+    const names2 = await p.evaluate(() => images.filter(Boolean).map(i => formatLabel(i.label) + ':' + i.name.split('_').pop()).join(' '));
+    expect(names2 === names0, 'undo: ' + names2 + ' (was ' + names0 + ')');
+    return `${tabs} Tabs after ⟳ Render; ${live1} → ${live2} → ${live3}; Ctrl+Z → ${names2}`;
   });
 
   await step(T, 'Ctrl+Z undoes a Columns change and Ctrl/⌘+Shift+Z redoes it', async () => {

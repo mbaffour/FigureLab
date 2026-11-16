@@ -24,7 +24,10 @@ const { step, expect, btn } = L;
   const plateB = await I.platePhoto(T, path.join(inp, 'IMG_4412_MG1655.jpg'), { n: 45, seed: 21 });
   const plateC = await I.platePhoto(T, path.join(inp, 'IMG_4415_BW25113.jpg'), { n: 30, seed: 22 });
   const spot = await I.spotAssay(T, path.join(inp, 'spot_assay.jpg'));
+  // NCBI files list most genes twice, as a gene and its CDS: write the file that way.
   const gb = I.phageGenBank(path.join(inp, 'phiGuide_late.gb'));
+  fs.writeFileSync(gb, fs.readFileSync(gb, 'utf8').replace(/^     CDS             (\S+)\n(                     \/gene="[^"]+")$/gm,
+    '     gene            $1\n$2\n     CDS             $1\n$2'));
   let csv = 'time_min,MOI_0_rep1,MOI_0_rep2,MOI_0_rep3,MOI_1_rep1,MOI_1_rep2,MOI_1_rep3\n';
   const truthMean = {};
   for (let t = 0; t <= 120; t += 15) {
@@ -92,7 +95,20 @@ const { step, expect, btn } = L;
   });
 
   // ---- 2 TEM calibration ----------------------------------------------------------------
-  await step(T, 'TEM: ⚙ › 🔍 Auto-detect scale bar (falls back to 🔬 Calibrate from image if it finds nothing)', async () => {
+  await step(T, 'TEM: right-click › 📏 Scale bar / calibrate… and ⌘K "add scale bar" lead to the panel\'s calibration', async () => {
+    const q = await at(0, 512, 400, 1024);
+    await p.mouse.click(q.x, q.y, { button: 'right' }); await p.waitForTimeout(300);
+    await p.locator('body *:visible').filter({ hasText: /^📏\s*Scale bar \/ calibrate…$/ }).last().click(); await p.waitForTimeout(400);
+    const a = await p.evaluate(() => { const e = document.activeElement; return { tag: e && e.tagName, cls: e && e.className, txt: e && (e.innerText || e.value || '').slice(0, 40) }; });
+    const vis1 = await row(0).locator('button', { hasText: '🔍 Auto-detect scale bar' }).isVisible();
+    await p.keyboard.press('Escape');
+    const hits = await L.cmdk(T, 'add scale bar', { enter: false });
+    expect(vis1, 'right-click › Scale bar / calibrate… did not open the panel\'s calibration: ' + JSON.stringify(a));
+    expect(/scale bar|calibrat/i.test(hits[0] || ''), '⌘K add scale bar → ' + hits[0]);
+    return `right-click opened panel A's ⚙ at its calibration; ⌘K "add scale bar" → ${hits[0]}`;
+  });
+
+  await step(T, 'TEM: ⚙ › 🔍 Auto-detect scale bar finds the burned-in bar → pick 200 nm', async () => {
     const it = await settings(0);
     await L.toasts(T);
     await it.locator('button', { hasText: '🔍 Auto-detect scale bar' }).click();
@@ -107,13 +123,15 @@ const { step, expect, btn } = L;
     await det.locator('.sbd-pick', { hasText: '200 nm' }).click();
     await p.waitForTimeout(300);
     const um = await p.evaluate(() => images[0].umPerPx);
+    const t = await L.toasts(T);
     expect(Math.abs(um * 1000 - 0.5) / 0.5 < 0.01, 'nm/px ' + um * 1000);
-    return `auto-detect found the bar: ${said[1]} px = 200 nm → ${(um * 1000).toFixed(3)} nm/px`;
+    expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · scale bar 100 nm/.test(t), 'toast: ' + t);
+    return `auto-detect found the bar (${said[1]} px); toast "${t}"`;
   });
 
+  // The by-hand path the guide gives for a bar Auto-detect does not find, replayed on the
+  // same TEM: it must give the same 0.5 nm/px.
   await step(T, 'TEM: ⚙ › 🔬 Calibrate from image → click both bar ends (snaps to 400 px) → 200 nm → Apply', async () => {
-    const um0 = await p.evaluate(() => images[0].umPerPx || 0);
-    if (Math.abs(um0 - 0.0005) < 1e-6) return 'already calibrated by auto-detect';
     const it = await settings(0);
     await it.locator('button', { hasText: '🔬 Calibrate from image' }).click();
     const m = p.locator('#calib-modal'); await m.waitFor({ state: 'visible' });
@@ -122,7 +140,10 @@ const { step, expect, btn } = L;
     await cv.click({ position: { x: 44 * s, y: 989 * s } });
     await cv.click({ position: { x: 434 * s, y: 990 * s } });
     const px = +(await m.locator('#calib-px').inputValue());
-    expect(Math.abs(px - 400) <= 2, 'snapped distance ' + px + ' px');
+    const said = (await m.innerText()).match(/Distance:[^\n]*/);
+    expect(Math.abs(px - 400) <= 2 && said && /snapped to the ends of the bar/.test(said[0]), 'snapped distance ' + px + ' px; ' + (said && said[0]));
+    const zooms = await m.locator('button.calib-zoom').allInnerTexts();
+    expect(zooms.join('|') === 'Fit|1:1|2:1', 'zoom buttons ' + zooms);
     await m.locator('#calib-um').fill('200');
     await m.locator('#calib-unit').selectOption('nm');
     await L.shot(T, 'phage-calibrate', m.locator('.modal').first().or(m.locator('xpath=./*[1]')).first(), { doc: true });
@@ -131,16 +152,20 @@ const { step, expect, btn } = L;
     const st = await p.evaluate(() => ({ um: images[0].umPerPx, on: images[0].sbOn, unit: images[0].sbUnit, len: images[0].sbUm }));
     expect(Math.abs(st.um * 1000 - 0.5) / 0.5 < 0.02, 'nm/px ' + st.um * 1000);
     expect(st.on && st.unit === 'nm', 'bar not switched on in nm: ' + JSON.stringify(st));
-    return `${px} px = 200 nm → ${(st.um * 1000).toFixed(3)} nm/px; bar ${Math.round(st.len * 1000)} nm, on`;
+    return `${said[0]} → ${(st.um * 1000).toFixed(3)} nm/px; bar ${Math.round(st.len * 1000)} nm, on; zoom ${zooms.join(' / ')}`;
   });
 
-  await step(T, 'TEM: ⚙ › Clip shape B = 7 (% cut from the bottom) removes the info strip; calibration kept', async () => {
+  await step(T, 'TEM: ⚙ › Clip shape › Crop % B = 7, then R with the cursor in the box: the info strip is gone; calibration kept', async () => {
     const it = await settings(0);
-    await setField(it.locator('input.f-cb'), 7);
-    await render();
-    const st = await p.evaluate(() => ({ b: images[0].cropB, um: images[0].umPerPx }));
-    expect(st.b === 7 && Math.abs(st.um - 0.0005) < 1e-9, JSON.stringify(st));
-    return '7 % of 1024 px = 72 px ≥ the 70 px strip';
+    const lbl = await it.getByText('Crop % cut from each edge').count();
+    // count renders, to see that R pressed with the cursor still in the box redraws
+    await p.evaluate(() => { window.__rc = 0; const o = window.render; window.render = function () { window.__rc++; return o.apply(this, arguments); }; });
+    await it.locator('input.f-cb').fill('7');
+    await p.keyboard.press('r'); await p.waitForTimeout(600);
+    const st = await p.evaluate(() => ({ b: images[0].cropB, um: images[0].umPerPx, rc: window.__rc, v: document.activeElement && document.activeElement.value }));
+    expect(lbl === 1, 'no "Crop % cut from each edge" label');
+    expect(st.b === 7 && Math.abs(st.um - 0.0005) < 1e-9 && st.rc > 0 && st.v === '7', JSON.stringify(st));
+    return `R in the box rendered (${st.rc}×), the box still reads ${st.v}; 7 % of 1024 px = 72 px ≥ the 70 px strip`;
   });
 
   // ---- 3 rulers -------------------------------------------------------------------------
@@ -197,7 +222,13 @@ const { step, expect, btn } = L;
     const it = await settings(1);
     await it.locator('button', { hasText: '🔬 Calibrate from image' }).click();
     const m = p.locator('#calib-modal'); await m.waitFor({ state: 'visible' });
-    const cv = m.locator('#calib-canvas'); const bb = await cv.boundingBox(); const s = bb.width / 1200;
+    const cv = m.locator('#calib-canvas');
+    // 1:1 shows one photo pixel per screen pixel (for clicking ruler ticks); Fit shows it all
+    await m.locator('button.calib-zoom', { hasText: '1:1' }).click(); await p.waitForTimeout(200);
+    const w11 = Math.round((await cv.boundingBox()).width);
+    await m.locator('button.calib-zoom', { hasText: 'Fit' }).click(); await p.waitForTimeout(200);
+    expect(Math.abs(w11 - 1200) <= 4, '1:1 canvas width ' + w11);
+    const bb = await cv.boundingBox(); const s = bb.width / 1200;
     await cv.click({ position: { x: 81 * s, y: 1140 * s } });
     await cv.click({ position: { x: 301 * s, y: 1140 * s } });
     const clicked = +(await m.locator('#calib-px').inputValue());
@@ -208,7 +239,7 @@ const { step, expect, btn } = L;
     await p.waitForTimeout(400);
     const st = await p.evaluate(() => ({ um: images[1].umPerPx, unit: images[1].sbUnit, len: images[1].sbUm, on: images[1].sbOn }));
     expect(Math.abs(st.um - 1000 / 22) < 0.05 && st.on && st.unit === 'mm', JSON.stringify(st));
-    return `clicks gave ${clicked} px; typed 220 px = 10 mm → ${st.um.toFixed(2)} µm/px, ${st.len / 1000} mm bar`;
+    return `1:1 shows the photo ${w11} px wide; clicks gave ${clicked} px; typed 220 px = 10 mm → ${st.um.toFixed(2)} µm/px, ${st.len / 1000} mm bar`;
   });
 
   await step(T, 'Plate C: tick B and C → B ⚙ › ⇉ Same µm/px on ticked panels', async () => {
@@ -230,7 +261,9 @@ const { step, expect, btn } = L;
       const cnt = btn(T, '🔢 Count');
       if (!(await p.locator('#count-polarity').isVisible())) await cnt.click();
       await p.locator('#count-polarity').selectOption({ label: 'dark objects (plaques)' });
-      await p.locator('#count-ellipse').check();
+      // a click on the words "round (a dish)" ticks the box
+      if (!(await p.locator('#count-ellipse').isChecked())) await p.locator('label', { hasText: 'round (a dish)' }).click();
+      expect(await p.locator('#count-ellipse').isChecked(), 'clicking "round (a dish)" did not tick it');
       await drag(await at(idx, 96, 96, 1200), await at(idx, 1104, 1104, 1200));
       await p.waitForTimeout(800);
       const sec = p.locator('details:has(> summary:text-matches("Measure"))');
@@ -251,7 +284,11 @@ const { step, expect, btn } = L;
       let csvNote = '';
       if (letter === 'B') {
         const f = await L.download(T, () => sec.locator('button', { hasText: '⬇ Export Measurements CSV' }).click(), /\.csv$/);
-        csvNote = '; ' + path.basename(f);
+        const lines = fs.readFileSync(f, 'utf8').split('\n').filter(l => !l.startsWith('#'));
+        const head = lines[0];
+        const want = ['Objects', 'Region', 'Cut by the rim (not counted)', 'Diameter mean', 'Diameter SD', 'Diameter median', 'Diameter unit', 'Object diameters'];
+        expect(want.every(w => head.includes(w)) && /ellipse \(round, a dish\)/.test(lines[1]), 'CSV: ' + head + ' | ' + lines[1]);
+        csvNote = '; ' + path.basename(f) + ' has ' + want.join(', ');
       }
       return `${got} objects (made ${n}); ${dia}${csvNote}`;
     });
@@ -331,27 +368,48 @@ const { step, expect, btn } = L;
   });
 
   // ---- 7 gene map -----------------------------------------------------------------------
-  await step(T, 'Gene map: Annotate & Draw › 🧬 Linear → 📄 GenBank / FASTA… → title → Apply (the dialog closes)', async () => {
+  await step(T, 'Gene map: Annotate & Draw › 🧬 Linear, then Cancel: the sample map it added is taken away again', async () => {
+    const n0 = (await panels()).length;
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '🧬 Linear').click();
     const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
+    const n1 = (await panels()).length;
+    await m.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
+    const n2 = (await panels()).length;
+    expect(n1 === n0 + 1 && n2 === n0, `panels ${n0} → ${n1} → ${n2}`);
+    return `panels ${n0} → ${n1} (sample map) → ${n2} after Cancel`;
+  });
+
+  await step(T, 'Gene map: Annotate & Draw › 🧬 Linear → 📄 GenBank / FASTA… (genes listed as gene + CDS) → title → Apply (the dialog closes)', async () => {
+    await L.openSection(T, 'Annotate & Draw');
+    await btn(T, '🧬 Linear').click();
+    const m = p.locator('#genemap-modal'); await m.waitFor({ state: 'visible' });
+    await L.toasts(T);
     await L.pickFiles(T, m.getByText('GenBank / FASTA…'), [gb]);
     await p.waitForTimeout(500);
     const info = await m.innerText();
-    expect(/10\.8 kb · 12 features/.test(info), 'import summary: ' + (info.match(/[\d.]+ kb · \d+ features[^\n]*/) || [''])[0]);
+    const line = (info.match(/[\d.]+ kb · \d+ features[^\n]*/) || [''])[0];
+    const t = await L.toasts(T);
+    expect(/^10\.8 kb · 12 features · [\d.]+ bp per pixel$/.test(line), 'import summary: ' + line);
+    expect(/10 genes listed twice \(gene \+ CDS or RNA\) drawn once each/.test(t), 'toast: ' + t);
+    T._gmNote = line + ' — toast "' + t + '"';
     await m.locator('#gm-title').fill('*Escherichia* phage phiGuide, late region');
     await m.locator('button', { hasText: /^Apply$/ }).click();
     await p.waitForTimeout(300);
     await m.waitFor({ state: 'hidden' });   // Apply closes the dialog
     const st = await p.evaluate(() => { const g = images.find(i => i && i.type === 'genemap'); return g && { label: formatLabel(g.label), n: g.map.features.length, len: g.map.length, topo: g.map.topology }; });
     expect(st && st.label === 'F' && st.n === 12 && st.len === 10800 && st.topo === 'linear', JSON.stringify(st));
-    return `panel ${st.label}: ${st.n} features, ${st.len} bp, ${st.topo}`;
+    return `panel ${st.label}: ${st.n} features, ${st.len} bp, ${st.topo}; ${T._gmNote}`;
   });
 
   // ---- 8 layout -------------------------------------------------------------------------
-  await step(T, 'Layout: chart ⚙ › Col span 2, gene map ⚙ › Col span 2, then Arrange › ⊞ Fit grid to panels', async () => {
+  // ux2: a journal preset now scales lane tables to the figure's text size, and at 7 pt the
+  // dilution labels no longer fit eight columns of a one-cell spot assay (each cell drew "…").
+  // Two columns for the spot assay give every label room.
+  await step(T, 'Layout: spot assay and chart ⚙ › Col span 2, gene map ⚙ › Col span 3, then Arrange › ⊞ Fit grid to panels', async () => {
+    await setField((await settings(3)).locator('input.f-colspan'), 2);
     await setField((await settings(4)).locator('input.f-colspan'), 2);
-    await setField((await settings(5)).locator('input.f-colspan'), 2);
+    await setField((await settings(5)).locator('input.f-colspan'), 3);
     await L.openSection(T, 'Arrange');
     await L.toasts(T);
     await btn(T, '⊞ Fit grid to panels').click();
@@ -360,45 +418,72 @@ const { step, expect, btn } = L;
     await render();
     const st = await p.evaluate(() => ({ g: [document.getElementById('cols').value, document.getElementById('rows').value], drawn: panelBounds.length,
       spans: panelBounds.filter(b => b.idx >= 4).map(b => b.w) }));
-    expect(st.drawn === 6 && st.g.join('x') === '4x2' && st.spans.every(w => w > 550), JSON.stringify(st));
-    return `grid ${st.g.join(' × ')}, ${st.drawn} panels drawn; toast "${msg}"`;
+    const rowsOf = await p.evaluate(() => panelBounds.map(b => formatLabel(images[b.idx].label) + '@' + Math.round(b.y)));
+    expect(st.drawn === 6 && st.g.join('x') === '5x2' && st.spans[0] > 550 && st.spans[1] > 850, JSON.stringify(st));
+    return `grid ${st.g.join(' × ')}, ${st.drawn} panels drawn (${rowsOf.join(' ')}); toast "${msg}"`;
   });
 
   // ---- 9 journal ------------------------------------------------------------------------
   await step(T, '⌘K "asm" → Journal: ASM sets 177.8 mm and Arial', async () => {
+    const fs0 = await p.evaluate(() => images[3].laneTable.fs);
     const hits = await L.cmdk(T, 'asm');
     expect(/^Journal: ASM/.test(hits[0]), 'top hit ' + hits[0]);
-    const st = await p.evaluate(() => ({ w: document.getElementById('export-width-mm').value, f: document.getElementById('label-font').value }));
-    expect(+st.w === 177.8, JSON.stringify(st));
-    return `${st.w} mm, ${st.f}`;
+    const st = await p.evaluate(() => ({ w: document.getElementById('export-width-mm').value, f: document.getElementById('label-font').value, fs: images[3].laneTable.fs }));
+    expect(+st.w === 177.8 && st.fs !== fs0, JSON.stringify(st) + ' lane table size before ' + fs0);
+    return `${st.w} mm, ${st.f}; the dilution row's size ${fs0} → ${(+st.fs).toFixed(1)} px`;
   });
 
-  // ux2 (phage2-04, ISSUES): the old way (untick Background, darken the TEM) left the black
-  // 'D' on the dark 10⁰ spot and the check passed anyway. Contrast is now measured under each
-  // letter's strokes, and the report's Auto contrast button picks black or white per panel,
-  // darkens the chips and adds one where a picture (the spot assay) is too mixed for either.
-  await step(T, 'Text contrast: TEM ⚙ › Black pt 10000; Check › ✓ Check journal compliance › the row\'s Auto contrast button; it passes', async () => {
+  // The key goes into free space; this grid has none, so a margin grows and says so. A wide
+  // figure keeps its panel sizes with the key below: choosing a place in Where with no key
+  // yet places it there. (Moving a key placed in the right margin to Below later leaves the
+  // grown right margin behind: ISSUES.md.)
+  await step(T, 'Export › Legend key › Where › Below places the key under the panels; the bottom margin grows to hold it', async () => {
+    await L.openSection(T, 'Export');
+    await L.toasts(T);
+    await p.locator('#key-where').selectOption({ label: 'Below' }); await p.waitForTimeout(800);
+    const g = await p.evaluate(() => { const k = annotations.filter(a => a && a.type === 'legend'), cv = document.getElementById('fig-canvas');
+      return { n: k.length, where: k[0] && k[0].where, y: k[0] && Math.round(k[0].yf * cv.height), bottom: Math.round(panelBounds.reduce((m, b) => Math.max(m, b.y + b.h), 0)),
+        right: document.getElementById('m-right').value, ticked: document.getElementById('key-on-fig') ? document.getElementById('key-on-fig').checked : null }; });
+    const t = await L.toasts(T);
+    const ticked = await p.getByLabel('Place the key on the figure').isChecked();
+    expect(g.n === 1 && g.where === 'bottom' && g.y >= g.bottom && g.right === '16' && ticked, JSON.stringify(g) + ' ticked ' + ticked);
+    expect(/The legend key needed free space, so the bottom margin grew from 16 to \d+ px — it sits there without covering anything/.test(t), 'toast: ' + t);
+    return `key at y ${g.y}, under the panels (${g.bottom}); Place the key on the figure ticked; toast "${t.split(' — ')[0]}"`;
+  });
+
+  const readReport = async () => {
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' }); const txt = await rep.innerText();
+    return { title: await p.locator('#im-title').innerText(), tc: (txt.match(/Text contrast\n([^\n]*)/) || [])[1] || '', ts: (txt.match(/Text size\n([^\n]*)/) || [])[1] || '',
+      kr: (txt.match(/Legend key on the figure\n([^\n]*)/) || [])[1] || '', open: [...txt.matchAll(/\n([⚠✗])\n([^\n]+)/g)].map(m => m[1] + ' ' + m[2]) };
+  };
+  // ux2 (phage2-04): contrast is measured under each letter's strokes, and the row's Auto
+  // contrast button picks black or white per panel and darkens the chips. Text over a
+  // mid-grey micrograph (no chip) can stay under 4.5:1 in either colour: darken the panel.
+  await step(T, 'Check › ✓ Check journal compliance: Text contrast ⚠ on E and F; the row\'s Auto contrast button; the TEM\'s bar text still under 4.5:1', async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const r0 = await readReport();
+    expect(/^⚠/.test(r0.open.find(o => /Text contrast/.test(o)) || '') && /panel letters “E”/.test(r0.tc) && /sits in free space/.test(r0.kr), JSON.stringify(r0));
+    const b = p.locator('#info-modal-bg .compliance-row', { hasText: 'Text contrast' }).getByRole('button', { name: 'Auto contrast' });
+    expect(await b.count() === 1, 'no Auto contrast button on the Text contrast row');
+    await b.click(); await p.waitForTimeout(600);
+    const t = await p.locator('#toast').textContent();
+    const r1 = await readReport();
+    await p.keyboard.press('Escape');
+    expect(/^Auto contrast on/.test(t) && /scale-bar text “100 nm”/.test(t) && !/panel letters/.test(r1.tc), 'toast: ' + t + ' | ' + r1.tc);
+    return `${r0.title} (${r0.open.join(', ')}) → Auto contrast → ${r1.title}; toast "${t}"`;
+  });
+
+  await step(T, 'TEM ⚙ › Black pt 10000 (darker display); ✓ Check journal compliance passes every row', async () => {
     const it = await settings(0);
     await it.locator('input.f-bpt-v').fill('10000'); await it.locator('input.f-bpt-v').press('Enter');
     await p.waitForTimeout(400);
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
-    let rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
-    const tc = rep.locator('.compliance-row', { hasText: 'Text contrast' });
-    let did = '';
-    if (await tc.getByRole('button', { name: 'Auto contrast' }).count()) {
-      await tc.getByRole('button', { name: 'Auto contrast' }).click();
-      await p.waitForTimeout(500);
-      did = await p.locator('#toast').textContent();
-    }
-    rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
-    const txt = await rep.innerText();
-    const contrast = (txt.match(/Text contrast\n([^\n]*)/) || [])[1] || '';
-    const size = (txt.match(/Text size\n([^\n]*)/) || [])[1] || '';
-    const title = await p.locator('#im-title').innerText();
+    const r = await readReport();
     await p.keyboard.press('Escape');
-    expect(/✓/.test(contrast), 'Text contrast: ' + contrast);
-    return title + ' · ' + size.slice(0, 80) + (did ? ' · toast: ' + did.slice(0, 120) : '');
+    expect(/compliance — 20\/20 passed/.test(r.title) && !r.open.length, JSON.stringify(r));
+    return `${r.title}; Text contrast: ${r.tc.slice(0, 90)}; Text size: ${r.ts.slice(0, 60)}`;
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -426,8 +511,27 @@ const { step, expect, btn } = L;
     return path.basename(r.file) + ' carries ' + want.join(', ') + ' as <text>';
   });
 
-  await step(T, 'Export › Legend key › ⬇ Download key lists the curves and the gene-map glyphs', async () => {
+  // ux2: the PDF writes chart and gene-map words (and the minus sign, in the standard Symbol
+  // font) as real text, as the SVG does.
+  await step(T, 'Export: ↓ PDF lossless → chart, gene map and dilution row are selectable text', async () => {
+    const r = await L.exportVia(T, 'PDF lossless', { name: 'Fig1_phiGuide' });
+    const zlib = require('zlib'); const d = fs.readFileSync(r.file).toString('latin1'); let tj = [];
+    for (const m of d.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+      let b = Buffer.from(m[1], 'latin1'); try { b = zlib.inflateSync(b); } catch (_) {}
+      tj = tj.concat([...b.toString('latin1').matchAll(/\(([^)]*)\)\s*Tj/g)].map(x => x[1]));
+    }
+    const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', 'Dilution', '100 nm', '10 mm'];
+    const miss = want.filter(w => !tj.includes(w));
+    expect(!miss.length, 'not text in the PDF: ' + miss.join(', '));
+    expect(!tj.includes('\\205') && tj.filter(t => t === '10').length >= 8, 'dilution labels cut to "…": ' + tj.join('|').slice(0, 300));
+    const fonts = [...new Set((d.match(/\/BaseFont \/[A-Za-z-]+/g) || []).map(x => x.slice(11)))];
+    return path.basename(r.file) + ' carries ' + want.join(', ') + ' as text; fonts ' + fonts.join(', ');
+  });
+
+  await step(T, 'Export › Legend key › ⬇ Download key (PDF, the last export format) lists the curves and the gene-map glyphs', async () => {
     await L.openSection(T, 'Export');
+    const lbl = await btn(T, /⬇ Download key/).innerText();
+    expect(lbl === '⬇ Download key (PDF)', lbl);
     const f = await L.download(T, () => btn(T, /⬇ Download key/).click(), /key/);
     const key = await p.locator('#key-text').inputValue();
     expect(/Uninfected/.test(key) && /CDS|Promoter|Terminator/i.test(key), key);
@@ -453,6 +557,30 @@ const { step, expect, btn } = L;
       out.push(`${q} → ${hits[0].slice(0, 30)}`);
     }
     return out.join('; ');
+  });
+
+  // ISSUES.md: a margin the key grew stays when the key moves elsewhere. The guide's fix:
+  // set the margin back by hand; the key stays where Where put it.
+  await step(T, 'Troubleshooting: key moved Free space → Below leaves the right margin grown; Arrange › Margins › Right 16 takes it back', async () => {
+    await L.openSection(T, 'Export');
+    const mr = () => p.evaluate(() => document.getElementById('m-right').value);
+    // start again as a reader who ticks the switch first: no key, margins back to 16
+    await p.getByLabel('Place the key on the figure').uncheck(); await p.waitForTimeout(300);
+    await L.openSection(T, 'Arrange');
+    await p.locator('#m-btm').fill('16'); await p.locator('#m-btm').press('Tab'); await p.waitForTimeout(300);
+    await L.openSection(T, 'Export');
+    await p.locator('#key-where').selectOption({ label: 'Free space' }).catch(() => {});
+    if (await p.evaluate(() => annotations.some(a => a && a.type === 'legend'))) await p.getByLabel('Place the key on the figure').uncheck();
+    await p.getByLabel('Place the key on the figure').check(); await p.waitForTimeout(800);
+    const a = await mr();
+    await p.locator('#key-where').selectOption({ label: 'Below' }); await p.waitForTimeout(800);
+    const b = await mr();
+    await L.openSection(T, 'Arrange');
+    await p.locator('#m-right').fill('16'); await p.locator('#m-right').press('Tab'); await p.waitForTimeout(600);
+    const k = await p.evaluate(() => { const k = annotations.find(a => a && a.type === 'legend'), cv = document.getElementById('fig-canvas');
+      return { where: k.where, y: Math.round(k.yf * cv.height), bottom: Math.round(panelBounds.reduce((m, q) => Math.max(m, q.y + q.h), 0)), right: document.getElementById('m-right').value }; });
+    expect(+a > 16 && b === a && k.where === 'bottom' && k.y >= k.bottom && k.right === '16', JSON.stringify({ a, b, k }));
+    return `right margin 16 → ${a} (Free space) → still ${b} after Where › Below → 16 by hand; key still below the panels`;
   });
 
   await L.finish(T);

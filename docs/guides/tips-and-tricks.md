@@ -1,6 +1,6 @@
 # Tips and tricks
 
-Shortcuts and habits that save the most time, and the pitfalls that cost the most. Checked on this build by [`verify/tips.verify.js`](verify/tips.verify.js), with the freeform items checked by [`verify/freeform.verify.js`](verify/freeform.verify.js).
+Shortcuts and habits that save the most time, and the pitfalls that cost the most. Checked on this build by [`verify/tips.verify.js`](verify/tips.verify.js); tips that belong to one kind of figure are checked by that guide's script (named beside them).
 
 ## Find any tool with ⌘K
 
@@ -19,15 +19,19 @@ Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type a few words, press <kbd>Enter</k
 | `swap panels` | Swap or reorder panels |
 | `batch crop`, `densitometry`, `lane table` | the blot tools ([Western blot](western-blot.md)) |
 | `calibrate`, `auto-detect scale bar`, `ruler`, `count plaques` | the measuring tools ([Phage and microbiology](phage-and-microbiology.md)) |
+| `add scale bar` | Scale bar: add one to a micrograph (calibrate it)… (opens the selected panel's ⚙ at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**) |
 | `scale bar off` | Scale bars off on uncalibrated panels |
 | `split channels`, `linked inset` | [Fluorescence](fluorescence.md) tools |
 | `sample colours` | Sample colours (one colour per strain in every chart)… |
-| `nature`, `plos`, `asm`… | Journal: … (applies the preset) |
+| `nature`, `plos`, `elife`, `asm`… | Journal: … (applies the preset) |
+| `mbio`, `j bacteriol`, `jbc` | the journal's preset by its abbreviation (`mbio` and `j bacteriol` find Journal: ASM) |
+| `nat comms` | Journal: no preset for Nature Communications (says so and changes nothing) |
 | `check against plos` | Check against PLOS ONE (report only, changes nothing) |
 | `legend key`, `alt text`, `submission`, `replace image`, `load session` | the [submission](journal-submission.md) tools |
 | `position` | Position and size: type X, Y, W, H or angle (freeform) |
 | `graphical abstract` | Canvas: graphical abstract (Elsevier) |
 | `tutorial` | Tutorials — list them all |
+| `save my work`, `add images`, `delete panel`, `make text bigger` | Save session, Add images, Remove the selected panel, Text size in points |
 
 **Journal: …** changes your figure; **Check against …** only reports. To check against a second journal without switching, type `check against` and the name.
 
@@ -43,6 +47,10 @@ Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type a few words, press <kbd>Enter</k
 | <kbd>Ctrl</kbd> + scroll | Zoom about the pointer |
 | <kbd>Space</kbd> + drag | Pan a zoomed figure (click the empty canvas first, so the Space is not typed into a field) |
 | <kbd>Tab</kbd> once after the page loads, then <kbd>Enter</kbd> | "Skip to the figure toolbar" |
+| <kbd>Tab</kbd> twice after the page loads, then <kbd>Enter</kbd> | "Skip to the welcome card — add images, load a session, tutorials" |
+| Arrow keys on the figure | Pick a panel (Tab to the figure: it comes right after the toolbar) |
+| <kbd>Shift</kbd>+arrow on the figure | Swap the picked panel with its neighbour; the letters follow position |
+| <kbd>Enter</kbd> on the figure | Open the picked panel's settings (⚙) |
 | <kbd>Ctrl/⌘+I</kbd>, <kbd>Ctrl/⌘+B</kbd> in a text field | Wrap the selection in italic or bold marks |
 | Arrow keys / <kbd>Shift</kbd>+arrows | Freeform: move the selection 1 px / 10 px |
 | <kbd>]</kbd> <kbd>[</kbd> (with <kbd>Shift</kbd>: 5°) | Freeform: turn the selection 1° |
@@ -53,7 +61,7 @@ Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type a few words, press <kbd>Enter</k
 Every place where precision matters takes a typed number:
 
 - **Display range of a 16-bit image**: ⚙ › **Black pt** / **White pt** in the file's own counts, then **≡ Sync by channel** ([Fluorescence](fluorescence.md)).
-- **Batch crop**: the **px** X / Y / W / H boxes (type W and H before X and Y), so every strip has the same size and lane positions ([Western blot](western-blot.md)).
+- **Batch crop**: the **px** X / Y / W / H boxes, in any order; the next scan opens with the same box, so every strip has the same size and lane positions ([Western blot](western-blot.md)).
 - **Calibration**: **Pixel distance** and the length in nm, µm or mm in **🔬 Calibrate from image** ([Phage and microbiology](phage-and-microbiology.md)).
 - **Inset region**: the px fields in **⧉ Add linked inset…**.
 - **Chart axes**: **Y min** / **max** in the Chart dialog ([Charts](charts.md)).
@@ -64,7 +72,7 @@ Every place where precision matters takes a typed number:
 Journals give type sizes in points at the printed size, and FigureLab keeps text in points:
 
 - **Look › Typography › Text size** (pt) sets charts, gene maps, scale-bar text and the legend key. **Font family** sets them all to one face.
-- **Look › Panel Labels (A, B, C…) › Size** has a **pt** box with **px** beside it. Typing px is fine; the pt follows. In the test, 8 pt was 10.7 px at the full canvas width and 21.7 px after **Export › Printed width › 89 mm**: the pt stayed 8.
+- **Look › Panel Labels (A, B, C…) › Size** has a **pt** box with **px** beside it. Typing px is fine; the pt follows. In the test, 8 pt was 10.7 px at the full canvas width and 21.6 px after **Export › Printed width › 89 mm**: the pt stayed 8.
 - Choose the **Printed width** (or a journal preset) before you fine-tune sizes; the pt sizes then print as typed.
 
 ## Marks that stay on their panel
@@ -75,11 +83,14 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 
 ## Panels
 
-- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more.
-- **Drag one panel onto another** on the canvas to swap them; the letters follow position.
+- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📏 Scale bar / calibrate…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more. **📏 Scale bar / calibrate…** is the way to a scale bar on a micrograph without calibration: its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar** (⌘K `add scale bar` goes to the same place).
+- **Drag one panel onto another** on the canvas to swap them; the letters follow position. From the keyboard: Tab to the figure, pick a panel with the arrow keys, <kbd>Shift</kbd>+arrow swaps it, <kbd>Enter</kbd> opens its settings. A screen reader hears each step ("Moved: … is now panel A; … Ctrl+Z undoes it").
+- **⌘K `trim` › Trim borders…** previews what each panel would lose. Blots and dark fluorescence fields start unticked; tick only the panels with a real white border.
 - **⌘K `span`** with a panel selected opens its **Col span** / **Row span** fields; then **Arrange › ⊞ Fit grid to panels**.
 - Charts and gene maps are grid panels with letters of their own: a CSV dropped into a grid becomes the next lettered chart panel, and **Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA…** adds a gene map panel ([Phage and microbiology](phage-and-microbiology.md)).
 - Format marks in labels: `*italic*`, `**bold**`, `10^{8}` superscripts and `H_{2}O` subscripts. Checked here in the figure title (<kbd>Ctrl/⌘+I</kbd>), lane table cells (`Δ*phoA*`, `10^{-1}`), chart axis titles (`OD_{600}`) and freeform text boxes.
+
+![Trim borders: each panel with what it would lose; the blot and the two fluorescence fields start unticked](img/tips-trim.png)
 
 ## Freeform
 
@@ -89,24 +100,44 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 - **⬇ Behind** puts a box behind the panels; choosing a fill colour ticks Fill; **Corner R** rounds a rectangle.
 - Double-click a text mark to edit it. Overlapping objects can be picked by name in the **Elements** list.
 
+## Legend key
+
+- **Export › Place the key on the figure** puts the key in free space: a margin, an empty cell or a free corner, never over a panel, letter or heading. With no room, a margin grows and a toast says by how much.
+- The **Where** menu beside it picks the place: **Free space**, a corner, **Right edge** or **Below**.
+- Drag the key with **↖ Select** to put it somewhere yourself; it stays there through later changes. If it covers something, the compliance row **Legend key on the figure** warns and **Move to free space** fixes it ([Journal submission](journal-submission.md)).
+
+## Caption, Methods and alt text
+
+- Untouched text follows the figure. Text you edited is kept; if the figure changes, a line under the box offers **✦ Regenerate** (Methods: **✎ Rewrite**, alt text: **✦ Redraft**), which replaces your edits, or **Keep mine**.
+- **✦ Generate Caption** and **✎ Write Methods paragraph** ask before writing over your edits ("Replace your caption?", "Replace your Methods paragraph?"): **Replace** or **Keep mine** ([Journal submission](journal-submission.md)).
+
+## Charts and blots
+
+- **A sample keeps its colour by name.** Moving a group with ↑ ↓ or adding chart panels never recolours it. **shown as** renames it in every chart at once (the toast names the other panels), and **Look › Sample colours** lists it as `ΔfliC (dfliC)` ([Charts](charts.md)).
+- **Source data read back in.** Each `source-data/<letter>.csv` in the submission package can be dropped on the figure again; it charts the same values ([Charts](charts.md)).
+- **Band to chart.** In **⫼ Lanes & bands**, the **Band to chart** menu beside **📊 Chart these values** sets which band is charted (by default the largest band in the reference lane). Every lane is measured there; a lane without that band is "n.d." ([Western blot](western-blot.md)).
+
+## Exports keep your text
+
+- **↓ PDF lossless** writes letters, labels, text boxes and the words of charts and gene maps as real, selectable text, in the PDF's standard fonts (Symbol for Greek letters such as Δ). The fonts are named, not embedded.
+- **Export › 📊 Export editable PowerPoint (.pptx)** makes the slide the figure's printed width (183 mm for a 183 mm figure), so 8 pt text reads 8 pt in PowerPoint, and chart and gene-map words are editable text boxes ([Freeform](freeform.md)).
+
 ## Tutorials without losing your figure
 
-Help (**❔**) › Tutorials, or ⌘K `tutorial`. A tutorial replaces your figure with its own demo. When you click **End**, FigureLab asks **Bring your own figure back?**: click **Confirm** and your figure returns in one step. Saving first (<kbd>Ctrl/⌘+S</kbd>) costs nothing.
+Help (**❔**) › Tutorials, or ⌘K `tutorial`. A tutorial puts your figure aside and shows its own demo. When you click **End**, FigureLab asks **Bring your own figure back?**: click **Restore my figure** and your figure returns in one step. Saving first (<kbd>Ctrl/⌘+S</kbd>) costs nothing.
 
 ## Common pitfalls
 
 | Pitfall | How to avoid it |
 |---|---|
-| Letters fail **Text contrast** on light panels. | Untick **Look › Panel Labels (A, B, C…) › Background**; Auto contrast then picks black or white per panel. The report's own **Auto contrast** button does not fix it while Background is ticked. |
-| **Trim borders** would cut a dark fluorescence field. | The dialog previews each panel. Blots and gels start unticked, but a fluorescence image with a black background starts ticked (in the test it would have kept 45 % of a DAPI field). Untick it before **Trim ticked panels**. |
-| The compliance **Export format** row fails although you exported. | It checks the format you saved last. Export in the journal's format (e.g. **↓ PDF lossless** for Nature), then re-check. |
-| The figure prints taller than the journal allows. | A preset sets the width; a figure with many rows can then exceed the height limit. Choose a narrower **Export › Printed width** or use fewer rows. |
+| Letters fail **Text contrast** on light panels. | Click the row's **Auto contrast** button in the compliance report. Text without a chip over a mid-grey picture may still need its panel darkened (⚙ › **Black pt**). |
+| The compliance **Export format** row is still ℹ or ✗. | It counts the formats saved since the figure last changed. After an edit, save in the journal's format again (e.g. **↓ PDF lossless** for Nature). |
+| The figure prints taller than the journal allows. | You widened it after choosing the journal: click **Set … mm** on the **Printed height** row, or use fewer rows. |
+| A margin stays wide after you move the placed key. | A margin grown for the key keeps its width. Set it back under **Arrange › Margins**. |
 | <kbd>Space</kbd> + drag does not pan. | A text field still has the focus. Click the empty canvas first. |
 | A whole row typed into a lane table cell lands in one cell. | Separate the cells: `- + - + - +` with spaces fills a +/− row; doses and other text need commas (`10^{0}, 10^{-1}, …`). |
 | Bigger figures go missing after a browser crash. | Autosave cannot hold large images. Save the session file yourself (<kbd>Ctrl/⌘+S</kbd>) and keep it. |
 | A chart's tick labels run together in a single grid cell. | At journal type size a one-cell chart is small: span it over two columns (⌘K `span`). |
-| A colour set for a strain in one chart does not reach another. | The sample must have exactly the same name in both charts (`MOI 0` is not `MOI_0`). Use the chart's **shown as** box to rename. |
-
-![Trim borders: the blot starts unticked, but the two fluorescence fields start ticked and would lose their dark background](img/tips-trim.png)
+| One strain is listed twice in the key. | Give it one name with the chart's **shown as** box (it renames it in every chart), and spell it the same way in every file (`dfliC` is not `ΔfliC`). |
 
 More in [Troubleshooting](troubleshooting.md). Back to the [guide index](README.md).

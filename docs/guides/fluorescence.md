@@ -16,8 +16,9 @@ The steps below were followed on two conditions (DMSO, BafA1) of three channels 
 ## 1. Import the channels
 
 1. In **Images**, click **Drop or click to add images** and pick all six files.
-2. Check each row in the image list. It shows the file name, a channel chip (**DAPI**, **GFP**, **CellMask**) and no orange **⚠ calibrate** badge. Each calibrated panel gets a 10 µm scale bar.
+2. Check each row in the image list. It shows the file name, a channel chip (**DAPI**, **GFP**, **CellMask**) and no orange **⚠ calibrate** badge. Each calibrated panel gets a scale bar of a round length, about a fifth of its field (10 µm on the test's 55.5 µm field).
 3. A toast says "16-bit scaled to 8-bit for display; native samples kept for measurement". The 16-bit numbers are kept: everything below is set in the file's own counts.
+4. A file with a few hot pixels far above the cells opens with **White pt** set below them, so the cells are not left nearly black. Its **⚙** says so under **Adjustments**, for example "It opened with White at 2998: 21 hot pixels up to 62000 would have left the rest nearly black."
 
 ## 2. Colour the channels
 
@@ -43,9 +44,9 @@ A brighter condition now looks brighter. In the test figure BafA1 had 2.5× the 
 
 1. Tick the three rows of one condition (the tick box at the left of each row).
 2. Click **⊕ Merge channels**. The toast says which panel the merge became ("B, D, F merged into B"). The three source panels are hidden, not deleted.
-3. Open the merge's **⚙** and click **⑃ Split channels into panels**. You get four panels: one per channel, named by channel, and the merge. They keep the 16-bit samples and the ranges you matched.
+3. Open the merge's **⚙** and click **⑃ Split channels into panels**. You get four panels: one per channel, named by channel, and the merge. They keep the 16-bit samples and the ranges you matched. If the new panels do not fit, the grid grows to hold them, and the toast says so: "… the grid grew to 3 × 3 rows so the new panels are drawn. Arrange › Columns 4 gives each split field its own row".
 4. Untick, and repeat for the next condition.
-5. In **Arrange**, set **Columns** to `4` and **Rows** to `2`. Splitting leaves the grid as it is ("so the grid was left as it is"), so some new panels sit outside the grid until you do this.
+5. In **Arrange**, set **Columns** to `4` and **Rows** to `2`, as the toast suggests.
 6. Click **🔤 Relabel A, B, C…**. The visible panels are lettered in order; each row now reads DAPI | GFP | CellMask | merge.
 
 The merge's own **⚙** lists its channels under **Channels (screen blend)**, each with its own **B** and **W** boxes in counts; the GFP channel there reads 400–12000 too.
@@ -57,9 +58,7 @@ To remove the hidden source panels for good, use **🗑 Delete hidden panels…*
 1. Open **⚙** on panel A. Under **Scale bar**, **µm / px** shows the value read from the file (0.10833).
 2. Click **Auto**. It picks a round length about a fifth of the field: "Auto scale bar: 10 µm (field 55.5 × 55.5 µm)".
 3. To use another length, type it in **Bar length** (for example `20`).
-4. Click panel A **on the canvas** to select it, then go to **Look** and click **≡ Same bar on all calibrated**. The toast says "Scale bar 20 µm on 8 calibrated panels (from A)".
-
-Select the panel on the canvas first. **≡ Same bar on all calibrated** copies the selected panel's length; with no panel selected it picks its own length for every panel, including the one you just typed.
+4. Go to **Look** and click **≡ Same bar on all calibrated**. It copies the length you typed last (or that of the panel selected on the canvas): "Scale bar 20 µm on 8 calibrated panels (from A, the length typed last)".
 
 ## 6. Linked insets (zoom panels)
 
@@ -68,8 +67,9 @@ Select the panel on the canvas first. **≡ Same bar on all calibrated** copies 
 3. Drag a box on the picture, or type the region under **px**: **X** `300`, **Y** `80`, **W** `128`, **H** `128`.
 4. Click **⧉ Add inset**. The inset is placed right after its parent, and an outline with the inset's letter appears on the parent.
 5. Repeat for the other merge (H).
-6. In **Arrange**, set **Columns** to `5`, then click **🔤 Relabel A, B, C…**. Each row now ends merge | zoom.
-7. Open each inset's **⚙** and click **Auto** under **Scale bar**. The inset gets its own bar (2 µm here); the 20 µm bar it inherits is longer than its 13.9 µm field and is not drawn.
+6. In **Arrange**, set **Columns** to `5` and **Rows** to `2`, then click **🔤 Relabel A, B, C…**. Each row now ends merge | zoom.
+
+Each inset gets its own scale bar at a length that fits its field (2 µm for the 13.9 µm field here); the 20 µm of the other panels would not fit. To change it, use the inset's **⚙ › Scale bar**.
 
 To move or resize an inset's region later: open the inset's **⚙**, click **⧉ Edit inset region…**, change the box or the **px** fields, and click **✓ Update inset**. The toast gives the new magnification.
 
@@ -82,7 +82,7 @@ The tags on the panels, the legend key and the legend text use one name per chan
 - **For every panel at once:** open **Export**. Under **Legend key › Channel names** there is one field per colour. Type `Membrane` in the magenta field and press Enter. Every magenta tag, the merges' tags and the key change.
 - **For one panel:** click the channel chip in its row of the image list (or open **⚙** and use **Channel**). The cursor lands in that panel's **Channel** field. Naming one panel differently from the others shows both names in the key ("Membrane / CellMask").
 
-![Export › Legend key: Download key, the Place the key on the figure switch and one Channel names field per colour](img/fluorescence-channel-names.png)
+![Export › Legend key: Download key, the Place the key on the figure switch with its Where menu, and one Channel names field per colour](img/fluorescence-channel-names.png)
 
 ## 8. Check colours for colour-blind readers
 
@@ -92,11 +92,11 @@ The tags on the panels, the legend key and the legend text use one name per chan
 
 ## 9. Channel key and export
 
-1. Give the key room: **Arrange › Margins**, set **Right** to `90`.
-2. In **Export**, tick **Place the key on the figure**. The key goes in the emptiest corner; with the right margin it sits beside the top row.
+1. In **Export**, tick **Place the key on the figure**. The key goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. This figure has none, so the right margin grows to make room and a toast says so: "The legend key needed free space, so the right margin grew from 16 to 96 px — it sits there without covering anything."
+2. To put it somewhere else, choose in the **Where** menu beside the switch: **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. You can also drag it. The compliance check's **Legend key on the figure** row says whether it covers anything.
 3. Click **⬇ Download key** for the standalone key file. It is written in the format of your last export (the button shows which, e.g. "⬇ Download key (PNG)").
 4. Under the caption helper, **Legend text starter** reads "DAPI (blue); GFP (green); Membrane (magenta)." Copy it into your legend.
-5. Click **✎ Write Methods paragraph**. It states the display ranges in native values, e.g. "GFP 400–12000 (panels B, D, E, G, I and J)".
+5. Click **✎ Write Methods paragraph**. It states the display ranges in native values, e.g. "GFP 400–12000 (panels B, D, E, G, I and J)". **✦ Generate Caption** gives the same ranges, grouped by channel: "Display ranges in the files’ own 16-bit values: DAPI 0–10000 (panels A, D, E, F, I and J); GFP 400–12000 …".
 6. Export with **↓ PNG**, **↓ TIFF** or **↓ PDF lossless** in the toolbar and **Save** in the dialog.
 
 For journal presets, compliance, captions and the submission package, see [journal-submission.md](journal-submission.md).
@@ -106,16 +106,14 @@ For journal presets, compliance, captions and the submission package, see [journ
 - Set display ranges before you merge. The merge and the split panels take the ranges the channels had.
 - Type exact values in the **Black pt** and **White pt** boxes instead of dragging the sliders.
 - Use one acquisition setting for every condition you compare; matched display ranges cannot correct for different exposures.
-- Help (**❔**) › Tutorials has a hands-on tutorial, *A multichannel fluorescence row*. It builds its own demo figure in place of yours; save first (Ctrl/⌘+S).
+- Help (**❔**) › Tutorials has a hands-on tutorial, *A multichannel fluorescence row*. It puts your figure aside while it runs, and when you end it, **Restore my figure** brings yours back.
 - More shortcuts in [tips-and-tricks.md](tips-and-tricks.md).
 
 ## If something looks wrong
 
 - **A panel took the wrong colour.** Auto-channels reads the last word of the file name. Rename the file, or set the colour under **⚙ › Fluorescence LUT**.
 - **≡ Sync by channel changed nothing on another panel.** That panel has a different channel name. Check the chips in the image list, or name both the same under **⚙ › Channel**.
-- **≡ Same bar on all calibrated ignored the length you typed.** Click the panel on the canvas first, then press the button again.
-- **An inset has no scale bar.** Its inherited bar is longer than its field. Open the inset's **⚙** and click **Auto**.
-- **The placed key covers a panel or its letter.** Widen a margin (**Arrange › Margins**), then untick and tick **Place the key on the figure** again so it is placed afresh.
-- **The Methods paragraph gives merged panels a second range "on the 0–255 display scale".** The native-value sentence before it is the one to keep; edit the merged-panel sentences out.
+- **Some panels are outside the grid after a split.** Set **Arrange › Columns** to the number of panels in a row (4 here), as the split's toast says.
+- **The key is not where you want it.** Pick a place in **Export › Legend key › Where**, or drag it.
 
 More in [troubleshooting.md](troubleshooting.md).
