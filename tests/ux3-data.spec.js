@@ -233,3 +233,150 @@ test('blot3-01: a chart unlinked by an older build (no record kept) is still cau
   expect(await page.evaluate(() => _chartDataComplianceRow())).toBeNull();
   expect(errors).toEqual([]);
 });
+
+// ── Files into charts ──
+const MIC = `antibiotic,strain,replicate,MIC_ug_per_ml
+tobramycin,PA14,1,0.5
+tobramycin,PA14,2,1
+tobramycin,PA14,3,1
+ciprofloxacin,PA14,1,0.125
+ciprofloxacin,PA14,2,0.125
+ciprofloxacin,PA14,3,0.125
+tobramycin,dlasR,1,0.5
+tobramycin,dlasR,2,1
+tobramycin,dlasR,3,0.5
+ciprofloxacin,dlasR,1,0.25
+ciprofloxacin,dlasR,2,0.125
+ciprofloxacin,dlasR,3,0.25
+tobramycin,dmexB,1,0.125
+tobramycin,dmexB,2,0.25
+tobramycin,dmexB,3,0.25
+ciprofloxacin,dmexB,1,0.125
+ciprofloxacin,dmexB,2,0.125
+ciprofloxacin,dmexB,3,0.125`;
+async function drop(page, csv, name) {
+  const n0 = await page.evaluate(() => images.filter(p => p && p.type === 'chart').length);
+  await page.evaluate(([csv, name]) => addFiles([new File([csv], name, { type: 'text/csv' })]), [csv, name]);
+  await page.waitForFunction(n0 => images.filter(p => p && p.type === 'chart').length > n0 && document.getElementById('chart-modal').classList.contains('open'), n0);
+}
+
+test('charts3-01: a tidy MIC table with antibiotic and strain columns is a grouped bar by antibiotic with strain as series — not every strain pooled', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, MIC, 'mic_table.csv');
+  await expect(modal(page).locator('#chart-kind')).toHaveValue('groupedBar');
+  await expect(modal(page).locator('#chart-seriescol option:checked')).toHaveText('strain');
+  await expect(modal(page).locator('#chart-delim-info')).not.toContainText('not used');
+  await apply(page);
+  const st = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el._chartKey = ''; const s = _chartStatsCached(el);
+    return { cats: s.categories, series: s.seriesNames.map(x => x.name), tob: s.groups[0].bars.map(b => [b.value, b.n]), y: el.chart.axes.y.title }; });
+  expect(st.cats).toEqual(['tobramycin', 'ciprofloxacin']);
+  expect(st.series).toEqual(['PA14', 'dlasR', 'dmexB']);
+  // PA14 0.83, ΔlasR 0.67, ΔmexB 0.21 — not one pooled 0.57 ± 0.38
+  [[0.5, 1, 1], [0.5, 1, 0.5], [0.125, 0.25, 0.25]].forEach((v, i) => { expect(st.tob[i][0]).toBeCloseTo(mean(v), 9); expect(st.tob[i][1]).toBe(3); });
+  expect(st.y).toBe('MIC_ug_per_ml');                              // newcomer3-11: the value axis is titled
+  // switching Series back to none says what that pools
+  await page.evaluate(() => openDataPanelEditor(images.findIndex(p => p && p.type === 'chart')));
+  await modal(page).locator('#chart-seriescol').selectOption({ label: '— none —' });
+  await expect(modal(page).locator('#chart-delim-info')).toContainText('⚠ strain not used: 3 strain values (PA14, dlasR, dmexB) averaged together per group');
+  expect(errors).toEqual([]);
+});
+
+test('charts3-01: a chart added with images whose guess pools a text column opens its dialog and the toast says what was left out', async ({ page }) => {
+  const errors = await loadApp(page);
+  // a table the guess cannot fully place: two text columns besides the x, both varying
+  const T = 'antibiotic,strain,medium,MIC\n' + ['LB', 'M9'].flatMap(md => ['PA14', 'dlasR'].flatMap(s => ['tob', 'cip'].map((a, k) => `${a},${s},${md},${k + 1 + (md === 'M9' ? 2 : 0)}`))).join('\n');
+  await page.evaluate(async ([T, MIC]) => {
+    window.__toasts = []; const t = window.toast; window.toast = function (m) { window.__toasts.push(String(m)); return t.apply(this, arguments); };
+    const c = document.createElement('canvas'); c.width = 60; c.height = 40; c.getContext('2d').fillRect(0, 0, 60, 40);
+    const png = await new Promise(r => c.toBlob(b => r(new File([b], 'plate.png', { type: 'image/png' }))));
+    await addFiles([png, new File([MIC], 'mic_table.csv', { type: 'text/csv' }), new File([T], 'mic_media.csv', { type: 'text/csv' })]);
+  }, [T, MIC]);
+  await expect(modal(page)).toBeVisible();
+  const t = (await page.evaluate(() => window.__toasts.join(' | ')));
+  expect(t).toMatch(/B: grouped bar chart of MIC_ug_per_ml by antibiotic and strain/);
+  expect(t).toMatch(/Check this chart: C — medium not used \(2 values averaged together\)/);
+  await expect(modal(page).locator('#chart-delim-info')).toContainText('⚠ medium not used');
+  expect(errors).toEqual([]);
+});
+
+// Kz7 lysis on a BioTek reader (the phage tester's Gen5 export, its first 2 h 45 min): Time as h:mm:ss, a
+// temperature column, wells A1–D3 with A1–A3 blank, B = BW25113, C = + Kz7, D = ΔfhuA + Kz7.
+const GEN5 = `Time,T° 600,A1,A2,A3,B1,B2,B3,C1,C2,C3,D1,D2,D3
+0:00:00,37.0,0.082,0.088,0.087,0.128,0.132,0.127,0.126,0.132,0.126,0.127,0.135,0.125
+0:15:00,37.0,0.084,0.087,0.089,0.142,0.148,0.147,0.143,0.142,0.134,0.147,0.141,0.137
+0:30:00,37.0,0.089,0.093,0.091,0.164,0.161,0.165,0.155,0.165,0.161,0.168,0.161,0.168
+0:45:00,37.0,0.090,0.084,0.090,0.179,0.170,0.196,0.181,0.180,0.193,0.188,0.183,0.183
+1:00:00,37.0,0.084,0.088,0.081,0.210,0.204,0.216,0.212,0.203,0.208,0.218,0.202,0.194
+1:15:00,37.0,0.090,0.089,0.089,0.249,0.241,0.249,0.228,0.234,0.239,0.264,0.238,0.236
+1:30:00,37.0,0.095,0.092,0.092,0.287,0.312,0.303,0.230,0.224,0.226,0.301,0.307,0.301
+1:45:00,37.0,0.087,0.088,0.087,0.352,0.346,0.351,0.185,0.185,0.179,0.348,0.356,0.357
+2:00:00,37.0,0.088,0.089,0.086,0.423,0.421,0.425,0.139,0.139,0.141,0.409,0.413,0.405
+2:15:00,37.0,0.087,0.088,0.085,0.516,0.504,0.507,0.125,0.133,0.120,0.439,0.451,0.431
+2:30:00,37.0,0.097,0.086,0.085,0.595,0.584,0.602,0.122,0.123,0.118,0.362,0.347,0.352
+2:45:00,37.0,0.088,0.085,0.080,0.691,0.701,0.677,0.121,0.120,0.117,0.214,0.230,0.216`;
+test('phage3-02: a plate-reader export reads Time h:mm:ss as time, leaves the temperature out, groups wells by row and subtracts the blank wells', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, GEN5, 'Kz7_platereader_Gen5.csv');
+  const info = modal(page).locator('#chart-delim-info');
+  await expect(modal(page).locator('#chart-kind')).toHaveValue('line');
+  await expect(modal(page).locator('#chart-xcol option:checked')).toHaveText('Time');
+  await expect(modal(page).locator('#chart-xtitle')).toHaveValue('Time (min)');
+  await expect(info).toContainText('Time read as h:mm:ss time, in minutes');
+  await expect(info).toContainText('T° 600 (temperature) not plotted — tick it under Y columns to plot it');
+  await expect(modal(page).locator('#chart-ycols input[value="1"]')).not.toBeChecked();
+  // the wells: replicates by plate row, Row A as the blank
+  await expect(modal(page).locator('#chart-wells-wrap')).toBeVisible();
+  await expect(modal(page).locator('#chart-wells-wrap')).toContainText('Plate wells (12: A1–D3)');
+  await modal(page).locator('#chart-wells-by').selectOption('row');
+  await modal(page).locator('#chart-wells-blank').selectOption('Row A');
+  await expect(modal(page).locator('#chart-err')).toHaveValue('sd');
+  for (const [k, v] of [['Row B', 'BW25113'], ['Row C', 'BW25113 + Kz7'], ['Row D', 'ΔfhuA + Kz7']]) await modal(page).locator(`#chart-names [data-key="${k}"] input[type=text]`).fill(v);
+  await apply(page);
+  const st = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el._chartKey = ''; const s = _chartStatsCached(el);
+    return { series: s.series.map(x => x.name), pts: s.series.map(x => x.points.map(p => [p.x, p.y, p.err, p.n])), cap: _dataCaption(el) }; });
+  expect(st.series).toEqual(['BW25113', 'BW25113 + Kz7', 'ΔfhuA + Kz7']);
+  // the same numbers worked out here from the raw wells: mean(row − mean(A1–A3)) and its SD, at each time
+  const L = GEN5.split('\n').slice(1).map(l => l.split(','));
+  const min = s => { const [h, m, x] = s.split(':').map(Number); return h * 60 + m + x / 60; };
+  L.forEach((r, i) => {
+    const blank = mean([2, 3, 4].map(c => +r[c]));
+    [[5, 6, 7], [8, 9, 10], [11, 12, 13]].forEach((cs, g) => {
+      const v = cs.map(c => +r[c] - blank), p = st.pts[g][i];
+      expect(p[0]).toBeCloseTo(min(r[0]), 6); expect(p[1]).toBeCloseTo(mean(v), 9); expect(p[2]).toBeCloseTo(sd(v), 9); expect(p[3]).toBe(3);
+    });
+  });
+  expect(st.pts[0][0][1]).toBeCloseTo(0.0433, 4);                  // the tester's truth: 0.129 − 0.0857
+  expect(st.cap).toMatch(/series: BW25113, BW25113 \+ Kz7 and ΔfhuA \+ Kz7/);
+  expect(st.cap).toMatch(/blank-subtracted: the mean of A1, A2, A3 at each time point/);
+  expect(errors).toEqual([]);
+});
+
+test('phage3-02: "1:10", "1:100" stay dilution labels; a line against a text column draws no empty plot without saying why', async ({ page }) => {
+  const errors = await loadApp(page);
+  const P = _ => page.evaluate(t => { const p = _parseDelimited(t); return { rows: p.rows.map(r => r[0]), d: p.durations }; }, _);
+  expect((await P('dilution,pfu\n1:10,5\n1:100,3')).rows).toEqual(['1:10', '1:100']);
+  expect((await P('time,od\n0:30,0.1\n1:15,0.2')).rows).toEqual([30, 75]);            // h:mm under a time header, in minutes
+  await drop(page, 'timepoint,od\nday one,0.1\nday two,0.2\nday three,0.3', 'od.csv');
+  await modal(page).locator('#chart-kind').selectOption('line');
+  await expect(modal(page).locator('#chart-delim-info')).toContainText('⚠ nothing drawn: the x column “timepoint” holds no numbers (“day one”)');
+  await apply(page);
+  const notes = await page.evaluate(() => { const T = []; const el = images.find(p => p && p.type === 'chart'); el._chartKey = '';
+    _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.filter(t => /⚠/.test(t)); });
+  expect(notes).toEqual(['⚠ nothing drawn: x column “timepoint” holds no numbers']);
+  expect(errors).toEqual([]);
+});
+
+test('charts3-16 / fluor3-10: after a paste the "points" box shows what the preview draws, and Apply draws the same', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => addChartElement('bar'));
+  await expect(modal(page)).toBeVisible();
+  await expect(modal(page).locator('#chart-points')).not.toBeChecked();
+  await modal(page).locator('#chart-data-ta').fill('strain\tMIC\nPA14\t1\nPA14\t0.5\nPA14\t1\ndlasR\t0.5\ndlasR\t1\ndlasR\t0.5');
+  await page.waitForTimeout(500);
+  const draft = await page.evaluate(() => _chartDraft.style.showPoints);
+  await expect(modal(page).locator('#chart-points')).toBeChecked({ checked: draft });
+  expect(draft).toBe(true);
+  await apply(page);
+  expect(await page.evaluate(() => images.find(p => p && p.type === 'chart').chart.style.showPoints)).toBe(true);
+  expect(errors).toEqual([]);
+});

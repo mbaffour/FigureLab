@@ -1820,6 +1820,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div style="font-size:11px"><span id="chart-ycols-lbl">Y columns</span>
           <div id="chart-ycols" style="margin-top:2px"></div></div>
         <label id="chart-rep-wrap" style="font-size:11px;display:none" title="Columns named WT_r1, WT_r2 … or MOI_0_rep1 … are the replicates of one series: plot their mean at each x, with the error bars below"><input type="checkbox" id="chart-repcols"> Average replicate columns into one series each <span id="chart-rep-note" style="color:var(--muted)"></span></label>
+        <div id="chart-wells-wrap" style="font-size:11px;display:none;margin:2px 0" title="Plate-reader wells (A1, B2 …): average the replicate wells of a plate row or column into one series, and take the mean of the blank wells away from every other well at each time point. To group wells any other way, give them one name under Names &amp; colours.">
+          <span id="chart-wells-lbl" style="color:var(--muted)">Plate wells</span>
+          <label>replicates <select id="chart-wells-by" onchange="_chartWellsChange()"><option value="none">each well alone</option><option value="row">by plate row (A, B, C…)</option><option value="col">by plate column (1, 2, 3…)</option></select></label>
+          <label>blank <select id="chart-wells-blank" onchange="_chartWellsChange()"></select></label>
+        </div>
         <div style="display:flex;gap:6px;align-items:flex-end">
           <label style="font-size:11px;flex:1">Error bars
             <select id="chart-err" style="width:100%" title="SD and SEM are computed from the replicates sharing a category (or an x) within a series; 'from a column' draws the value of each series' own error column">
@@ -3978,6 +3983,7 @@ async function addFiles(fileList){
   // files back to addFiles — stays inside the outer drop's step.
   const outerStep=_importStep===null;
   if(outerStep) _importStep='pending';
+  const had=new Set(images.filter(Boolean).map(p=>p.id));
   try{
     _gridGrowBatch++;
     try{
@@ -3991,7 +3997,14 @@ async function addFiles(fileList){
     }
     if(holdMode && charts+maps){
       const what=[charts?`${charts} chart${charts>1?'s':''}`:'', maps?`${maps} gene map${maps>1?'s':''}`:''].filter(Boolean).join(' and ');
-      toast(`${pics.length} image${pics.length>1?'s':''} and ${what} added to the grid as panels — double-click a chart or gene map to edit it`,'ok');
+      // What each chart was guessed as, and the dialog over the first one whose guess
+      // left something out (a column of groups averaged together, an empty plot): a chart
+      // added with images used to land in the figure unseen, its strains pooled.
+      const added=images.filter(p=>p&&p.type==='chart'&&!had.has(p.id));
+      const doubt=added.filter(p=>typeof _chartGuessDoubt==='function'&&_chartGuessDoubt(p.chart));
+      const said=added.map(p=>_chartGuessWords(p)).join('; ');
+      toast(`${pics.length} image${pics.length>1?'s':''} and ${what} added to the grid as panels — ${said?said+'. ':''}${doubt.length?`Check ${doubt.length>1?'these charts':'this chart'}: ${doubt.map(p=>`${_rtText(formatLabel(p.label))||'?'} — ${_chartGuessDoubt(p.chart)}`).join('; ')}`:'double-click a chart or gene map to edit it'}`, doubt.length?'warn':'ok');
+      if(doubt.length) openDataPanelEditor(images.indexOf(doubt[0]));
     }
   } finally { if(outerStep) _importStep=null; }
 }
@@ -20988,6 +21001,7 @@ async function exportSubmissionPackage(){
       const q=v=>_csvCell(v);
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
+      { const wt=_chartWellsText(el.chart); if(wt) head.push('# Plate wells: '+wt+' (the raw table below is as read; the plotted values are after this)'); }
       { const ss=_chartSourceState(el);
         if(ss.state==='linked') head.push(`# Linked to the densitometry of ${ss.from} (source-data/panel_…-densitometry.csv); current with it`);
         else if(ss.state==='stale') head.push(`# WARNING: out of date with the densitometry of ${ss.from} — it changed after this chart was made`);
@@ -23464,13 +23478,18 @@ function _dataCaption(el){
     let pl=null; try{ pl=_chartPlotted(el); }catch(e){ pl=null; }
     let st=null; try{ st=_chartStatsCached(el); }catch(e){ st=null; }
     const uniq=a=>[...new Set(a.map(v=>_rtText(String(v??''))).filter(Boolean))];
-    const cats=pl&&!pl.numericX?uniq(pl.rows.map(r=>r.x)):[];
+    // by the names the chart shows ("shown as" in Names & colours), as the legend and the key do
+    const shownAs=k=>{ const v=ch.names&&ch.names[k]; return _rtText(String(v!=null&&String(v).trim()?v:k)); };
+    const cats=pl&&!pl.numericX?[...new Set(pl.rows.map(r=>shownAs(String(r.x??''))).filter(Boolean))]:[];
+    // A line's series as drawn — replicate columns (WT_r1 …) or wells averaged into one
+    // are one series, named as the legend names it — not the value columns.
     const ser=pl?uniq(pl.rows.map(r=>r.series)):[];
     const many=(a,k)=>`${_listAnd(a.slice(0,k))}${a.length>k?` and ${a.length-k} more`:''}`;
     if(cats.length>1) d+=` for ${many(cats,12)}`;
     // a grouped bar's bars within each group are its series, named as the key names them
     if(ser.length>1) d+=` (${cats.length>1&&(ch.kind==='groupedBar'||ch.kind==='bar')?'bars':'series'}: ${many(ser,8)})`;
-    else if(!cats.length&&!ser.length&&ys.length>1) d+=` (series: ${many(ys,8)})`;
+    else if(ser.length===1&&pl&&pl.numericX) d+=` (values: ${ser[0]})`;
+    else if(!cats.length&&!ser.length&&ys.length) d+=` (${ys.length>1?'series':'values'}: ${many(ys,8)})`;
     if(pl&&pl.ylog) d+=', on a log scale';
     bits.push(d+'.');
     // What the chart draws, from the same settings the renderer reads: a beeswarm's
@@ -23518,6 +23537,7 @@ function _dataCaption(el){
       if(/^Densitometry of panel/.test(note)&&ss.state==='unlinkedChanged') note='';
     } else if(src&&ss.state!=='own') bits.push(ch.data.edited?`Data from ${src}, edited in FigureLab.`:`Data from ${src}.`);
     else if(!src&&ch.data&&ch.data.source==='paste') bits.push('Data typed or pasted into FigureLab.');
+    { const wt=_chartWellsText(ch); if(wt) bits.push(_ucFirst(wt)+'.'); }
     if(note) bits.push(note.replace(/\.?$/,'.'));
   } else if(el.type==='genemap'&&el.map){
     const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
@@ -28189,7 +28209,25 @@ function _parseDelimited(text){
     if(!r0.some(v=>typeof v==='number') && numCol.some((isN,ci)=>isN&&typeof r0[ci]==='string'&&r0[ci].trim()!==''&&!na.test(r0[ci].trim()))){
       units=r0.map(v=>String(v??'').trim()); body.shift(); }
   }
-  return {columns, rows:body, delim, units, decimalComma, comments, cutBlock};
+  // A plate reader's time column (Gen5, SoftMax: 0:15:00, 1:30:00, or mm:ss) is read as
+  // time — in hours when the run is three hours or longer, else in minutes — and the unit
+  // goes into the axis title. Decided per column: every cell must be a duration, and with
+  // only two parts (1:10, 1:100 are dilutions and MOIs in phage tables) the header must
+  // say time. It used to stay text, and a line against it drew an empty plot.
+  const durations=[];
+  const durRe=/^(\d{1,3}):([0-5]\d)(?::([0-5]\d(?:\.\d+)?))?$/;
+  columns.forEach((c,ci)=>{
+    const cells=body.map(r=>r[ci]).filter(v=>v!==''&&v!=null);
+    if(!cells.length||!cells.every(v=>typeof v==='string'&&durRe.test(v.trim()))) return;
+    const three=cells.some(v=>durRe.exec(v.trim())[3]!=null);
+    if(!three&&!/time|zeit|temps|tiempo|elapsed|duration|dauer|^t$/i.test(c)) return;
+    // h:mm:ss, or h:mm with a "time" header (two parts read as hours and minutes)
+    const sec=v=>{ const m=durRe.exec(v.trim()); return m[3]!=null?(+m[1])*3600+(+m[2])*60+(+m[3]):(+m[1])*3600+(+m[2])*60; };
+    const max=Math.max(...cells.map(sec)), unit=max>=3*3600?'h':'min';
+    body.forEach(r=>{ const v=r[ci]; if(v===''||v==null) return; const t=sec(v); r[ci]=+(unit==='h'?t/3600:t/60).toFixed(6); });
+    durations.push({col:c, unit, form:three?'h:mm:ss':'h:mm'});
+  });
+  return {columns, rows:body, delim, units, decimalComma, comments, cutBlock, durations};
 }
 
 // Min/max via reduce — spreading a big array into Math.min(...) throws RangeError
@@ -28391,7 +28429,15 @@ function _chartShape(ch, warn){
   const numericX=_chartNumericX(kind), wide=!numericX&&m.layout==='columns';
   const sc=(!wide&&m.seriesCol!=null&&m.seriesCol!==''&&+m.seriesCol!==xc&&+m.seriesCol<cols.length)?+m.seriesCol:null;
   const ecMap=ch.error==='column'?_chartErrMap(ch):{};
-  const sdefs=(!wide&&m.repCols)?_chartRepGroups(cols,yCols):yCols.map(yc=>({key:_chartColName(cols,yc), cols:[yc]}));
+  let sdefs=(!wide&&m.repCols)?_chartRepGroups(cols,yCols):yCols.map(yc=>({key:_chartColName(cols,yc), cols:[yc]}));
+  // Plate wells (A1, B12 …): replicates by plate row or column, and the mean of the blank
+  // wells at each time point taken from every other well.
+  let blankCols=null;
+  if(!wide&&m.wells&&_chartWellCols(cols,yCols).length){
+    if(m.wells.by==='row'||m.wells.by==='col') sdefs=_chartWellGroups(cols,yCols,m.wells.by);
+    if(m.wells.blank!=null&&m.wells.blank!==''){ const b=sdefs.find(sd=>sd.key===String(m.wells.blank));
+      if(b){ blankCols=b.cols; sdefs=sdefs.filter(sd=>sd!==b); } }
+  }
   const ax=ch.axes||{}, xLog=numericX&&!!(ax.x&&ax.x.log), yLog=!!(ax.y&&ax.y.log)&&!_chartLogWhy(kind,'y');
   const obs=[], cats=[], catSeen=new Set();
   const addCat=c=>{ if(!catSeen.has(c)){ catSeen.add(c); cats.push(c); } };
@@ -28401,10 +28447,14 @@ function _chartShape(ch, warn){
     if(wide){ yCols.forEach(yc=>{ const y=num(r[yc]); if(!isFinite(y)) return; if(yLog&&y<=0){ warn.dropped++; return; }
       obs.push({cat:_chartColName(cols,yc), s:'', x:NaN, y, e:NaN}); }); return; }
     const cat=String(r[xc]??''), xv=num(r[xc]);
-    if(numericX&&!isFinite(xv)) return;
+    // A row whose x is not a number is not drawn on a numeric axis: counted, with an
+    // example, so the chart can say why it is empty instead of drawing an empty plot.
+    if(numericX&&!isFinite(xv)){ if(String(r[xc]??'').trim()!==''){ warn.nonNumX=(warn.nonNumX||0)+1; if(warn.xExample==null) warn.xExample=String(r[xc]); } return; }
+    let blank=0;
+    if(blankCols){ const bv=blankCols.map(c=>num(r[c])).filter(isFinite); if(!bv.length) return; blank=_mean(bv); }
     let any=false;
     sdefs.forEach(sd=>sd.cols.forEach(yc=>{
-      const y=num(r[yc]); if(!isFinite(y)) return;
+      const y=num(r[yc])-blank; if(!isFinite(y)) return;
       any=true;
       if((yLog&&y<=0)||(xLog&&xv<=0)){ warn.dropped++; return; }
       const ec=ecMap[yc]; obs.push({cat, s:sLabel(r,sd), x:xv, y, e:ec!=null?num(r[ec]):NaN});
@@ -28434,6 +28484,64 @@ function _chartShape(ch, warn){
     if(merged.series.length){ obs.forEach(o=>{ o.s=sm.get(o.s)??o.s; }); skeys2=skeys.filter(k=>sm.get(k)===k); } }
   return {obs, cats:_chartOrdered(ch,cats2), catsData:cats2, skeys:skeys2, wide, sc, yLog, xLog, merged};
 }
+// A temperature column (a plate reader's "T° 600") is no sample: it is left out of a
+// first guess, and the status line says so — tick it under Y columns to plot it.
+const _CH_TEMP_RE=/(^|[^a-z])(t\s*°|temp|temperature|temperatur)([^a-z]|$)|°\s*c\b/i;
+function _chartTempLeftOut(ch){
+  const cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
+  const L=cols.map((c,i)=>i).filter(i=>i!==(m.xCol??0)&&_CH_TEMP_RE.test(String(cols[i]))&&!(m.yCols||[]).includes(i));
+  return L.length?`${L.map(i=>_chartColName(cols,i)).join(', ')} (temperature) not plotted — tick it under Y columns to plot it`:'';
+}
+// Plate-reader wells among the value columns: [{col, row:'B', num:3}].
+const _CH_WELL_RE=/^([A-Pa-p])0?(\d{1,2})$/;
+function _chartWellCols(cols, yCols){
+  const out=[]; (yCols||[]).forEach(yc=>{ const m=_CH_WELL_RE.exec(String(cols[yc]??'').trim()); if(m) out.push({col:yc, row:m[1].toUpperCase(), num:+m[2]}); });
+  return out.length>=3?out:[];
+}
+// The value columns as series, the wells grouped by plate row ("Row B": B1, B2, B3) or
+// column ("Column 2": A2, B2, C2); a column that is no well stays a series of its own.
+function _chartWellGroups(cols, yCols, by){
+  const W=new Map(_chartWellCols(cols,yCols).map(w=>[w.col,w])), out=[], idx=new Map();
+  yCols.forEach(yc=>{ const w=W.get(yc);
+    const key=w?(by==='row'?`Row ${w.row}`:`Column ${w.num}`):_chartColName(cols,yc);
+    if(!idx.has(key)){ idx.set(key,{key, cols:[]}); out.push(idx.get(key)); } idx.get(key).cols.push(yc); });
+  return out;
+}
+// What the plate-well settings did, in words (caption, source data), or ''.
+function _chartWellsText(ch){
+  const m=ch.mapping||{}, w=m.wells, cols=(ch.data&&ch.data.columns)||[];
+  if(!w||!_chartNumericX(ch.kind)||!_chartWellCols(cols,m.yCols||[]).length) return '';
+  const bits=[];
+  if(w.by==='row'||w.by==='col') bits.push(`replicate wells averaged by plate ${w.by==='row'?'row':'column'}`);
+  if(w.blank!=null&&w.blank!==''){ const g=(w.by==='row'||w.by==='col'?_chartWellGroups(cols,m.yCols||[],w.by):(m.yCols||[]).map(yc=>({key:_chartColName(cols,yc), cols:[yc]}))).find(q=>q.key===String(w.blank));
+    if(g) bits.push(`blank-subtracted: the mean of ${g.cols.map(c=>_chartColName(cols,c)).join(', ')} at each time point taken from every other well`); }
+  return bits.join('; ');
+}
+// A first guess that leaves something out, in words, or '' (a sure guess).
+function _chartGuessDoubt(ch){
+  const U=_chartUnusedTextCols(ch); if(U.length) return U.map(u=>`${u.name} not used (${u.n} values averaged together)`).join('; ');
+  const E=_chartEmptyWhy(ch, true); if(E) return E;
+  return '';
+}
+// "C: grouped bar of MIC_ug_per_ml by antibiotic and strain".
+function _chartGuessWords(im){
+  const ch=im.chart, cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
+  const K={bar:'bar chart', groupedBar:'grouped bar chart', stackedBar:'stacked bar chart', line:'line chart', scatter:'scatter plot', box:'box plot', violin:'violin plot', beeswarm:'dot plot', heatmap:'heatmap', survival:'survival curve'};
+  const ys=(m.yCols||[]).map(i=>_chartColName(cols,i)), x=m.layout==='columns'&&!_chartNumericX(ch.kind)?'':_chartColName(cols,m.xCol??0);
+  const sr=m.seriesCol!=null&&m.seriesCol!==''?_chartColName(cols,+m.seriesCol):'';
+  return `${_rtText(formatLabel(im.label))||'?'}: ${K[ch.kind]||'chart'} of ${ys.length>3?ys.length+' columns':ys.join(', ')}${x?` ${_chartNumericX(ch.kind)?'against':'by'} ${x}`:''}${sr?` and ${sr}`:''}`;
+}
+// Why a chart draws nothing, in words, or ''.
+function _chartEmptyWhy(ch, short){
+  if(!ch||['heatmap','survival'].includes(ch.kind)) return '';
+  const w={dropped:0}; let S; try{ S=_chartShape(ch,w); }catch(e){ return ''; }
+  if(S.obs.length) return '';
+  const cols=(ch.data&&ch.data.columns)||[], xn=_chartColName(cols, (ch.mapping||{}).xCol??0);
+  if(w.nonNumX) return short?`nothing drawn: x column “${xn}” holds no numbers`:`nothing drawn: the x column “${xn}” holds no numbers (“${w.xExample}”) — a ${ch.kind==='line'?'line':'scatter'} needs a numeric x; pick another X column, or a bar chart`;
+  if(w.dropped) return 'nothing drawn: every value is ≤ 0 on the log axis';
+  if((ch.data&&(ch.data.rows||[]).length)) return 'nothing drawn: the value columns hold no numbers — tick a numeric column under Y columns';
+  return '';
+}
 // The groups a chart pools under one shown-as name: [{key, name, members:[data names]}].
 function _chartMerged(ch){ try{ const M=_chartShape(ch,{dropped:0}).merged; return M.cats.concat(M.series); }catch(e){ return []; } }
 // A chart whose shown-as names have just pooled samples draws them as mean ± SD with the
@@ -28446,6 +28554,25 @@ function _chartMergeDefaults(ch, before){
   if(ch.error==='none'&&ch.kind!=='stackedBar'){ ch.error='sd'; changed=true; }
   if(_chartCategorical(ch.kind)&&ch.kind!=='stackedBar'&&!(ch.style&&ch.style.showPoints)){ ch.style=ch.style||{}; ch.style.showPoints=true; changed=true; }
   return changed;
+}
+// Text columns the mapping leaves out although they hold different values within one
+// category (or x): their groups are averaged together. [{name, n, values}]
+function _chartUnusedTextCols(ch){
+  const D=ch.data||{}, cols=D.columns||[], rows=D.rows||[], m=ch.mapping||{};
+  if(['heatmap','survival'].includes(ch.kind)||(m.layout==='columns'&&!_chartNumericX(ch.kind))) return [];
+  const xc=m.xCol??0, sc=(m.seriesCol!=null&&m.seriesCol!=='')?+m.seriesCol:-1, out=[];
+  cols.forEach((c,i)=>{
+    if(i===xc||i===sc||(m.yCols||[]).includes(i)||_CH_ID_RE.test(String(c).trim())) return;
+    if(!rows.some(r=>typeof r[i]==='string'&&r[i].trim()!=='')||rows.some(r=>typeof r[i]==='number')) return;
+    const by=new Map(); rows.forEach(r=>{ const k=String(r[xc]); if(!by.has(k)) by.set(k,new Set()); by.get(k).add(String(r[i]??'')); });
+    if([...by.values()].some(q=>q.size>1)){ const vs=[...new Set(rows.map(r=>String(r[i]??'')))]; out.push({name:_chartColName(cols,i), n:vs.length, values:vs}); }
+  });
+  return out;
+}
+function _chartUnusedNote(ch){
+  const U=_chartUnusedTextCols(ch); if(!U.length) return '';
+  const per=_chartNumericX(ch.kind)?'x':'group';
+  return U.map(u=>`⚠ ${u.name} not used: ${u.n} ${u.name} values (${u.values.slice(0,4).map(v=>_rtText(v)).join(', ')}${u.n>4?', …':''}) averaged together per ${per} — pick ${u.name} as Series to show them apart`).join('; ');
 }
 // In words: "WT: Lane 2, Lane 3, Lane 4 (n = 3)".
 function _chartMergedText(ch){
@@ -28472,9 +28599,10 @@ function _chartGuess(parsed){
   const nondecr=i=>{ for(let k=1;k<rows.length;k++){ if(!(rows[k][i]>=rows[k-1][i])) return false; } return rows.length>1; };
   const textCols=cols.map((_,i)=>i).filter(i=>isText[i]);
   const numCols=cols.map((_,i)=>i).filter(i=>isNum[i]&&!idLike[i]);
-  const g={kind:'bar', mapping:{xCol:0, yCols:[], seriesCol:null, errCol:null, errCols:{}, layout:'xcol', repCols:false}, error:'none', showPoints:false, xTitle:'', yTitle:''};
+  const g={kind:'bar', mapping:{xCol:0, yCols:[], seriesCol:null, errCol:null, errCols:{}, layout:'xcol', repCols:false, wells:null}, error:'none', showPoints:false, xTitle:'', yTitle:''};
   const M=g.mapping;
-  const valueCols=x=>numCols.filter(i=>i!==x&&!errLike[i]);
+  const tempLike=cols.map(c=>_CH_TEMP_RE.test(String(c)));
+  const valueCols=x=>{ const v=numCols.filter(i=>i!==x&&!errLike[i]); const nt=v.filter(i=>!tempLike[i]); return nt.length?nt:v; };
   const repeats=(keyFn)=>{ const s=new Set(); for(const r of rows){ const k=keyFn(r); if(s.has(k)) return true; s.add(k); } return false; };
   if(textCols.length){
     M.xCol=textCols[0];
@@ -28490,7 +28618,13 @@ function _chartGuess(parsed){
     const xi=vals.length>=2?vals[0]:-1;
     const byGroup=xi>=0&&(()=>{ const m=new Map(); rows.forEach(r=>{ const k=String(r[M.xCol]); if(!m.has(k)) m.set(k,new Set()); m.get(k).add(r[xi]); }); return [...m.values()].some(s=>s.size>1); })();
     if(byGroup){ M.seriesCol=M.xCol; M.xCol=xi; M.yCols=[vals[vals.length-1]]; g.kind='line'; }
-    else { M.yCols=vals.length?vals:[cols.findIndex((_,i)=>i!==M.xCol)].filter(i=>i>=0); g.kind=M.yCols.length>1?'groupedBar':'bar'; }
+    else { M.yCols=vals.length?vals:[cols.findIndex((_,i)=>i!==M.xCol)].filter(i=>i>=0); g.kind=M.yCols.length>1?'groupedBar':'bar';
+      // A second text column of groups (antibiotic × strain): its values are the series of
+      // a grouped bar, as a tidy time course's strain column is a line's. It used to be left
+      // out, every strain pooled into one mean ± SD per antibiotic with no word.
+      if(M.yCols.length===1){ const s2=textCols.find(i=>i!==M.xCol&&!idLike[i]&&(()=>{ const d=distinct(i); return d>1&&d<rows.length&&d<=12; })()
+          &&(()=>{ const by=new Map(); for(const r of rows){ const k=String(r[M.xCol]); if(!by.has(k)) by.set(k,new Set()); by.get(k).add(String(r[i])); } return [...by.values()].some(q=>q.size>1); })());
+        if(s2!=null){ M.seriesCol=s2; g.kind='groupedBar'; } } }
   } else if(nc>=2&&nondecr(0)){
     // All numbers, the first column running upward (time, dose): x = that column.
     M.xCol=0; g.kind='line';
@@ -28517,6 +28651,12 @@ function _chartGuess(parsed){
   // Units under the header go into the axis titles.
   const ut=i=>units&&units[i]?`${_chartColName(cols,i)} (${units[i]})`:'';
   if(units){ if(M.layout!=='columns') g.xTitle=ut(M.xCol); if(M.yCols.length===1) g.yTitle=ut(M.yCols[0]); }
+  // A plate reader's h:mm:ss time column, read as hours or minutes: the unit is the title's.
+  const du=(parsed.durations||[]).find(d=>d.col===cols[M.xCol]);
+  if(du&&!g.xTitle) g.xTitle=`${_chartColName(cols,M.xCol)} (${du.unit})`;
+  // The value axis is titled from the value column when there is one (swim_diameter_mm):
+  // a chart used to come with no y-axis title at all.
+  if(!g.yTitle&&M.yCols.length===1&&M.layout!=='columns') g.yTitle=_chartColName(cols,M.yCols[0]);
   return g;
 }
 // Put a guess onto a chart (the data are already there).
@@ -28887,6 +29027,9 @@ function _chartDraw(el, emit){
   if(stat.categories && stat.kind!=='box' && !yLog && axY.min!=null && axY.min!=='' && +axY.min>0)
     notes.push(`⚠ y-axis starts at ${axY.min}, not 0 — bar differences are visually exaggerated`);
   if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`);
+  // An empty plot says why (a time column of text, no numeric values), on the figure.
+  if((stat.series&&stat.series.every(s=>!s.points.length))||(stat.groups&&stat.groups.every(g=>g.bars.every(b=>b.missing)))||(stat.boxes&&!stat.boxes.some(b=>b.n))){
+    const ew=_chartEmptyWhy(ch, true); if(ew) notes.push('⚠ '+ew); }
   if(outside) notes.push(`${outside} value${outside>1?'s':''} outside the axis range not shown`);
   if(cut) notes.push(`${cut} error bar${cut>1?'s':''} cut at the axis limit`);
   let screenNote='';
@@ -29432,7 +29575,7 @@ function _loadDataFile(f, fail, opts){
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=380,h=280, ch=_defaultChart('bar');
-    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name, units:parsed.units||null};
+    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name, units:parsed.units||null, durations:parsed.durations&&parsed.durations.length?parsed.durations:null};
     // A first guess from the table's shape — X, values, error columns, layout, series,
     // chart type — every part of it a control in the dialog that opens next.
     _chartApplyGuess(ch, _chartGuess(parsed), false);
@@ -29905,6 +30048,7 @@ function _chartModalPickers(){
   document.getElementById('chart-seriescol').innerHTML=opts(m.seriesCol==null||m.seriesCol===''?null:+m.seriesCol,true);
   sv('chart-layout', m.layout==='columns'?'columns':'xcol');
   sc('chart-repcols', !!m.repCols);
+  sc('chart-points', !!(ch.style&&ch.style.showPoints));   // a fresh guess sets it on the draft: the box follows
   document.getElementById('chart-ycols').innerHTML=cols.map((c,i)=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;margin-right:8px"><input type="checkbox" value="${i}" ${(m.yCols||[]).includes(i)?'checked':''}>${nm(i)}</label>`).join('');
   sv('chart-err', ch.error||'none');
   document.getElementById('chart-timecol').innerHTML=opts(m.timeCol??0);
@@ -29970,7 +30114,7 @@ function _chartReparse(force){
   ch._parseNote={decimalComma:parsed.decimalComma||0, units:parsed.units||null, empty:!(parsed.columns.length&&parsed.rows.length), skip:_csvSkipNote(parsed)};
   if(!parsed.columns.length||!parsed.rows.length){ _chartModalRefresh(); return; }
   const sameHead=JSON.stringify(parsed.columns)===JSON.stringify(ch.data.columns||[]);
-  ch.data=Object.assign({}, ch.data, {columns:parsed.columns, rows:parsed.rows, units:parsed.units||null});
+  ch.data=Object.assign({}, ch.data, {columns:parsed.columns, rows:parsed.rows, units:parsed.units||null, durations:parsed.durations&&parsed.durations.length?parsed.durations:(sameHead?ch.data.durations||null:null)});
   if(!sameHead||force){
     _chartReadControls();
     // A new table keeps the chart type the author chose; the rest is guessed afresh.
@@ -29994,6 +30138,14 @@ function _chartModalRefresh(){
   document.getElementById('chart-ycols-lbl').textContent=wide?'Group columns (each is one group)':numX?'Y columns (series)':'Y columns';
   const cols=ch.data.columns||[], hasRep=numX&&_chartHasRepGroups(cols, ch.mapping.yCols||[]);
   show('chart-rep-wrap', hasRep, 'block');
+  { const W=numX?_chartWellCols(cols, ch.mapping.yCols||[]):[]; show('chart-wells-wrap', W.length>0, 'flex');
+    const ww=document.getElementById('chart-wells-wrap'); if(ww) ww.style.gap='8px', ww.style.flexWrap='wrap', ww.style.alignItems='center';
+    if(W.length){ const wl=ch.mapping.wells||{}, by=wl.by||'none';
+      sv('chart-wells-by', by);
+      document.getElementById('chart-wells-lbl').textContent=`Plate wells (${W.length}: ${cols[W[0].col]}–${cols[W[W.length-1].col]})`;
+      const keys=(by==='none'?W.map(w=>({key:_chartColName(cols,w.col)})):_chartWellGroups(cols, ch.mapping.yCols||[], by).filter(g=>W.some(w=>g.cols.includes(w.col)))).map(g=>g.key);
+      const bl=wl.blank!=null&&keys.includes(String(wl.blank))?String(wl.blank):'';
+      document.getElementById('chart-wells-blank').innerHTML='<option value="">none</option>'+keys.map(k=>`<option value="${esc(k)}"${k===bl?' selected':''}>subtract ${esc(k)}</option>`).join(''); } }
   if(hasRep){ const g=_chartRepGroups(cols, ch.mapping.yCols||[]).filter(q=>q.cols.length>1);
     document.getElementById('chart-rep-note').textContent='('+g.map(q=>`${q.key}: ${q.cols.length}`).join(', ')+')'; }
   show('chart-heat-mid-wrap', gv('chart-colorscale')==='diverging', 'inline-flex');
@@ -30013,7 +30165,12 @@ function _chartModalRefresh(){
   if(pn.decimalComma) bits.push(`${pn.decimalComma} decimal comma${pn.decimalComma>1?'s':''} read as points`);
   if(pn.skip) bits.push(pn.skip.replace(/^ — /,''));
   if(pn.empty) bits.push('⚠ no rows read yet — a header row and at least one data row');
-  document.getElementById('chart-delim-info').textContent=bits.join(' · ');
+  if(D.durations&&D.durations.length) bits.push(D.durations.map(d=>`${d.col} read as ${d.form} time, in ${d.unit==='h'?'hours':'minutes'}`).join(', '));
+  { const un=_chartUnusedNote(ch); if(un) bits.push(un); }
+  { const ew=_chartEmptyWhy(ch); if(ew) bits.push('⚠ '+ew); }
+  { const tl=_chartTempLeftOut(ch); if(tl) bits.push(tl); }
+  const di=document.getElementById('chart-delim-info'); di.textContent=bits.join(' · ');
+  di.style.color=/⚠/.test(di.textContent)?'var(--warn)':'';
   const ln=document.getElementById('chart-link-note');
   if(ln) ln.innerHTML=_chartLinkNoteHtml(ch), ln.style.display=ln.innerHTML?'block':'none';
   _chartRenderNames(); _chartMergeNote(); _chartRenderSigList(); _chartRenderRefList();
@@ -30292,6 +30449,16 @@ function _chartDelRef(i){
 }
 // Kept for callers of the old names: both now re-read the whole dialog.
 function _chartModalErrChange(){ _chartReadControls(); _chartModalRefresh(); }
+// Plate wells: replicates by row or column (then mean ± SD at each time), and a blank.
+function _chartWellsChange(){
+  const ch=_chartDraft; if(!ch) return;
+  _chartReadControls();
+  const by=gv('chart-wells-by'), blank=gv('chart-wells-blank');
+  const was=ch.mapping.wells||{};
+  ch.mapping.wells={by, blank:blank===''||(was.by||'none')!==by?null:blank};
+  if(by!=='none'&&ch.error==='none'){ ch.error='sd'; sv('chart-err','sd'); }
+  _chartModalRefresh();
+}
 function _chartModalKindChange(){ _chartReadControls(); _chartModalRefresh(); }
 // One listener for the dialog: any control change re-reads the controls into the draft
 // and redraws; typing in the data box re-reads the data a moment after the last key.
