@@ -336,3 +336,110 @@ test('newcomer3-16: File size reads the TIFF actually written since the last cha
   expect(Math.abs(mb - size / 1048576)).toBeLessThan(0.06);
   expect(errors).toEqual([]);
 });
+
+// ── Legend key ───────────────────────────────────────────────────────────────────────
+// freeform3-16: the key placed at the right (canvas 1200 → 1257 wide), then Where › Below:
+// the key stayed top right, the canvas kept its width and gained an empty band at the bottom.
+test('freeform3-16: Where › Below moves a freeform key under the objects and gives back the width grown for it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 10, y: 10, w: 580, h: 330, label: 'A' }, { type: 'image', x: 610, y: 10, w: 580, h: 330, label: 'B' }, { type: 'image', x: 10, y: 360, w: 1180, h: 330, label: 'C' }]);
+  await page.evaluate(() => { sv('fm-canvas-w', '1200'); sv('fm-canvas-h', '700'); freeformElements.forEach((e, i) => { e.lut = ['blue', 'green', 'magenta'][i]; }); render(); });
+  await page.evaluate(() => { document.getElementById('export-acc').open = true; });
+  await page.locator('#key-where').selectOption('right');
+  const r1 = await page.evaluate(() => ({ w: gv('fm-canvas-w'), on: _keyPlaced() }));
+  expect(r1.on).toBe(true);
+  expect(+r1.w).toBeGreaterThan(1200);
+  await page.locator('#key-where').selectOption('bottom');
+  const r2 = await page.evaluate(() => { render(); const a = annotations.find(x => x.type === 'legend');
+    return { w: gv('fm-canvas-w'), h: gv('fm-canvas-h'), y: a.yf * canvasLogicalH, bottom: Math.max(...freeformElements.map(e => e.y + e.h)), toast: document.getElementById('toast').textContent }; });
+  expect(r2.w).toBe('1200');                                          // the width grown for the old place, given back
+  expect(r2.y).toBeGreaterThanOrEqual(r2.bottom);                     // under the objects
+  expect(r2.toast).toMatch(/canvas width back to 1200 px/);
+  // undo puts it all back in one step
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => gv('fm-canvas-w'))).toBe(r1.w);
+  expect(errors).toEqual([]);
+});
+
+// Pictures committed through the real path, each a solid field in a colour.
+const PICS = `window.__pics = async (specs) => { for (const [name, fill] of specs) { const c = document.createElement('canvas'); c.width = 120; c.height = 90;
+  const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, 120, 90); x.fillStyle = fill; x.fillRect(20, 15, 80, 60);
+  const src = c.toDataURL('image/png'); await new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, name); res(); }; img.src = src; }); } render(); };`;
+// fluor2-07: one channel in grey on its own panel and green in a merge was keyed twice:
+// "EGFP-LC3 (greyscale); … EGFP-LC3 (green)" — in the text, the placed key and the file.
+test('fluor2-07: a channel shown in grey and in its colour is one key row that says both, in the text, the placed key and the SVG', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(PICS); await page.evaluate(HELPERS);
+  const r = await page.evaluate(async () => {
+    await __pics([['EGFP-LC3_cells.tif', '#bbbbbb'], ['EGFP-LC3_field2.tif', '#bbbbbb'], ['DAPI_cells.tif', '#bbbbbb']]);
+    images[0].lut = 'none'; images[1].lut = 'green'; images[2].lut = 'blue';
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render();
+    const rows = _figureKey().filter(x => x.kind === 'channel');
+    const svg = _keySVG(300);
+    return { names: rows.map(x => x.name), text: _keyText(), svgNames: (svg.match(/>EGFP-LC3</g) || []).length };
+  });
+  expect(r.names.filter(n => n === 'EGFP-LC3').length).toBe(1);
+  expect(r.text).toMatch(/EGFP-LC3 \(greyscale; green\)/);
+  expect(r.text.match(/EGFP-LC3/g).length).toBe(1);
+  expect(r.svgNames).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+// newcomer2-05, newcomer2-27, newcomer3-07: BF photos got no Channel names list (⌘K and the
+// guide sent people to it); renaming one panel's chip split the key into two rows.
+test('newcomer3-07/2-05/2-27: pictures without a LUT are listed under Channel names, and one rename renames every panel of that name', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(PICS); await page.evaluate(HELPERS);
+  await page.evaluate(async () => { await __pics([['cells_BF_1.tif', '#999999'], ['cells_BF_2.tif', '#999999'], ['cells_GFP.tif', '#999999']]);
+    images[2].lut = 'green'; sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render(); document.getElementById('export-acc').open = true; render(); });
+  const box = page.locator('#key-names-ui');
+  await expect(box).toBeVisible();
+  const bf = box.locator('input.key-name-in[data-name="BF"]');
+  await expect(bf).toHaveCount(1);
+  await bf.fill('Phase contrast'); await bf.press('Enter'); await bf.blur();
+  const r = await page.evaluate(() => { render(); return { text: _keyText(), chans: images.map(im => channelIdentity(im)) }; });
+  expect(r.chans.slice(0, 2)).toEqual(['Phase contrast', 'Phase contrast']);
+  expect(r.text).toMatch(/Phase contrast \(greyscale\)/);
+  expect(r.text).not.toMatch(/\bBF\b/);
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => images.slice(0, 2).map(im => channelIdentity(im)))).toEqual(['BF', 'BF']);
+  expect(errors).toEqual([]);
+});
+
+// freeform2-13, freeform3-04: an AcrB-msfGFP photo saved green on black was keyed
+// "AcrB-msfGFP (greyscale)" with a black-to-white ramp.
+test('freeform3-04: a photo with no LUT is keyed in the colour it is drawn in, not as greyscale', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 220, label: 'B', fill: '#10c020', name: 'AcrB-msfGFP_widefield_100x.jpg' },
+                            { type: 'image', x: 340, y: 20, w: 300, h: 220, label: 'C', fill: '#8a8a8a', name: 'PAO1_phase_100x.png' }]);
+  const r = await page.evaluate(() => { freeformElements[0].name = 'AcrB-msfGFP_widefield_100x.jpg'; freeformElements[1].name = 'PAO1_phase_100x.png'; render();
+    const rows = _figureKey().filter(x => x.kind === 'channel'); return { rows: rows.map(x => ({ n: x.name, c: x.color, m: x.marker, w: _keyWords(x) })), text: _keyText() }; });
+  const gfp = r.rows.find(x => /AcrB-msfGFP/.test(x.n));
+  expect(gfp).toBeTruthy();
+  expect(gfp.w).toMatch(/green/);
+  expect(gfp.m).toBe('square');
+  expect(r.text).not.toMatch(/AcrB-msfGFP \(greyscale\)/);
+  const ph = r.rows.find(x => x.n === 'BF');                       // a grey phase photo stays greyscale
+  if (ph) expect(ph.w).toBe('greyscale');
+  expect(errors).toEqual([]);
+});
+
+// phage3-09: key markers were drawn from the text size, about twice the chart's points.
+test('phage3-09: the key draws a chart point at the radius the chart draws it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(GRID_CHART);
+  const r = await page.evaluate(() => {
+    const el = __gridChart('line', ['Time', 'Uninfected', 'MOI 5'], [['0', 0.1, 0.1], ['1', 0.4, 0.2], ['2', 0.8, 0.1]]);
+    el.chart.style = { ...(el.chart.style || {}), showPoints: true, pointSize: 3 }; el._chartKey = ''; el._chartStat = null;
+    sv('export-width-mm', '180'); render();
+    const circ = []; const rec = { rect() {}, line() {}, poly() {}, chip() {}, gradient() {}, text() {}, circle(x, y, r) { circ.push(r); } };
+    const fs = _keyFs(), L = _keyLayout(_figureKey(), fs, _keyFont(fs));
+    _keyDraw(rec, 0, 0, L, _keyStandaloneStyle());
+    const drawn = []; _chartDraw(el, { ...rec, circle(x, y, r) { drawn.push(r); }, clipStart() {}, clipEnd() {} });
+    return { key: circ, chart: [...new Set(drawn)] };
+  });
+  expect(r.key.length).toBe(2);
+  r.key.forEach(k => expect(k).toBeCloseTo(3, 5));
+  expect(r.chart).toContain(3);
+  expect(errors).toEqual([]);
+});
