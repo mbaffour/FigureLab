@@ -380,3 +380,171 @@ test('charts3-16 / fluor3-10: after a paste the "points" box shows what the prev
   expect(await page.evaluate(() => images.find(p => p && p.type === 'chart').chart.style.showPoints)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+// ── How charts draw ──
+// Every word a chart draws, with its box in the chart's units (measured as the canvas sets it).
+const RECORD = `window.__words = (el) => { const W = []; el._chartKey = ''; const mc = _rtMc();
+  _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, clipStart() {}, clipEnd() {}, text(s, x, y, f, c, al, bl, rot) {
+    mc.font = f; const R = _rtDrawRuns(String(s)), w = R ? _rtLayout(mc, R, f).w : mc.measureText(String(s)).width, h = parseFloat(/([\\d.]+)px/.exec(f)[1]);
+    const x0 = al === 'right' ? x - w : al === 'center' ? x - w / 2 : x, y0 = bl === 'middle' ? y - h * 0.6 : bl === 'top' ? y : y - h;
+    W.push(rot ? { s: String(s), rot, l: x - h, r: x + h * 0.3, t: y - w / 2, b: y + w / 2, w } : { s: String(s), l: x0, r: x0 + w, t: y0, b: y0 + h * 1.2, w }); } });
+  return W; };`;
+// The letter's chip as the grid (top left) and freeform draw it, worked out here.
+const LETTERBOX = `window.__lbox = (str, freeform) => { const fs = Math.max(7, gf('label-size')), mc = _rtMc();
+  mc.font = (gc('label-bold') ? 'bold' : 'normal') + ' ' + fs + 'px ' + (gv('label-font') || 'system-ui,sans-serif'); const tw = mc.measureText(str).width;
+  return freeform ? { x0: 2, y0: 3, x1: tw + 10, y1: fs + 9 } : { x0: 2, y0: 4, x1: tw + 10, y1: fs + 10 }; };`;
+const overlap = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+const BIOFILM = `PA14,dlasR,dlasR_plasR,dmexB
+1.301,0.557,1.226,1.397
+1.392,0.686,1.402,1.449
+1.683,0.661,1.308,1.4
+1.207,0.607,1.345,1.488
+1.555,0.506,1.433,1.421
+1.456,0.608,1.419,1.571`;
+
+test('charts3-03: two brackets sharing a group are stacked, their labels apart, at the dialog\'s size and in the figure', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, BIOFILM, 'biofilm_wide.csv');
+  await apply(page);
+  await page.evaluate(RECORD);
+  for (const [w, h, ymax] of [[300, 300, null], [380, 230, null], [300, 300, 1.5], [220, 200, null]]) {
+    const L = await page.evaluate(([w, h, ymax]) => { const el = images.find(p => p && p.type === 'chart');
+      const e = { type: 'chart', w, h, chart: JSON.parse(JSON.stringify(el.chart)) };
+      e.chart.annos = [{ kind: 'sig', a: 0, b: 1, text: 'p < 0.001' }, { kind: 'sig', a: 1, b: 2, text: 'p < 0.001' }]; e.chart.axes.y.max = ymax;
+      return __words(e).filter(x => x.s === 'p < 0.001'); }, [w, h, ymax]);
+    expect(L.length).toBe(2);
+    expect(overlap(L[0], L[1]), `${w}×${h} ymax ${ymax}: ${JSON.stringify(L)}`).toBe(false);
+    L.forEach(b => expect(b.t).toBeGreaterThanOrEqual(0));
+  }
+  expect(errors).toEqual([]);
+});
+
+test('charts3-15: a stacked bar with points and error bars set draws no "outside the axis range" note, and a short plot keeps its tick labels apart', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, BIOFILM, 'biofilm_wide.csv');
+  await apply(page);
+  await page.evaluate(RECORD);
+  const r = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart');
+    const mk = (mut, w, h) => { const e = { type: 'chart', w, h, chart: JSON.parse(JSON.stringify(el.chart)) }; mut(e.chart); return __words(e); };
+    const stacked = mk(c => { c.kind = 'stackedBar'; c.error = 'sem'; c.style.showPoints = true; }, 300, 300);
+    // the dialog's 380 × 230 preview, two brackets with a long label, rotated names
+    const short = mk(c => { c.names = { dlasR_plasR: 'ΔlasR + plasR complemented' }; c.annos = [{ kind: 'sig', a: 0, b: 1, text: 'p < 0.001' }, { kind: 'sig', a: 1, b: 2, text: 'p < 0.001 (Welch two-sample t-test, two-sided)' }]; }, 380, 230);
+    return { notes: stacked.filter(w => /outside|cut at/.test(w.s)).map(w => w.s), ticks: short.filter(w => /^\d(\.\d+)?$/.test(w.s)) };
+  });
+  expect(r.notes).toEqual([]);
+  expect(r.ticks.length).toBeGreaterThanOrEqual(2);
+  for (let i = 1; i < r.ticks.length; i++) expect(overlap(r.ticks[i - 1], r.ticks[i]), JSON.stringify(r.ticks)).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+const CFU8 = 'strain,cfu\nWT,120000000\nWT,110000000\nWT,100000000\nKO,20000000\nKO,30000000\nKO,25000000';
+test('charts3-07 / newcomer3-13 / phage3-10: the grid letter covers neither the top tick label nor the Y title, and a long Y title fits the plot', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU8, 'cfu_kill_tidy.csv');
+  await apply(page);
+  await page.evaluate(RECORD); await page.evaluate(LETTERBOX);
+  for (const [title, size, lsz] of [['', 300, 14], ['swim diameter (mm)', 300, 14], ['OD_{600} (blank-subtracted)', 160, 14], ['Colony forming units per millilitre of culture (CFU/mL)', 200, 22]]) {
+    const r = await page.evaluate(([title, size, lsz]) => { sv('label-size', lsz); const el = images.find(p => p && p.type === 'chart'); el.chart.axes.y.title = title;
+      el.plotW = size; el.plotH = size; render(); const W = __words(el), LB = __lbox(_rtText(formatLabel(el.label)));
+      return { LB, W: W.filter(w => w.rot || /×10|^\d/.test(w.s)), h: el.h }; }, [title, size, lsz]);
+    expect(r.LB).not.toBeNull();
+    const box = { l: r.LB.x0, r: r.LB.x1, t: r.LB.y0, b: r.LB.y1 };
+    r.W.forEach(w => expect(overlap(box, w), `${title} @${size}: letter over “${w.s}” ${JSON.stringify(w)} ${JSON.stringify(box)}`).toBe(false));
+    const yt = r.W.find(w => w.rot);
+    if (title) { expect(yt.t).toBeGreaterThanOrEqual(0); expect(yt.b).toBeLessThanOrEqual(r.h); }
+  }
+  expect(errors).toEqual([]);
+});
+
+test('freeform3-05: a freeform chart\'s letter does not sit on its Y title', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => setLayoutMode('freeform'));
+  await page.evaluate(() => { addChartElement('bar'); });
+  await apply(page);
+  await page.evaluate(RECORD); await page.evaluate(LETTERBOX);
+  const r = await page.evaluate(() => { const el = freeformElements.find(e => e && e.type === 'chart'); el.letter = 'E'; el.w = 460; el.h = 170; el.chart.axes.y.title = 'EtBr fluorescence (a.u.)';
+    render(); const LB = __lbox('E', true); return { LB, W: __words(el).filter(w => w.rot || /^\d/.test(w.s)) }; });
+  expect(r.LB).not.toBeNull();
+  const box = { l: r.LB.x0, r: r.LB.x1, t: r.LB.y0, b: r.LB.y1 };
+  r.W.forEach(w => expect(overlap(box, w), `letter over “${w.s}”`).toBe(false));
+  expect(errors).toEqual([]);
+});
+
+// ── Gene maps ──
+test('phage3-04: a 12.4 kb map in one cell writes its ruler in kb with labels apart; blot3-09: a protein map is measured in aa', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => addGenemapElement('linear'));
+  await page.locator('#gm-table').waitFor({ state: 'visible' });
+  await page.locator('#gm-length').fill('12384');
+  await page.locator('#genemap-modal button', { hasText: /^Apply$/ }).click().catch(async () => { await page.evaluate(() => applyGenemapModal()); });
+  const words = size => page.evaluate(size => { const im = images.find(p => p && p.type === 'genemap'); const e = Object.assign({}, im, { w: size, h: 160 });
+    const W = []; const mc = _rtMc(); _genemapDraw(e, { rect() {}, line() {}, poly() {}, circle() {}, path() {}, clipStart() {}, clipEnd() {}, text(s, x, y, f, c, al) {
+      mc.font = f; const w = mc.measureText(String(s)).width, x0 = al === 'center' ? x - w / 2 : al === 'right' ? x - w : x; W.push({ s: String(s), l: x0, r: x0 + w, y }); } }); return W; }, size);
+  for (const size of [170, 260, 520]) {
+    const W = await words(size), t0 = W.find(w => w.s === '0'), ticks = W.filter(w => /^\d+(\.\d+)?( kb)?$/.test(w.s) && w.y === t0.y);
+    expect(ticks.length, `${size}: ${W.map(w => w.s)}`).toBeGreaterThanOrEqual(size > 200 ? 2 : 1);
+    if (ticks.length > 1) expect(ticks[ticks.length - 1].s).toMatch(/ kb$/);
+    for (let i = 1; i < ticks.length; i++) expect(ticks[i].l - ticks[i - 1].r, `${size}: ${ticks.map(t => t.s)}`).toBeGreaterThan(2);
+    expect(W.some(w => w.s === '12.4 kb')).toBe(true);
+  }
+  // a protein domain map: Unit aa
+  await page.evaluate(() => openDataPanelEditor(images.findIndex(p => p && p.type === 'genemap')));
+  await page.locator('#gm-table').waitFor({ state: 'visible' });
+  await page.locator('#gm-unit').selectOption('aa');
+  await page.locator('#gm-length').fill('474');
+  await page.locator('#gm-title').fill('Parkin-HA');
+  await page.evaluate(() => applyGenemapModal());
+  const r = await page.evaluate(() => { const im = images.find(p => p && p.type === 'genemap'); return { cap: _dataCaption(im), unit: im.map.unit }; });
+  expect(r.unit).toBe('aa');
+  expect(r.cap).toMatch(/Linear map of Parkin-HA \(474 aa\)/);
+  const W = await words(400);
+  expect(W.some(w => w.s === '474 aa')).toBe(true);
+  expect(W.some(w => / bp$|kb$/.test(w.s))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('blot3-11: a double-click on a chart panel opens its dialog with 📌 Panel mode on', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU8, 'cfu.csv');
+  await apply(page);
+  await page.evaluate(() => togglePanelAnnMode());               // Annotate & Draw › 📌 Panel mode
+  expect(await page.evaluate(() => panelAnnMode)).toBe(true);
+  const q = await page.evaluate(() => { const pb = panelBounds.find(p => images[p.idx] && images[p.idx].type === 'chart'); const c = document.getElementById('ann-canvas') || annCanvas;
+    const R = c.getBoundingClientRect(), W = canvasLogicalW || c.width, H = canvasLogicalH || c.height;
+    return { x: R.left + (pb.x + pb.w / 2) * R.width / W, y: R.top + (pb.y + pb.h / 2) * R.height / H }; });
+  await page.mouse.dblclick(q.x, q.y);
+  await expect(modal(page)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('charts3-12: replicate dots look the same inside a dark bar and above it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'strain,v\nWT,1\nWT,1.6\nWT,3\nKO,2\nKO,2.2\nKO,1.4', 'v.csv');
+  await apply(page);
+  const dots = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el.chart.names = {}; sv('sample-colours', JSON.stringify({ WT: '#000000' })); el._chartKey = '';
+    const D = []; _chartDraw(el, { rect() {}, line() {}, poly() {}, text() {}, clipStart() {}, clipEnd() {}, circle(x, y, r, f, s) { D.push([f, s]); } }); return D; });
+  expect(dots.length).toBe(6);
+  const wt = dots.slice(0, 3).map(d => d.join('/'));
+  expect(new Set(wt).size).toBe(1);                                // one marker style for WT's three points
+  // …that reads as the same filled dot on the black bar and on the white above it
+  const lum = c => { const m = /#?([0-9a-f]{6})/i.exec(c) || [0, (/rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c) || [0, 0, 0, 0]).slice(1, 4).map(v => (+v).toString(16).padStart(2, '0')).join('')];
+    const v = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(x => x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const [fill, edge] = dots[0];
+  expect(cr(fill, '#000000')).toBeGreaterThan(3);                  // seen inside the black bar
+  expect(Math.max(cr(fill, '#ffffff'), cr(edge, '#ffffff'))).toBeGreaterThan(3);   // and above it
+  expect(errors).toEqual([]);
+});
+
+test('charts2-11: a sample drawn as bars in one chart and as a line in another keys as a square beside a line, not a line through a square', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, CFU8, 'cfu.csv'); await apply(page);
+  await drop(page, 'time,WT,KO\n0,1,1\n1,2,1.5\n2,4,2', 'growth.csv'); await apply(page);
+  const r = await page.evaluate(() => { const row = _figureKey().find(x => x.kind === 'series' && _rtText(x.name) === 'WT');
+    const R = [], L = []; _keySwatch({ rect(x, y, w, h) { R.push([x, x + w]); }, line(x1, y1, x2) { L.push([x1, x2]); }, circle() {} }, row, 0, 10, { sw: 30, sh: 10, bg: '#ffffff' });
+    return { desc: row.desc, R, L }; });
+  expect(r.desc).toBe('filled bars and solid line');
+  expect(r.R.length).toBe(1); expect(r.L.length).toBe(1);
+  expect(r.L[0][0]).toBeGreaterThan(r.R[0][1]);                    // the line starts after the square
+  expect(errors).toEqual([]);
+});
