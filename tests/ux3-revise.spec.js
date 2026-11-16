@@ -407,3 +407,23 @@ test('freeform3-15: making the printed width narrower after layout says the text
   await expect(page.locator('#toast')).toContainText('Printed width 174 → 114 mm: text keeps its point size, so it is 1.53× larger');
   expect(errors).toEqual([]);
 });
+
+test('freeform3-12: a file of another shape keeps the picture’s width and takes the height it needs; ⇄ in a grid panel’s drawer replaces that panel’s picture, not the selected one', async ({ page }) => {
+  const errors = await loadApp(page);
+  await poppedFigure(page);
+  // picture A is selected on the canvas; ⇄ in panel C's drawer still means C
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(freeformElements.findIndex(e => e.type === 'image' && e.label === 'A')); render(); });
+  await lastToast(page);
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate(() => openReplaceImage(images.findIndex(im => im.label === 'C')))]);
+  await fc.setFiles({ name: 'wide.png', mimeType: 'image/png', buffer: await pngOf(page, 200, 100, '#3a3') });
+  await page.waitForFunction(() => freeformElements.some(e => e.name === 'wide.png'));
+  const r = await page.evaluate(() => ({ C: (({ name, w, h }) => ({ name, w, h }))(freeformElements.find(e => e.label === 'C')), A: freeformElements.find(e => e.label === 'A').name,
+    twin: images.find(im => im.label === 'C').name }));
+  expect(r.A).toBe('panel0.png');                                                   // the selected picture is untouched
+  expect(r.twin).toBe('wide.png');
+  expect(r.C.name).toBe('wide.png');
+  expect(r.C.h).toBeCloseTo(r.C.w / 2, 1);                                          // 2:1, not stretched into the square box
+  expect(await lastToast(page)).toMatch(/box height 300 → 150 px so the new picture keeps its shape/);
+  expect(errors).toEqual([]);
+});
+

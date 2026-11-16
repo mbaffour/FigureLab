@@ -4449,15 +4449,25 @@ function _replaceInto(im, d){
   return plan;
 }
 let _replaceTarget=null;
+// A freeform picture, by its id: its own menu on the canvas.
+function openReplaceFfElem(id){
+  if(!freeformElements.some(e=>e&&e.id===id&&e.type==='image')){ toast('That picture is no longer on the canvas','warn'); return; }
+  _replaceTarget={ff:id};
+  const inp=document.getElementById('replace-input'); if(inp){ inp.value=''; inp.click(); }
+}
 function openReplaceImage(idx){
   if(layoutMode==='freeform'){
-    // The selected picture (right-click selects it first). ⌘K passes the grid's selected
-    // panel, whose number names no object here, so it is not used.
-    const el=[...selectedElems].map(i=>freeformElements[i]).find(e=>e&&e.type==='image')||null;
-    if(!el){ toast('Select a picture first (click it on the canvas), then ⇄ Replace image','warn'); return; }
-    _replaceTarget={ff:el.id};
-    const inp=document.getElementById('replace-input'); if(inp){ inp.value=''; inp.click(); }
-    return;
+    // A grid panel's ⇄ (its drawer in Images) replaces that panel — through the picture
+    // popped out of it, when there is one, so both change. With no panel named (⌘K, whose
+    // selectedPanel indexes the grid, not this canvas), the selected picture.
+    const gp=(idx!=null&&idx>=0)?images[idx]:null;
+    const twin=gp?freeformElements.find(e=>e&&e.type==='image'&&e.fromPanel===gp.id):null;
+    if(twin){ openReplaceFfElem(twin.id); return; }
+    if(!gp){
+      const el=[...selectedElems].map(i=>freeformElements[i]).find(e=>e&&e.type==='image')||null;
+      if(!el){ toast('Select a picture first (click it on the canvas), then ⇄ Replace image','warn'); return; }
+      openReplaceFfElem(el.id); return;
+    }
   }
   const im=images[idx];
   if(!im){ toast('Select a panel first (click it in the figure or the list)','warn'); return; }
@@ -4481,7 +4491,7 @@ async function replacePanelImage(pid, f){
   const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
   const notes=(pm?[pm]:[]).concat(plan.notes);
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
-  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — crop, label and settings kept${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
+  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — ${plan.warn?'crop and label kept, but':'crop, label and settings kept'}${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
 // A freeform picture takes another file and keeps its place, width, crop, letter, caption
@@ -4517,7 +4527,7 @@ async function replaceFreeformImage(eid, f){
   const notes=plan.notes.filter(n=>!/aspect ratio/.test(n)).concat(boxNote?[boxNote]:[]);
   if(twin) notes.push('the caption, metadata and history name the new file');
   const L=_rtPlain(formatLabel(el.label||''))||'';
-  toast(`${L?'Picture '+L:'Picture'}: ${was} → ${d.name} — place, crop, letter and settings kept${notes.length?'; '+notes.join('; '):''}`, plan.warn?'warn':'ok');
+  toast(`${L?'Picture '+L:'Picture'}: ${was} → ${d.name} — ${plan.warn?'place, crop and letter kept, but':'place, crop, letter and settings kept'}${notes.length?'; '+notes.join('; '):''}`, plan.warn?'warn':'ok');
   return true;
 }
 // One channel of a merge takes another file — the same channel of another field — and
@@ -5100,7 +5110,7 @@ const CMD_REGISTRY=[
   {label:'Sort panels by filename',   keys:'sort name natural order panels',  run:()=>sortImagesByName()},
   {label:'Auto-detect channels',      keys:'channel dapi gfp lut detect auto', run:()=>autoDetectChannels()},
   {label:'Generate caption',         keys:'caption legend figure text write describe',         run:()=>generateCaption({ask:true})},
-  {label:'Replace image… (keep crop, labels and settings)', keys:'replace image swap file relink new picture keep crop settings update', run:()=>openReplaceImage(selectedPanel)},
+  {label:'Replace image… (keep crop, labels and settings)', keys:'replace image swap file relink new picture keep crop settings update', run:()=>openReplaceImage(layoutMode==='freeform'?-1:selectedPanel)},
   {label:'Replace all images… (figure as a template)', keys:'replace all images template next experiment relink swap files batch reuse', run:()=>openReplaceAll()},
   {label:'Alt text: draft from the figure (accessibility)', keys:'alt text alt-text accessibility screen reader a11y description springer aip', run:()=>draftAltText()},
   {label:'Alt text: go to the box', keys:'alt text alt-text write edit accessibility description', run:()=>focusAltText()},
@@ -17801,7 +17811,7 @@ function showFfElemMenu(i, cx, cy){
     d.addEventListener('mouseover',()=>d.style.background='var(--surf2)'); d.addEventListener('mouseout',()=>d.style.background='');
     d.addEventListener('click',()=>{ hidePanelMenu(); fn(); }); menu.appendChild(d); };
   const sel=()=>{ const k=here(); if(k<0) return -1; selectedElems.clear(); selectedElems.add(k); drawFreeformOverlay(); updateFreeformElemList(); if(typeof updateElemPropsBar==='function') updateElemPropsBar(); return k; };
-  if(el.type==='image') row('⇄  Replace image…', ()=>{ const k=sel(); if(k>=0) openReplaceImage(k); });
+  if(el.type==='image') row('⇄  Replace image…', ()=>{ if(sel()>=0) openReplaceFfElem(id); });
   row('✕  Delete object', ()=>{ if(sel()>=0) deleteSelectedElems(); }, true);
   document.body.appendChild(menu);
   setTimeout(()=>document.addEventListener('click', hidePanelMenu, {once:true}), 20);
@@ -20060,7 +20070,7 @@ async function doExport(fmt, opts){
     // A figure exported with no printed width and no journal prints at 1 px = 1/96 in: a
     // guide followed to its end gave a 445 mm TIFF that every journal refuses, and only the
     // compliance check (if run) said so (fluor2-12). Said here, with the way to fix it.
-    else if(!_svgWarned&&fmt!=='jpeg'&&!getTargetWidthMm()&&!_targetJournal()&&_physFacts().wMm>190)
+    else if(!_svgWarned&&fmt!=='jpeg'&&layoutMode!=='freeform'&&_lastPresetName!=='poster'&&!getTargetWidthMm()&&!_targetJournal()&&_physFacts().wMm>190)
       toastAction(`Saved ${name}.${_ext} — it prints ${Math.round(_physFacts().wMm)} mm wide, because no printed width or journal is chosen; journals print figures at most about 180 mm wide`,'warn','Choose the journal',()=>_cmdpGoto('target-journal','Pick the journal: it sets the printed width, the fonts and the DPI (or choose Export › Printed width)'));
     else if(!_svgWarned) toast(`Saved ${name}.${_ext}`, 'ok');
   } catch(err){
@@ -25654,8 +25664,11 @@ function setStatus(l,r=''){ document.getElementById('status-l').textContent=l; d
 let _toastT=null;
 function toast(msg,type=''){
   const el=document.getElementById('toast');
-  el.textContent=msg; el.className='show'+(type?' '+type:''); el.style.pointerEvents=''; el.style.whiteSpace=''; el.style.maxWidth='';
-  // Up long enough to read: 3.2 s for a short one, about 45 ms a character for a long one.
+  el.textContent=msg; el.className='show'+(type?' '+type:''); el.style.pointerEvents='';
+  // A long message wraps inside the window (it ran past both edges of the screen) and stays
+  // up long enough to read: 3.2 s for a short one, about 45 ms a character for a long one.
+  const long=String(msg).length>110;
+  el.style.whiteSpace=long?'normal':''; el.style.maxWidth=long?'min(760px, calc(100vw - 24px))':'';
   clearTimeout(_toastT); _toastT=setTimeout(()=>el.className='',Math.min(12000,Math.max(3200,1500+String(msg).length*45)));
 }
 // A toast that offers the one obvious next step as a button, shown a little longer.
