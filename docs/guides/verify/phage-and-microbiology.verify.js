@@ -458,9 +458,10 @@ const { step, expect, btn } = L;
       kr: (txt.match(/Legend key on the figure\n([^\n]*)/) || [])[1] || '', open: [...txt.matchAll(/\n([⚠✗])\n([^\n]+)/g)].map(m => m[1] + ' ' + m[2]) };
   };
   // ux2 (phage2-04): contrast is measured under each letter's strokes, and the row's Auto
-  // contrast button picks black or white per panel and darkens the chips. Text over a
-  // mid-grey micrograph (no chip) can stay under 4.5:1 in either colour: darken the panel.
-  await step(T, 'Check › ✓ Check journal compliance: Text contrast ⚠ on E and F; the row\'s Auto contrast button; the TEM\'s bar text still under 4.5:1', async () => {
+  // contrast button picks black or white per panel and darkens the chips. ux3 (phage3-01):
+  // bar text takes its ink from the pixels under the text, with a backing chip where neither
+  // black nor white reads, so the TEM's bar text passes too.
+  await step(T, 'Check › ✓ Check journal compliance: Text contrast ⚠ on E and F; the row\'s Auto contrast button passes every text', async () => {
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const r0 = await readReport();
@@ -471,7 +472,7 @@ const { step, expect, btn } = L;
     const t = await p.locator('#toast').textContent();
     const r1 = await readReport();
     await p.keyboard.press('Escape');
-    expect(/^Auto contrast on/.test(t) && /scale-bar text “100 nm”/.test(t) && !/panel letters/.test(r1.tc), 'toast: ' + t + ' | ' + r1.tc);
+    expect(/^Auto contrast on/.test(t) && /every text over a picture now reads at 4\.5:1 or better/.test(t) && /✓/.test(r1.tc), 'toast: ' + t + ' | ' + r1.tc);
     return `${r0.title} (${r0.open.join(', ')}) → Auto contrast → ${r1.title}; toast "${t}"`;
   });
 
@@ -560,9 +561,9 @@ const { step, expect, btn } = L;
     return out.join('; ');
   });
 
-  // ISSUES.md: a margin the key grew stays when the key moves elsewhere. The guide's fix:
-  // set the margin back by hand; the key stays where Where put it.
-  await step(T, 'Troubleshooting: key moved Free space → Below leaves the right margin grown; Arrange › Margins › Right 16 takes it back', async () => {
+  // ISSUES.md (fixed in ux3, freeform3-16): the margin grown for the key's old place is
+  // given back when Where moves it; the key sits below the panels.
+  await step(T, 'Export › Legend key: key moved Free space → Below gives the right margin back (16) and sits below the panels', async () => {
     await L.openSection(T, 'Export');
     const mr = () => p.evaluate(() => document.getElementById('m-right').value);
     // start again as a reader who ticks the switch first: no key, margins back to 16
@@ -576,12 +577,10 @@ const { step, expect, btn } = L;
     const a = await mr();
     await p.locator('#key-where').selectOption({ label: 'Below' }); await p.waitForTimeout(800);
     const b = await mr();
-    await L.openSection(T, 'Arrange');
-    await p.locator('#m-right').fill('16'); await p.locator('#m-right').press('Tab'); await p.waitForTimeout(600);
     const k = await p.evaluate(() => { const k = annotations.find(a => a && a.type === 'legend'), cv = document.getElementById('fig-canvas');
       return { where: k.where, y: Math.round(k.yf * cv.height), bottom: Math.round(panelBounds.reduce((m, q) => Math.max(m, q.y + q.h), 0)), right: document.getElementById('m-right').value }; });
-    expect(+a > 16 && b === a && k.where === 'bottom' && k.y >= k.bottom && k.right === '16', JSON.stringify({ a, b, k }));
-    return `right margin 16 → ${a} (Free space) → still ${b} after Where › Below → 16 by hand; key still below the panels`;
+    expect(+a > 16 && b === '16' && k.where === 'bottom' && k.y >= k.bottom && k.right === '16', JSON.stringify({ a, b, k }));
+    return `right margin 16 → ${a} (Free space) → ${b} after Where › Below; key below the panels`;
   });
 
   await L.finish(T);

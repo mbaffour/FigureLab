@@ -15038,8 +15038,7 @@ function _checkCompliance(asJ){
       :{label:'Panel labels', ok:true, info:true, uncounted:true, note:'Does not apply — the figure has no pictures, charts or gene maps to letter'},
     {label:'Panel labels unique', ok:_dupLbls.length===0, warn:false,
       note:_dupLbls.length ? `${esc(_dupLbls.join(', '))} — the same label on more than one panel; rename one in the panel list or use Relabel A, B, C` : 'Every panel has its own label ✓'},
-    // A picture that looks like a micrograph (pseudocoloured, native 16-bit samples, or a
-    // name that says phase, DIC, 100x, TEM, a fluorophore…) with no calibration and no bar
+    // A picture that looks like a micrograph (pseudocoloured, a merge, or a name that says phase, DIC, 100x, TEM, a fluorophore…) with no calibration and no bar
     // is asked about, not passed as "does not apply" (charts2-14); "No scale needed" marks
     // the ones that truly have none, and the mark is kept with the figure.
     (()=>{ const sus=_P.filter(_ckMicrographNoScale), nmS=im=>_rtText(formatLabel(_lblOf(im)))||'?';
@@ -15150,7 +15149,6 @@ function _ckMicrographNoScale(im){
 function _ckMicroWhy(im){
   if(im.lut&&im.lut!=='none') return 'it is pseudocoloured';
   if((im.channels||[]).length) return 'it is a channel merge';
-  if(typeof _rawOf==='function'&&_rawOf(im)) return 'it keeps native camera samples';
   const m=_MICRO_NAME.exec(String(im.name||'').replace(/\.[a-z0-9]{2,5}$/i,'').replace(/_/g,' '));
   return m?`its file name says “${m[2]}”`:'';
 }

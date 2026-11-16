@@ -540,7 +540,7 @@ const { step, expect, btn } = L;
     return 'W ' + w + ' mm';
   });
 
-  await step(T, '7.4 ⬜ TextBox title: X 80, Y 16, W 1168, H 64; text with *E. coli* and 10^{8}; Fnt 28; Color dark; untick Fill: no box', async () => {
+  await step(T, '7.4 ⬜ TextBox title: X 80, Y 16, W 1168, H 64; text with *E. coli* and 10^{8}; Fnt 32; Color dark; untick Fill: no box', async () => {
     await beside();
     await btn(T, '⬜ TextBox').click();
     await drag([300, 20], [900, 80]);
@@ -549,12 +549,14 @@ const { step, expect, btn } = L;
     await typeGeo({ x: 80, y: 16, w: 1168, h: 64 });
     await p.locator('#ann-float-tb-text').fill('Phage phiGuide lyses *E. coli* K-12 within 90 min at 10^{8} PFU/mL');
     await p.locator('#ann-float-tb-text').press('Enter');
-    await p.locator('#ann-float-font').fill('28'); await p.locator('#ann-float-font').press('Enter');
+    // ux3 (freeform3-01): the Text size row measures text boxes and their superscripts; at
+    // Fnt 28 the 10⁸ printed 4.7 pt, under 5 pt — Fnt 32 prints it at 5.3 pt
+    await p.locator('#ann-float-font').fill('32'); await p.locator('#ann-float-font').press('Enter');
     await setColour('#ann-float-color', '#111111');
     const fill0 = { ticked: await p.locator('#ann-float-fill').isChecked(), colour: await p.locator('#ann-float-fill-color').inputValue() };
     await p.locator('#ann-float-fill').uncheck(); await p.waitForTimeout(200);
     const tb = (await anns()).find(x => x.type === 'textbox');
-    expect(tb && tb.fontSize === 28 && tb.fill === false && /\*E\. coli\*/.test(tb.text), JSON.stringify(tb));
+    expect(tb && tb.fontSize === 32 && tb.fill === false && /\*E\. coli\*/.test(tb.text), JSON.stringify(tb));
     // what is drawn: a corner of the box, away from the text, is the white canvas
     await beside(); await btn(T, '⟳ Render').click(); await p.waitForTimeout(400);
     const px = await p.evaluate(() => { const c = document.getElementById('fig-canvas'), W = +document.getElementById('fm-canvas-w').value, k = c.width / W;
