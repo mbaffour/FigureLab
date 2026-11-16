@@ -4400,20 +4400,39 @@ function _replacePlan(im, d){
     notes.push(`its lane analysis is now out of date — re-detect the lanes${im.laneTable&&(im.laneTable.rows||[]).length?'; the lane table is kept but may no longer line up with the new lanes':''}`);
     warn=true;
   }
+  // The display range is kept in the files' own values (camera counts), not as 8-bit
+  // numbers: those mean a different range on a file with another maximum, and a panel
+  // matched to its row at 300–12000 came back at 278–11119 (fluor3-02). A new file
+  // without native samples cannot be shown at counts; that is said, not glossed over.
+  const nl=_nativeLevels(im);
+  if(nl&&!(d.raw&&d.raw.data)){ notes.push(`display range ${nl.text} (native values) cannot be kept: the new file has no ${_rawOf(im)?_rawDepth(_rawOf(im)):'16-bit'} samples, so its levels are 8-bit display values now — check them against the panels it is compared with`); warn=true; }
   const lostCh=(im.channels||[]).length;
-  if(lostCh) notes.push(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — replace ${lostCh>1?'them':'it'} too if ${lostCh>1?'they':'it'} belonged to it`);
-  return {um, notes, warn, dims:`${nw}×${nh}`};
+  if(lostCh) notes.push(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — if ${lostCh>1?'they':'it'} belonged to it, use ⇄ beside each channel in ⚙ › Channels to swap ${lostCh>1?'them':'it'} too (their ranges are kept)`);
+  // The caption note was written for the old picture; it stays, and is named, so a gel's
+  // note does not go on captioning a swim plate unseen (newcomer3-09).
+  const cn=String(im.captionNote||'').trim();
+  if(cn&&cn!=='Merge') notes.push(`caption note kept: “${cn.length>48?cn.slice(0,46)+'…':cn}” — edit it in ⚙ if it no longer fits`);
+  return {um, notes, warn, dims:`${nw}×${nh}`, nl};
 }
 // Swap the pixels in, keep the panel. The gel analysis is left as it is: its bitmap
 // fingerprint no longer matches, so it reads "image replaced" and asks to re-detect.
 function _replaceInto(im, d){
+  _freezeParked();
   const plan=_replacePlan(im, d), was=_sourceName(im)||'(unnamed)', c=d.calib||{};
   const nw=d.img.naturalWidth, nh=d.img.naturalHeight;
   const wasPx=im.img?`${im.img.naturalWidth||im.img.width}×${im.img.naturalHeight||im.img.height}px`:'', wasNotes=im._importNotes||[];
   im._importNotes=Array.isArray(c.importNotes)&&c.importNotes.length?c.importNotes.slice():undefined;
   im.img=d.img; im.src=d.src; im.name=d.name;
+  if(im._imgEl) im._imgEl=d.img;                              // a freeform picture draws this one
   im.svgSource=d.svgSource||null; im.isVector=!!d.svgSource;
-  im.raw=(d.raw&&d.raw.w===nw&&d.raw.h===nh)?d.raw:null;   // native samples only when they match the pixels
+  const nraw=(d.raw&&d.raw.w===nw&&d.raw.h===nh)?d.raw:null;   // native samples only when they match the pixels
+  // A merge keeps its base's samples for display only (dispRaw); its .raw stays empty so
+  // a measurement never reads the first channel alone.
+  if((im.channels||[]).length){ im.raw=null; im.dispRaw=nraw; } else { im.raw=nraw; delete im.dispRaw; }
+  if(c.bits>8) im.srcBits=c.bits; else if(d.raw==null) delete im.srcBits;
+  const kept=_reapplyNative(im, plan.nl);
+  if(kept&&kept.moved){ plan.notes.push(`display range ${kept.was} could not be kept exactly: it is ${kept.now} now`); plan.warn=true; }
+  else if(kept&&kept.ok) plan.notes.unshift(`display range ${kept.now} (native values) kept`);
   if(c.page>0){ im.srcPage=c.page; im.srcPages=c.pages||undefined; } else { delete im.srcPage; delete im.srcPages; }
   im._metaUmPerPx=c.umPerPx>0?c.umPerPx:0; im._metaCalibSource=c.source||'';
   im._metaDeltaT=c.deltaT!=null?c.deltaT:null; im._metaAcqTime=c.acqTime!=null?c.acqTime:null; im._metaTimeSource=c.timeSource||'';
@@ -4454,7 +4473,42 @@ async function replacePanelImage(pid, f){
   const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
   const notes=(pm?[pm]:[]).concat(plan.notes);
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
-  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg}${notes.length?' — '+notes.join('; '):' — crop, labels and settings kept'}`, (plan.warn||pm)?'warn':'ok');
+  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — crop, label and settings kept${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
+  return true;
+}
+// One channel of a merge takes another file — the same channel of another field — and
+// keeps its colour, its name and its display range in the file's own values. Swapping a
+// merge's field used to mean removing each overlay and adding it again, which brought it
+// in at the file's 0…max range and, once the old sources were no longer recognised,
+// shifted the grid (fluor3-03). One undo step.
+async function replaceChannelFile(pid, ci, f){
+  if(!f) return false;
+  const d=await _decodeImageFile(f, 0);
+  if(!d){ toast(`Couldn't open "${f.name}" — unsupported or corrupt`,'err'); return false; }
+  const i=_pidx(pid); if(i<0){ toast(_PANEL_GONE,'warn'); return false; }
+  const im=images[i], ch=(im.channels||[])[ci];
+  if(!ch){ toast('That channel is no longer on the panel','warn'); return false; }
+  const b=im.img, bw=b?(b.naturalWidth||b.width):0, bh=b?(b.naturalHeight||b.height):0;
+  const nw=d.img.naturalWidth||d.img.width, nh=d.img.naturalHeight||d.img.height;
+  if(bw&&bh&&(nw!==bw||nh!==bh)){ toast(`"${d.name}" is ${nw}×${nh} px and the panel ${bw}×${bh} px — channels of one field must match, so nothing changed`,'warn'); return false; }
+  _freezeParked();
+  pushUndo();
+  const nl=_nativeLevels(ch), key=_levelKey(ch), c=d.calib||{};
+  const nch={...ch, name:d.name, img:d.img, src:d.src, raw:(d.raw&&d.raw.w===nw&&d.raw.h===nh)?d.raw:null,
+    _adjCache:undefined, _adjKey:undefined, _cropCache:undefined, _cropKey:undefined};
+  if(c.bits>8) nch.srcBits=c.bits; else delete nch.srcBits;
+  im.channels=im.channels.map((x,k)=>k===ci?nch:x);
+  im._compCache=undefined; im._compKey=undefined; im._adjCache=undefined; im._adjKey=undefined;
+  im._replaced=[...(im._replaced||[]), {from:ch.name||'', to:d.name, channel:key, at:new Date().toISOString()}];
+  const kept=_reapplyNative(nch, nl);
+  logAction('replaceChannel',{label:im.label, channel:key, from:ch.name, to:d.name});
+  renderImgList(); scheduleRender(0);
+  const L=_rtPlain(formatLabel(im.label)||'?');
+  const how=!nl?'colour kept'
+    : kept&&kept.ok?`colour and display range ${kept.now} (native values) kept`
+    : kept&&kept.moved?`colour kept; display range ${kept.was} could not be kept exactly: it is ${kept.now} now`
+    : `colour kept; display range ${nl.text} (native values) cannot be kept: the new file has no native samples, so its levels are 8-bit display values now`;
+  toast(`Panel ${L}, ${key==='plain'?'channel '+(ci+2):key}: ${ch.name||'(unnamed)'} → ${d.name} — ${how}`, (nl&&!(kept&&kept.ok))?'warn':'ok');
   return true;
 }
 // Which file goes to which panel. By file name first — the rule a figure opened without
@@ -6029,6 +6083,37 @@ function _levelsDisclosure(o){
   const t=`${+(+(o.blackPt||0)).toFixed(2)}–${+(+(o.whitePt==null?255:o.whitePt)).toFixed(2)}`;
   return o.srcBits>8 ? `8-bit display range ${t} of a ${o.srcBits}-bit file whose native samples were not kept (each file scaled 0…its maximum)` : t;
 }
+// A panel's (or channel's) display range in its file's own values, to put back on new
+// pixels (Replace image, a channel swapped or added): null without native samples.
+function _nativeLevels(o){
+  const r=_rawOf(o); if(!r) return null;
+  return {b:_toNative(o,o.blackPt||0), w:_toNative(o,o.whitePt==null?255:o.whitePt), text:_rangeText(o)};
+}
+// Put a range taken with _nativeLevels on o's (new) samples. {ok, now} when it reads the
+// same; {moved, was, now} when it could not; null when there was nothing to keep or the
+// new pixels have no samples (the plan says so before anything changes).
+function _reapplyNative(o, nl){
+  if(!nl||!_rawOf(o)) return null;
+  o.blackPt=0; o.whitePt=255;
+  _setLevelNative(o,'white',nl.w); _setLevelNative(o,'black',nl.b);
+  const now=_rangeText(o);
+  return now===nl.text ? {ok:true, now} : {moved:true, was:nl.text, now};
+}
+// The range a channel already has elsewhere in the figure — another panel, or a merge's
+// channel, of the same channel with native samples — for a channel added or swapped in.
+function _channelRangeRef(o){
+  const key=_levelKey(o); if(!key||key==='plain') return null;
+  const hit=_channelObjects().find(({o:x})=>x!==o&&x.type!=='chart'&&!x.excluded&&_levelKey(x)===key&&_rawOf(x));
+  if(!hit) return null;
+  return {nl:_nativeLevels(hit.o), who:hit.who};
+}
+// Hidden panels that a merge shows (its sources, found by file name in figures saved
+// before sources were marked) hold no cell. Marked once, before a merge's files change:
+// swapping or removing its channels used to un-recognise them, and each turned into a
+// blank cell that shifted the rest of the grid (fluor3-03).
+function _freezeParked(){
+  (images||[]).forEach(im=>{ if(im&&im.excluded&&!im._parked&&_isParked(im)) im._parked=true; });
+}
 // Set a panel's (or channel's) black/white point from a value in native units, clamped
 // to the 8-bit decode's ends. Returns the 8-bit value stored.
 function _setLevelNative(o, which, n){
@@ -6703,12 +6788,17 @@ function renderImgList(){
           <select class="ch-lut" style="font-size:10px;padding:1px 3px">${
             Object.entries(lutNames).map(([v,l])=>`<option value="${v}"${ch.lut===v?' selected':''}>${l}</option>`).join('')
           }</select>
-          <button class="icon-btn del ch-del" style="font-size:11px">×</button>`;
+          <label class="icon-btn ch-rep" style="font-size:11px;cursor:pointer" title="Replace this channel's file (another field of the same channel) — its colour and its display range in the file's own values are kept">⇄<input type="file" class="ch-rep-in" accept="image/*,.tif,.tiff" style="display:none"></label>
+          <button class="icon-btn del ch-del" style="font-size:11px" title="Remove this channel">×</button>`;
         row.querySelector('.ch-lut').addEventListener('change',e=>{
           im2.channels[ci].lut=e.target.value; scheduleRender();
         });
         row.querySelector('.ch-del').addEventListener('click',()=>{
-          im2.channels.splice(ci,1); renderChList(); scheduleRender();
+          _freezeParked(); pushUndo();
+          im2.channels.splice(ci,1); im2._compCache=undefined; im2._compKey=undefined; renderChList(); scheduleRender();
+        });
+        row.querySelector('.ch-rep-in').addEventListener('change',e=>{
+          const f=e.target.files[0]; e.target.value=''; if(f) replaceChannelFile(im2.id, ci, f);
         });
         chList.appendChild(row);
         // Each extra channel has had its own black and white points since channels
@@ -6749,8 +6839,14 @@ function renderImgList(){
         if(raw2&&raw2.w===img2.naturalWidth&&raw2.h===img2.naturalHeight) ch.raw=raw2;
         if(res2&&res2.chan&&res2.chan.name) ch.chan=res2.chan.name;
         if(res2&&res2.bits>8) ch.srcBits=res2.bits;
+        _freezeParked();
         images[idx].channels.push(ch);
+        // At the range its channel already has in the figure, in counts — it used to come
+        // in at the file's own 0…max, unlike every other panel of that channel (fluor3-03).
+        const ref=_rawOf(ch)?_channelRangeRef(ch):null;
+        const k=ref&&_reapplyNative(ch, ref.nl);
         renderChList(); scheduleRender();
+        if(k) toast(`Channel ${_levelKey(ch)} added at ${k.now} (native values), the range it has on ${ref.who}`,'ok');
       };
       // Chromium's <img> cannot decode a TIFF and this path had no error handler, so
       // picking one did nothing at all. Use the decoder that opening a file uses.
@@ -10902,7 +10998,11 @@ function _tourEnd(){ _tourClose(); _tourEndSave(); _tut=null; _tourSteps=TOUR_ST
 function _tutOfferRestore(saved){
   showConfirmModal('Bring your own figure back?',
     'The tutorial put the figure you had open aside. Restore it now, as it was when the tutorial started? (One undo step — Ctrl+Z goes back to the tutorial’s figure.)',
-    ()=>{ applySession(saved,{origin:'file'}); toast('Your figure is back, as it was before the tutorial','ok'); },
+    ()=>{ applySession(saved,{origin:'file'});
+      // Never "as it was" when a >8-bit panel came back without its samples.
+      const lost=(saved.images||[]).filter(d=>d&&d.src&&+d.srcBits>8&&!d.rawRec).map(d=>d.label?_rtText(formatLabel(d.label)):(d.name||'?'));
+      toast(lost.length?`Your figure is back, but ${_listAnd(lost)} lost ${lost.length>1?'their':'its'} 16-bit samples (levels are 8-bit display values now) — reopen your saved session to get the camera values back`
+        :'Your figure is back, as it was before the tutorial', lost.length?'warn':'ok'); },
     {ok:'Restore my figure', cancel:'Keep the tutorial figure', primary:true});
 }
 function _tourFinish(){
@@ -11301,7 +11401,9 @@ async function startTutorial(id){
   // so getting it back took 16 presses of Ctrl+Z. It is offered back in one when the
   // tutorial ends.
   const had=images.some(Boolean)||freeformElements.length>0;
-  let saved=null; if(had){ try{ saved=serializeSession(true); }catch(e){ saved=null; } }
+  // With the native samples, as Save session keeps them: without them every 16-bit panel
+  // came back in 8-bit display values, and Methods then reported its ranges as differing.
+  let saved=null; if(had){ try{ saved=_withRawSave(()=>serializeSession(true)); }catch(e){ saved=null; } }
   const ok=await T.setup(); if(ok===false) return;
   _tutSaved=saved;
   _tut=T; _tourSteps=T.steps; _tourI=0;
@@ -14719,7 +14821,9 @@ function _checkCompliance(asJ){
     // In native units when the samples are kept: two 16-bit panels at 0–12000 counts
     // match even though their 8-bit black/white points differ.
     const add=(key,o,who)=>{ if(key==='plain') return; if(!_ranges.has(key)) _ranges.set(key,new Map()); const g=_ranges.get(key); const r=_rangeText(o); if(!g.has(r)) g.set(r,[]); g.get(r).push(who); };
-    if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)) add(_levelKey(im), im, lbl);
+    // A channel shown in grey (no LUT) is compared too, as Methods compares it: a greyscale
+    // GFP panel off its row's range read ✓ here while Methods said the ranges differ.
+    if((im.lut&&im.lut!=='none')||(im.channels&&im.channels.length)||_rawOf(im)||im.grayscale) add(_levelKey(im), im, lbl);
     (im.channels||[]).forEach(ch=>add(_levelKey(ch), ch, lbl));
   });
   const _rangeDrift=[...(_ranges)].filter(([,g])=>g.size>1).map(([key,g])=>`${key}: `+[...g].map(([r,who])=>`${[...new Set(who)].join(',')} ${r}`).join(', '));
@@ -25383,7 +25487,14 @@ const _isToggle = el => el && (el.type==='checkbox' || el.type==='radio');
 const sv = (id,v) => {
   const el=document.getElementById(id); if(!el) return;
   if(_isToggle(el)) el.checked = (v===true||v===1||v==='1'||v==='true'||v==='on');
-  else el.value = v??'';
+  else {
+    // A printed width the list does not offer (the preset's "fits the height" width, a
+    // Set … mm from the report) is added as an option: setting a select to a value it
+    // lacks blanked it, and a reopened session or an undo printed at the free width.
+    if(id==='export-width-mm'&&el.tagName==='SELECT'&&parseFloat(v)>0&&![...el.options].some(o=>o.value===String(v))){
+      const o=document.createElement('option'); o.value=String(v); o.textContent=`${v} mm`; el.appendChild(o); }
+    el.value = v??'';
+  }
 };
 const sc = (id,v) => { const el=document.getElementById(id); if(el&&v!==undefined) el.checked=!!v; };
 // Snap number inputs back into their [min,max] range when the user types/pastes out-of-range.
@@ -25831,9 +25942,12 @@ function updateFreeformElemList(){
       selectedElems.clear(); selectedElems.add(i);
       drawFreeformOverlay(); updateFreeformElemList();
     });
+    // One undo step, as the Delete key is: without one, Ctrl+Z went back past the removal
+    // to the step before it and took the last text label added with it (freeform3-02).
     row.querySelector('button').addEventListener('click',()=>{
-      freeformElements.splice(i,1); selectedElems.clear();
-      updateFreeformElemList(); scheduleRender(0);
+      if(typeof ffAnnSel!=='undefined') ffAnnSel.clear();
+      selectedElems.clear(); selectedElems.add(i);
+      deleteSelectedElems();
     });
     list.appendChild(row);
   });
@@ -25843,6 +25957,7 @@ function updateFreeformElemList(){
 function clearFreeformElements(){
   if(!freeformElements.length) return;
   if(!confirm('Clear all freeform elements?')) return;
+  pushUndo();
   freeformElements=[]; selectedElems.clear();
   updateFreeformElemList(); scheduleRender(0);
 }
