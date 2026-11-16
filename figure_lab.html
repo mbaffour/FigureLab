@@ -985,7 +985,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Bar height (px)</label>
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
-      <input type="color" id="sb-color" value="#ffffff" oninput="scheduleRender()"></div>
+      <input type="color" id="sb-color" value="#ffffff" oninput="scheduleRender()" onchange="_sbColorHint()"></div>
     <div class="field look-grid-part"><label for="sb-auto-color" title="Per panel, white or black for the bar and its text from the brightness of the image beneath — a white bar on a bright-field image is invisible">Auto contrast</label>
       <input type="checkbox" id="sb-auto-color" onchange="scheduleRender()"></div>
     <div class="field"><label>Show text</label>
@@ -7691,24 +7691,59 @@ function _ckAutoContrastFix(){
   pushUndo();
   const did=[];
   const was={l:gc('label-auto-color'), s:gc('sb-auto-color'), a:gc('axis-auto-color'), bg:gc('label-bg')};
+  render(); const px0=_textPixelContrast();
   sc('label-auto-color',true); sc('sb-auto-color',true); sc('axis-auto-color',true);
   if(!was.l||!was.s) did.push(was.bg?'Auto contrast on — the chips behind the letters are darker and the letters white':'Auto contrast on — each letter, tag and bar text is drawn black or white, whichever reads better on the picture under it');
   render();
   let px=_textPixelContrast();
+  // Never worse: a switch this button ticked that left any of its text reading worse than
+  // before (and under 4.5:1) is put back, and said so.
+  { const before=new Map(px0.all.map(x=>[x.id,x.r]));
+    const worse=kinds=>px.all.some(x=>kinds.includes(x.kind)&&x.r<4.5-1e-9&&before.has(x.id)&&x.r<before.get(x.id)-0.05);
+    let back=[];
+    if(!was.s&&worse(['sb','cbar'])){ sc('sb-auto-color',false); back.push('scale-bar text'); }
+    if(!was.l&&worse(['panel','tag'])){ sc('label-auto-color',false); back.push('letters and tags'); }
+    if(back.length){ render(); px=_textPixelContrast(); did.push(`Auto contrast left off for the ${back.join(' and ')}, which read worse with it`); } }
   const lowLetters=()=>px.low.filter(([k])=>/^(panel letters|panel tags) /.test(k));
   if(lowLetters().length&&!gc('label-bg')){
     sc('label-bg',true); render(); px=_textPixelContrast();
     did.push('a dark chip behind each letter, since some pictures are too mixed for black or white letters alone');
   }
   const left=px.low.map(([k,r])=>`${k} ${r.toFixed(1)}:1`);
+  const sbLeft=px.low.some(([k])=>/^(scale-bar text|intensity-bar numbers) /.test(k));
   const msg=(did.length?did.join('; '):'Auto contrast was already on')
-    +(left.length?` — still under 4.5:1: ${left.slice(0,3).join(', ')}${left.length>3?` and ${left.length-3} more`:''}; change that text’s colour, or move it off the busy part of the picture`:' — every text over a picture now reads at 4.5:1 or better');
+    +(left.length?` — still under 4.5:1: ${left.slice(0,3).join(', ')}${left.length>3?` and ${left.length-3} more`:''}; move that text off the busy part of the picture, or change its colour`
+      +(sbLeft&&gc('sb-auto-color')?' (scale-bar text takes its Color only with Look › Scale bar appearance › Auto contrast unticked)':''):' — every text over a picture now reads at 4.5:1 or better');
   toast(msg, left.length?'warn':'ok');
+}
+// A scale-bar Color picked while Auto contrast is ticked is not drawn: say so where it is picked.
+function _sbColorHint(){
+  if(gc('sb-auto-color')) toast('Scale bars and their text follow Auto contrast (black or white, by the picture under them) while it is ticked — untick Auto contrast below to draw them in this colour','warn');
+}
+// Auto contrast for one text over a picture (scale-bar text, a tag in the label colour):
+// its ink read from the pixels under the text itself, where it is drawn (with any drag
+// offset) — not from the bar's strip, which on a plate photo is the bright plate while the
+// text sits on the dark surround (phage3-01: black text at 1.2:1). When neither black nor
+// white reaches 4.5:1 there, the text gets a dark backing chip and white ink. `fallback`
+// is the ink used when the pixels cannot be read. {ink, bg(x,y,w,h)|null}.
+function _sbTextInk(ctx,S,kind,idx,str,x,y,font,fs,fallback){
+  const [dox,doy]=getLabelOff(kind,idx);
+  if(!_keyMc) _keyMc=document.createElement('canvas').getContext('2d');
+  _keyMc.font=font; const w=_rtMeasure(_keyMc,str);
+  const bx=x+dox-w/2, by=y+doy-fs*0.8;
+  const r=_autoInkInfo(ctx,S,bx-1,by-1,w+2,fs+2);
+  if(!r) return {ink:fallback, bg:null};
+  if(r.ratio>=4.5) return {ink:r.ink, bg:null};
+  return {ink:'#ffffff', bg:(X,Y,W,H)=>({x:X-2, y:Y-1, w:W+4, h:H+Math.max(3,H*0.25), r:2, fill:_ckChipFill(true)})};
 }
 // The dark chip behind a letter: .45 black as it always was, .62 with Auto contrast on —
 // white on it reads at 6:1 over white and better over anything darker.
 function _ckChipFill(auto){ return auto?'rgba(0,0,0,.62)':'rgba(0,0,0,.45)'; }
-function _autoInk(ctx,S,x,y,w,h,fallback){
+function _autoInk(ctx,S,x,y,w,h,fallback){ const r=_autoInkInfo(ctx,S,x,y,w,h); return r?r.ink:fallback; }
+// The same choice with what it reaches: {ink, ratio} — ratio the better ink's contrast
+// against the part of the picture that is worst for it — or null when nothing was read.
+function _autoInkInfo(ctx,S,x,y,w,h){
+  const fallback=null;
   try{
     const c=ctx.canvas;
     const X=Math.max(0,Math.round(x*S)), Y=Math.max(0,Math.round(y*S));
@@ -7739,7 +7774,7 @@ function _autoInk(ctx,S,x,y,w,h,fallback){
     Ls.sort((p,q)=>p-q);
     const hi=Ls[Math.min(n-1,Math.floor(n*0.9))], lo=Ls[Math.floor(n*0.1)];
     const cW=1.05/(hi+0.05), cB=(lo+0.05)/(0.00561+0.05);      // white ink; #111111 ink
-    return cB>cW ? '#111111' : '#ffffff';
+    return cB>cW ? {ink:'#111111', ratio:cB} : {ink:'#ffffff', ratio:cW};
   }catch(e){ return fallback; }
 }
 
@@ -7797,8 +7832,38 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   const lblStep=clash ? Math.max(7,lblSz||12)+6 : 0;
   const y=pos.startsWith('t') ? dy+pad+fs+lblStep : dy+dh-pad-lblStep;
   // Auto contrast applies to text in the label colour; a channel keeps its own colour.
-  if(autoS){ const ink=_autoInk(ctx,autoS,x-2,y-fs,total+4,fs+4,lblClr); parts=parts.map(p=>p.color===lblClr?{...p,color:ink}:p); }
-  parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0); x+=widths[i]+gap; });
+  // A word that still reads under 4.5:1 on the picture under it — a channel name in its
+  // colour on a bright cell, or label-colour text on a picture too mixed for black or
+  // white — gets a backing chip, so the colour stays and the key still matches
+  // (fluor3-04: magenta and blue channel names failed contrast in every journal).
+  const bgs=parts.map(()=>null);
+  if(autoS){
+    const a=_autoInkInfo(ctx,autoS,x-2,y-fs,total+4,fs+4), ink=a?a.ink:lblClr;
+    let xx=x;
+    parts=parts.map((p,i)=>{ const own=p.color===lblClr, c=own?ink:p.color, w=widths[i];
+      const r=own?(a?a.ratio:null):_inkRatioOn(ctx,autoS,xx-1,y-fs,w+2,fs+2,c);
+      if(r!=null&&r<4.5){ const dark=(_relLum(own?'#ffffff':c)||0)>0.18;
+        bgs[i]=(X,Y,W,H)=>({x:X-2, y:Y-1, w:W+4, h:H+Math.max(3,H*0.25), r:2, fill:dark?'rgba(0,0,0,.85)':'rgba(255,255,255,.85)'});
+        xx+=w+gap; return own?{...p,color:dark?'#ffffff':'#111111'}:p; }
+      xx+=w+gap; return own?{...p,color:ink}:p; });
+  }
+  parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0,bgs[i]); x+=widths[i]+gap; });
+}
+// The contrast a given ink reaches on the picture already painted under a rectangle
+// (logical units, context scaled by S): against the tenth of the pixels worst for it.
+function _inkRatioOn(ctx,S,x,y,w,h,ink){
+  const I=_rgbaOf(ink); if(!I) return null;
+  try{
+    const c=ctx.canvas, X=Math.max(0,Math.round(x*S)), Y=Math.max(0,Math.round(y*S));
+    const W=Math.min(c.width-X,Math.max(1,Math.round(w*S))), H=Math.min(c.height-Y,Math.max(1,Math.round(h*S)));
+    if(W<1||H<1) return null;
+    const d=ctx.getImageData(X,Y,W,H).data, step=Math.max(4,Math.floor(d.length/4/4000)*4);
+    const lin=v=>{ v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); };
+    const Li=0.2126*lin(I[0])+0.7152*lin(I[1])+0.0722*lin(I[2]), rs=[];
+    for(let i=0;i<d.length;i+=step){ const L=0.2126*lin(d[i])+0.7152*lin(d[i+1])+0.0722*lin(d[i+2]); rs.push((Math.max(L,Li)+0.05)/(Math.min(L,Li)+0.05)); }
+    if(!rs.length) return null;
+    rs.sort((p,q)=>p-q); return rs[Math.floor(rs.length*0.1)];
+  }catch(e){ return null; }
 }
 // A number for the ends of an intensity bar: whole above 100, three figures below.
 // The shown region's physical size, "W × H µm" (mm above a millimetre), from the crop
@@ -11889,7 +11954,7 @@ function render(targetCanvas, exportScale, opts){
 
   // Draw a movable text label: applies its drag offset, records it in
   // figTextItems (for hit-testing + vector SVG), and paints it unless skipped.
-  function emitText(kind,idx,str,bx,by,fontStr,fillStyle,align,baseline,rot){
+  function emitText(kind,idx,str,bx,by,fontStr,fillStyle,align,baseline,rot,bgFn){
     const [dox,doy]=getLabelOff(kind,idx);
     const x=bx+dox, y=by+doy;
     ctx.font=fontStr;
@@ -11903,8 +11968,13 @@ function render(targetCanvas, exportScale, opts){
     else { bbw=w; bbh=fs; bbx=align==='center'?x-w/2:x; bby=baseline==='top'?y:baseline==='middle'?y-fs/2:y-fs; }
     const _item={kind,idx,str,x,y,fs,font:fontStr,fill:fillStyle,align,baseline,rot:rot||0,bbox:{x:bbx,y:bby,w:bbw,h:bbh}};
     if(_runs) _item.runs=_runs;
+    // A backing chip (Auto contrast, where neither black nor white reads on the picture):
+    // drawn here and by every writer from the item, as the letters' chips are.
+    const _bg=!rot&&bgFn?(typeof bgFn==='function'?bgFn(bbx,bby,bbw,bbh):bgFn):null;
+    if(_bg) _item.bg=_bg;
     figTextItems.push(_item);
     if(_skipText(_item)) return;
+    if(_bg){ ctx.save(); ctx.fillStyle=_bg.fill; ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(_bg.x,_bg.y,_bg.w,_bg.h,_bg.r||0); else ctx.rect(_bg.x,_bg.y,_bg.w,_bg.h); ctx.fill(); ctx.restore(); }
     ctx.fillStyle=fillStyle; ctx.textAlign=align; ctx.textBaseline=baseline;
     if(rot){ ctx.save(); ctx.translate(x,y); ctx.rotate(-Math.PI/2); _rtDraw(ctx,str,0,0); ctx.restore(); }
     else _rtDraw(ctx,str,x,y);
@@ -12234,11 +12304,14 @@ function render(targetCanvas, exportScale, opts){
               const sfs=+_figTextPx().toFixed(2);
               const lbl=_sbLabel(im);
               // Centred on the bar, but kept inside the panel: "20 mm" over a short bar at
-              // the edge lost its last letter in the TIFF (phage3-05).
+              // the edge lost its last letter in the TIFF (phage3-05). Its ink is read on the
+              // pixels under it when Auto contrast is on (phage3-01).
+              const sfont=`${sfs}px ${_barFontFamily()}`;
               let tcx=sbX+barPx/2;
-              { ctx.save(); ctx.font=`${sfs}px ${_barFontFamily()}`; const tw=ctx.measureText(_rtText(lbl)).width; ctx.restore();
+              { ctx.save(); ctx.font=sfont; const tw=ctx.measureText(_rtText(lbl)).width; ctx.restore();
                 if(tw/2+2<=ow/2) tcx=Math.min(Math.max(tcx, ox+tw/2+2), ox+ow-tw/2-2); }
-              emitText('sb',imgIdx,lbl, tcx, sbY-3, `${sfs}px ${_barFontFamily()}`, barInk, 'center','alphabetic',0);
+              const sa=sbAuto?_sbTextInk(ctx,S,'sb',imgIdx,lbl,tcx,sbY-3,sfont,sfs,barInk):null;
+              emitText('sb',imgIdx,lbl, tcx, sbY-3, sfont, sa?sa.ink:barInk, 'center','alphabetic',0, sa&&sa.bg);
               ctx.textAlign='left';
             }
           }
@@ -19102,7 +19175,10 @@ const _qt=v=>`“${String(v).replace(/\s+/g,' ').trim().slice(0,24)}”`;
 function _figTextSizes(){
   const out=[];
   const ann=a=>{ if(!a||a.hidden) return;
-    if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16, where:_qt(_rtText(a.text))});
+    if(a.type==='text'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16, where:_qt(_rtText(a.text)), script:_ckHasScript(a.text)});
+    // A text box's words, at the box's own size (its Fnt): it was never measured, so a
+    // 2.9 pt title passed the row and Raise left it at 4 pt in the PDF (freeform3-01).
+    if(a.type==='textbox'&&String(a.text||'').trim()) out.push({kind:'ann', fs:a.fontSize||16, where:`${_qt(_rtText(a.text))} (text box)`, script:_ckHasScript(a.text)});
     if(a.type==='legend'&&_figureKey().length) out.push({kind:'key', fs:_keyFs(), where:'(placed on the figure)'}); };
   if(layoutMode==='freeform'){
     freeformElements.forEach(el=>{ if(!el) return;
@@ -19166,7 +19242,7 @@ function _textFloorRow(k, J){
   const ok=!fail&&!soft&&!sc&&!lt;
   return {label:'Text size', ok, warn:!fail&&!ok,
     fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:null,
-    fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
+    fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:(sc&&sc.raiseTo&&!fail&&!soft?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null),
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
       +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
         :soft?` — below ${TEXT_PT_SOFT} pt: no journal FigureLab has read accepts it without a stated size, and most production desks reject it`:'')
@@ -19182,9 +19258,22 @@ function _ckScriptLow(k, min, maxPt){
   const t=S.reduce((a,b)=>b.fs<a.fs?b:a), pt=t.fs*k; if(pt>=min-0.05) return null;
   // Nature: 5–7 pt, and 70% of 7 pt is 4.9 — no size inside the range lifts them.
   const stuck=maxPt!=null&&maxPt*_RT_SCRIPT<min-0.05;
-  return {pt, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — `
-    +(stuck?`no text size inside the range lifts them (${_ckF1(maxPt)} pt text gives ${_ckF1(maxPt*_RT_SCRIPT)} pt), so write ${t.of==='chart'?'the axis in plain numbers':'the exponent out'} at full size, or keep them and say so to the journal`
-      :`a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, ${t.of==='chart'?'or plain numbers on the axis':'or write the exponent out'}`)};
+  // Exponents in text that follows the figure's text size (a chart's 10ⁿ ticks): the text
+  // size that brings them to `min`, offered as a button when it is inside the range
+  // (charts3-06: PLOS's 8 pt left 5.6 pt exponents and nothing on the row to clear them).
+  // The titles drawn a tenth larger must stay inside the range too: PLOS's 8 pt exponents
+  // need 11.5 pt text, whose 12.7 pt chart titles break its 12 pt maximum.
+  let raiseTo=null, titleStuck=false;
+  if(!stuck&&_TEXT_PT_KINDS.has(t.of)&&_ckFollowsTextPt({kind:t.of, el:t.el})){
+    const cur=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, need=Math.ceil(cur*min/pt*2)/2, fMax=_ckTextFactors().fMax;
+    if(need>cur&&(maxPt==null||need*fMax<=maxPt+0.05)&&need<=48) raiseTo=need;
+    else if(need>cur&&maxPt!=null&&need*fMax>maxPt+0.05) titleStuck=true;
+  }
+  return {pt, raiseTo, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — `
+    +(titleStuck?`the text size that lifts them to ${_ckF1(min)} pt prints the chart titles (a tenth larger) above ${_ckF1(maxPt)} pt, so no text size clears both: write the exponent out at full size in the data, or keep them and say so to the journal — this row warns, it does not fail`
+      :stuck?`no text size inside the range lifts them (${_ckF1(maxPt)} pt text gives ${_ckF1(maxPt*_RT_SCRIPT)} pt), so write ${t.of==='chart'?'the axis in plain numbers':'the exponent out'} at full size, or keep them and say so to the journal`
+      :raiseTo?`text at ${_ckF1(raiseTo)} pt (Look › Typography › Text size) brings them to ${_ckF1(min)} pt — “Text to ${_ckF1(raiseTo)} pt” sets it; all chart text grows with it, so check the charts still fit their cells — or write the exponent out at full size`
+      :`a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, or write the exponent out at full size`)};
 }
 // Lane tables keep the size they were made at (a table made before a journal preset kept
 // 13 px when everything else was rescaled): those printing below `min` pt, or below the
@@ -19245,7 +19334,12 @@ function _journalTextReport(J, ptPerPx){
     g.min=Math.min(g.min,pt); g.max=Math.max(g.max,pt); by.set(t.kind,g); });
   const bad=[...by].filter(([,g])=>(J.ptMin!=null&&g.min<J.ptMin-0.05)||(J.ptMax!=null&&g.max>J.ptMax+0.05));
   const f=v=>v.toFixed(1);
-  return { by, bad, fixable:bad.some(([k])=>_TEXT_FIXABLE.has(k)), smallest:_figSmallestText(ptPerPx),
+  // the largest text, named when the range is exceeded at the top (the smallest was named
+  // when 7.7 pt titles failed Nature's 5–7 pt: newcomer3-03)
+  const L=_figTextSizes().filter(t=>t.kind!=='script'), lg=L.length?L.reduce((a,b)=>b.fs>a.fs?b:a):null;
+  const over=J.ptMax!=null&&bad.some(([,g])=>g.max>J.ptMax+0.05), under=J.ptMin!=null&&bad.some(([,g])=>g.min<J.ptMin-0.05);
+  return { by, bad, over, under, largest:lg?{pt:lg.fs*ptPerPx, kind:lg.kind, where:lg.where||''}:null,
+    fixable:bad.some(([k])=>_TEXT_FIXABLE.has(k)), smallest:_figSmallestText(ptPerPx),
     list:[...by].map(([k,g])=>`${_TEXT_KIND[k]||k} ${g.min===g.max||Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', '),
     badList:bad.map(([k,g])=>`${_TEXT_KIND[k]||k} ${Math.abs(g.max-g.min)<0.05?f(g.min):f(g.min)+'–'+f(g.max)} pt`).join(', ') };
 }
@@ -19265,10 +19359,16 @@ function _journalTextStep(J){
   const T=_figTextSizes(), kinds=new Set(T.map(t=>t.kind));
   const st={label:null, axis:null, text:null, maps:[], anns:[], clash:false, letterFloor:false, k};
   // Chart, gene-map, bar text and the key: the figure's text size, in points.
-  if(T.some(t=>_TEXT_PT_KINDS.has(t.kind)&&!(t.el&&t.el.type==='genemap'&&_gmOwnSize(t.el)))){
-    const cur=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT;
-    let v=cur; if(J.ptMin!=null&&v<J.ptMin) v=J.ptMin; if(J.ptMax!=null&&v>J.ptMax) v=J.ptMax;
-    if(v!==cur) st.text=v;
+  // The text size is fitted by what it DRAWS: a chart's axis titles are a tenth larger than
+  // its ticks, so Nature's 7 pt text printed 7.7 pt titles and failed its own row with no
+  // button (newcomer3-03). The size is set so the largest such text prints at the maximum
+  // and the smallest at the minimum, when the range allows both.
+  if(T.some(_ckFollowsTextPt)){
+    const cur=parseFloat(gv('text-pt'))||TEXT_PT_DEFAULT, {fMin,fMax}=_ckTextFactors(T);
+    let v=cur;
+    if(J.ptMax!=null&&v*fMax>J.ptMax+0.05) v=Math.floor(J.ptMax/fMax*100)/100;
+    if(J.ptMin!=null&&v*fMin<J.ptMin-0.05) v=Math.ceil(J.ptMin/fMin*100)/100;
+    if(Math.abs(v-cur)>0.005) st.text=v;
   }
   (layoutMode==='freeform'?freeformElements:_figurePanels()).forEach(el=>{ if(!el||el.type!=='genemap'||!el.map||!_gmOwnSize(el)) return;
     const cur=_gmTextPx(el.map.style)*k; let v=cur;
@@ -19290,16 +19390,36 @@ function _journalTextStep(J){
     if(A!==a) st.axis=A;
   }
   // (the placed key is set at the figure's text size, which st.text covers)
-  const fixAnn=a=>{ if(!a||a.hidden||a.type!=='text') return;
+  const fixAnn=a=>{ if(!a||a.hidden||(a.type!=='text'&&a.type!=='textbox')) return;
     const d=a.fontSize||16, v=fit(d); if(v!==d) st.anns.push([a,v]); };
   // Annotations are drawn on freeform figures too, so their text is fitted there as well.
   if(layoutMode==='freeform'){ T.filter(t=>t.kind==='fftext').forEach(t=>{ const d=t.el.fontSize||16, v=fit(d); if(v!==d) st.anns.push([t.el,v]); }); annotations.forEach(fixAnn); }
   else { annotations.forEach(fixAnn); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(fixAnn)); }
   return st;
 }
+// Text whose size is the figure's text size (Look › Typography › Text size): chart and
+// gene-map text, bar text and the key, unless the chart or map carries a size of its own.
+function _ckFollowsTextPt(t){
+  return _TEXT_PT_KINDS.has(t.kind)&&!(t.el&&t.el.type==='genemap'&&_gmOwnSize(t.el))&&!(t.el&&t.el.type==='chart'&&t.el.chart&&t.el.chart.style&&+t.el.chart.style.fontPt>0);
+}
+// How much larger and smaller than the text size that text is drawn (chart titles 1.1×).
+function _ckTextFactors(T){
+  const base=_figTextPx()||1, F=(T||_figTextSizes()).filter(t=>t.kind!=='script'&&_ckFollowsTextPt(t)).map(t=>t.fs/base);
+  return {fMin:Math.min(1,...F), fMax:Math.max(1,...F)};
+}
 const _textStepEmpty=st=>!st||(st.label==null&&st.axis==null&&st.text==null&&!(st.maps||[]).length&&!st.anns.length);
 // A gene map set at a size of its own (its dialog's Text size, or a px size from before points).
 function _gmOwnSize(el){ const s=(el.map&&el.map.style)||{}; return +s.fontPt>0||(s.fontSize&&+s.fontSize!==12); }
+// A text box whose size was raised from d to v px: it clips its words, so a box the new
+// size no longer fits grows by the same ratio from its top-left corner (kept on the canvas),
+// and keeps its line breaks. A box that still fits is left as drawn.
+function _tbGrowFor(a, d, v){
+  if(!(v>d)||a.x2f==null) return;
+  const W=canvasLogicalW||1, H=canvasLogicalH||1, T=_tbLayout(a,W,H); if(!T||!T.overflow) return;
+  const r=v/d, x0=Math.min(a.xf,a.x2f), y0=Math.min(a.yf,a.y2f), w=Math.abs(a.x2f-a.xf), h=Math.abs(a.y2f-a.yf);
+  const nw=Math.min(1-x0, w*r), nh=Math.min(1-y0, h*r);
+  a.xf=x0; a.yf=y0; a.x2f=x0+nw; a.y2f=y0+nh;
+}
 // Bring every adjustable text size into the journal's range at final print size. The
 // heading size moves the canvas width (the row-heading band), which moves pt per px when a
 // printed width is set, so it settles over a few passes. The caller records the undo step.
@@ -19313,7 +19433,7 @@ function _journalClampText(J){
     if(st.axis!=null) sv('axis-fs',st.axis);
     if(st.text!=null) sv('text-pt',st.text);
     (st.maps||[]).forEach(([el,v])=>{ el.map.style={...el.map.style, fontPt:v, fontSize:undefined}; el._genemapCache=null; });
-    st.anns.forEach(([a,v])=>{ a.fontSize=v; });
+    st.anns.forEach(([a,v])=>{ const d=a.fontSize||16; a.fontSize=v; if(a.type==='textbox') _tbGrowFor(a, d, v); });
     changed=true;
   }
   render();
@@ -19481,8 +19601,11 @@ function _accessRows(J){
   const cRule=J&&J.access&&J.access.contrast?`${J.short||J.label}: ${J.access.contrast}`:'WCAG AA: at least 4.5:1 for text'+(J?` (${J.short||J.label} states no contrast rule)`:'');
   const lowList=[...low].sort((a,b)=>a[1]-b[1]);
   rows.push(n||low.size ? {label:'Text contrast', ok:low.size===0, warn:low.size>0&&!fail, src:J&&J.access&&J.access.contrast?_JSRC(J):'',
-    note:low.size ? lowList.slice(0,6).map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+(lowList.length>6?` and ${lowList.length-6} more`:'')
-        +` — ${fail?'below 3:1, so hard or impossible to read':'below 4.5:1'}; ${cRule}. Measured on the rendered figure: the text's colour against the picture under its strokes (the worst tenth), with any chip as drawn. Auto contrast picks black or white letters, darkens the chips, and adds a chip where a picture is too mixed for either`
+    // Each value worded by its own band: "3.35:1 — below 3:1" read as a contradiction (newcomer3-14).
+    note:low.size ? (()=>{ const L=lowList.slice(0,6), more=lowList.length>6?` and ${lowList.length-6} more`:'';
+          const grp=(a,w)=>a.length?a.map(([k,r])=>`${esc(k)} ${r.toFixed(2)}:1`).join(', ')+` — ${w}`:'';
+          return [grp(L.filter(([,r])=>r<3-1e-9),'below 3:1, so hard or impossible to read'), grp(L.filter(([,r])=>r>=3-1e-9),'below 4.5:1')].filter(Boolean).join('; ')+more; })()
+        +`; ${cRule}. Measured on the rendered figure: the text's colour against the picture under its strokes (the worst tenth), with any chip as drawn. Auto contrast picks black or white letters and bar text from the pixels under each, darkens the chips, and adds a backing chip where a picture is too mixed for either — and behind a channel name in its colour, which keeps the colour`
       : `${n} text item${n===1?'':'s'} measured (headings on the background, letters, tags and bar text on the pixels under them), lowest ${worst.toFixed(1)}:1 ✓ (${cRule})`,
     fix:low.size?(px.low.length?{a:'lblcontrast',t:'Auto contrast'}:(!gc('axis-auto-color')?{a:'contrast',t:'Auto colour'}:null)):null}
     : {label:'Text contrast', ok:true, info:true, uncounted:true, note:'Does not apply — no text to measure'});
@@ -19497,7 +19620,7 @@ function _accessRows(J){
 // judged by the worst tenth of the background in each text's box, not its median: a letter
 // half on a plaque is half unreadable. {n, worst, low:[[what, ratio]]}.
 function _textPixelContrast(){
-  const out={n:0, worst:null, low:[]};
+  const out={n:0, worst:null, low:[], all:[]};
   const cv=document.getElementById('fig-canvas'); if(!cv||!cv.width||!canvasLogicalW) return out;
   const items=[];
   if(layoutMode==='freeform') (freeformElements||[]).forEach(el=>{ if(!el||(el.type!=='image'&&el.type!=='aiicon')) return;
@@ -19547,6 +19670,7 @@ function _textPixelContrast(){
     rs.sort((p,q)=>p-q);
     const r=rs[Math.floor(rs.length*0.1)];
     out.n++; out.worst=out.worst==null?r:Math.min(out.worst,r);
+    out.all.push({id:`${t.kind}|${t.idx??''}|${t.str}`, kind:t.kind, r});
     if(r<4.5-1e-9) out.low.push([`${_TEXT_KIND[t.kind]||t.kind} ${_qt(_rtText(t.str))} (${t.fill})`, r]);
   });
   return out;
@@ -19690,9 +19814,10 @@ function _journalRows(J, g){
     const canFit=tr.fixable&&!titleClash&&!_textStepEmpty(st);
     const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin, J.ptMax);
     const extra=(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'');
+    const scFix=sc&&sc.raiseTo&&!tr.bad.length?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null;
     rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc), src,
-      fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:null,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — smallest: ${_smallTxt(tr.smallest)} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
+      fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:scFix,
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${tr.over&&!tr.under&&tr.largest?`largest: ${_smallTxt(tr.largest)}`:`smallest: ${_smallTxt(tr.smallest)}${tr.over&&tr.largest?`, largest: ${_smallTxt(tr.largest)}`:''}`} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
         : (tr.list?`${esc(tr.list)}${lt||sc?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extra}`:`No text ✓ — ${nm}: ${rng}`),
       fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
   } else rows.push(_textFloorRow(pf.ptPerPx, J));
@@ -19848,6 +19973,13 @@ function _journalFix(action){
   if(action==='lblcontrast'){ _ckAutoContrastFix(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
   if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
+  if(action==='jscript'){
+    // The text size that brings superscripts and subscripts to the minimum (the row's own figure).
+    render(); const k=_physFacts().ptPerPx, J2=_targetJournal(), min=J2&&J2.ptMin!=null?J2.ptMin:TEXT_PT_FLOOR;
+    const sc=_ckScriptLow(k, min, J2?J2.ptMax:null);
+    if(sc&&sc.raiseTo){ pushUndo(); sv('text-pt',String(sc.raiseTo)); render(); toast(`Text size ${_ckF1(sc.raiseTo)} pt — superscripts and subscripts now print at ${_ckF1(sc.raiseTo*_RT_SCRIPT)} pt; check the charts still fit their cells`,'ok'); }
+    return true;
+  }
   if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
   if(action==='jtextsoft'){
     render(); const snap=snapshotState();
