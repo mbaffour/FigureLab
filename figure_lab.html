@@ -1861,6 +1861,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <div class="sec-lbl">Names &amp; colours
         <span class="help-chip" tabindex="0" role="button" aria-label="About names and colours" data-tip="Show a group or series under another name (ΔfliC for dfliC; *fliC* for italics) without editing the data: the data name stays, so its colour, the source data and the lab style still match. A colour set here is that sample's colour in every chart and in the legend key, saved with the figure — Look › Sample colours lists them all.">?</span></div>
       <div id="chart-names" style="font-size:11px"></div>
+      <div id="chart-merge-note" style="font-size:10px;color:var(--muted);margin-top:3px;display:none"></div>
     </div>
     <div style="margin-top:8px">
       <div class="sec-lbl">Significance brackets
@@ -4491,6 +4492,7 @@ async function replacePanelImage(pid, f){
   const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
   const notes=(pm?[pm]:[]).concat(plan.notes);
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
+  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>!el.chart.link&&el.chart.unlinked&&!el.chart.unlinked.own&&(el.chart.unlinked.ids||[]).includes(im.id))) notes.push('a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values');
   toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — ${plan.warn?'crop and label kept, but':'crop, label and settings kept'}${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
@@ -12198,7 +12200,7 @@ function render(targetCanvas, exportScale, opts){
         }
         // Draw with rotate/flip transforms
         if(_plot){
-          if(!_vecHole) _dataPanelDraw(ctx, im, dx, dy, dw, dh);
+          if(!_vecHole){ _chartDrawScreen=!isExport; try{ _dataPanelDraw(ctx, im, dx, dy, dw, dh); } finally{ _chartDrawScreen=false; } }
         } else if(im.rotate||im.flipH||im.flipV){
           ctx.save();
           ctx.translate(dx+dw/2, dy+dh/2);
@@ -15106,6 +15108,7 @@ function _checkCompliance(asJ){
   if(_ff) checks.forEach((c,i)=>{ if(_FF_NA.has(c.label)) checks[i]=_ffNaRow(c.label); });
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
+  { const cr=_chartDataComplianceRow(); if(cr) checks.push(cr); }
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   // With a target journal the rows come from its own figure guide; without one the
@@ -19952,6 +19955,22 @@ function _journalS1Name(){
 const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration','Scale bar drawn','Adjustment sanity',
   'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
 _GENERAL_ROWS.push('Legend key on the figure');
+_GENERAL_ROWS.push('Charts from densitometry');
+// Compliance: every chart made from densitometry — linked and current, out of date, or
+// typed by hand (and whether its blot changed since). Only figures with one get the row.
+function _chartDataComplianceRow(){
+  const L=_figureCharts().map(el=>({el, ss:_chartSourceState(el)})).filter(q=>!['none','own'].includes(q.ss.state));
+  if(!L.length) return null;
+  const nm=el=>esc(_isDataPanel(el)?(_rtText(formatLabel(el.label))||'?'):(el.letter?_rtText(formatLabel(el.letter)):`“${el.label||'chart'}”`));
+  let fail=false, warn=false;
+  const notes=L.map(({el,ss})=>{
+    if(ss.state==='linked') return `${nm(el)}: ${esc(ss.text)} ✓`;
+    if(ss.state==='stale'){ fail=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Update from densitometry`; }
+    if(ss.state==='unlinkedChanged'){ fail=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Link again, or check the typed values`; }
+    warn=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Link again, or These are my own values`;
+  });
+  return {label:'Charts from densitometry', ok:!fail&&!warn, warn:warn&&!fail, note:notes.join('; ')};
+}
 function _journalRows(J, g){
   const rows=[], src=_JSRC(J), V=J.verified, nm=esc(J.short||J.label);
   const f1=v=>(+v).toFixed(1).replace(/\.0$/,'');
@@ -20969,6 +20988,10 @@ async function exportSubmissionPackage(){
       const q=v=>_csvCell(v);
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
+      { const ss=_chartSourceState(el);
+        if(ss.state==='linked') head.push(`# Linked to the densitometry of ${ss.from} (source-data/panel_…-densitometry.csv); current with it`);
+        else if(ss.state==='stale') head.push(`# WARNING: out of date with the densitometry of ${ss.from} — it changed after this chart was made`);
+        else if(ss.state==='unlinked'||ss.state==='unlinkedChanged') head.push(`# ${ss.state==='unlinkedChanged'?'WARNING: ':''}Values entered by hand; ${ss.text}`); }
       // The groups a mark joins, by the names the chart shows (and the data's names), not
       // only their positions: two "p < 0.001" marks could not be told apart.
       { let cats=null, keys=null; try{ const st=_chartStatsCached(el); cats=st.categories||null; keys=st.catKeys||null; }catch(e){}
@@ -23484,10 +23507,18 @@ function _dataCaption(el){
       const g=i=>_rtText(String((keys||[])[+i]??`group ${+i+1}`));
       bits.push(`Brackets: ${sig.map(a=>`${_rtText(String(a.text||''))} (${g(a.a)} vs ${g(a.b)})`).join('; ')}, from the author’s own statistical test.`);
     }
-    const src=ch.data&&ch.data.sourceName;
-    if(src) bits.push(ch.data.edited?`Data from ${src}, edited in FigureLab.`:`Data from ${src}.`);
-    else if(ch.data&&ch.data.source==='paste') bits.push('Data typed or pasted into FigureLab.');
-    const note=String(ch.caption||'').trim(); if(note) bits.push(note.replace(/\.?$/,'.'));
+    // Where the numbers come from, as they are now: a chart typed by hand, or one whose
+    // blot has changed, is not captioned as that panel's densitometry.
+    const ss=_chartSourceState(el), src=ch.data&&ch.data.sourceName;
+    let note=String(ch.caption||'').trim();
+    if(ss.state==='stale') bits.push(`[⚠ Out of date: the densitometry of ${ss.from} has changed since this chart was made — update it before submitting.]`);
+    else if(ss.state==='unlinked'||ss.state==='unlinkedChanged'){
+      bits.push(`Values entered by hand${ss.state==='unlinkedChanged'?'':` from the densitometry of ${ss.from}`}.`);
+      if(ss.state==='unlinkedChanged') bits.push(`[⚠ Not current: the densitometry of ${ss.from} has changed since these values were entered — check them before submitting.]`);
+      if(/^Densitometry of panel/.test(note)&&ss.state==='unlinkedChanged') note='';
+    } else if(src&&ss.state!=='own') bits.push(ch.data.edited?`Data from ${src}, edited in FigureLab.`:`Data from ${src}.`);
+    else if(!src&&ch.data&&ch.data.source==='paste') bits.push('Data typed or pasted into FigureLab.');
+    if(note) bits.push(note.replace(/\.?$/,'.'));
   } else if(el.type==='genemap'&&el.map){
     const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
     const t=_rtText((mp.style&&mp.style.title)||'');
@@ -24557,7 +24588,7 @@ function _chartPlotted(el){
   // wells): it used to be written blank, which reads as missing.
   const kOf=(err,n)=>err>0||(n>1&&(ch.error==='sd'||ch.error==='sem'))?ek:'';
   if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, skey:s.key, x:p.x, xkey:p.x, n:p.n, mean:p.y, err:p.err, kind:kOf(p.err,p.n)})));
-  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, skey:b.key, x:g.cat, xkey:g.key, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.missing?'':kOf(b.err,b.n)})));
+  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, skey:b.key, x:g.cat, xkey:g.members?g.members.join(' + '):g.key, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.missing?'':kOf(b.err,b.n)})));
   else if(st.boxes) st.boxes.forEach(b=>out.push({series:st.nSeries>1?b.name:'', skey:st.nSeries>1?b.key:'', x:st.nSeries>1?b.cat:b.name, xkey:st.nSeries>1?st.catKeys[b.ci]:b.key, n:b.n, mean:b.mean,
     err:ch.kind==='beeswarm'?b.err:b.sd, kind:ch.kind==='beeswarm'?(b.errKind==='sem'?'SEM = SD/sqrt(n)':b.errKind==='none'?'':'SD (n-1)'):'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
   const bk=st.boxes&&st.boxes[0]&&ch.kind==='beeswarm'?st.boxes[0].errKind:'sd';
@@ -28386,7 +28417,39 @@ function _chartShape(ch, warn){
   else { if(sc==null) sdefs.forEach(sd=>skeys.push(sd.key));
     const seen=new Set(skeys); obs.forEach(o=>{ if(!seen.has(o.s)){ seen.add(o.s); skeys.push(o.s); } }); }
   if(wide) obs.forEach(o=>{ o.s=skeys[0]; });
-  return {obs, cats:_chartOrdered(ch,cats), catsData:cats, skeys, wide, sc, yLog, xLog};
+  // Samples shown under one name are one sample: lanes (or strains, or value columns)
+  // given the same "shown as" name are pooled into one group — the first one's place,
+  // the replicates averaged into mean ± error with n and the points — and series (the
+  // panels of a densitometry chart) likewise. Three lanes named WT used to stay three
+  // bars, each in its own colour, so the only way to a mean ± SD was to retype the data.
+  const merged={cats:[], series:[]};
+  const canon=(keys, out)=>{ const by=new Map(), m=new Map();
+    keys.forEach(k=>{ const d=_rtText(String(_chartDisp(ch,k))).trim(); if(d===''){ m.set(k,k); return; }
+      if(!by.has(d)) by.set(d,{key:k, name:d, members:[]}); const g=by.get(d); g.members.push(k); m.set(k,g.key); });
+    by.forEach(g=>{ if(g.members.length>1) out.push(g); }); return m; };
+  let cats2=cats, skeys2=skeys;
+  if(_chartCategorical(kind)&&cats.length>1){ const cm=canon(cats, merged.cats);
+    if(merged.cats.length){ obs.forEach(o=>{ o.cat=cm.get(o.cat)??o.cat; }); cats2=cats.filter(c=>cm.get(c)===c); } }
+  if(!wide&&skeys.length>1){ const sm=canon(skeys, merged.series);
+    if(merged.series.length){ obs.forEach(o=>{ o.s=sm.get(o.s)??o.s; }); skeys2=skeys.filter(k=>sm.get(k)===k); } }
+  return {obs, cats:_chartOrdered(ch,cats2), catsData:cats2, skeys:skeys2, wide, sc, yLog, xLog, merged};
+}
+// The groups a chart pools under one shown-as name: [{key, name, members:[data names]}].
+function _chartMerged(ch){ try{ const M=_chartShape(ch,{dropped:0}).merged; return M.cats.concat(M.series); }catch(e){ return []; } }
+// A chart whose shown-as names have just pooled samples draws them as mean ± SD with the
+// points, unless its error bars were already chosen. before: the pooled groups beforehand.
+function _chartMergeDefaults(ch, before){
+  if(!ch||_chartNumericX(ch.kind)||['heatmap','survival'].includes(ch.kind)) return false;
+  const now=_chartMerged(ch), was=new Set((before||[]).map(g=>g.name+'\u0001'+g.members.length));
+  if(!now.some(g=>!was.has(g.name+'\u0001'+g.members.length))) return false;
+  let changed=false;
+  if(ch.error==='none'&&ch.kind!=='stackedBar'){ ch.error='sd'; changed=true; }
+  if(_chartCategorical(ch.kind)&&ch.kind!=='stackedBar'&&!(ch.style&&ch.style.showPoints)){ ch.style=ch.style||{}; ch.style.showPoints=true; changed=true; }
+  return changed;
+}
+// In words: "WT: Lane 2, Lane 3, Lane 4 (n = 3)".
+function _chartMergedText(ch){
+  return _chartMerged(ch).map(g=>`${g.name}: ${g.members.map(k=>_rtText(String(k))).join(', ')}`).join('; ');
 }
 // Mean, error and n of the replicates at one point. SD is the sample SD (n−1); SEM =
 // SD/√n; from a column, the value given (the first, if rows repeat).
@@ -28592,7 +28655,8 @@ function _chartStats(el){
       const color=byCat?catCol[ci]:scol[si];
       return {series:snames[si], key:sk, color, value:a.mean, err:a.err, n:q.vals.length, vals:q.vals, missing:!q.vals.length};
     });
-    return {cat:cats[ci], key:c, bars};
+    const mg=S.merged&&S.merged.cats.find(q=>q.key===c);
+    return {cat:cats[ci], key:c, bars, members:mg?mg.members:null};
   });
   // y domain: include error bars, the overlaid points and, for stacked, the RUNNING
   // cumulative extent (not just the net total) so a mixed-sign stack never draws outside the plot.
@@ -28779,6 +28843,7 @@ function _fmtLogTicks(ticks){
     return k===1?`10^{${e}}`:`${k}×10^{${e}}`; });
 }
 let _chartClipSeq=0;
+var _chartDrawScreen=false;   // true while the on-screen canvas draws a chart (never an export)
 // Draw a chart into `emit`, in the element's LOCAL coordinate space (0,0..w,h).
 // Callers translate to el.x,el.y (and rotate) around this.
 function _chartDraw(el, emit){
@@ -28824,9 +28889,13 @@ function _chartDraw(el, emit){
   if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`);
   if(outside) notes.push(`${outside} value${outside>1?'s':''} outside the axis range not shown`);
   if(cut) notes.push(`${cut} error bar${cut>1?'s':''} cut at the axis limit`);
-  // Short, so it fits a one-column chart (it was cut at "…it was mad": blot3-14); the
-  // Chart dialog says what changed and updates it.
-  if(ch.link&&!_chartGesturing()&&_chartLinkState(el).stale) notes.push('⚠ out of date');
+  let screenNote='';
+  if(!_chartGesturing()&&el!==_chartPrevEl){ const ss=_chartSourceState(el);
+    if(ss.state==='stale') notes.push('⚠ out of date')   // short, so it fits a one-column chart (blot3-14); the Chart dialog says what changed;
+    else if(ss.state==='unlinkedChanged') notes.push(`⚠ typed values — the densitometry of ${ss.from} has changed since`);
+    // On screen only, over the chart's top edge (it takes no room, so the layout is the
+    // export's): a chart typed by hand is flagged where you work, not in the export.
+    else if(ss.state==='unlinked'&&_chartDrawScreen) screenNote=`⚠ typed values · not linked to ${ss.from}`; }
   const noteH=notes.length?notes.length*(T+1)+2*u:0;
   // Significance brackets need room above the tallest group.
   const cats0=stat.categories||[];
@@ -29065,6 +29134,9 @@ function _chartDraw(el, emit){
   // author set, a cut baseline), on the figure itself so it travels with it — on lines
   // of their own under the x-axis title.
   notes.forEach((t,i)=>emit.text(t, px0, H-2*u-(notes.length-1-i)*(T+1), font(T), '#b00', 'left', 'alphabetic'));
+  if(screenNote){ const f=font(Math.max(8,T*0.8)), w=_rtText(screenNote).length*Math.max(8,T*0.8)*0.55+6;
+    emit.rect(W-w-2, 1, w, Math.max(8,T*0.8)+4, 'rgba(255,248,225,0.92)', '#c77700', 0.5);
+    emit.text(screenNote, W-5, Math.max(8,T*0.8)+1, f, '#8a4b00', 'right', 'alphabetic'); }
   // Legend: each series drawn the way it is plotted (a line with its marker, a dot, a bar).
   if(st.showLegend){
     const items=stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name,color:s.color})):(stat.boxes?stat.boxes.map(b=>({name:b.name,color:b.color})):[]));
@@ -29169,7 +29241,7 @@ function _drawChartElement(el, ctx, isExport){
     ctx.drawImage(el._chartCache, el.x, el.y, el.w, el.h); return;
   }
   ctx.save(); ctx.translate(el.x, el.y);
-  _chartDraw(el, _chartEmitCanvas(ctx));
+  _chartDrawScreen=!isExport; try{ _chartDraw(el, _chartEmitCanvas(ctx)); } finally{ _chartDrawScreen=false; }
   ctx.restore();
   // Refresh the idle proxy (logical size) for the next gesture frame — never used for export.
   if(!isExport){
@@ -29501,6 +29573,78 @@ function _chartLinkState(el){
   const same=JSON.stringify(T.columns)===JSON.stringify(ch.data.columns)&&JSON.stringify(T.rows)===JSON.stringify(ch.data.rows);
   return same?{stale:false, table:T}:{stale:true, why:'the analysis has changed since the chart was made', table:T};
 }
+// Where a chart's numbers come from and whether they still match it — one answer for the
+// Chart dialog, the figure, the ⚙ row, the caption, compliance and the source data:
+//   linked           made from the densitometry and current with it
+//   stale            linked, but the analyses have changed (↻ Update reads them again)
+//   unlinked         its data were edited by hand after it was made from the densitometry;
+//                    the panels have not changed since (or, for a chart unlinked before this
+//                    was recorded, FigureLab cannot tell: unknown)
+//   unlinkedChanged  edited by hand, and the densitometry it came from has changed since
+//   own / none       the author's own values, or no densitometry behind it
+// A chart edited by hand used to keep "Data from densitometry, panel A" in its caption
+// and pass compliance after its blot was replaced, with no word anywhere.
+function _chartSourceState(el){
+  const ch=el&&el.chart; if(!ch) return {state:'none'};
+  if(ch.link){ const st=_chartLinkState(el), from=ch.link.panelNames||'its panels';
+    return st.stale?{state:'stale', from, why:st.why, text:`out of date with the densitometry of ${from}: ${st.why}`}
+      :{state:'linked', from, text:`linked to the densitometry of ${from} and current with it`}; }
+  const U=ch.unlinked;
+  if(U&&U.own) return {state:'own'};
+  let from=null, changed=null;
+  if(U){ from=U.panelNames||'its panels';
+    if(U.snap){ const T=_gelChartTable(U.ids||[], U.metric, U.names||null);
+      changed=!!T.error||JSON.stringify(T.columns)!==JSON.stringify(U.snap.columns)||JSON.stringify(T.rows)!==JSON.stringify(U.snap.rows); } }
+  else { const sn=String((ch.data&&ch.data.sourceName)||'');
+    // Unlinked before the record was kept: the data still name the densitometry. Its
+    // values are compared with the densitometry as it is now, lane by lane.
+    if(/^densitometry, panels? /.test(sn)&&ch.data.source!=='densitometry'){ from=sn.replace(/^densitometry, /,'');
+      const R=_chartRelinkSpec(ch), T=R?_gelChartTable(R.ids, R.metric, R.names):null, D=ch.data.rows||[];
+      if(T&&T.error) changed=true;
+      else if(T&&T.rows.length===D.length) changed=T.rows.some((r,i)=>JSON.stringify(r.slice(1))!==JSON.stringify(D[i].slice(1)))?'values':false; } }
+  if(from==null) return {state:'none'};
+  if(changed==='values') return {state:'unlinkedChanged', from, text:`typed by hand and no longer linked to the densitometry of ${from}, and its values no longer match that densitometry (re-analysed or replaced since, or typed differently)`};
+  if(changed) return {state:'unlinkedChanged', from, text:`typed by hand and no longer linked to the densitometry of ${from}, which has changed since (re-analysed, re-cropped or replaced) — the chart may not show what the blot now shows`};
+  return {state:'unlinked', from, unknown:changed==null, text:`typed by hand and no longer linked to the densitometry of ${from} — a re-analysis does not update it${changed==null?'; FigureLab cannot tell whether that densitometry has changed since':''}`};
+}
+// The link a hand-edited chart came from, to link it again: from its record, else (a
+// chart unlinked before the record was kept) from the panel letters its data name.
+function _chartRelinkSpec(ch){
+  const U=ch&&ch.unlinked;
+  if(U&&U.ids&&U.ids.length) return {ids:U.ids, metric:U.metric, metricLabel:U.metricLabel, panelNames:U.panelNames, names:U.names||null};
+  const sn=String((ch&&ch.data&&ch.data.sourceName)||''); if(!/^densitometry, panels? /.test(sn)) return null;
+  const L=sn.replace(/^densitometry, panels? /,'').split(/\s*,\s*/).filter(Boolean);
+  const P=L.map(l=>images.find(p=>p&&p.gelAnalysis&&_rtText(formatLabel(p.label))===l));
+  if(!P.length||P.some(p=>!p)) return null;
+  const metric=_gelBestMetric(P[0]); if(!metric) return null;
+  const names={}; P.forEach(p=>{ names[p.id]=`Panel ${_rtText(formatLabel(p.label))}`; });
+  return {ids:P.map(p=>p.id), metric, metricLabel:_gelChartMetricLabel(metric,P), panelNames:`panel${P.length>1?'s':''} ${L.join(', ')}`, names};
+}
+// Link a hand-edited chart (the dialog's draft) to its densitometry again: its values are
+// read afresh from the analyses; its names, colours and pooled lanes stay.
+function _chartRelinkDraft(){
+  const ch=_chartDraft; if(!ch) return;
+  const R=_chartRelinkSpec(ch); if(!R){ toast('Cannot link again: the panels it was made from are no longer in the figure or no longer analysed','warn'); return; }
+  _chartLinkReanalyse(R.ids);
+  const T=_gelChartTable(R.ids, R.metric, R.names);
+  if(T.error){ toast(`Cannot link again: ${T.error} — open ⫼ Lanes & bands on it`,'warn'); return; }
+  const names={}; R.ids.forEach((id,i)=>{ names[id]=T.names[i]; });
+  ch.link={kind:'gel', ids:R.ids, metric:R.metric, metricLabel:R.metricLabel, panelNames:R.panelNames, names};
+  delete ch.unlinked;
+  ch.data=Object.assign({}, ch.data, {columns:T.columns, rows:T.rows, source:'densitometry', sourceName:`densitometry, ${R.panelNames}`});
+  ch.mapping=Object.assign({}, ch.mapping, {xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, layout:'xcol'});
+  document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
+  _chartModalPickers(); _chartModalRefresh();
+  toast('Linked again: the values are read from the densitometry — Apply to keep it','ok');
+}
+// "These are my own values": the chart no longer claims the densitometry it came from.
+function _chartOwnValuesDraft(){
+  const ch=_chartDraft; if(!ch) return;
+  ch.unlinked=Object.assign({}, ch.unlinked||{}, {own:true});
+  if(ch.data&&/^densitometry, /.test(String(ch.data.sourceName||''))) ch.data.sourceName='';
+  if(/^Densitometry of panel/.test(String(ch.caption||''))){ ch.caption=''; sv('chart-caption',''); }
+  _chartModalRefresh();
+}
 // Re-read every linked chart from its analyses (called whenever an analysis changes).
 function _chartLinksSync(){
   let n=0;
@@ -29546,6 +29690,34 @@ function _gelMetricWhyNot(im, metric){
   if(metric==='relRef') return 'no reference lane';
   return 'it is normalised, and this panel is not';
 }
+// The lanes' names from the panel's lane table, as {"Lane 2": "WT", …}: each lane's
+// text cells, and "IPTG+" for a + or − under a named row. Lanes named alike in the table
+// (WT WT WT R42P …) are then one sample on the chart. Only a table with a row of names
+// (text, not only + and −) names the lanes: a table of + and − alone says what was added,
+// not which sample a lane is (two lanes alike in it may be different strains). null when
+// the table's columns are not the analysed lanes (another count) or it names nothing.
+function _gelLaneTableNames(im){
+  const a=im&&im.gelAnalysis, t=im&&im.laneTable;
+  if(!a||!t||!_ltHasContent(t)||_ltLanes(im)!==a.lanes.length) return null;
+  const pm=v=>v==='+'||v===LT_MINUS, out={};
+  if(!t.rows.some(r=>(r.cells||[]).some(v=>{ v=_ltNorm(v); return v&&!pm(v)&&!/^M$/i.test(v); }))) return null;
+  for(let li=0; li<a.lanes.length; li++){
+    if(a.ladder&&a.ladder.lane===li) continue;
+    const parts=[];
+    t.rows.forEach(r=>{ const v=_ltNorm((r.cells||[])[li]); if(!v) return; const nm=String(r.name||'').trim();
+      if(pm(v)){ if(nm) parts.push(nm+(v==='+'?'+':'−')); } else parts.push(v); });
+    if(parts.length) out[`Lane ${li+1}`]=parts.join(' ');
+  }
+  return Object.keys(out).length?out:null;
+}
+// Lane names from the lane table onto a chart: only where neither the chart nor the
+// figure names that lane yet. Returns the lanes named.
+function _chartSeedLaneNames(ch, im){
+  const N=_gelLaneTableNames(im); if(!N) return 0;
+  const F=_sampleNames(); ch.names=ch.names||{}; let n=0;
+  Object.entries(N).forEach(([k,v])=>{ if((ch.data.rows||[]).some(r=>r[0]===k)&&!_own(ch.names,k)&&!_own(F,k)){ ch.names[k]=v; n++; } });
+  return n;
+}
 // One click from the lanes & bands dialog: chart the analysed panels' values, or update
 // the chart already linked to this panel.
 function chartFromDensitometry(idx){
@@ -29590,7 +29762,8 @@ function chartFromDensitometry(idx){
     ch.mapping=Object.assign({}, ch.mapping, {xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, layout:'xcol'});
     if(T.names.length>1&&ch.kind==='bar') ch.kind='groupedBar';
     ch.style.showLegend=T.names.length>1;
-    ch.link=link;
+    ch.link=link; delete ch.unlinked;
+    { const before=_chartMerged(ch); if(_chartSeedLaneNames(ch, me)) _chartMergeDefaults(ch, before); }
     old._chartKey=''; old._chartStat=null; if(_isDataPanel(old)) _dataPanelRefresh(old, true);
     _samplePinSync();
     logAction('chartFromDensitometry',{panels:ids.length, metric, updated:true});
@@ -29606,6 +29779,10 @@ function chartFromDensitometry(idx){
   ch.style.showLegend=T.names.length>1;
   ch.caption=caption;
   ch.link=link;
+  // Lanes named in the lane table are named on the chart; lanes named alike are one
+  // sample (mean ± SD with the points), and the chart stays linked.
+  if(_chartSeedLaneNames(ch, me)){ _chartMergeDefaults(ch, []); const mt=_chartMergedText(ch);
+    notes.push(`lanes named from the lane table${mt?` — ${mt} pooled as one sample each (mean ± SD with the points)`:''}`); }
   const w=380, h=280;
   let where='';
   if(layoutMode!=='freeform'){
@@ -29838,11 +30015,41 @@ function _chartModalRefresh(){
   if(pn.empty) bits.push('⚠ no rows read yet — a header row and at least one data row');
   document.getElementById('chart-delim-info').textContent=bits.join(' · ');
   const ln=document.getElementById('chart-link-note');
-  if(ln){ const L=ch.link; ln.style.display=L?'block':'none';
-    if(L){ const st=_chartLinkState({chart:ch}); ln.innerHTML=st.stale?`<span style="color:var(--warn)">⚠ Linked to the densitometry of ${esc(L.panelNames||'its panels')}, which has changed since: ${esc(st.why)}.</span> <button class="btn" style="padding:0 6px;font-size:10px" onclick="_chartLinkUpdateDraft()">↻ Update from densitometry</button>`
-      :`Linked to the densitometry of ${esc(L.panelNames||'its panels')} (${esc(L.metricLabel||'')}) — a re-analysis updates this chart. Editing the data here unlinks it.`; } }
-  _chartRenderNames(); _chartRenderSigList(); _chartRenderRefList();
+  if(ln) ln.innerHTML=_chartLinkNoteHtml(ch), ln.style.display=ln.innerHTML?'block':'none';
+  _chartRenderNames(); _chartMergeNote(); _chartRenderSigList(); _chartRenderRefList();
   _chartPreview();
+}
+// The dialog's line on where the data come from. A linked chart whose data box was
+// edited says Apply will unlink it (it used to say the analysis had changed); one whose
+// analyses changed offers ↻ Update; a chart edited by hand earlier says it is not linked,
+// whether its blot changed since, and offers to link it again or keep the values as the
+// author's own.
+function _chartLinkNoteHtml(ch){
+  const btn=(fn,t,tip)=>` <button class="btn" style="padding:0 6px;font-size:10px" onclick="${fn}()"${tip?` title="${esc(tip)}"`:''}>${t}</button>`;
+  const warn=t=>`<span style="color:var(--warn)">${t}</span>`;
+  const L=ch.link;
+  if(L){
+    const from=esc(L.panelNames||'its panels'), T=_chartLinkTable(ch);
+    if(T.error) return warn(`⚠ Linked to the densitometry of ${from}, which has changed since: ${esc(T.error)}.`)+btn('_chartLinkUpdateDraft','↻ Update from densitometry');
+    const same=(a,b)=>JSON.stringify(a.columns)===JSON.stringify(b.columns)&&JSON.stringify(a.rows)===JSON.stringify(b.rows);
+    if(same(T, ch.data)) return `Linked to the densitometry of ${from} (${esc(L.metricLabel||'')}) — a re-analysis updates this chart. To pool replicate lanes, give them one name under Names & colours (it stays linked); editing the numbers here unlinks it.`;
+    const el=_selectedChartEl(), C=el&&el.chart&&el.chart.data;
+    if(C&&same(C, ch.data)) return warn(`⚠ Linked to the densitometry of ${from}, which has changed since: the analysis has changed since the chart was made.`)+btn('_chartLinkUpdateDraft','↻ Update from densitometry');
+    return warn(`⚠ You edited the data: Apply unlinks this chart from the densitometry of ${from} — a re-analysis will no longer update it, and the chart, caption and compliance check will say it is typed by hand.`)+btn('_chartRevertDataDraft','Undo my edit','Put back the linked values');
+  }
+  const ss=_chartSourceState({chart:ch});
+  if(ss.state==='unlinked'||ss.state==='unlinkedChanged'){
+    const R=_chartRelinkSpec(ch);
+    return warn(`⚠ Not linked: ${esc(ss.text)}.`)+(R?btn('_chartRelinkDraft','↻ Link again','Read the values from the densitometry again (the typed values are replaced; names and pooled lanes stay)'):'')
+      +btn('_chartOwnValuesDraft','These are my own values','Keep the typed values; the caption and checks stop naming the densitometry');
+  }
+  return '';
+}
+function _chartRevertDataDraft(){
+  const ch=_chartDraft, el=_selectedChartEl(); if(!ch||!el) return;
+  ch.data=JSON.parse(JSON.stringify(el.chart.data)); ch.mapping=JSON.parse(JSON.stringify(el.chart.mapping||{}));
+  document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
+  _chartModalPickers(); _chartModalRefresh();
 }
 // Draw the draft as Apply would, with its pending colours.
 function _chartPreview(){
@@ -29864,13 +30071,16 @@ function _chartRenderNames(){
   let stat=null; try{ stat=_chartStats({chart:ch, w:300, h:200}); }catch(e){ stat=null; }
   if(!stat||stat.kind==='heatmap'){ w.innerHTML='<span style="font-size:10px;color:var(--muted)">—</span>'; return; }
   const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
-  const items=stat.curves?stat.curves.map(c=>({key:c.name, color:c.color})):
+  let items=stat.curves?stat.curves.map(c=>({key:c.name, color:c.color})):
     stat.series?stat.series.map(s=>({key:s.key, color:s.color})):
     (stat.boxes&&!(stat.nSeries>1))?stat.boxes.map(b=>({key:b.key, color:b.color, cat:true})):
     stat.catColours?stat.catColours.map(c=>({key:c.key, color:c.color, cat:true})):
     // One series of bars: the categories are the samples, so they carry the colours.
     (stat.groups&&(stat.seriesNames||[]).length===1)?stat.groups.map(g=>({key:g.key, color:g.bars[0].color, cat:true})):
     (stat.seriesNames||[]).map(s=>({key:s.key, color:s.color}));
+  // Samples pooled under one name keep a row each, so a name can be changed back.
+  { const mem=new Map(_chartMerged(ch).map(g=>[g.key,g.members]));
+    if(mem.size) items=items.flatMap(it=>mem.has(it.key)?mem.get(it.key).map(k=>Object.assign({}, it, {key:k})):[it]); }
   const catOrder=stat.catKeys&&((stat.boxes&&!(stat.nSeries>1))||stat.catColours||(stat.groups&&(stat.seriesNames||[]).length===1))?stat.catKeys:null;
   const orderBtns=stat.catKeys&&!catOrder;   // series coloured, categories still reorderable below
   const F=_sampleNames();
@@ -29888,8 +30098,25 @@ function _chartRenderNames(){
 function _chartNameEdit(key,val){
   const ch=_chartTarget(); if(!ch) return;
   ch.names=ch.names||{}; val=String(val??'');
+  const before=_chartMerged(ch);
   if(val.trim()===''||val===key) delete ch.names[key]; else ch.names[key]=val;
-  if(_chartDraft===ch){ _chartDraftNames[key]=(val.trim()===''||val===key)?null:val; _chartPreview(); }
+  // A densitometry chart's lanes ("Lane 2") are this chart's own: another blot's Lane 2
+  // is another sample, so the name is not made the figure's.
+  const own=_chartOwnKey(ch, key);
+  if(_chartDraft===ch){
+    if(!own) _chartDraftNames[key]=(val.trim()===''||val===key)?null:val;
+    if(_chartMergeDefaults(ch, before)){ sv('chart-err', ch.error); sc('chart-points', !!ch.style.showPoints); _chartRenderErrCols(); }
+    _chartMergeNote(); _chartPreview(); }
+}
+function _chartOwnKey(ch, key){ return !!((ch.link||ch.unlinked)&&/^Lane \d+$/.test(String(key))); }
+// Under Names & colours: which samples one shown-as name pools, and how they are drawn.
+function _chartMergeNote(){
+  const ch=_chartDraft, w=document.getElementById('chart-merge-note'); if(!ch||!w) return;
+  const M=_chartMerged(ch);
+  if(!M.length){ w.style.display='none'; w.textContent=''; return; }
+  const ek=ch.error==='sd'?'mean ± SD':ch.error==='sem'?'mean ± SEM':ch.error==='column'?'mean, error from a column':'mean (no error bars)';
+  w.style.display='block';
+  w.textContent=`One name, one sample — ${M.map(g=>`${g.name}: ${g.members.map(k=>_rtText(String(k))).join(', ')} (n = ${g.members.length})`).join('; ')}: drawn as one ${_chartNumericX(ch.kind)?'series':'group'}, ${ek}${ch.style&&ch.style.showPoints?', with the points':''}.${ch.link?' The chart stays linked to the densitometry.':''} Give them different names to show them apart.`;
 }
 // The figure's "shown as" names: {data name: shown as, or null to show the data name}.
 // Inside the caller's undo step; a chart's own name for one of these is dropped.
@@ -29897,10 +30124,11 @@ function _setSampleNames(map, self){
   const F=Object.assign({}, _sampleNames()), keys=Object.keys(map);
   // The other charts that show one of these names, so the toast can say where it changed.
   const also=_allCharts().filter(el=>el!==self&&_sampleDrawn(el).some(o=>keys.includes(o.key))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
+  const pooled=new Map(_allCharts().filter(el=>el!==self).map(el=>[el,_chartMerged(el.chart)]));
   Object.entries(map).forEach(([k,v])=>{ if(v==null||String(v).trim()===''||v===k) delete F[k]; else F[k]=String(v);
     _allCharts().forEach(el=>{ if(el.chart.names&&_own(el.chart.names,k)){ delete el.chart.names[k]; el._chartKey=''; el._chartStat=null; } }); });
   sv('sample-names', Object.keys(F).length?JSON.stringify(F):'');
-  _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; if(_isDataPanel(el)) _dataPanelRefresh(el, true); });
+  _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; if(pooled.has(el)) _chartMergeDefaults(el.chart, pooled.get(el)); if(_isDataPanel(el)) _dataPanelRefresh(el, true); });
   logAction('sampleNames',{set:Object.keys(map)});
   return also;
 }
@@ -29950,7 +30178,15 @@ function applyChartModal(){
     // Data brought in by ↻ Update from densitometry are the link's own; only data typed or
     // pasted by hand unlink the chart.
     if(ch.link){ const T=_chartLinkTable(ch);
-      if(T.error||JSON.stringify(T.columns)!==JSON.stringify(ch.data.columns)||JSON.stringify(T.rows)!==JSON.stringify(ch.data.rows)){ ch.link=null; toast('Chart data edited by hand — it is no longer linked to the densitometry','warn'); }
+      if(T.error||JSON.stringify(T.columns)!==JSON.stringify(ch.data.columns)||JSON.stringify(T.rows)!==JSON.stringify(ch.data.rows)){
+        // A record of what it was linked to, and of the densitometry then: the chart, its
+        // caption, the compliance check and the source data say it is typed by hand, and
+        // that its blot changed if it changes later.
+        const L=ch.link;
+        ch.unlinked={ids:(L.ids||[]).slice(), metric:L.metric, metricLabel:L.metricLabel, panelNames:L.panelNames, names:_chartLinkNames(L, old),
+          snap:T.error?null:{columns:T.columns, rows:T.rows}, at:new Date().toISOString()};
+        ch.link=null;
+        toast(`Chart data edited by hand — it is no longer linked to the densitometry of ${L.panelNames||'its panels'}: a re-analysis will not update it (the Chart dialog can link it again)`,'warn'); }
       else ch.data.source='densitometry'; }
     // The caption names the file the chart came from; it says so when the table was then
     // edited or replaced by hand (it used to cite a raw file whose values were pasted over).
@@ -35759,7 +35995,10 @@ function updateElemPropsBar(){
   const connPane=document.getElementById('ep-conn-props'); if(connPane) connPane.style.display=isConn?'flex':'none';
   if(isChart){ const k=document.getElementById('ep-chart-kind'); if(k) k.value=el.chart.kind; const p=document.getElementById('ep-chart-palette'); if(p) p.value=el.chart.style.palette;
     const lk=document.getElementById('ep-chart-link');
-    if(lk){ const L=el.chart.link, st=L?_chartLinkState(el):null; lk.style.display=L?'inline':'none';
+    const ss=lk&&!el.chart.link?_chartSourceState(el):null;
+    if(ss&&(ss.state==='unlinked'||ss.state==='unlinkedChanged')){ lk.style.display='inline';
+      lk.innerHTML=`<span style="color:var(--warn)" title="${esc(ss.text)}">⚠ typed by hand${ss.state==='unlinkedChanged'?' — its blot changed since':''} · not linked</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="openChartModal()">Chart…</button>`; }
+    else if(lk){ const L=el.chart.link, st=L?_chartLinkState(el):null; lk.style.display=L?'inline':'none';
       if(L) lk.innerHTML=st.stale?`<span style="color:var(--warn)" title="${esc(st.why)}">⚠ out of date with the densitometry</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="_chartLinkUpdateSelected()">↻ Update</button>`:`<span style="color:var(--muted)" title="Made from ${esc(L.panelNames||'')} (${esc(L.metricLabel||'')}); a re-analysis updates it">🔗 densitometry</span>`; } }
   // A chart's colours are its series' sample colours (Edit chart › Names & colours), not one object colour.
   { const cw=document.getElementById('ep-color'); if(cw&&cw.parentElement) cw.parentElement.style.display=isChart?'none':''; }
