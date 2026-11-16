@@ -359,7 +359,7 @@ From [`journal-submission.verify.js`](journal-submission.verify.js), for the [jo
 - **Suggestion:** refresh the caption (or schedule a render) when a caption note changes.
 
 ### Duplication check flags an internal repeat in a noise-free drawn plate
-- **Status (round 2):** fixed — the same noise-free drawn plate now gives "No repeated regions found"; its alike regions are listed as "alike at a glance — not counted as reuse".
+- **Status (round 2):** fixed — the same figure (DAPI, GFP, blot, and the plate drawn without noise as panel D, 2 × 2) now gives "No duplicated panels found among the 4 compared" and "No repeated regions found"; the plate's 15 alike regions are listed as "alike at a glance — not counted as reuse".
 - **What I tried:** 🧬 Duplication check on a figure whose plate photo was drawn on a canvas (flat bench colour, perfect circle, JPEG, no sensor noise).
 - **What happened:** ✗ "D contains an internal repeat (mirrored + 90°) — 2 adjoining patches at 93.4% correlation — the fine detail matches" at the dish rim, with decision buttons. The same plate with added noise did not trigger it. Real photos carry noise, but drawn schematics, screenshots and rendered plates may not.
 - **Severity:** polish

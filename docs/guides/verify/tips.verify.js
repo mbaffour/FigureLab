@@ -82,11 +82,15 @@ const PHRASES = {
     await p.keyboard.press('Tab');
     const w = await p.evaluate(() => document.activeElement.textContent.trim());
     expect(/^Skip to the welcome card/.test(w), 'second Tab: ' + w);
-    await p.keyboard.press('Shift+Tab');
+    await p.keyboard.press('Enter'); await p.waitForTimeout(200);
+    const wl = await p.evaluate(() => { const a = document.activeElement; return (a.innerText || a.getAttribute('aria-label') || a.id || '').replace(/\s+/g, ' ').trim().slice(0, 60); });
+    expect(/Drop images|add images|Load|Tutorial/i.test(wl), 'after Enter on the welcome-card link: ' + wl);
+    await p.locator('#render-btn').focus(); await p.keyboard.press('Shift+Tab');
+    while (!/^Skip to the figure toolbar/.test(await p.evaluate(() => document.activeElement.textContent.trim()))) await p.keyboard.press('Shift+Tab');
     await p.keyboard.press('Enter'); await p.waitForTimeout(200);
     const b = await p.evaluate(() => document.activeElement.textContent.trim());
     expect(/Render/.test(b), 'after Enter: ' + b);
-    return `"${a}" → ${b}; second Tab: "${w}"`;
+    return `"${a}" → ${b}; second Tab: "${w}" → Enter lands on "${wl}"`;
   });
 
   await step(T, 'add four images', async () => {

@@ -23,7 +23,7 @@ This is the shortest path from images to a file you can submit. Each step links 
 
 ![The quick-start figure: three fluorescence channels with 10 µm scale bars and a blot, lettered A–D](img/quickstart-figure.png)
 
-1. **Add images.** In **Images**, click **Drop or click to add images** (or drag files onto the window) and pick your files. Each becomes a lettered panel. A Fiji/ImageJ TIFF carries its calibration, and its panel gets a scale bar at once; a file without calibration gets none. To give a micrograph without calibration a bar, right-click it › **📏 Scale bar / calibrate…** (or ⌘K `add scale bar`): its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**. Photos, blots and charts need no bar.
+1. **Add images.** In **Images**, click **Drop or click to add images** (or drag files onto the window) and pick your files. Each becomes a lettered panel. A Fiji/ImageJ TIFF carries its calibration, and its panel gets a scale bar at once; a file without calibration gets none. To give a micrograph without calibration a bar, right-click it › **📏 Scale bar / calibrate…** (or select it and ⌘K `add scale bar`): its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**. Photos, blots and charts need no bar.
 2. **Colour the channels.** If your files are channels named like `C1-…_DAPI.tif`, click **🎨 Auto-channels** in **Images**. → [Fluorescence](fluorescence.md)
 3. **Set the grid.** Open **Arrange** and type **Columns** and **Rows** (here 2 and 2).
 4. **Letters.** Panels are lettered A, B, C… in order. To change the style, use **Look › Panel Labels (A, B, C…) › Label format** (for example `a b c`).

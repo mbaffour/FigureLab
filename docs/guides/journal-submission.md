@@ -93,7 +93,7 @@ The placed key shows the same names, swatches and font as the downloaded file.
 3. Click **✎ Write Methods paragraph**. It states the 16-bit display ranges in camera counts, the look-up tables, where each calibration came from, which panels print below 300 ppi, and any reuse you marked as intentional.
 4. Under **Alt text**, click **✦ Draft from figure**. The draft says what is where, not what it shows; add your findings. It goes into the PNG, SVG and PDF and into the package.
 
-An untouched caption, Methods paragraph or alt text follows the figure by itself, also in a reopened session: in the test, swapping panels A and B after reopening rewrote the untouched caption to start with "(A) GFP-LC3". A new caption note reaches the caption at the next **⟳ Render** (<kbd>R</kbd>).
+An untouched caption follows the figure by itself, also in a reopened session: in the test, swapping panels A and B after reopening rewrote the untouched caption to start with "(A) GFP-LC3". A new caption note reaches the caption at the next **⟳ Render** (<kbd>R</kbd>).
 
 Once you edit one of them, FigureLab keeps your words. If the figure changes afterwards, a line under the box says so and offers both ways:
 
@@ -145,7 +145,7 @@ What the package holds (25 files in the test):
 
 A figure with cropped blots also carries the uncropped originals (S1) and the densitometry CSVs; the [western blot guide](western-blot.md) covers them.
 
-Caption and Methods in the package: an untouched box is regenerated for the figure as exported; your edited text is kept. If the figure changed after you edited it, the package keeps your text, adds `-caption-generated.txt` / `-methods-generated.txt` with FigureLab's version, and says so: a note "⚠ Check the Methods" opens when the package is written, and `README.txt` repeats it. In the test, Methods edited in a reopened session and then a panel swap gave `Fig2-methods-generated.txt` (26 files).
+Caption and Methods in the package: an untouched box is regenerated for the figure as exported; your edited text is kept. If the figure changed after you edited it, the package keeps your text, adds `-caption-generated.txt`, `-methods-generated.txt` or `-alt-generated.txt` with FigureLab's version, and says so: a note "⚠ Check the …" opens when the package is written, and `README.txt` repeats it. In the test, Methods and alt text edited in a reopened session, then a panel swap, gave `Fig2-methods-generated.txt` and `Fig2-alt-generated.txt`.
 
 ## 7. Save and reopen your work
 

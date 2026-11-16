@@ -522,14 +522,18 @@ async function card(T, i, { open = false } = {}) {
     return JSON.stringify(st);
   });
 
-  await step(T, '7.3 In the reopened session, edit the Methods paragraph (add a sentence)', async () => {
+  await step(T, '7.3 In the reopened session, edit the Methods paragraph and the alt text (add a sentence to each)', async () => {
     const q = T.page;
     await L.openSection(T, 'Export');
     const m = await q.locator('#methods-out').inputValue();
     expect(m.length > 50, 'no Methods paragraph in the reopened session');
     await q.locator('#methods-out').fill(m + ' Images were acquired on the same day.');
     await q.locator('#methods-out').press('Tab');
-    return 'Methods edited';
+    const a = await q.locator('#alt-text').inputValue();
+    expect(a.length > 20, 'no alt text in the reopened session');
+    await q.locator('#alt-text').fill(a + ' LC3 puncta are brighter in panel A.');
+    await q.locator('#alt-text').press('Tab');
+    return 'Methods and alt text edited';
   });
 
   // ------------------------------------------------------------------ 8. revision
@@ -548,7 +552,7 @@ async function card(T, i, { open = false } = {}) {
     return (await L.toasts(T)) + ' | menu: ' + menu.replace(/\n/g, ' · ');
   });
 
-  await step(T, '8.2 Drag panel A onto panel B on the canvas: they swap, the letters follow position, the untouched caption follows, the edited Methods is flagged', async () => {
+  await step(T, '8.2 Drag panel A onto panel B on the canvas: they swap, the letters follow position, the untouched caption follows, the edited Methods and alt text are flagged', async () => {
     const q = T.page;
     const cr = await q.locator('#fig-canvas').boundingBox();
     const [a, b] = await q.evaluate(() => [panelBounds.find(x => (x.idx ?? x.i) === 0), panelBounds.find(x => (x.idx ?? x.i) === 1)]);
@@ -567,6 +571,11 @@ async function card(T, i, { open = false } = {}) {
     expect(await mflag.isVisible() && /same day/.test(await q.locator('#methods-out').inputValue()), 'Methods flag not shown');
     const mtxt = (await mflag.innerText()).trim();
     expect(/✎ Rewrite \(replaces your edits\) · Keep mine/.test(mtxt), mtxt);
+    // the edited alt text is flagged too
+    const aflag = q.locator('#alt-stale');
+    expect(await aflag.isVisible() && /puncta/.test(await q.locator('#alt-text').inputValue()), 'alt-text flag not shown after the swap');
+    const atxt = (await aflag.innerText()).trim();
+    expect(/✦ Redraft \(replaces your edits\) · Keep mine/.test(atxt), atxt);
     // ✎ Write Methods paragraph asks before writing over the edit; Keep mine keeps it
     await L.openSection(T, 'Export');
     await btn(T, '✎ Write Methods paragraph').click();
@@ -576,7 +585,7 @@ async function card(T, i, { open = false } = {}) {
     expect(ask === 'Replace your Methods paragraph?', ask);
     await cm.getByRole('button', { name: 'Keep mine' }).click(); await q.waitForTimeout(300);
     expect(/same day/.test(await q.locator('#methods-out').inputValue()), 'Keep mine lost the Methods edit');
-    return (await L.toasts(T)) + ' — ' + st.join(', ') + ' | caption now: ' + cap.slice(0, 60) + '… | Methods: ' + mtxt + ' | ✎ Write Methods paragraph asks "' + ask + '"';
+    return (await L.toasts(T)) + ' — ' + st.join(', ') + ' | caption now: ' + cap.slice(0, 60) + '… | Methods: ' + mtxt + ' | alt text: ' + atxt.slice(0, 60) + '… | ✎ Write Methods paragraph asks "' + ask + '"';
   });
 
   await step(T, '8.3 Change journal with ⌘K "Journal: eLife", re-check, re-export the package', async () => {
@@ -592,15 +601,15 @@ async function card(T, i, { open = false } = {}) {
     const hist = L.zipRead(f, 'PANEL_HISTORY.txt').toString('utf8');
     expect(/PhoA_blot_rerun/.test(hist), 'PANEL_HISTORY does not record the replacement');
     // the edited Methods (7.3) is kept, with FigureLab's current text beside it, and a note says so
-    const title = q.getByText('⚠ Check the Methods', { exact: true });
+    const title = q.getByText(/^⚠ Check the Methods/);
     await title.waitFor({ state: 'visible', timeout: 5000 });
-    expect(list.includes('Fig2-methods-generated.txt'), 'no -methods-generated.txt: ' + list.join(', '));
+    expect(list.includes('Fig2-methods-generated.txt') && list.includes('Fig2-alt-generated.txt'), 'no -methods-generated.txt / -alt-generated.txt: ' + list.join(', '));
     const note = title.locator('xpath=ancestor::div[.//button][1]');
     const nt = (await note.innerText()).replace(/\s+/g, ' ').trim();
     await q.keyboard.press('Escape'); await q.waitForTimeout(300);
     if (await title.isVisible().catch(() => false)) await note.locator('button', { hasText: '×' }).first().click();
     expect(!(await title.isVisible().catch(() => false)), 'note did not close');
-    return `${t} | ${R.title} | ${path.basename(f)}: ${list.length} files, PANEL_HISTORY names the re-run blot | note: ${nt.slice(0, 160)}`;
+    return `${t} | ${R.title} | ${path.basename(f)}: ${list.length} files, PANEL_HISTORY names the re-run blot; ${list.filter(x => /generated/.test(x)).join(', ')} | note: ${nt.slice(0, 200)}`;
   });
 
   // ux2 (was ISSUES.md): the placed key went into the top-left corner over panel letter A,

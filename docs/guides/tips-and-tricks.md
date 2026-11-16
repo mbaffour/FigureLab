@@ -19,7 +19,7 @@ Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type a few words, press <kbd>Enter</k
 | `swap panels` | Swap or reorder panels |
 | `batch crop`, `densitometry`, `lane table` | the blot tools ([Western blot](western-blot.md)) |
 | `calibrate`, `auto-detect scale bar`, `ruler`, `count plaques` | the measuring tools ([Phage and microbiology](phage-and-microbiology.md)) |
-| `add scale bar` | Scale bar: add one to a micrograph (calibrate it)… (opens the selected panel's ⚙ at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**) |
+| `add scale bar` | Scale bar: add one to a micrograph (calibrate it)… (opens the ⚙ of the selected panel, or of the first one without calibration, at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar**) |
 | `scale bar off` | Scale bars off on uncalibrated panels |
 | `split channels`, `linked inset` | [Fluorescence](fluorescence.md) tools |
 | `sample colours` | Sample colours (one colour per strain in every chart)… |
@@ -83,14 +83,14 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 
 ## Panels
 
-- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📏 Scale bar / calibrate…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more. **📏 Scale bar / calibrate…** is the way to a scale bar on a micrograph without calibration: its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar** (⌘K `add scale bar` goes to the same place).
+- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📏 Scale bar / calibrate…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more. **📏 Scale bar / calibrate…** is the way to a scale bar on a micrograph without calibration: its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar** (⌘K `add scale bar` does the same for the selected panel).
 - **Drag one panel onto another** on the canvas to swap them; the letters follow position. From the keyboard: Tab to the figure, pick a panel with the arrow keys, <kbd>Shift</kbd>+arrow swaps it, <kbd>Enter</kbd> opens its settings. A screen reader hears each step ("Moved: … is now panel A; … Ctrl+Z undoes it").
-- **⌘K `trim` › Trim borders…** previews what each panel would lose. Blots and dark fluorescence fields start unticked; tick only the panels with a real white border.
+- **⌘K `trim` › Trim borders…** lists each panel with a margin and what it would lose. Blots, gels and micrographs on a black background start unticked, and a panel that would lose more than half its area is flagged; tick only the panels with a real border.
 - **⌘K `span`** with a panel selected opens its **Col span** / **Row span** fields; then **Arrange › ⊞ Fit grid to panels**.
 - Charts and gene maps are grid panels with letters of their own: a CSV dropped into a grid becomes the next lettered chart panel, and **Annotate & Draw › 🧬 Linear › 📄 GenBank / FASTA…** adds a gene map panel ([Phage and microbiology](phage-and-microbiology.md)).
 - Format marks in labels: `*italic*`, `**bold**`, `10^{8}` superscripts and `H_{2}O` subscripts. Checked here in the figure title (<kbd>Ctrl/⌘+I</kbd>), lane table cells (`Δ*phoA*`, `10^{-1}`), chart axis titles (`OD_{600}`) and freeform text boxes.
 
-![Trim borders: each panel with what it would lose; the blot and the two fluorescence fields start unticked](img/tips-trim.png)
+![Trim borders: the three panels with a margin, each with what it would lose; the blot and the two fluorescence fields start unticked](img/tips-trim.png)
 
 ## Freeform
 

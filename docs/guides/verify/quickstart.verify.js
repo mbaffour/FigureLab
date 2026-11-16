@@ -44,10 +44,15 @@ const { step, expect, btn } = L;
       return { cls: a && a.className, name: it ? it.querySelector('.img-name, .name')?.textContent || it.innerText.split('\n').find(l => /\.tif/.test(l)) : '', btns: it ? [...it.querySelectorAll('button')].map(b => b.innerText.trim()).filter(t => /Calibrate from image|Auto-detect/.test(t)) : [] }; });
     expect(/f-obj/.test(st.cls) && /PhoA_blot/.test(st.name) && st.btns.length === 2, JSON.stringify(st));
     await p.keyboard.press('Escape');
-    // the same place by ⌘K
-    const hits = await L.cmdk(T, 'add scale bar', { enter: false });
-    expect(/^Scale bar: add one to a micrograph/.test(hits[0]), hits[0]);
-    return `focus in Objective of ${st.name.trim()}; buttons ${st.btns.join(', ')}; ⌘K "add scale bar" → ${hits[0]}`;
+    // the same place by ⌘K: the selected panel (D, just right-clicked) or the first uncalibrated one
+    await L.toasts(T);
+    const hits = await L.cmdk(T, 'add scale bar');
+    await p.waitForTimeout(400);
+    const t = await p.locator('#toast').textContent();   // the same text as the right-click's, so read it directly
+    const cls = await p.evaluate(() => document.activeElement && document.activeElement.className);
+    await p.keyboard.press('Escape');
+    expect(/^Scale bar: add one to a micrograph/.test(hits[0]) && /Panel D has no calibration yet/.test(t) && /f-obj/.test(cls), hits[0] + ' | ' + t + ' | ' + cls);
+    return `focus in Objective of ${st.name.trim()}; buttons ${st.btns.join(', ')}; ⌘K "add scale bar" → ${hits[0]} → "${t.slice(0, 110)}…"`;
   });
 
   await step(T, '1c. Images › Auto-channels colours the channels from their file names', async () => {
