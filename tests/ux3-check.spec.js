@@ -242,3 +242,97 @@ test('charts3-06: superscripts under the journal minimum get a Text to N pt butt
   }
   expect(errors).toEqual([]);
 });
+
+// ── Lane tables ──────────────────────────────────────────────────────────────────────
+// blot3-03 (a regression from ISSUES.md): lane-table cells were fitted one by one, so three
+// "C431S" in one row printed at 5.6, 5.6 and 4.6 pt; under JBC Text size failed and no
+// button helped. One size per row; a button that widens the panel when its lanes are too narrow.
+const BLOT = `window.__blot = (n, name, pitch) => {
+  const W = 60 + pitch * n, H = 160, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'); x.fillStyle = '#e1e1e1'; x.fillRect(0, 0, W, H); x.fillStyle = '#333';
+  for (let k = 0; k < n; k++) x.fillRect(30 + pitch * k, 70, Math.round(pitch * 0.6), 12);
+  const src = c.toDataURL('image/png');
+  return new Promise(res => { const img = new Image(); img.onload = () => { _commitImage(img, src, name); render(); res(images.length - 1); }; img.src = src; }); };`;
+test('blot3-03: a lane-table row prints at one size, and Text size offers to widen a panel whose lanes are too narrow', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(BLOT); await page.evaluate(HELPERS);
+  const r = await page.evaluate(async () => {
+    await __blot(9, 'parkin.png', 40); await __blot(9, 'tubulin.png', 40); await __blot(9, 'gapdh.png', 40);
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange();
+    laneTableSet(0, { lanes: 12 }); laneTableSetName(0, 0, 'Parkin-HA');
+    ['WT', 'WT', 'WT', 'WT', 'R42P', 'R42P', 'R42P', 'R42P', 'C431S', 'C431S', 'C431S', 'C431S'].forEach((v, c) => laneTableSetCell(0, 0, c, v));
+    sv('target-journal', 'jbc'); _onTargetJournal('jbc'); render();
+    const sizes = () => { render(); const k = _physFacts().ptPerPx;
+      return figTextItems.filter(t => t.kind === 'lanetable' && t.idx === 0 && t.str !== 'Parkin-HA').map(t => ({ s: t.str, pt: +(t.fs * k).toFixed(2) })); };
+    const s0 = sizes(), row = __row('Text size'); __close();
+    return { s0, row };
+  });
+  // one size across the row
+  expect(new Set(r.s0.map(x => x.pt)).size).toBe(1);
+  expect(r.s0.every(x => !x.s.includes('…'))).toBe(true);
+  expect(r.s0[0].pt).toBeLessThan(5);
+  expect(r.row.icon).toBe('✗');                                    // under 5 pt fails
+  {
+    expect(r.row.fixes.some(f => /^Widen A/.test(f))).toBe(true);
+    expect(await clickFix(page, 'Text size', 'Widen A')).toBe(true);
+    const after = await page.evaluate(() => { __close(); render(); const k = _physFacts().ptPerPx;
+      return { cs: images[0].colSpan, rows: gv('rows'), shown: _figurePanels().length,
+        pts: figTextItems.filter(t => t.kind === 'lanetable' && t.idx === 0 && t.str !== 'Parkin-HA').map(t => t.fs * k) }; });
+    expect(after.cs).toBe(3);
+    expect(after.shown).toBe(3);                                    // the other panel keeps a cell
+    expect(Math.min(...after.pts)).toBeGreaterThan(r.s0[0].pt);
+  }
+  expect(errors).toEqual([]);
+});
+
+// ── Export format and file size ──────────────────────────────────────────────────────
+const saveVia = async (page, fmt) => {
+  await page.locator('button:visible', { hasText: new RegExp('^↓ ' + fmt + '$') }).first().click();
+  const m = page.locator('#preflight-modal'); await m.waitFor({ state: 'visible' });
+  await m.locator('#pf-name').fill('Fig1');
+  const [d] = await Promise.all([page.waitForEvent('download'), m.locator('button', { hasText: /^Save / }).first().click()]);
+  return d;
+};
+// newcomer3-04, charts3-13: a PDF saved, then panels B and D swapped: the row still read
+// ✓ "last exported as PDF (lossless), before the figure last changed ✓" and counted as passed.
+test('newcomer3-04/charts3-13: an export made before the figure last changed is not counted, and the row offers to save again', async ({ page }) => {
+  await page.addInitScript(() => { window.showSaveFilePicker = undefined; });
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await page.evaluate(HELPERS);
+  await page.locator('#target-journal').selectOption('nature');
+  await saveVia(page, 'PDF lossless');
+  const fresh = await page.evaluate(() => { const r = __report(); __close(); return { row: r.rows.find(x => x.label === 'Export format'), title: r.title }; });
+  expect(fresh.row.icon).toBe('✓');
+  // swap B and D as the keyboard does (one undo step)
+  await page.evaluate(() => { pushUndo(); const t = images[1]; images[1] = images[3]; images[3] = t; renderImgList(); render(); });
+  const stale = await page.evaluate(() => { const r = __report(); __close(); return { row: r.rows.find(x => x.label === 'Export format'), title: r.title }; });
+  expect(stale.row.icon).toBe('ℹ');
+  expect(stale.row.text).toMatch(/changed after it was last exported/);
+  expect(stale.row.fixes.some(f => /^Save as/.test(f))).toBe(true);
+  const n = t => +/(\d+)\/(\d+) passed/.exec(t)[1], d = t => +/(\d+)\/(\d+) passed/.exec(t)[2];
+  expect(n(stale.title)).toBe(n(fresh.title) - 1);                 // no longer counted as passed
+  expect(d(stale.title)).toBe(d(fresh.title) - 1);                 // nor as a rule at all
+  expect(errors).toEqual([]);
+});
+
+// newcomer3-16: PLOS, ↓ TIFF with LZW (1.7 MB on disk): File size kept the uncompressed
+// estimate's ⚠ "≈ 12.2 MB … check the written file".
+test('newcomer3-16: File size reads the TIFF actually written since the last change', async ({ page }) => {
+  await page.addInitScript(() => { window.showSaveFilePicker = undefined; });
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await page.evaluate(HELPERS);
+  await page.locator('#target-journal').selectOption('plos');
+  await page.evaluate(() => { sv('cols', '2'); sv('rows', '2'); onLayoutChange(); sv('panel-h', '520'); render(); });
+  const before = await page.evaluate(() => { const r = __row('File size'); __close(); return r; });
+  expect(before.text).toMatch(/uncompressed TIFF ≈/);
+  const d = await saveVia(page, 'TIFF');
+  const size = require('fs').statSync(await d.path()).size;
+  const after = await page.evaluate(() => { const r = __row('File size'); __close(); return r; });
+  expect(after.icon).toBe('✓');
+  expect(after.text).toMatch(/LZW-compressed TIFF written since the figure last changed is [\d.]+ MB ✓/);
+  const mb = +/is ([\d.]+) MB/.exec(after.text)[1];
+  expect(Math.abs(mb - size / 1048576)).toBeLessThan(0.06);
+  expect(errors).toEqual([]);
+});

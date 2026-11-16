@@ -10292,14 +10292,19 @@ function _ltReserveDrawn(im){ const L=im&&im.id!=null&&_ltLast.get(im.id); retur
 // box: the drawn picture {ox,oy,ow,oh} and, before any turn, {dx,dw}.
 // Each cell is fitted to its lane: centred on the lane, it may reach halfway to the
 // next column on either side (and no further out than the picture's edge, so it stays
-// clear of the row names). Text wider than that is set smaller, down to LT_CELL_MIN of
-// the table's size, then cut with an ellipsis — the editor keeps the full text. Long
+// clear of the row names). Text wider than that is set smaller, one size for the whole row,
+// down to LT_FS_MIN px (_ltCellFloor), then cut with an ellipsis — the editor keeps the full text. Long
 // cells used to print over each other ('ciproflo/ampicillin', 36 px) and over the names.
-const LT_CELL_MIN=0.6, _ltCut=new Map();   // im.id → [[row, col]] of cells drawn cut short
+const _ltCut=new Map();   // im.id → [[row, col]] of cells drawn cut short
+// The smallest a cell is set before it is cut: LT_FS_MIN px. It was 0.6 of the table's
+// size, so a preset that scaled a table to 30.9 px cut every label to "…" at 18.5 px
+// (ISSUES, round 2). A genotype cut short is worse than one set small: the Text size row
+// fails what prints under 5 pt and offers to widen the panel.
+function _ltCellFloor(fs){ return Math.min(fs, LT_FS_MIN); }
 function _ltFitCell(ctx,str,fs,budget,fontOf){
   ctx.font=fontOf(fs); let w=_rtMeasure(ctx,str);
   if(w<=budget) return {str, fs};
-  const fMin=Math.max(LT_FS_MIN,Math.round(fs*LT_CELL_MIN*2)/2);
+  const fMin=_ltCellFloor(fs);
   let f=Math.max(fMin,Math.floor(fs*budget/w*2)/2);
   ctx.font=fontOf(f); w=_rtMeasure(ctx,str);
   while(w>budget&&f>fMin){ f=Math.max(fMin,f-0.5); ctx.font=fontOf(f); w=_rtMeasure(ctx,str); }
@@ -10328,10 +10333,16 @@ function _ltDraw(im,imgIdx,box,R,ink,emitText){
     const yc=top+ri*R.lh+R.lh/2, nm=String(row.name||'').trim();
     _ltMeasure.font=font;
     if(nm) emitText('lanetable',imgIdx,nm,box.ox-Math.round(R.fs*0.5)-_rtMeasure(_ltMeasure,nm),yc,font,ink,'left','middle',0);
+    // One size per row: the size its tightest cell needs. Fitted cell by cell, three
+    // "C431S" in one row printed at 5.6, 5.6 and 4.6 pt (blot3-03).
+    const fits=[];
     for(let k=0;k<n;k++){ const v=_ltNorm((row.cells||[])[k]); if(!v) continue;
-      const f=_ltFitCell(_ltMeasure,v,R.fs,Math.max(1,2*half[k]-pad),fontOf);
-      if(f.cut) cut.push([ri,k]);
-      emitText('lanetable',imgIdx,f.str,xs[k],yc,f.fs===R.fs?font:fontOf(f.fs),ink,'center','middle',0); }
+      fits.push({k, v, f:_ltFitCell(_ltMeasure,v,R.fs,Math.max(1,2*half[k]-pad),fontOf)}); }
+    const rowFs=fits.length?Math.min(...fits.map(c=>c.f.fs)):R.fs;
+    fits.forEach(c=>{
+      const f=c.f.fs===rowFs?c.f:_ltFitCell(_ltMeasure,c.v,rowFs,Math.max(1,2*half[c.k]-pad),fontOf);
+      if(f.cut) cut.push([ri,c.k]);
+      emitText('lanetable',imgIdx,f.str,xs[c.k],yc,f.fs===R.fs?font:fontOf(f.fs),ink,'center','middle',0); });
   });
   if(im.id!=null){ if(cut.length) _ltCut.set(im.id,cut); else _ltCut.delete(im.id); }
 }
@@ -19239,9 +19250,9 @@ function _textFloorRow(k, J){
   // smaller than their text) are measured too, as their own warning.
   const fail=sm.pt<TEXT_PT_FLOOR-0.05, soft=!fail&&sm.pt<TEXT_PT_SOFT-0.05;
   const sc=_ckScriptLow(k, TEXT_PT_FLOOR), lt=_ckLaneLow(k, TEXT_PT_SOFT);
-  const ok=!fail&&!soft&&!sc&&!lt;
-  return {label:'Text size', ok, warn:!fail&&!ok,
-    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:null,
+  const ok=!fail&&!soft&&!sc&&!lt, ltFail=!!(lt&&lt.fail);
+  return {label:'Text size', ok, warn:!fail&&!ok&&!ltFail,
+    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:null),
     fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:(sc&&sc.raiseTo&&!fail&&!soft?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null),
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
       +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
@@ -19290,12 +19301,31 @@ function _ckLaneLow(k, min){
   // drawn smaller than set: the table (or a cell) is shrunk to fit its cell or its lane
   const shrunk=L.filter(t=>t.fs<(+images[t.idx].laneTable.fs||12)-0.01);
   const shrunkLow=shrunk.length&&Math.min(...shrunk.map(t=>t.fs))*k<min-0.05;
-  if(!setSmall.length&&!shrunkLow) return null;
+  // Cells cut short with … are text the reader cannot read: a failure, not a warning.
+  const cutIdx=[...new Set(L.map(t=>t.idx))].filter(i=>images[i].id!=null&&(_ltCut.get(images[i].id)||[]).length);
+  if(!setSmall.length&&!shrunkLow&&!cutIdx.length) return null;
   const nm=i=>_rtText(formatLabel(images[i].label))||'?';
+  // The way out that keeps the words: the panel across the whole row, which widens its lanes.
+  const cols=Math.max(1,gi('cols')), spanI=[...new Set([...cutIdx, ...(shrunkLow?shrunk.map(t=>t.idx):[])])].find(i=>((images[i].colSpan||1)<cols));
   const parts=[];
+  if(cutIdx.length) parts.push(`lane-table text on ${cutIdx.map(i=>esc(nm(i))).join(', ')} is cut short with … — its lanes are too narrow for it even at ${LT_FS_MIN} px`);
   if(setSmall.length) parts.push(`Lane-table text prints at ${_ckF1(Math.min(...setSmall.map(i=>(+images[i].laneTable.fs||12)*k)))} pt, below the figure’s text size (${_ckF1(textPt)} pt, Look › Typography) or ${_ckF1(min)} pt: a lane table keeps the size it was made at — “Lane tables to ${_ckF1(textPt)} pt” sets every lane table to the figure’s text size`);
-  if(shrunkLow) parts.push(`some lane-table text is drawn smaller than its table’s size to fit (${shrunk.slice(0,2).map(t=>`${_qt(_rtText(t.str))} on ${esc(nm(t.idx))}`).join(', ')}, ${_ckF1(Math.min(...shrunk.map(t=>t.fs))*k)} pt): a larger size does not help there — shorten the text, widen the panel, or give the panel more height`);
-  return {toPt:textPt, lo, button:setSmall.length>0&&target>0, note:parts.join('; ')};
+  if(shrunkLow) parts.push(`some lane-table text is drawn smaller than its table’s size to fit its lanes (${[...new Map(shrunk.map(t=>[t.idx+'|'+t.str,t])).values()].slice(0,2).map(t=>`${_qt(_rtText(t.str))} on ${esc(nm(t.idx))}`).join(', ')}, ${_ckF1(Math.min(...shrunk.map(t=>t.fs))*k)} pt): a larger size does not help there — ${spanI!=null?`“Widen ${esc(nm(spanI))}” gives the panel the whole row of the grid, which widens its lanes; or `:''}shorten the text, or widen the panel`);
+  return {toPt:textPt, lo, button:setSmall.length>0&&target>0, fail:cutIdx.length>0, span:spanI!=null?{idx:spanI, cols, name:nm(spanI)}:null, note:parts.join('; ')};
+}
+// The panel with lanes too narrow for its table, across every column of the grid (one undo
+// step); rows are added so no panel loses its cell.
+function _ckLaneSpan(idx){
+  const im=images[idx]; if(!im) return false;
+  const cols=Math.max(1,gi('cols')); if((im.colSpan||1)>=cols) return false;
+  pushUndo();
+  im.colSpan=cols;
+  let r=Math.max(1,gi('rows'));
+  while(r<60){ const P=_gridPlacements(cols,r); if(!P.unplaced&&!P.some(p=>p.want)) break; r++; }
+  const grew=r!==gi('rows'); if(grew) sv('rows',String(r));
+  onLayoutChange(); renderImgList(); render();
+  toast(`Panel ${_rtText(formatLabel(im.label))||'?'} now spans all ${cols} columns, so its lanes are wider${grew?`; the grid has ${r} rows so every panel keeps a cell`:''} — Ctrl+Z undoes it`,'ok');
+  return true;
 }
 // Every lane table at the figure's text size, in its own px at this printed width. One undo
 // step; says what it did, and when a table is drawn smaller than that to fit its cell.
@@ -19815,11 +19845,11 @@ function _journalRows(J, g){
     const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin, J.ptMax);
     const extra=(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'');
     const scFix=sc&&sc.raiseTo&&!tr.bad.length?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null;
-    rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc), src,
+    rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc)&&!(lt&&lt.fail), src,
       fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:scFix,
       note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${tr.over&&!tr.under&&tr.largest?`largest: ${_smallTxt(tr.largest)}`:`smallest: ${_smallTxt(tr.smallest)}${tr.over&&tr.largest?`, largest: ${_smallTxt(tr.largest)}`:''}`} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
         : (tr.list?`${esc(tr.list)}${lt||sc?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extra}`:`No text ✓ — ${nm}: ${rng}`),
-      fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:null)});
+      fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:null))});
   } else rows.push(_textFloorRow(pf.ptPerPx, J));
   // An unverified size range never fails, so FigureLab's own floor is checked beside it.
   if(!V&&J.ptMin!=null){ const fr=_textFloorRow(pf.ptPerPx, J); if(!fr.ok){ fr.label='Text size (floor)'; rows.push(fr); } }
@@ -19873,23 +19903,33 @@ function _journalRows(J, g){
     const last=_lastExportFmt, lzwBad=J.lzw&&!gc('export-tiff-lzw');
     // Every format written since the figure last changed counts: one accepted is a pass.
     const cur=_ckExports.filter(e=>e.at===_ckEdits).map(e=>e.fmt), good=cur.filter(f=>J.formats.includes(f));
-    const okFmt=!last||(cur.length?good.length>0:J.formats.includes(last));
+    // Only an export made since the figure last changed counts: a TIFF written before a panel
+    // was replaced passed ✓ while the file on disk held the old panel (newcomer3-04,
+    // charts3-13). A stale one is ℹ, not counted, with the button to save it again.
+    const stale=!!last&&!cur.length;
+    const okFmt=!last||stale||good.length>0;
     const stage=J.formatStage?` at ${J.formatStage}`:'';
     const fl=a=>a.map(f=>FN[f]||f).join(', ');
-    rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src, info:!last&&!lzwBad, uncounted:!last&&!lzwBad,
+    rows.push({label:'Export format', ok:okFmt&&!lzwBad, warn:!okFmt&&!!J.formatStage, src, info:(!last||stale)&&!lzwBad, uncounted:(!last||stale)&&!lzwBad,
       note:(lzwBad?'TIFFs are written uncompressed — tick Compress TIFF (LZW). ':'')
         +(!last?`not checked — not exported yet this session; use ${J.formats.map(f=>FN[f]).join(' or ')}`
           :cur.length?`exported as ${fl(cur)} since the figure last changed${okFmt?` ✓ (${fl(good)} accepted)`:` — not accepted${stage}`}`
-          :`last exported as ${FN[last]||last}, before the figure last changed${okFmt?' ✓':` — not accepted${stage}`}`)
+          :`not checked — the figure changed after it was last exported (as ${FN[last]||last}), so that file shows an earlier version; export it again in ${J.formats.map(f=>FN[f]).join(' or ')}`)
         +` · ${nm}: ${J.formatNote}`,
-      fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
+      fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt||stale?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
   }
   if(J.colour) rows.push({label:'Colour mode', ok:true, src, note:`FigureLab exports RGB ✓ · ${nm}: ${J.colourNote}`});
   if(J.maxMB){
     const px=pf.px*Math.round((canvasLogicalH||1)*pf.scale), est={tiff:px*3,'pdf-lossless':px*1.4}[J.maxMBFmt]||px*3;
-    const mb=est/1048576, over=mb>J.maxMB;
+    const mb=est/1048576;
+    // The file actually written since the figure last changed, when there is one: an LZW
+    // TIFF of 1.7 MB kept the 12.2 MB uncompressed estimate's ⚠ (newcomer3-16).
+    const wr=_ckExports.find(e=>e.at===_ckEdits&&e.fmt===(J.maxMBFmt||'tiff')&&e.bytes>0), wmb=wr?wr.bytes/1048576:null;
+    const over=wmb!=null?wmb>J.maxMB:mb>J.maxMB;
     rows.push({label:'File size', ok:!over, warn:over, src,
-      note:`${J.maxMBFmt==='tiff'?'uncompressed TIFF':'lossless PDF'} ≈ ${mb.toFixed(1)} MB${over?(J.lzw?' — over the limit uncompressed; LZW makes it smaller by an amount that depends on the picture, so check the written file':' — over the limit; lower the DPI within the journal’s range, or a narrower width'):' ✓'} · ${nm}: at most ${J.maxMBNote||J.maxMB+' MB'}`});
+      note:(wmb!=null?`the ${J.maxMBFmt==='pdf-lossless'?'lossless PDF':`${wr.lzw?'LZW-compressed ':''}TIFF`} written since the figure last changed is ${wmb.toFixed(1)} MB${over?' — over the limit; lower the DPI within the journal’s range, or a narrower width':' ✓'}`
+        :`${J.maxMBFmt==='tiff'?'uncompressed TIFF':'lossless PDF'} ≈ ${mb.toFixed(1)} MB${over?(J.lzw?' — over the limit uncompressed; LZW makes it smaller by an amount that depends on the picture, so export it and the row reads the written file':' — over the limit; lower the DPI within the journal’s range, or a narrower width'):' ✓'}`)
+        +` · ${nm}: at most ${J.maxMBNote||J.maxMB+' MB'}`});
   }
   if(J.naming){
     const n=gv('export-name').trim(), T=_journalNameTarget(J), ok=T.ok;
@@ -19973,6 +20013,7 @@ function _journalFix(action){
   if(action==='lblcontrast'){ _ckAutoContrastFix(); return true; }
   if(action==='s1'){ if(m) m.remove(); openS1Dialog(); return 'done'; }
   if(action==='alttext'){ if(m) m.remove(); focusAltText(); return 'done'; }
+  if(action==='cklanespan'){ const lt=_ckLaneLow(_physFacts().ptPerPx, TEXT_PT_SOFT); if(lt&&lt.span) _ckLaneSpan(lt.span.idx); return true; }
   if(action==='jscript'){
     // The text size that brings superscripts and subscripts to the minimum (the row's own figure).
     render(); const k=_physFacts().ptPerPx, J2=_targetJournal(), min=J2&&J2.ptMin!=null?J2.ptMin:TEXT_PT_FLOOR;
@@ -20189,7 +20230,8 @@ async function doExport(fmt, opts){
     let _svgWarned=false;
     if(fmt==='svg')  _svgWarned=!!exportSVG(name, dpi, document.getElementById('fig-canvas'));
     if(fmt==='tiff') {
-      const tc=renderExportCanvas(dpi); exportTIFF(name, tc._effDpi||dpi, tc, true, {lzw:gc('export-tiff-lzw')});
+      const tc=renderExportCanvas(dpi), nb=exportTIFF(name, tc._effDpi||dpi, tc, true, {lzw:gc('export-tiff-lzw')});
+      { const e=_ckExports.find(e=>e.at===_ckEdits&&e.fmt==='tiff'); if(e&&nb>0){ e.bytes=nb; e.lzw=gc('export-tiff-lzw'); } }
     }
     if(fmt==='pdf' || fmt==='pdf-lossless'){
       await _exportPDFWithText(name, dpi, {lossless: fmt==='pdf-lossless'});
@@ -22269,6 +22311,7 @@ function exportTIFF(name, dpi, canvas, preScaled, opts){
   // 16-bit path whose byte order the predictor would have to respect.
   const bytes=_tiffBytes(rgb, W, H, dpi, opts);
   dl(URL.createObjectURL(new Blob([bytes],{type:'image/tiff'})), name+'.'+_tiffExt());
+  return bytes.length;                 // the written size, for the report's File size row
 }
 // Minimal TIFF (little-endian, RGB, 8 bits per sample, custom DPI, one strip).
 // Uncompressed by default, byte for byte what it always was. With opts.lzw the strip is
