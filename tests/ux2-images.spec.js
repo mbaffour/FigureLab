@@ -226,7 +226,7 @@ test('fluor2-08 a 16-bit file with a few hot pixels opens with its cells visible
   await drop(page, [[tiff16([a], { w: N, h: N, desc: IJ(), umPerPx: 0.1 }), 'cells_GFP.tif']]);
   const row = await openDrawer(page, 0);
   await expect(row.locator('.f-wpt-v')).toHaveValue('3000');
-  await expect(row.locator('.f-lv-note')).toContainText('5 hot pixels up to 60000');
+  await expect(row.locator('.f-lv-note')).toContainText('5 pixels (the brightest 0.01 %) reach up to 60000');
   // a field without hot pixels opens 0…its maximum, as before
   const b = new Uint16Array(N * N).fill(200); for (let i = 0; i < 40000; i++) b[i] = 3000;
   await drop(page, [[tiff16([b], { w: N, h: N, desc: IJ(), umPerPx: 0.1 }), 'plain_GFP.tif']]);
@@ -378,7 +378,8 @@ test('ISSUES fluorescence: ≡ Same bar on all calibrated keeps the length just 
   await page.evaluate(() => { Object.assign(cropEdState, { cx: 0.2, cy: 0.2, cw: 100 / 512, ch: 100 / 512, hasBox: true }); drawCropEd(); });
   const vals = await page.locator('#crop-ed-vals').textContent();
   expect(vals).toMatch(/region 100×100 px, prints at about \d+ ppi/);
-  expect(vals).toContain('draw a region at least');
+  // ux3 (fluor2-09 recheck): 300 ppi needs 938 px of this 512 px field, so the advice is a narrower printed width
+  expect(vals).toContain('choose a narrower printed width');
   await page.evaluate(() => applyCropModal());
   const r = await page.evaluate(() => { render(); const ins = images[1]; return { of: ins.insetOf === images[0].id, drawn: _scaleBarDrawn(ins), um: ins.sbUm }; });
   expect(r.of).toBe(true);

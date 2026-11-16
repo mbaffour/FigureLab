@@ -41,7 +41,7 @@ const PHRASES = {
   'delete panel': /^Remove the selected panel/,
   'make text bigger': /^Text size in points/,
   'check against plos': /^Check against PLOS ONE/,
-  'legend key': /^Legend key on the figure/,
+  'legend key': /^Legend key: place it on the figure/,
   'alt text': /^Alt text/,
   'submission': /^Export submission package/,
   'replace image': /^Replace image/,

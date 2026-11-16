@@ -42,6 +42,8 @@ test('no orphaned ids — everything the script reaches for exists in the markup
     'lt-modal-bg', 'lt-status', 'lt-match', 'lt-lanes', 'lt-pos', 'lt-fs', 'lt-grid', 'lt-preview',
     // The uncropped-originals (S1) dialog, built when it opens.
     's1-modal-bg',
+    // "Which panel?" — asked by ⌘K lane table / densitometry when no panel is picked.
+    'panelpick-modal-bg',
     // The Replace-all summary (old → new per panel), built when the files are picked.
     'replace-all-modal-bg',
     // Check against other figures, built when it opens.

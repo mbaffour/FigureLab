@@ -355,10 +355,13 @@ button.adv::before,.btn.adv::before{content:none}
 .export-grid .btn{justify-content:center;font-size:11px}
 
 /* ── Toast ──────────────────────────────────────────────────── */
-#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(70px);
+/* Wrapped to the window, never wider: a long toast (what to do next after a Replace or a
+   chart) ran off both edges of a 1440 px window as one line (blot3-04). */
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(calc(100% + 40px));
   background:var(--surface);color:var(--text);border:1px solid var(--border);
   border-radius:7px;padding:9px 16px;font-size:12px;box-shadow:0 4px 20px rgba(0,0,0,.2);
-  z-index:999;transition:transform .22s;pointer-events:none;white-space:nowrap}
+  z-index:999;transition:transform .22s;pointer-events:none;white-space:normal;
+  width:max-content;max-width:min(760px,calc(100vw - 32px));box-sizing:border-box;text-align:center;line-height:1.45;overflow-wrap:anywhere}
 #toast.show{transform:translateX(-50%) translateY(0)}
 #toast.ok{border-color:var(--a2);color:var(--a2)}
 #toast.err{border-color:var(--danger);color:var(--danger)}
@@ -930,8 +933,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field look-grid-part"><label>Background</label>
       <input type="checkbox" id="label-bg" checked onchange="if(!this.checked&&!gc('label-auto-color')){ sc('label-auto-color',true); toast('Auto contrast is on: without a chip, each letter is drawn white or black from the picture under it','ok'); } scheduleRender()" title="A dark chip behind each letter. Without it, Auto contrast (switched on when you untick this) keeps a letter from vanishing into a white chart or a bright section."></div>
     <div class="field"><label for="label-pt" title="Panel letter size in points at the printed size (Export › Printed width) — what journals specify. It stays this size in print when the printed width, the canvas or a panel changes; the px beside it follow.">Size</label>
-      <input type="number" id="label-pt" value="" min="3" max="72" step="0.5" oninput="scheduleRender()" style="width:52px" aria-label="Panel letter size in points"> pt
-      <input type="number" id="label-size" value="18" min="7" max="200" step="any" oninput="scheduleRender()" style="width:52px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
+      <input type="number" id="label-pt" value="" min="3" max="72" step="0.5" oninput="scheduleRender()" style="width:64px" aria-label="Panel letter size in points"> pt
+      <input type="number" id="label-size" value="18" min="7" max="200" step="any" oninput="scheduleRender()" style="width:64px;margin-left:6px" title="The same size in layout pixels on this canvas. Type here to set it in pixels; the points follow." aria-label="Panel letter size in layout pixels"> px</div>
     <div class="field"><label>Color</label>
       <input type="color" id="label-color" value="#ffffff" oninput="scheduleRender()"></div>
     <div class="field look-grid-part"><label for="label-auto-color" title="Per panel, white or black for the letter and a typed tag, whichever reads better on the image beneath — so a white letter never lands on a white histology section. With Background ticked it makes the chip dark enough for a white letter to read at 4.5:1 on any picture.">Auto contrast</label>
@@ -1667,7 +1670,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div class="es-drop" role="button" tabindex="0" aria-label="Add images: open the file picker (Enter or Space), or drop files here" onclick="document.getElementById('file-input').click()">
           <div style="font-size:26px">⬆</div>
           <strong>Drop images here</strong>
-          <div class="es-mini">or click to browse, or paste with Ctrl/⌘+V — PNG · TIFF · JPG</div>
+          <div class="es-mini">or click to browse, or paste with Ctrl/⌘+V — PNG · TIFF · JPG · CSV/TSV → chart</div>
         </div>
         <div class="es-actions">
           <button class="btn" onclick="esOpenTemplates()">⊞ Start from a template</button>
@@ -4377,6 +4380,9 @@ function _replaceInto(im, d){
   im.umPerPx=plan.um;
   // A projection's record names the panels it was computed from; this file is not that.
   im._projection=undefined; im._importCrop=undefined; im._sbSkip=undefined;
+  // Where the old picture's burned-in bar or ruler sat says nothing about the new one.
+  if(im.sbBurnedIn) plan.notes.push('the old image’s burned-in scale bar is not in this one — 🔍 Auto-detect or switch its bar on');
+  delete im.sbAvoid; delete im.sbBurnedIn;
   im._adjCache=undefined; im._adjKey=undefined; im._cropCache=undefined; im._cropKey=undefined;
   // A new array, never a push: undo snapshots share the old one by reference.
   im._replaced=[...(im._replaced||[]), {from:was, to:_sourceName(im)||d.name, at:new Date().toISOString()}];
@@ -4866,6 +4872,7 @@ const CMD_REGISTRY=[
   {label:'Printed width (journal column width)', keys:'width mm column single double journal printed physical size 183 89 page', run:()=>_cmdpGoto('export-width-mm','Pick your journal column width')},
   // Scale bar — the palette had no way to add or calibrate one.
   {label:'Calibrate a panel (µm per pixel)', keys:'calibrate scale bar micron um µm microns per pixel calibration size real world', run:()=>{ const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean); if(i>=0) openCalib(i); else toast('Add an image first','warn'); }},
+  {label:'Scale bar: which corner (move it, keep it clear of a bar in the image)', keys:'scale bar position corner move place where bottom left right top sticker ruler overlap burned', run:()=>_cmdpPanelControl('.f-sbcorner','pick the corner its scale bar goes in')},
   {label:'Scale bar: add one to a micrograph (calibrate it)…', keys:'add scale bar put insert show micrograph calibrate calibration objective magnification lens uncalibrated micron µm um per pixel jpeg png tile scan', run:()=>addScaleBarTo()},
   {label:'Scale bar length and style', keys:'scale bar micron um µm length size colour color height show bar text label font thickness', run:()=>_cmdpGoto('sb-h','Bar height, colour and text; length is per panel')},
   // Panel letters — every obvious phrasing returned nothing.
@@ -4986,6 +4993,14 @@ const CMD_REGISTRY=[
   // near-miss row that changes the figure.
   {label:'Journal: no preset for Nature Communications', keys:'journal nature communications nat comms natcomms ncomms nat commun target house style', hint:'says so; opens Target journal',
    run:()=>{ _cmdpGoto('target-journal'); toast('FigureLab has no Nature Communications preset — its figure guide was not read. Check that journal’s own guide; pick another journal here only if its rules match.','warn'); }},
+  // ux3 interact: "scientific reports" Enter applied the ASM preset — a letters-in-order
+  // guess (newcomer3-06). Journals people name that have no preset say so instead.
+  ...[['Scientific Reports','scientific reports sci rep scirep springer nature'],['Frontiers journals','frontiers frontiers in microbiology frontiers in cell'],
+      ['Molecular Microbiology','molecular microbiology mol microbiol molmicro wiley'],['Cell Reports','cell reports cell rep'],
+      ['Nucleic Acids Research','nucleic acids research nar oxford'],['Nature Microbiology','nature microbiology nat microbiol'],
+      ['PLOS Pathogens / PLOS Biology','plos pathogens plos biology plos pathog plos biol'],['The ISME Journal','isme isme j isme journal'],
+      ['Microbiology (Microbiology Society)','microbiology society microbiology journal mic'],['Viruses (MDPI)','viruses mdpi']]
+    .map(([n,k])=>({label:`Journal: no preset for ${n}`, keys:`journal ${k}`, hint:'says so; opens Target journal', run:()=>_cmdpNoPreset(n)})),
   {label:'Journal: other journals — the list FigureLab knows', keys:'journal target house style list which journals preset other', run:()=>_cmdpGoto('target-journal','Target journal — the journals whose figure guides FigureLab has read')},
   {label:'Check against Nature',     hint:'report only, changes nothing', keys:'check compliance journal requirements figure guidelines nature', run:()=>checkAgainstJournal('nature')},
   {label:'Check against PLOS ONE',   keys:'check compliance journal requirements figure guidelines plos one', run:()=>checkAgainstJournal('plos')},
@@ -5080,7 +5095,11 @@ const CMD_REGISTRY=[
   {label:'Rotate selected panel 90° left',  keys:'rotate turn panel photo image left ccw anticlockwise orientation tilt flip sideways angle landscape portrait', run:()=>rotateSelectedPanel(-90)},
   {label:'Straighten selected panel (0°)',  keys:'straighten reset rotation panel photo upright', run:()=>{ if(selectedPanel>=0&&images[selectedPanel]){ pushUndo(); setPanelAngle(selectedPanel,0); toast('Panel upright','ok'); } else toast('Click a panel first','warn'); }},
   {label:'Spotlight a region (dim the rest)', keys:'spotlight emphasis dim highlight region focus veil', run:()=>setTool('spotlight')},
-  {label:'Legend key on the figure (channels, series, features)', keys:'legend key channel colours swatch DAPI GFP list series place', run:()=>setTool('legend')},
+  // ux3 interact: the top "legend key" hit armed a click-to-place tool and said nothing, so
+  // Enter seemed to do nothing (newcomer3-05). It now puts the key on the figure, as
+  // Export › Place the key on the figure does; placing one by hand says to click.
+  {label:'Legend key: place it on the figure (channels, series, features)', keys:'legend key channel colours swatch DAPI GFP list series place put add on figure', run:()=>_cmdpKeyOnFigure()},
+  {label:'Legend key: click where it goes (on one panel or spot)', keys:'legend key place click position drag spot panel corner by hand', run:()=>{ setTool('legend'); toast('Click on the figure where the key should go','info'); }},
   {label:'Orientation axes marker (D/V, A/P…)', keys:'axes orientation anatomical dorsal ventral anterior posterior compass rostral caudal medial lateral', run:()=>setTool('axes')},
   {label:'Add cover patch (honest replace)', keys:'cover patch replace text redact hide blemish white out', run:()=>addCoverPatch()},
   {label:'Add paint layer (non-destructive brush)', keys:'paint brush draw erase pixel overlay annotate', run:()=>addPaintLayer()},
@@ -5190,7 +5209,7 @@ function _cmdpGoto(id, note){
 // idx: the panel; else the selected one; else the first uncalibrated picture.
 function addScaleBarTo(idx){
   const ok=i=>i>=0&&images[i]&&!_isDataPanel(images[i]);
-  if(!ok(idx)) idx=ok(selectedPanel)?selectedPanel:images.findIndex((im,i)=>ok(i)&&!(im.umPerPx>0)&&!im.excluded);
+  if(!ok(idx)) idx=ok(_pickedPanelIdx())?_pickedPanelIdx():images.findIndex((im,i)=>ok(i)&&!(im.umPerPx>0)&&!im.excluded);
   if(!ok(idx)) idx=images.findIndex((im,i)=>ok(i));
   if(!ok(idx)){ toast(images.some(Boolean)?'Charts and gene maps have no scale bar — add a micrograph first':'Add an image first','warn'); return; }
   if(layoutMode==='freeform'){ toast('In freeform, select the image and use Props › Scale bar','warn'); return; }
@@ -5253,7 +5272,7 @@ function _cmdpScore(item,q){
     return pre||(mid<0?null:{i:mid, whole:false, exact:false}); };
   // The word as typed, and whether it landed on a whole word (not the start of a longer
   // one, not inside one).
-  let weak=false;
+  let weak=false, inexact=false;
   const hit=(t,exactOnly)=>{
     let best=0, ex=false;
     const L=at(label,t), K=at(keys,t);
@@ -5263,6 +5282,7 @@ function _cmdpScore(item,q){
     if(!best&&L) best=400-Math.min(L.i,200);                 // buried inside a label word
     if(!best&&K) best=200-Math.min(K.i,190);                 // buried inside a keyword
     if(best&&!ex&&t.length<5) weak=true;                     // "plo", "ad": the start of some longer word
+    if(best&&!ex) inexact=true;
     return best;
   };
   // Filler words ("add arrow", "remove white border", "change font", "how do I…") count
@@ -5285,16 +5305,29 @@ function _cmdpScore(item,q){
   // wins on a weak match: Enter on it changes the figure, where a wrong "go to" row only
   // scrolls. It drops below every row the words land on cleanly.
   if(s&&weak&&_cmdpAdds(item)) s=Math.round(s*0.6);
+  // A "no preset for …" row answers only the journal's words typed whole: "front" is
+  // Bring to front, not Frontiers.
+  if(s&&inexact&&/^Journal: no preset/.test(item.label||'')) s=Math.round(s*0.3);
   return s;
 }
 // Rows whose command adds content to the figure.
 function _cmdpAdds(item){ return /^(?:(?:Add|Insert)\b|Starter:|Flow:|Canvas:)/.test(item.label||''); }
+// Rows that restyle the whole figure: a journal, size preset or theme. Never offered as a
+// letters-in-order guess — "scientific reports" guessed the ASM preset (newcomer3-06).
+function _cmdpRestyles(item){ return /^(?:Journal|Preset|Theme):/.test(item.label||'')&&!/no preset|other journals/.test(item.label||''); }
+function _cmdpNoPreset(name){ _cmdpGoto('target-journal'); toast(`FigureLab has no ${name} preset — its figure guide was not read, and nothing was changed. Check that journal’s own guide; pick another journal here only if its rules match.`,'warn'); }
+// ⌘K "legend key": the key on the figure, in free space, or where it already is.
+function _cmdpKeyOnFigure(){
+  if(_keyPlaced()){ _cmdpGoto('key-on-figure','The key is already on the figure — Where moves it; unticking removes it'); return; }
+  setKeyOnFigure(true);
+  if(_keyPlaced()) toast('Legend key placed on the figure, in free space — Export › Legend key › Where moves it; unticking “Place the key on the figure” removes it','ok');
+}
 const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and',
   'switch','pick','choose','apply','go','show','find','open']);
 // Open the selected panel's settings (else the first panel's) at one of its controls —
 // the span fields and Apply to all live at the foot of a long per-panel drawer.
 function _cmdpPanelControl(sel, note){
-  const i=(selectedPanel>=0&&images[selectedPanel])?selectedPanel:images.findIndex(Boolean);
+  const i=_pickedPanelIdx()>=0?_pickedPanelIdx():images.findIndex(Boolean);
   if(i<0){ toast('Add an image first','warn'); return; }
   if(layoutMode==='freeform'&&sel==='.f-colspan'){ toast('Spans are a grid layout feature — switch Canvas mode to Grid, or resize the object by its corner in freeform','warn'); return; }
   renderImgList();
@@ -5363,7 +5396,7 @@ function _cmdpRender(q){
   // something to the figure, which Enter on a guess would do.
   let guessing=false;
   if(q && !list.length){
-    list=CMD_REGISTRY.filter(c=>!_cmdpAdds(c)&&_cmdpLooseMatch(c,q)).slice(0,8);
+    list=CMD_REGISTRY.filter(c=>!_cmdpAdds(c)&&!_cmdpRestyles(c)&&_cmdpLooseMatch(c,q)).slice(0,8);
     guessing=list.length>0;
   }
   _cmdpFiltered=list;
@@ -6026,7 +6059,7 @@ function _hotPixelWhite(im){
 function _levelFieldsHtml(im){
   const r=_rawOf(im), bp=_levelShown(im,'black'), wp=_levelShown(im,'white');
   const max=r?Math.max(_rawDec(r).hi,wp):255, step=r&&r.format===3?'any':1;
-  const hw=r&&im._hotWhite&&im._hotWhite.max===r.max&&Math.abs(_toNative(im,im.whitePt==null?255:im.whitePt)-im._hotWhite.at)<1?` It opened with White at ${_fmtCounts(im._hotWhite.at,r)}: ${im._hotWhite.n} hot pixel${im._hotWhite.n!==1?'s':''} up to ${_fmtCounts(r.max,r)} would have left the rest nearly black.`:'';
+  const hw=r&&im._hotWhite&&im._hotWhite.max===r.max&&Math.abs(_toNative(im,im.whitePt==null?255:im.whitePt)-im._hotWhite.at)<1?` It opened with White at ${_fmtCounts(im._hotWhite.at,r)}: ${im._hotWhite.n} pixel${im._hotWhite.n!==1?'s':''} (the brightest 0.01 %) reach up to ${_fmtCounts(r.max,r)}, which would have left the rest nearly black — hot pixels or the brightest spots of real signal, which are saturated at this White; set White higher to show them unsaturated.`:'';
   const unit=r?`<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">${esc(_rawDepth(r))} file: black and white points in its own values (this file ${_fmtCounts(r.min,r)}–${_fmtCounts(r.max,r)}). Sync by channel copies these values, so matched panels show the same values as the same grey.${hw}</div>`
     : ((im.raw||im.dispRaw)&&!((im.img&&im.img.naturalWidth)||im._imgEl)) ? `<div class="f-lv-note" style="font-size:9px;color:var(--muted);line-height:1.35;margin:-2px 0 2px">Restoring the file’s ${im.srcBits>8?im.srcBits+'-bit ':''}samples…</div>`
     : (im.srcBits>8?`<div class="f-lv-note" style="font-size:9px;color:var(--warn);line-height:1.35;margin:-2px 0 2px">${im.srcBits}-bit file, native samples not kept: these are 8-bit display values (the file was scaled 0…its maximum). Re-import the file to set levels in its own values.</div>`:'');
@@ -6095,6 +6128,22 @@ function _chanLabel(o){
 // not rendered, so their flag is stale.
 // Whether render() drew this panel's scale bar: the renderer's own condition, plus
 // the out-of-range reason it records. Read after a render — `_sbSkip` is set there.
+// Where a panel's scale bar goes: im.sbCorner ('br', 'bl', 'tr', 'tl'), or by default
+// bottom right unless that would cover im.sbAvoid — the bar burned into the image that
+// Auto-detect read, or the two points 🔬 Calibrate from image was given (a ruler) — in
+// source pixels. Then the first corner clear of it: bottom left, top right, top left.
+// A turned, flipped or tilted panel keeps bottom right.
+function _sbCorner(im, cd, g){
+  const c=im&&im.sbCorner; if(c&&c!=='auto') return c;
+  const A=im&&im.sbAvoid; if(!A||!cd||cd.rotated||im.rotate||im.flipH||im.flipV||!(cd.sw>0)||!(cd.sh>0)) return 'br';
+  const kx=g.dw/cd.sw, ky=g.dh/cd.sh;
+  const R={x0:g.dx+(A.x0-cd.sx)*kx, y0:g.dy+(A.y0-cd.sy)*ky, x1:g.dx+(A.x1-cd.sx)*kx, y1:g.dy+(A.y1-cd.sy)*ky};
+  const box=cn=>{ const x=cn[1]==='l'?g.ox+g.sp:g.ox+g.ow-g.sp-g.barPx, y=cn[0]==='t'?g.oy+g.sp+g.txt:g.oy+g.oh-g.sp-g.sbH;
+    return {x0:x-4, y0:y-g.txt-4, x1:x+g.barPx+4, y1:y+g.sbH+4}; };
+  const hits=cn=>{ const b=box(cn); return b.x0<R.x1&&b.x1>R.x0&&b.y0<R.y1&&b.y1>R.y0; };
+  return ['br','bl','tr','tl'].find(cn=>!hits(cn))||'br';
+}
+const _SB_CORNER_NAME={br:'bottom right', bl:'bottom left', tr:'top right', tl:'top left'};
 function _scaleBarDrawn(im){
   return !!(im && im.sbOn && im.umPerPx>0 && im.sbUm>0 && !im._sbSkip);
 }
@@ -6281,6 +6330,10 @@ function renderImgList(){
             <option value="mm" ${(im.sbUnit||'µm')==='mm'?'selected':''}>mm</option>
           </select>
           <button class="btn" style="padding:2px 6px" data-autosb="${idx}">Auto</button></div>
+        <div class="field"><label title="Where the bar goes on the panel. Auto: bottom right, or the first corner clear of a bar burned into the image (found by Auto-detect) or of the ruler you calibrated on">Corner</label>
+          <select class="f-sbcorner" style="width:auto" aria-label="Scale bar corner">
+            ${[['auto',im.sbAvoid?'Auto (clear of the bar/ruler in the image)':'Auto (bottom right)'],['br','Bottom right'],['bl','Bottom left'],['tr','Top right'],['tl','Top left']].map(([v,t])=>`<option value="${v}" ${(im.sbCorner||'auto')===v?'selected':''}>${t}</option>`).join('')}
+          </select></div>
         <button class="btn" onclick="openCalib(${idx})" style="width:100%;justify-content:center;margin-top:2px">🔬 Calibrate from image</button>
         <button class="btn" onclick="copyCalibrationToTicked(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Give the panels ticked in the list this panel's µm/px — photos taken at the same magnification. Each gets a bar that fits its own field; Methods says where the value came from.">⇉ Same µm/px on ticked panels</button>
         <button class="btn" onclick="autoDetectScaleBar(${idx})" style="width:100%;justify-content:center;margin-top:2px" title="Scan image for an embedded scale bar">🔍 Auto-detect scale bar</button>
@@ -6416,6 +6469,15 @@ function renderImgList(){
     });
     gear.addEventListener('click', ()=>{
       s.classList.toggle('open'); gear.classList.toggle('active');
+      _notePanelPick(idx);
+    });
+    // A click on the row's picture or name selects the panel, as a click on the canvas
+    // does: it used to leave nothing selected, and ⌘K densitometry then opened on the
+    // first panel in the list (blot3-02).
+    item.querySelector('.img-item-main').addEventListener('click', e=>{
+      if(e.target.closest('input, button, select, label, a')) return;
+      if(!images[idx]) return;
+      selectedPanel=idx; _notePanelPick(idx); drawAnnOverlay();
     });
     labelInput.addEventListener('input', e=>{
       images[idx].label=e.target.value; renderMiniGrid(); scheduleRender();
@@ -6423,6 +6485,7 @@ function renderImgList(){
 
     // Scale bar
     item.querySelector('.f-sb-on').addEventListener('change', e=>{ images[idx].sbOn=e.target.checked; scheduleRender(); });
+    item.querySelector('.f-sbcorner').addEventListener('change', e=>{ images[idx].sbCorner=e.target.value==='auto'?undefined:e.target.value; scheduleRender(); });
     const _calDone=()=>{ const im=images[idx]; const note=_afterCalibration(im);
       const on=item.querySelector('.f-sb-on'); if(on) on.checked=!!im.sbOn;
       const len=item.querySelector('.f-sbum'), un=item.querySelector('.f-sbunit');
@@ -6781,13 +6844,13 @@ function onLayoutChange(){
   colDiv.innerHTML='';
   if(showC) for(let c=0;c<cols;c++){
     const r=document.createElement('div'); r.className='axis-row';
-    r.innerHTML=`<span>Col ${c+1}</span><input type="text" value="${esc(_colLabelText[c]||`Col ${c+1}`)}" oninput="scheduleRender()">`;
+    r.innerHTML=`<span>Col ${c+1}</span><input type="text" value="${esc(_colLabelText[c]!=null?_colLabelText[c]:`Col ${c+1}`)}" oninput="scheduleRender()">`;
     colDiv.appendChild(r);
   }
   rowDiv.innerHTML='';
   if(showR) for(let r=0;r<rows;r++){
     const d=document.createElement('div'); d.className='axis-row';
-    d.innerHTML=`<span>Row ${r+1}</span><input type="text" value="${esc(_rowLabelText[r]||`Row ${r+1}`)}" oninput="scheduleRender()">`;
+    d.innerHTML=`<span>Row ${r+1}</span><input type="text" value="${esc(_rowLabelText[r]!=null?_rowLabelText[r]:`Row ${r+1}`)}" oninput="scheduleRender()">`;
     rowDiv.appendChild(d);
   }
   const lblBtn=document.getElementById('labels-toggle-btn');
@@ -7854,6 +7917,7 @@ function _gelStaleText(im){ return _gelStaleWhy(im)==='image'?"The panel's image
 function _gelRefusal(im){
   if(layoutMode==='freeform') return 'Lane & band analysis works on grid panels — switch Layout to Grid';
   if(!im||!(im.img||im._imgEl)) return 'This panel has no image to measure';
+  if(_isDataPanel(im)) return `This panel is a ${im.type==='chart'?'chart':'gene map'} — lanes and bands are measured on a blot or gel picture`;
   if(im.isVector) return 'This is a vector panel — it has no recorded pixels to quantify';
   if(im.channels&&im.channels.length) return 'This panel is a composite of several channels — quantify each channel on its own panel';
   if((im.cropShape||'rect')!=='rect') return 'This panel has a shaped crop — densitometry needs a rectangular crop, so every lane pixel is a measured pixel';
@@ -8871,8 +8935,56 @@ function _gelLaneNote(a){
 function _gelPanelIdx(idx){
   if(idx!=null&&images[idx]) return idx;
   if(typeof idx==='number'&&idx<0) return -1;      // the dialog's panel is gone: never fall back to another
-  if(selectedPanel>=0&&images[selectedPanel]&&(images[selectedPanel].img||images[selectedPanel]._imgEl)) return selectedPanel;
-  return images.findIndex(im=>im&&(im.img||im._imgEl));
+  if(selectedPanel>=0&&_blotLike(images[selectedPanel])) return selectedPanel;
+  return images.findIndex(_blotLike);
+}
+// ── Which panel a panel command acts on (⌘K, the Check buttons) ──
+// The panel last picked: by a click anywhere on it on the canvas (its letter, its lane
+// table and its scale bar included), a click on its row in Images, or the arrow keys.
+// Escape clears the selection but not this, so "click the strip, Esc, ⌘K densitometry"
+// still means that strip. With no panel picked, ⌘K lane table and densitometry opened
+// on the first picture in the list — a gene map got a lane table and an "analysis" of
+// 21 saturated bands (blot3-02, phage2-10).
+let _lastPickedPanelId=null;
+function _notePanelPick(idx){ const im=images[idx]; if(im&&im.id!=null) _lastPickedPanelId=im.id; }
+function _pickedPanelIdx(){
+  if(selectedPanel>=0&&images[selectedPanel]) return selectedPanel;
+  if(_lastPickedPanelId!=null){ const i=images.findIndex(im=>im&&im.id===_lastPickedPanelId); if(i>=0) return i; }
+  return -1;
+}
+// A picture a lane analysis or a lane table can sit on: never a chart or a gene map.
+function _blotLike(im){ return !!(im&&!_isDataPanel(im)&&(im.img||im._imgEl)); }
+const _panelName=i=>_rtText(formatLabel(images[i]&&images[i].label))||String(i+1);
+// Run fn(idx) on the panel a blot command means: the one picked when it is a picture;
+// else the figure's only picture; else ask which. Never on a chart or a gene map.
+function _withBlotPanel(what, fn){
+  const cand=images.map((im,i)=>_blotLike(im)&&!im.excluded?i:-1).filter(i=>i>=0);
+  const p=_pickedPanelIdx();
+  if(p>=0&&_blotLike(images[p])) return fn(p);
+  const why=p>=0&&_isDataPanel(images[p])?`Panel ${_panelName(p)} is a ${images[p].type==='chart'?'chart':'gene map'} — ${what} works on a blot or gel picture`:'';
+  if(!cand.length){ toast(why?`${why}, and the figure has none`:'Add a blot or gel image first','warn'); return false; }
+  if(cand.length===1){ if(why) toast(`${why} — opened on panel ${_panelName(cand[0])}, the figure's only picture`,'info'); return fn(cand[0]); }
+  _askPanel(what, cand, why||'No panel is selected', fn);
+  return false;
+}
+// "Which panel?" — one button per candidate, with its thumbnail, letter and file name.
+function _askPanel(what, cand, why, fn){
+  const old=document.getElementById('panelpick-modal-bg'); if(old) old.remove();
+  const m=document.createElement('div'); m.id='panelpick-modal-bg'; m.className='modal-bg open';
+  m.innerHTML=`<div class="modal" style="max-width:420px">
+    <button class="modal-close" aria-label="Close" title="Close (Esc)">×</button>
+    <h3>Which panel?</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">${esc(why)}. Pick the panel for ${esc(what)} — or close this, click the panel on the figure and run it again.</p>
+    <div style="display:flex;flex-direction:column;gap:4px">${cand.map(i=>`<button class="btn" data-pick="${i}" style="justify-content:flex-start;gap:8px">
+      <img src="${_safeSrc(images[i]._thumb||images[i].src)}" alt="" style="width:40px;height:28px;object-fit:cover;border-radius:3px">
+      <b>${esc(_panelName(i))}</b><span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(images[i].name||'')}</span></button>`).join('')}</div>
+  </div>`;
+  m.querySelector('.modal-close').addEventListener('click',()=>m.remove());
+  m.querySelectorAll('[data-pick]').forEach(b=>b.addEventListener('click',()=>{
+    const im=images[+b.dataset.pick]; m.remove();
+    const i=im?images.indexOf(im):-1; if(i<0){ toast(_PANEL_GONE,'warn'); return; }
+    selectedPanel=i; _notePanelPick(i); drawAnnOverlay(); fn(i); }));
+  document.body.appendChild(m);
 }
 function runGelAnalysis(idx,opts){
   idx=_gelPanelIdx(idx);
@@ -9235,6 +9347,22 @@ function gelPlaceMWLabels(idx){
   return true;
 }
 // Remove one panel's MW labels (and nothing else). One undo step.
+// Take the analysis off a panel — one opened on the wrong panel stayed for good, in the
+// compliance report's Densitometry and MW-marker rows (blot3-02). Its MW labels go with
+// it, in the same undo step; a chart linked to it keeps its numbers and is said to be.
+function gelRemoveAnalysis(idx){
+  idx=_gelPanelIdx(idx); const im=images[idx];
+  if(!im||!im.gelAnalysis){ toast('This panel has no lane analysis','warn'); return false; }
+  pushUndo();
+  delete im.gelAnalysis;
+  const mw=annotations.filter(x=>x&&x.mw&&x.blotPanel===im.id);
+  if(mw.length){ annotations=annotations.filter(x=>!mw.includes(x)); selectedAnnotation=-1; if(typeof renderAnnotationList==='function') renderAnnotationList(); }
+  const linked=(typeof _allCharts==='function'?_allCharts():[]).filter(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id));
+  closeGelAnalysis(); renderImgList(); scheduleRender(0);
+  logAction('gelRemoveAnalysis',{panel:im.label});
+  toast(`Lane analysis removed from panel ${_panelName(idx)}${mw.length?`, with its ${mw.length} MW labels`:''}${linked.length?` — ${linked.length} chart${linked.length>1?'s':''} linked to it keep${linked.length>1?'':'s'} ${linked.length>1?'their':'its'} values and can no longer update`:''} (Ctrl/⌘+Z brings it back)`,'ok');
+  return true;
+}
 function gelRemoveMWLabels(idx){
   idx=_gelPanelIdx(idx); const im=images[idx]; if(!im) return 0;
   const mine=annotations.filter(x=>x&&x.mw&&x.blotPanel===im.id);
@@ -9358,6 +9486,7 @@ function _gelGone(){
 }
 function closeGelAnalysis(){ const m=document.getElementById('gel-modal-bg'); if(m) m.remove(); _gelUI=null; }
 function openGelAnalysis(idx){
+  if(idx==null) return _withBlotPanel('lanes & bands', i=>openGelAnalysis(i));
   idx=_gelPanelIdx(idx);
   const im=images[idx];
   if(idx<0||!im){ toast('Add a blot or gel image first','warn'); return false; }
@@ -9427,6 +9556,7 @@ function openGelAnalysis(idx){
           <button class="btn" style="font-size:10px" title="Download every lane's profile as CSV: position (source px and Rf), raw signal, background and net signal per row" onclick="exportGelProfileCSV(_gelUI.idx)">⬇ Lane profiles CSV</button>
           <button class="btn" style="font-size:10px" title="The +/− condition table over or under the blot, aligned to these detected lanes" onclick="openLaneTable(_gelUI.idx)">⊞ Lane table…</button>
           <button class="btn" style="font-size:10px" title="Undo the last change (Ctrl/⌘+Z)" onclick="undo();_gelRefresh()">↶ Undo</button>
+          <button class="btn" style="font-size:10px" title="Take the lane analysis off this panel, with its MW labels (one undo step) — for an analysis opened on the wrong panel" onclick="gelRemoveAnalysis(_gelUI.idx)">✕ Remove analysis</button>
           <button class="btn" style="font-size:10px" title="Delete the selected band (Delete)" onclick="if(_gelUI&&_gelUI.sel){const s=_gelUI.sel;_gelUI.sel=null;gelDeleteBand(_gelUI.idx,s.li,s.bi);}">✕ Delete band</button>
         </div>
         <div id="gel-table" style="margin-top:8px;max-height:46vh;overflow:auto"></div>
@@ -9971,8 +10101,10 @@ function laneTableRemove(idx){ return _ltEdit(idx,t=>{ t.rows=null; }); }
 let _ltUI=null;
 function closeLaneTable(){ const m=document.getElementById('lt-modal-bg'); if(m) m.remove(); _ltUI=null; }
 function openLaneTable(idx){
+  if(idx==null) return _withBlotPanel('a lane table', i=>openLaneTable(i));
   idx=_gelPanelIdx(idx); const im=images[idx];
   if(idx<0||!im){ toast('Add a blot or gel image first','warn'); return false; }
+  if(_isDataPanel(im)){ toast(`Panel ${_panelName(idx)} is a ${im.type==='chart'?'chart':'gene map'} — a lane table goes over or under a blot or gel picture`,'warn'); return false; }
   if(layoutMode==='freeform'){ toast('A lane table is drawn on a grid panel — switch Layout to Grid','warn'); return false; }
   closeLaneTable();
   _ltUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, focus:null};
@@ -9980,7 +10112,7 @@ function openLaneTable(idx){
   m.innerHTML=`<div class="modal" style="max-width:860px;width:94vw">
     <button class="modal-close" onclick="closeLaneTable()" aria-label="Close" title="Close (Esc)">×</button>
     <h3>⊞ Lane table — panel ${esc(formatLabel(im.label)||String(idx+1))}</h3>
-    <p style="font-size:11px;color:var(--muted);margin-bottom:6px">The conditions of each lane, drawn as text over or under the blot and moved with it. Click a cell to cycle + / – / blank; type in it for anything else (a dose, an MOI). Each change is one undo step.</p>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:6px">The conditions of each lane, drawn as text over or under the blot and moved with it. Click an empty or +/– cell to cycle + / – / blank; click a cell with text, or type, to write anything else (a dose, an MOI). Each change is one undo step; Ctrl/⌘+Z undoes it, in a cell too.</p>
     <div id="lt-status" style="font-size:11px;margin-bottom:6px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:11px;margin-bottom:6px">
       <label for="lt-lanes">Lanes</label><input id="lt-lanes" type="number" min="1" max="60" style="width:52px" title="How many columns. With a current lane analysis of the same count, the columns sit on the detected lanes." onchange="laneTableSet(_ltUI.idx,{lanes:this.value})">
@@ -9990,20 +10122,29 @@ function openLaneTable(idx){
       <button class="btn" id="lt-match" style="font-size:10px;display:none" onclick="laneTableMatchLanes(_ltUI.idx)"></button>
       <button class="btn" style="font-size:10px" onclick="laneTableRemove(_ltUI.idx)" title="Take the table off the panel (one undo step)">✕ Remove table</button>
     </div>
-    <div style="font-size:10px;color:var(--muted);margin:2px 0">The panel as the figure draws it, with each column's number over its lane — check every row sits over the right lanes. Paste or type a whole row into a cell (<code>- + - + - +</code>, or cells copied from a spreadsheet) to fill it across.</div>
+    <div style="font-size:10px;color:var(--muted);margin:2px 0">The panel as the figure draws it, with each column's number over its lane — check every row sits over the right lanes. Type a whole row into its first cell, separated by commas (<code>10^{-2}, 10^{-3}, 10^{-4}</code>) or as <code>- + - + - +</code>, or paste cells copied from a spreadsheet, and press Enter or Tab to fill it across.</div>
     <canvas id="lt-preview" style="display:block;max-width:100%;border:1px solid var(--border);border-radius:4px;background:#fff;margin-bottom:6px"></canvas>
     <div id="lt-grid" style="overflow:auto;max-height:50vh"></div>
   </div>`;
   document.body.appendChild(m);
   const g=m.querySelector('#lt-grid');
-  // Click cycles + / – / blank, and leaves the cell's text selected, so typing replaces it.
+  // A click on an empty or +/– cell cycles + / – / blank and leaves its text selected, so
+  // typing replaces it. A click on a cell holding anything else (a strain, a dose) puts the
+  // cursor there: one click turned "R42P" into "+" (blot3-05). And a click that leaves a
+  // field with typing in it (the row's name, typed first as the phage guide says) commits
+  // that typing and focuses the cell without cycling it — the click used to cycle the cell
+  // to "+", lose the focus and throw a page error as the grid was rebuilt (phage3-03).
   g.addEventListener('mousedown',e=>{ const c=e.target.closest('.lt-cell'); if(!c) return;
-    e.preventDefault(); _ltUI.focus={r:+c.dataset.r,c:+c.dataset.c};
-    laneTableCycle(_ltUI.idx,+c.dataset.r,+c.dataset.c); _ltRefocus(); });
-  g.addEventListener('change',e=>{ const t=e.target;
-    if(t.classList.contains('lt-cell')&&_ltRowTokens(t.value)) laneTableFillRow(_ltUI.idx,+t.dataset.r,+t.dataset.c,_ltRowTokens(t.value));
-    else if(t.classList.contains('lt-cell')) laneTableSetCell(_ltUI.idx,+t.dataset.r,+t.dataset.c,t.value);
-    else if(t.classList.contains('lt-name')) laneTableSetName(_ltUI.idx,+t.dataset.r,t.value); });
+    const r=+c.dataset.r, col=+c.dataset.c, a=document.activeElement;
+    // a second click in a text cell already being edited places the caret, as in any field
+    if(a===c&&!/^[-−–—+]?$/.test(c.value.trim())) return;
+    e.preventDefault();
+    const pending=a&&a!==c&&g.contains(a)&&a.matches('.lt-cell, .lt-name')&&a.value!==a.defaultValue;
+    _ltUI.focus={r, c:col};
+    if(pending){ _ltCommit(a); _ltRefocus(); return; }
+    if(!/^[-−–—+]?$/.test(c.value.trim())){ _ltRefocus(); return; }
+    laneTableCycle(_ltUI.idx,r,col); _ltRefocus(); });
+  g.addEventListener('change',e=>{ if(_ltRendering) return; _ltCommit(e.target); });
   g.addEventListener('focusin',e=>{ const t=e.target; if(t.classList.contains('lt-cell')){ _ltUI.focus={r:+t.dataset.r,c:+t.dataset.c}; t.select(); _ltPreview(false); } });
   g.addEventListener('paste',e=>{ const t=e.target; if(!t.classList||!t.classList.contains('lt-cell')) return;
     const tok=_ltRowTokens((e.clipboardData||window.clipboardData).getData('text'));
@@ -10062,6 +10203,15 @@ function _ltPreview(doRender){
     x.beginPath(); x.moveTo(px,head-2); x.lineTo(px,H); x.stroke(); x.setLineDash([]);
     x.fillStyle=c===ladder?'#c26a00':(f&&f.c===c?'#1d4ed8':'#333'); x.fillText(c===ladder?'M':String(c+1), px, 2); });
 }
+// A cell's or a row name's typing, into the table (one undo step). The grid is rebuilt by
+// it; a change event fired by that rebuild (the focused field being removed) is ignored.
+let _ltRendering=false;
+function _ltCommit(t){
+  if(!_ltUI||!t||!t.classList) return;
+  if(t.classList.contains('lt-cell')&&_ltRowTokens(t.value)) laneTableFillRow(_ltUI.idx,+t.dataset.r,+t.dataset.c,_ltRowTokens(t.value));
+  else if(t.classList.contains('lt-cell')) laneTableSetCell(_ltUI.idx,+t.dataset.r,+t.dataset.c,t.value);
+  else if(t.classList.contains('lt-name')) laneTableSetName(_ltUI.idx,+t.dataset.r,t.value);
+}
 function _ltRefocus(){ if(!_ltUI||!_ltUI.focus) return;
   const el=document.querySelector(`#lt-grid .lt-cell[data-r="${_ltUI.focus.r}"][data-c="${_ltUI.focus.c}"]`); if(el){ el.focus(); el.select(); } }
 function _ltRefresh(){ if(_ltUI&&document.getElementById('lt-modal-bg')) _ltRender(); }
@@ -10099,16 +10249,26 @@ function _ltRender(){
     h+=`<tr><td style="padding:2px 4px"><input class="lt-name" data-r="${r}" value="${esc(row.name||'')}" placeholder="e.g. IPTG" style="width:120px" title="The row's name, drawn left of the blot"></td>`;
     const _cut=(im.id!=null&&_ltCut.get(im.id))||[];
     row.cells.forEach((v,c)=>{ const cu=_cut.some(q=>q[0]===r&&q[1]===c);
-      h+=`<td style="padding:1px"><input class="lt-cell" data-r="${r}" data-c="${c}" value="${esc(v)}" style="${cell}${cu?';outline:1px solid var(--warn)':''}" title="Lane ${c+1}: click to cycle + / – / blank; type to write anything else${cu?` — too wide for its lane: cut short with … on the figure. Full text: ${esc(v)}`:''}"></td>`; });
+      h+=`<td style="padding:1px"><input class="lt-cell" data-r="${r}" data-c="${c}" value="${esc(v)}" style="${cell}${cu?';outline:1px solid var(--warn)':''}" title="Lane ${c+1}: ${/^[-−–—+]?$/.test(String(v).trim())?'click to cycle + / – / blank; type to write anything else':'click to edit'}${cu?` — too wide for its lane: cut short with … on the figure. Full text: ${esc(v)}`:''}"></td>`; });
     h+=`<td><button class="btn" style="padding:0 5px;font-size:10px" title="Delete this row (one undo step)" onclick="laneTableDeleteRow(_ltUI.idx,${r})">✕</button></td></tr>`;
   });
-  document.getElementById('lt-grid').innerHTML=h+'</table>';
+  _ltRendering=true;
+  try{ document.getElementById('lt-grid').innerHTML=h+'</table>'; } finally{ _ltRendering=false; }
   _ltPreview();
 }
 // While the editor is on top, Ctrl/⌘+Z undoes and the grid shows it.
 document.addEventListener('keydown',e=>{
   if(!_ltUI||!document.getElementById('lt-modal-bg')||_topDialog()!==document.getElementById('lt-modal-bg')) return;
-  const t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')) return;
+  const t=e.target;
+  // In a cell or a row name with nothing typed since it was drawn, Ctrl/⌘+Z is the table's
+  // undo too — it used to undo nothing there (blot3-05). With typing in it, it is the
+  // field's own text undo.
+  const _cellUndo=t&&t.matches&&t.matches('#lt-grid .lt-cell, #lt-grid .lt-name')&&t.value===t.defaultValue;
+  if(_cellUndo&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='y'||e.key==='Y')){ e.preventDefault(); e.stopPropagation();
+    const at=t.classList.contains('lt-cell')?{r:+t.dataset.r,c:+t.dataset.c}:null;
+    if(e.key==='y'||e.key==='Y'||e.shiftKey) redo(); else undo(); _ltRefresh();
+    if(at&&_ltUI){ _ltUI.focus=at; _ltRefocus(); } return; }
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')) return;
   if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='y'||e.key==='Y')){ e.preventDefault(); e.stopPropagation();
     if(e.key==='y'||e.key==='Y'||e.shiftKey) redo(); else undo(); _ltRefresh(); }
 },true);
@@ -11522,18 +11682,19 @@ function render(targetCanvas, exportScale, opts){
   }
   // Col labels
   if(showCols){
-    const ins=axisLabelValues('col');
+    const ins=axisLabelValues('col'), _cf=document.querySelectorAll('#col-label-inputs input');
     for(let c=0;c<cols;c++){
       // Sit at the top of the reserved band, which leaves exactly axisGap
-      // between the text and the panel below it.
-      emitText('col',c, ins[c]||`Col ${c+1}`,
+      // between the text and the panel below it. A heading you emptied stays empty: an
+      // empty field drew its placeholder "Col 4" over the chart (fluor3-09).
+      emitText('col',c, _cf[c]?_cf[c].value:(ins[c]||`Col ${c+1}`),
         rowLblW+mLeft + colOffset(c,pw,gH) + pw/2, titleH+mTop+_grpBand('col')+axisFs/2,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',0);
     }
   }
   // Row labels
   if(showRows){
-    const ins=axisLabelValues('row');
+    const ins=axisLabelValues('row'), _rf=document.querySelectorAll('#row-label-inputs input');
     const rowBase=_pageCtx?_pageCtx.rowOffset:0;      // see _pageCtx below
     for(let r=0;r<rows;r++){
       const rr=r+rowBase;
@@ -11541,7 +11702,7 @@ function render(targetCanvas, exportScale, opts){
       // Was mLeft/2 — centred in the left MARGIN, so the distance to the panel was
       // whatever the margin happened to be and you could only close it by moving the
       // whole figure. Now anchored to the panel edge, axisGap away from it.
-      emitText('row',r, ins[rr]||`Row ${rr+1}`, mLeft+_grpBand('row')+axisFs/2, cy,
+      emitText('row',r, _rf[rr]?_rf[rr].value:(ins[rr]||`Row ${rr+1}`), mLeft+_grpBand('row')+axisFs/2, cy,
         `${aSt} ${aWt} ${axisFs}px ${aFam}`, axisClr, 'center','middle',1);
     }
   }
@@ -11818,7 +11979,14 @@ function render(targetCanvas, exportScale, opts){
           else if(barPx>=ow*.75) im._sbSkip='longer than 75% of the panel — check µm/px and the bar length';
           if(!im._sbSkip){
             const sp=Math.max(6,Math.round(ow*.04));
-            const sbX=ox+ow-sp-barPx, sbY=oy+oh-sp-sbH;
+            // The corner: the panel's own choice, else bottom right unless that covers the
+            // bar burned into the image or the ruler it was calibrated on — a second bar was
+            // drawn exactly on top of the one Auto-detect had just read (newcomer3-01), and
+            // on the white ruler sticker of a plate photo (phage3-05).
+            const _sfs0=sbTxt?+_figTextPx().toFixed(2):0;
+            const _cn=_sbCorner(im, _cd, {dx,dy,dw,dh,ox,oy,ow,oh,sp,barPx,sbH,txt:_sfs0?_sfs0+3:0});
+            im._sbCornerUsed=_cn;
+            const sbX=_cn[1]==='l'?ox+sp:ox+ow-sp-barPx, sbY=_cn[0]==='t'?oy+sp+(_sfs0?_sfs0+3:0):oy+oh-sp-sbH;
             // Auto contrast: a white bar on a bright-field image is invisible. Sample the
             // bar and the text line above it together, so both come out the same ink.
             const barInk=sbAuto?_autoInk(ctx,S,sbX,sbY-16,barPx,sbH+16,sbClr):sbClr;
@@ -11831,7 +11999,12 @@ function render(targetCanvas, exportScale, opts){
               // panel, whatever its width (it used to be 10 px per 300 px of panel).
               const sfs=+_figTextPx().toFixed(2);
               const lbl=_sbLabel(im);
-              emitText('sb',imgIdx,lbl, sbX+barPx/2, sbY-3, `${sfs}px ${_barFontFamily()}`, barInk, 'center','alphabetic',0);
+              // Centred on the bar, but kept inside the panel: "20 mm" over a short bar at
+              // the edge lost its last letter in the TIFF (phage3-05).
+              let tcx=sbX+barPx/2;
+              { ctx.save(); ctx.font=`${sfs}px ${_barFontFamily()}`; const tw=ctx.measureText(_rtText(lbl)).width; ctx.restore();
+                if(tw/2+2<=ow/2) tcx=Math.min(Math.max(tcx, ox+tw/2+2), ox+ow-tw/2-2); }
+              emitText('sb',imgIdx,lbl, tcx, sbY-3, `${sfs}px ${_barFontFamily()}`, barInk, 'center','alphabetic',0);
               ctx.textAlign='left';
             }
           }
@@ -11904,7 +12077,7 @@ function render(targetCanvas, exportScale, opts){
   // target printed width when one is set). Dividing logical px by dpi assumes a
   // scale of 1 and under-reports the real size by ~3x at 300 DPI.
   const _pf=_physFacts();
-  document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${cols}×${rows} · ${Math.round(zoom*100)}%`;
+  document.getElementById('canvas-info').textContent = `${totalW}×${totalH}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${cols}×${rows} · ${_zoomShownPct()}%`;
   _syncPhysReadout();
   // With rows hugging their panels ph is one height per row; interpolated as-is it
   // printed "panel 300×90,45px".
@@ -12763,7 +12936,11 @@ function _insetPpiNote(){
     const fit=_panelFitScale(rw, rh, 0, b.w/Math.max(1,p.colSpan||1), b.h/Math.max(1,p.rowSpan||1)); if(!(fit>0)) return null;
     const ppi=1/(fit*_inchPerLogicalPx(getExportDPI())), low=ppi<PANEL_MIN_PPI;
     return {low, ppi, txt:` · region ${Math.round(rw)}×${Math.round(rh)} px, prints at about ${Math.round(ppi)} ppi in a cell like its panel's`
-      +(low?` — under ${PANEL_MIN_PPI}: draw a region at least ${Math.ceil(rw*PANEL_MIN_PPI/ppi)} px wide`:'')};
+      +(low?(()=>{ const need=Math.ceil(rw*PANEL_MIN_PPI/ppi);
+        // Advice that asks for most of the picture is no advice for a zoom (fluor2-09: "at
+        // least 938 px" of a 1024 px field): say what does help — a narrower printed width.
+        if(need<=g.sw*0.6) return ` — under ${PANEL_MIN_PPI}: draw a region at least ${need} px wide`;
+        return ` — under ${PANEL_MIN_PPI}: ${PANEL_MIN_PPI} ppi would need a region ${need} px wide, ${need>=g.sw?'more than':'most of'} the ${Math.round(g.sw)} px image — the cell prints too large for a zoom; choose a narrower printed width (Export › Printed width${getTargetWidthMm()>0?'':' — none is set, so the figure prints at its pixel size'}) or a journal's column`; })():'')};
   }catch(e){ return null; }
 }
 // ── Loupe ─────────────────────────────────────────────────────
@@ -14430,7 +14607,13 @@ const _CE_NOWHERE={px:-9999,py:-9999,fx:0.5,fy:0.5};
 // ═══════════════════════════════════════════════════════════════
 // JOURNAL COMPLIANCE CHECKER
 // ═══════════════════════════════════════════════════════════════
-function checkCompliance(){
+function checkCompliance(opts){
+  const as=opts&&opts.as&&JOURNALS[opts.as]?opts.as:'';
+  if(!as) return _checkCompliance('');
+  const prev=_ckAsJournal; _ckAsJournal=as;
+  try{ return _checkCompliance(as); } finally{ _ckAsJournal=prev; }
+}
+function _checkCompliance(asJ){
   // A freeform figure is its objects: one made only of freeform pictures is checked too.
   const _ff=layoutMode==='freeform';
   if(!images.length&&!(_ff&&freeformElements.length)){ toast('Render a figure first','warn'); return; }
@@ -14569,8 +14752,8 @@ function checkCompliance(){
     {label:'AI disclosure', ok:_aiGeneratedCount()===0, warn:_aiGeneratedCount()>0,
       note:_aiGeneratedCount()
         ? `${_aiGeneratedCount()} AI-generated schematic(s) — `
-          + (JOURNAL_AI_POLICIES[_lastPresetName]
-             ? `${JOURNAL_AI_POLICIES[_lastPresetName].name} does not accept generative-AI figures (summarised ${JOURNAL_POLICY_FETCHED}; verify)`
+          + (JOURNAL_AI_POLICIES[asJ||_lastPresetName]
+             ? `${JOURNAL_AI_POLICIES[asJ||_lastPresetName].name} does not accept generative-AI figures (summarised ${JOURNAL_POLICY_FETCHED}; verify)`
              : 'disclose to the journal; Nature and the ASM journals state on their own pages that they do not accept generative-AI images — check your journal’s policy')
         : 'No AI-generated content ✓'},
   ];
@@ -14593,17 +14776,21 @@ function checkCompliance(){
   const unc=rowsOut.filter(c=>(c.uncounted||c.info)&&!c.unverified).length;
   const pass=rowsOut.filter(c=>c.ok&&!c.info&&!c.unverified&&!c.uncounted).length, total=rowsOut.length-unv-unc;
   if(!J){
+    { const m=document.getElementById('info-modal-bg'); if(m) delete m.dataset.asJournal; }
     showInfoModal(`Journal Compliance — ${pass}/${total} passed`,
       `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against general Nature/Science/Cell guidelines${
         _lastPresetName ? ` — you have the <b>${esc(_lastPresetName)}</b> preset applied, so check its own spec too` : ''
       }</div>${html}`);
     return;
   }
-  showInfoModal(`${J.label} compliance — ${pass}/${total} passed${unv?` · ${unv} unverified`:''}`,
-    `<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against <b>${esc(J.name)}</b>${J.verified
+  const _tj=asJ?(JOURNALS[gv('target-journal')]||null):null;
+  const _asNote=asJ?`<div id="ck-as-note" style="margin-bottom:8px;font-size:11px;padding:6px 8px;border:1px solid var(--border2);border-radius:6px">Report only — your target journal is still <b>${esc(_tj?_tj.label:'None / general')}</b>, and nothing was changed. The fix buttons below apply ${esc(J.label)}’s rules. <a href="#" onclick="event.preventDefault();_ckSwitchTarget('${asJ}')" style="color:var(--accent)">Switch the target to ${esc(J.label)}</a> (one undo step)</div>`:'';
+  showInfoModal(`${J.label} compliance — ${pass}/${total} passed${unv?` · ${unv} unverified`:''}${asJ?' · report only':''}`,
+    `${_asNote}<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against <b>${esc(J.name)}</b>${J.verified
       ? ` — each journal row comes from its own figure guide (${esc(J.src)}), read ${JOURNAL_RULES_READ}. Guides change, so check its own spec too before you submit.`
       : ` — its own page could not be read and the secondary sources disagree, so its rows are <b>unverified</b> (?) and never fail. Check its own spec on <a href="${J.url}" target="_blank" rel="noopener" style="color:var(--accent)">the journal's page</a>.`
     } Alt text: <a href="#" onclick="event.preventDefault();_auditFix('alttext')" style="color:var(--accent)" title="Go to the figure's alt text box (embedded in PNG, SVG and PDF exports)">${(typeof _figAltText==='string'&&_figAltText.trim())?'written ✓':'write it'}</a></div>${html}`);
+  { const m=document.getElementById('info-modal-bg'); if(m){ if(asJ) m.dataset.asJournal=asJ; else delete m.dataset.asJournal; } }
 }
 // The general rows that read grid panels, and what they say in a freeform figure.
 const _FF_NA=new Set(['Panel labels','Panel labels unique','Scale-bar calibration','Adjustment sanity',
@@ -14611,8 +14798,12 @@ const _FF_NA=new Set(['Panel labels','Panel labels unique','Scale-bar calibratio
 const _ffNaRow=label=>({label, ok:true, info:true, uncounted:true,
   note:'Does not apply in freeform layout — it reads grid panels, and this figure is drawn from freeform objects'});
 function _auditFix(action){
+  // In a "Check against …" report the fixes and the re-run are that journal's.
+  const _m0=document.getElementById('info-modal-bg'), as=_m0&&_m0.dataset.asJournal&&JOURNALS[_m0.dataset.asJournal]?_m0.dataset.asJournal:'';
+  if(as&&!_ckAsJournal){ _ckAsJournal=as; try{ return _auditFix(action); } finally{ _ckAsJournal=''; } }
+  const _rerun=()=>checkCompliance(as?{as}:undefined);
   // The journal rows' fixes, and the colour-accessibility ones: each its own undo step.
-  { const r=_journalFix(action); if(r==='done') return; if(r){ checkCompliance(); return; } }
+  { const r=_journalFix(action); if(r==='done') return; if(r){ _rerun(); return; } }
   const m=document.getElementById('info-modal-bg');
   if(action==='dpi300'){ sv('export-dpi','300'); }
   else if(action==='white'){ sv('bg-color','#ffffff'); scheduleRender(); }
@@ -14641,7 +14832,7 @@ function _auditFix(action){
     const idx=images.findIndex(im=>im&&shown.has(im)&&im.sbOn&&!(im.umPerPx>0));
     if(idx>=0){ if(m) m.remove(); if(typeof openCalib==='function') openCalib(idx); return; }
   }
-  checkCompliance();   // re-run to refresh the report
+  _rerun();   // re-run to refresh the report
 }
 function showInfoModal(title, bodyHtml){
   let m=document.getElementById('info-modal-bg');
@@ -16499,6 +16690,10 @@ function _canvasPt(e){
 const _measureToolActive = () => !spaceDown && /^measure-(roi|line|count)$/.test(activeTool||'');
 annCanvas.addEventListener('mousedown', e=>{
   e.preventDefault();
+  // Whatever the click goes on to do (drag a letter, a lane table, a scale bar), the panel
+  // under it is the one ⌘K's panel commands now mean (phage3-07).
+  if(layoutMode!=='freeform'){ const q=canvasCoords(annCanvas,e), b=panelBounds.find(p=>q.x>=p.x&&q.x<=p.x+p.w&&q.y>=p.y&&q.y<=p.y+p.h&&images[p.idx]);
+    if(b) _notePanelPick(b.idx); }
   if(_measureToolActive()){ handleMeasureTool(e,'down'); return; }
   // Freeform mode — delegate entirely (except space-pan)
   if(layoutMode==='freeform'&&!spaceDown){
@@ -16570,6 +16765,9 @@ annCanvas.addEventListener('mousedown', e=>{
         } else {
           panelAnnDraw={imgIdx:pb.idx, pb, x0:x, y0:y};
         }
+      } else {
+        // A click off every panel made nothing and said nothing (blot3-07).
+        toast('📌 Panel mode pins each mark to a panel, so it has to start on one — click on the panel (then drag the mark into the margin), or turn Panel mode off to place it anywhere on the figure','warn');
       }
       return;
     }
@@ -16680,6 +16878,12 @@ annCanvas.addEventListener('mousedown', e=>{
   }
   // Deselect annotation
   selectedAnnotation=-1; hideAnnFloat();
+  // A click on a panel's letter, lane table, scale bar or inset outline drags that thing —
+  // and selects the panel too, as a click anywhere else on it does. These returned before
+  // the panel was selected, so "click D, ⌘K lane table" opened panel A whenever the click
+  // landed on D's letter or its dilution labels (phage3-07).
+  const _under=panelBounds.find(p=>x>=p.x&&x<=p.x+p.w&&y>=p.y&&y<=p.y+p.h&&images[p.idx]);
+  if(_under){ selectedPanel=_under.idx; try{ annCanvas.focus({preventScroll:true}); }catch(err){} }
   // On-canvas label toggle chip
   if(labelToggleHit && x>=labelToggleHit.x && x<=labelToggleHit.x+labelToggleHit.w &&
      y>=labelToggleHit.y && y<=labelToggleHit.y+labelToggleHit.h){ toggleAllLabels(); return; }
@@ -16721,6 +16925,7 @@ annCanvas.addEventListener('mousedown', e=>{
   {
     const lb=labelAtPoint(x,y);
     if(lb){
+      if(['panel','sb','tag','cbar','lanetable'].includes(lb.kind)&&images[lb.idx]){ selectedPanel=lb.idx; _notePanelPick(lb.idx); }
       const [ox,oy]=getLabelOff(lb.kind,lb.idx);
       labelDragState={kind:lb.kind,idx:lb.idx,startX:x,startY:y,ox,oy,moved:false,preSnap:snapshotState()};
       hoverLabel=null; annCanvas.style.cursor='grabbing'; drawAnnOverlay();
@@ -17121,8 +17326,10 @@ annCanvas.addEventListener('mouseup', e=>{
     type:activeTool,
     xf:annState.x0/annCanvas.width, yf:annState.y0/annCanvas.height,
     x2f:x/annCanvas.width,          y2f:y/annCanvas.height,
-    // a text box's words are on its own dark fill, so they stay white
-    color:activeTool==='textbox'?gv('ann-color'):_annInk((annState.x0+x)/2,(annState.y0+y)/2), width:gi('ann-width'),
+    // A text box's words are on its own dark fill, so they start white. It took the tool's
+    // colour, and after a T Text on a white canvas that was #111111 on a black box over a
+    // dark picture (freeform3-03).
+    color:activeTool==='textbox'?'#ffffff':_annInk((annState.x0+x)/2,(annState.y0+y)/2), width:gi('ann-width'),
     ...(activeTool==='inset'?{insetCorner:'br'}:{}),
     ...(activeTool==='spotlight'?{fill:true,fillColor:'#000000',fillOpacity:0.6}:{}),
     ...(activeTool==='textbox'?{text:'Label',fill:true,fillColor:'#000000',fillOpacity:0.6,shape:'rect',fontSize:16,fontFamily:'',bold:false,italic:false}:{}),
@@ -17290,7 +17497,7 @@ function _kbNeighbour(idx, key){
   return cand.length?cand[0].imgIdx:-1;
 }
 function _kbSelect(i, why){
-  selectedPanel=i; if(typeof hidePanelTooltip==='function') hidePanelTooltip(); drawAnnOverlay();
+  selectedPanel=i; _notePanelPick(i); if(typeof hidePanelTooltip==='function') hidePanelTooltip(); drawAnnOverlay();
   _kbSay(`${_kbPanelName(i)} selected${why||''}.`);
 }
 function _kbSwap(a, b){
@@ -18496,7 +18703,10 @@ var _lastExportFmt=null;                // the format the figure itself last wen
 var _ckEdits=0, _ckExports=[];
 
 // The journal the figure is for, from its Target journal control; null for None.
-function _targetJournalId(){ const v=gv('target-journal'); return (v&&JOURNALS[v])?v:''; }
+// While a "Check against …" report is built (or one of its fix buttons runs), the journal
+// it reports against stands in for the target — only there; the control is not touched.
+let _ckAsJournal='';
+function _targetJournalId(){ if(_ckAsJournal&&JOURNALS[_ckAsJournal]) return _ckAsJournal; const v=gv('target-journal'); return (v&&JOURNALS[v])?v:''; }
 function _targetJournal(){ const id=_targetJournalId(); return id?JOURNALS[id]:null; }
 // The control is the state; _lastPresetName follows it wherever the control is restored
 // (undo, an opened file, a share link, a template), so the AI gate, the Save dialog and
@@ -18526,10 +18736,18 @@ function _onTargetJournal(v){
     else { _lastPresetName=''; _syncWidthOptions(); scheduleRender(); }
   } finally { _undoHeld--; }
 }
-// ⌘K "Check against …": target the journal without changing the figure, then report.
+// ⌘K "Check against …": a report against that journal, and nothing else. It used to make
+// the journal the target: "check against plos" on a Nature figure left the Target journal
+// reading PLOS ONE and the next ✓ Check reporting PLOS (newcomer3-22). The report says
+// the target is unchanged and offers to switch to it.
 function checkAgainstJournal(id){
   if(!JOURNALS[id]) return;
-  if(_targetJournalId()!==id){ pushUndo(); sv('target-journal',id); _syncJournalFromControl(); }
+  checkCompliance(_targetJournalId()===id?undefined:{as:id});
+}
+function _ckSwitchTarget(id){
+  if(!JOURNALS[id]) return;
+  const m=document.getElementById('info-modal-bg'); if(m) m.remove();
+  sv('target-journal',id); _onTargetJournal(id);
   checkCompliance();
 }
 
@@ -18833,6 +19051,7 @@ function _ckSetWidthOption(J, mm){
   if(sel&&![...sel.options].some(o=>o.value===String(mm))){ const o=document.createElement('option'); o.value=String(mm); o.textContent=`${mm} mm — fits ${J.short||J.label}'s ${J.maxH} mm height`; sel.appendChild(o); }
 }
 // ── Width and resolution against the journal ──
+const _f1mm=v=>(+v).toFixed(1).replace(/\.0$/,'');
 function _journalWidthOk(J, wMm){
   if(J.columns){
     const hit=J.columns.find(c=>Math.abs(wMm-c.mm)<=0.5);
@@ -18874,6 +19093,11 @@ function _applyJournalRules(J){
     if(!(cur>0&&ok&&ok.ok)){
       const t=(!(cur>0)&&J.widthDefault)?J.widthDefault:_journalWidthTarget(J,w);
       if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); did.push(`${t} mm wide`); }
+    } else {
+      // A width the journal allows is kept — and said, or nobody could tell whether the
+      // width was considered at all (phage3-12: PLOS's 173 mm kept for ASM, silently).
+      const r=J.widthRange, nm=J.short||J.label;
+      did.push(`printed width kept at ${_f1mm(cur)} mm${ok.t?` — ${nm}’s ${ok.t.replace(/\s*\([^)]*\)\s*$/,'')}`:(r&&r.max!=null?` (${nm} allows up to ${r.max} mm)`:'')}`);
     }
     // The width the preset picked (or kept) must not print the figure taller than the
     // journal allows: ASM's 177.8 mm made a tall blot stack 360 mm high, and Nature kept a
@@ -19260,7 +19484,7 @@ function _journalRows(J, g){
   const shown=g.shown;
   if(J.scaleBar&&layoutMode==='freeform') rows.push(_ffNaRow('Scale bars'));
   else if(J.scaleBar==='required'){
-    const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip));
+    const miss=shown.filter(im=>im.img&&im.umPerPx>0&&!(im.sbOn&&!im._sbSkip)&&!im.sbBurnedIn);
     rows.push({label:'Scale bars', ok:!miss.length, src,
       note:(miss.length?`${miss.map(im=>esc(_rtText(formatLabel(im.label))||'?')).join(', ')} calibrated but showing no scale bar`:'Every calibrated panel shows a scale bar ✓')
         +` — ${nm}: scale bars on micrographs. Panels without a calibration are not checked: FigureLab cannot tell a micrograph from a photograph`,
@@ -22137,6 +22361,12 @@ function applyCalib(){
   calibState.imgIdx=ci;
   pushUndo();
   target.umPerPx=+umPerPx.toPrecision(6);
+  // What was measured — a ruler, a bar in the image — so the drawn bar keeps clear of it
+  // (phage3-05: a 20 mm bar on the plate's white ruler sticker). Typed pixels have no place.
+  { const P=calibState.pts||[], W=calibState.img.naturalWidth||calibState.img.width, H=calibState.img.naturalHeight||calibState.img.height;
+    if(P.length===2&&!calibState.pxTyped){
+      const xs=P.map(p=>p.sx), ys=P.map(p=>p.sy);
+      target.sbAvoid={x0:Math.min(...xs)-W*0.04, x1:Math.max(...xs)+W*0.04, y0:Math.min(...ys)-H*0.08, y1:Math.max(...ys)+H*0.06}; } }
   const note=_afterCalibration(target);
   document.getElementById('calib-result').textContent=`✓ Set: ${_fmtPxSize(target.umPerPx)}`;
   toast(`Scale set: ${_fmtPxSize(target.umPerPx)} (${(+calibState.pxDist).toFixed(1)} px = ${umVal} ${document.getElementById('calib-unit').selectedOptions[0].textContent})${note}`,'ok');
@@ -22589,6 +22819,9 @@ function _captionText(){
     // captioned "Scale bar, 10 µm" over a panel with no bar on it.
     if(_scaleBarDrawn(im)){
       s+=` Scale bar, ${_sbLabel(im)} (${_pxSizeText(im.umPerPx)}).`;
+    } else if(im.sbBurnedIn&&im.umPerPx>0){
+      // The bar burned into the image, kept as the panel's scale bar (Auto-detect › Keep).
+      s+=` Scale bar (in the image), ${_sbLabel({sbUm:im.sbBurnedIn.um, sbUnit:im.sbBurnedIn.unit})} (${_pxSizeText(im.umPerPx)}).`;
     }
     // The field of view actually shown — the cropped region in physical units — which a
     // methods section needs and a reader cannot recover from a scale bar alone.
@@ -23030,7 +23263,7 @@ function _applyFigControls(s){
 // panel — linked insets, background keying, acquisition times and the panel's id were
 // dropped — so this names only what is NOT saved, and a new field is kept by default.
 const _PANEL_TRANSIENT=new Set(['img','raw','dispRaw','rawRec','dispRawRec','_imgEl','src','svgSource','channels',
-  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','insetOrphaned','_compCache','_compKey',
+  '_adjCache','_adjKey','_cropCache','_cropKey','_sbSkip','_sbCornerUsed','insetOrphaned','_compCache','_compKey',
   '_chartStat','_chartKey','_chartCache','_genemapStat','_genemapKey','_genemapCache','_dpKey','_thumb']);
 const _CHANNEL_TRANSIENT=new Set(['img','raw','rawRec','src','_adjCache','_adjKey','_cropCache','_cropKey']);
 // ── Native samples in a saved session ─────────────────────────
@@ -24456,16 +24689,27 @@ document.addEventListener('keyup', e=>{
 // (the top-left panel was out of reach at 376%). Margins of the overflow on each side
 // give the scroll area the zoomed size, and the wrap's "safe" centring starts it at the
 // left edge once it no longer fits.
+// The scale the figure is shown at: the zoom times any shrinking the canvas's
+// max-width:100% does in a pane narrower than the figure. The zoom alone read 100 % on a
+// 1328 px graphical abstract drawn 1082 px wide after ⊡ Fit (freeform3-07).
+function _zoomShownPct(){
+  const fc=document.getElementById('fig-canvas'), lw=canvasLogicalW||(fc&&fc.width)||0;
+  const k=fc&&lw&&fc.offsetWidth?Math.min(1, fc.offsetWidth/lw):1;
+  return Math.round(zoom*k*100);
+}
 function applyZoom(){
   const cc=document.getElementById('canvas-container');
   cc.style.transform=`scale(${zoom})`;
   cc.style.transformOrigin='center center';
   _zoomMargins();
-  document.getElementById('zoom-btn').textContent=Math.round(zoom*100)+'%';
-  const fc=document.getElementById('fig-canvas');
-  if(fc.width>0)
-    document.getElementById('canvas-info').textContent=
-      `${fc.width}×${fc.height}px · ${Math.round(zoom*100)}%`;
+  document.getElementById('zoom-btn').textContent=_zoomShownPct()+'%';
+  // Only the zoom part of the readout changes: rewriting the whole line dropped the printed
+  // size in mm the render had put there (newcomer2-18, after ⊡ Fit on a phone).
+  const fc=document.getElementById('fig-canvas'), ci=document.getElementById('canvas-info');
+  if(fc.width>0&&ci){
+    if(/· \d+%$/.test(ci.textContent)&&/mm/.test(ci.textContent)) ci.textContent=ci.textContent.replace(/· \d+%$/, `· ${_zoomShownPct()}%`);
+    else ci.textContent=`${fc.width}×${fc.height}px · ${_zoomShownPct()}%`;
+  }
 }
 // Zoom keeping one point of the figure still: the pointer for Ctrl/⌘+scroll, the
 // middle of the view for the toolbar buttons.
@@ -24943,7 +25187,8 @@ let _toastT=null;
 function toast(msg,type=''){
   const el=document.getElementById('toast');
   el.textContent=msg; el.className='show'+(type?' '+type:'');
-  clearTimeout(_toastT); _toastT=setTimeout(()=>el.className='',3200);
+  // Up long enough to read: 3.2 s for a short one, about 45 ms a character for a long one.
+  clearTimeout(_toastT); _toastT=setTimeout(()=>el.className='',Math.min(12000,Math.max(3200,1500+String(msg).length*45)));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -25586,7 +25831,7 @@ function renderFreeform(canvas, ctx, S, opts){
     // The toolbar's size read-out follows every freeform render too (it said "No figure
     // rendered" with a figure on screen, or the size before a canvas resize).
     { const ci=document.getElementById('canvas-info'); if(ci){ const _pf=_physFacts();
-      ci.textContent=`${W}×${H}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${Math.round(zoom*100)}%`; } }
+      ci.textContent=`${W}×${H}px · ${_pf.wMm.toFixed(1)}×${_pf.hMm.toFixed(1)}mm · ${_zoomShownPct()}%`; } }
   }
 }
 
@@ -26818,14 +27063,19 @@ function _iconIsMono(ic){ return !ic || ic.mono!==false; }
 
 function insertIcon(name){
   const ic=SCIENCE_ICONS[name]; if(!ic) return;
-  if(layoutMode!=='freeform'){ const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
+  // From the grid, the switch to freeform and the icon are one undo step, taken before the
+  // switch: the switch recorded none, so the first Ctrl+Z left the canvas in freeform and
+  // the second took the grid's last edit (a calibration) with it (phage3-08).
+  const switched=layoutMode!=='freeform';
+  if(switched){ pushUndo(); const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
   const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(ic.svg);
   _rasterizeSVG(dataURL,(img,pngSrc)=>{
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=ic.w||90, h=ic.h||90;
     const mono=_iconIsMono(ic);
-    addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg,
+    if(switched) _undoHeld++;   // the step taken before the switch is this icon's
+    try{ addFreeformElement({type:'image', src:pngSrc, img, svgSource:ic.svg,
       // Only a single-colour icon gets a pristine recolour source and a current colour;
       // without them recolorIcon() declines, which is what we want for illustrations.
       ...(mono?{iconSrc0:ic.svg, iconColor:_ICO_KEY}:{iconMono:false}),
@@ -26838,7 +27088,7 @@ function insertIcon(name){
       // No letter: an icon used to arrive with its name as a letter chip drawn over it, and
       // with that cleared it was "image" in the Elements list and the layered exports. Its
       // name is its name; a letter is something the author adds.
-      blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:'', name:ic.label});
+      blackPt:0,whitePt:255,grayscale:false,invert:false,lut:'none',gamma:1.0, label:'', name:ic.label}); } finally{ if(switched) _undoHeld--; }
     const ni=freeformElements.length-1; selectedElems.clear(); selectedElems.add(ni);
     drawFreeformOverlay(); scheduleRender(0);
   }, ()=>toast('Could not add icon','err'));
@@ -28539,7 +28789,7 @@ function chartFromDensitometry(idx){
   _samplePinSync();
   logAction('chartFromDensitometry',{panels:ids.length, metric});
   scheduleRender(0);
-  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}; a lane with no band there is n.d.${notes.length?' — '+notes.join('; '):''}. Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
+  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}; a lane with no band there is n.d.${notes.length?' — '+notes.join('; ')+'.':''} Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
   return true;
 }
 
@@ -34980,6 +35230,10 @@ function autoDetectScaleBar(imgIdx){
       What length does it show?
     </div>
     ${btns}
+    <div style="font-size:11px;margin:6px 0 2px;display:flex;flex-direction:column;gap:3px">
+      <label style="display:flex;gap:6px;align-items:flex-start"><input type="radio" name="sbd-draw" value="draw" checked> <span>Also draw FigureLab's bar — in a corner clear of this one, so the two do not overlap</span></label>
+      <label style="display:flex;gap:6px;align-items:flex-start"><input type="radio" name="sbd-draw" value="keep"> <span>Keep the bar in the image as the scale bar — calibrate only, draw no second bar</span></label>
+    </div>
     <div class="inline-row" style="margin:6px 0 12px">
       <span style="font-size:11px">Other:</span>
       <input type="number" class="sbd-val" min="0" step="any" style="width:70px">
@@ -34988,24 +35242,38 @@ function autoDetectScaleBar(imgIdx){
     </div>
     <button class="btn sbd-cancel" style="width:100%;justify-content:center">Cancel</button>
   </div>`;
-  const done=um=>{ if(um>0) applyScaleDetect(_pidx(pid), bar.px, um); modal.remove(); };
+  const done=um=>{ if(um>0) applyScaleDetect(_pidx(pid), bar.px, um, {bar, keep:(modal.querySelector('input[name="sbd-draw"]:checked')||{}).value==='keep'}); modal.remove(); };
   modal.querySelectorAll('.sbd-pick').forEach(b=>b.addEventListener('click',()=>done(+b.dataset.um)));
   modal.querySelector('.sbd-ok').addEventListener('click',()=>{ const v=parseFloat(modal.querySelector('.sbd-val').value);
     if(!(v>0)){ toast('Type the bar’s length','warn'); return; } done(v*_sbUnitFactor(modal.querySelector('.sbd-unit').value)); });
   modal.querySelector('.sbd-cancel').addEventListener('click',()=>modal.remove());
   document.body.appendChild(modal);
 }
-function applyScaleDetect(imgIdx,barPx,um){
+function applyScaleDetect(imgIdx,barPx,um,opts){
+  opts=opts||{};
   const im=images[imgIdx]; if(!im){ toast(_PANEL_GONE,'warn'); return; }
   pushUndo();
   im.umPerPx=+(um/barPx).toPrecision(6);
-  // The same bar as 🔬 Calibrate from image gives for the same calibration (a length the
-  // author chose that fits is kept, else about a fifth of the field), so the two ways of
-  // calibrating one image cannot give two different figures.
-  _afterCalibration(im);
-  logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx});
-  renderImgList(); scheduleRender(0);
-  toast(`Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)})}) · scale bar ${_sbLabel(im)}`,'ok');
+  // Where the burned-in bar is (with room for its label), so FigureLab's own bar keeps
+  // clear of it: it used to be drawn exactly on top of it (newcomer3-01).
+  const b=opts.bar, W=(im.img&&(im.img.naturalWidth||im.img.width))||0, H=(im.img&&(im.img.naturalHeight||im.img.height))||0;
+  if(b&&W&&H) im.sbAvoid={x0:b.x-W*0.03, x1:b.x+barPx+W*0.03, y0:b.y-H*0.09, y1:b.y+H*0.04};
+  const inImg=_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)});
+  if(opts.keep){
+    // The bar in the image is the figure's scale bar: no second one, and the caption and
+    // the journal check know it is there.
+    im.sbOn=false; im.sbBurnedIn={um, unit:_sbUnitFor(um)};
+  } else { delete im.sbBurnedIn;
+    // The same bar as 🔬 Calibrate from image gives for the same calibration (a length the
+    // author chose that fits is kept, else about a fifth of the field), so the two ways of
+    // calibrating one image cannot give two different figures.
+    _afterCalibration(im); }
+  logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx,keep:!!opts.keep});
+  renderImgList(); render();
+  const where=!opts.keep&&_scaleBarDrawn(im)&&im._sbCornerUsed?` · FigureLab's ${_sbLabel(im)} bar is drawn ${_SB_CORNER_NAME[im._sbCornerUsed]}${im.sbAvoid&&im._sbCornerUsed!=='br'?', clear of the bar in the image':''} (⚙ › Scale bar › Corner moves it)`:'';
+  toast(opts.keep
+    ? `Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${inImg}) · the ${inImg} bar in the image is the scale bar — FigureLab draws none (⚙ › Scale bar › Enable adds one, clear of it)`
+    : `Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${inImg})${where||` · scale bar ${_sbLabel(im)}`}`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════

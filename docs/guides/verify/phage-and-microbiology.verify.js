@@ -125,7 +125,8 @@ const { step, expect, btn } = L;
     const um = await p.evaluate(() => images[0].umPerPx);
     const t = await L.toasts(T);
     expect(Math.abs(um * 1000 - 0.5) / 0.5 < 0.01, 'nm/px ' + um * 1000);
-    expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · scale bar 100 nm/.test(t), 'toast: ' + t);
+    // ux3 (newcomer3-01): the toast says where FigureLab's bar is drawn (clear of the burned-in one)
+    expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · FigureLab's 100 nm bar is drawn bottom (right|left)/.test(t), 'toast: ' + t);
     return `auto-detect found the bar (${said[1]} px); toast "${t}"`;
   });
 

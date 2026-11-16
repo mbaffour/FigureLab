@@ -482,7 +482,7 @@ test('⌘K finds journals by the words people type, and checks against one witho
   expect(r.elife).toContain('Check against eLife');
   expect(r.col.length).toBeGreaterThanOrEqual(6);
   expect(r.title).toMatch(/^EMBO J compliance/);
-  expect(r.target).toBe('embo');
+  expect(r.target).toBe('none');      // ux3 (newcomer3-22): a report only — the target journal is not changed
   expect(r.same).toBe(true);
   expect(errors).toEqual([]);
 });
