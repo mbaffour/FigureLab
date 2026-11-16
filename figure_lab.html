@@ -4450,7 +4450,15 @@ function _replaceInto(im, d){
 }
 let _replaceTarget=null;
 function openReplaceImage(idx){
-  if(layoutMode==='freeform'){ toast('Replace image works on grid panels — switch to a grid layout','warn'); return; }
+  if(layoutMode==='freeform'){
+    // The picture right-clicked, else the one selected on the canvas.
+    let el=(idx!=null&&idx>=0)?freeformElements[idx]:null;
+    if(!el||el.type!=='image') el=[...selectedElems].map(i=>freeformElements[i]).find(e=>e&&e.type==='image')||null;
+    if(!el){ toast('Select a picture first (click it on the canvas), then ⇄ Replace image','warn'); return; }
+    _replaceTarget={ff:el.id};
+    const inp=document.getElementById('replace-input'); if(inp){ inp.value=''; inp.click(); }
+    return;
+  }
   const im=images[idx];
   if(!im){ toast('Select a panel first (click it in the figure or the list)','warn'); return; }
   if(im.insetOf){ toast('A linked inset shows its parent panel — replace the parent’s image instead','warn'); return; }
@@ -4474,6 +4482,42 @@ async function replacePanelImage(pid, f){
   const notes=(pm?[pm]:[]).concat(plan.notes);
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
   toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — crop, label and settings kept${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
+  return true;
+}
+// A freeform picture takes another file and keeps its place, width, crop, letter, caption
+// note and display settings (freeform3-12: Replace was offered there and refused, and the
+// only way left — delete and add — lost the letter and the note and left the caption,
+// metadata and history naming the deleted file). A file of another shape keeps the box's
+// width and takes the height its picture needs, so nothing is stretched. A picture popped
+// out of the grid swaps the file of the grid panel it came from too: the caption, metadata
+// and PANEL_HISTORY are written from that panel. One undo step.
+async function replaceFreeformImage(eid, f){
+  if(!f) return false;
+  const find=()=>freeformElements.find(e=>e&&e.id===eid&&e.type==='image');
+  if(!find()){ toast('That picture is no longer on the canvas','warn'); return false; }
+  const d=await _decodeImageFile(f, find().srcPage||0);
+  if(!d){ toast(`Couldn't open "${f.name}" — unsupported or corrupt`,'err'); return false; }
+  const el=find(); if(!el){ toast('That picture is no longer on the canvas','warn'); return false; }
+  const was=_sourceName(el)||'(unnamed)';
+  pushUndo();
+  const g0=_cropGeom({...el, img:el._imgEl||el.img});
+  const r0=g0&&g0.sw>0?g0.sh/g0.sw:0;
+  const plan=_replaceInto(el, d);
+  const g1=_cropGeom({...el, img:d.img});
+  const r1=g1&&g1.sw>0?g1.sh/g1.sw:0;
+  let boxNote='';
+  if(r0>0&&r1>0&&Math.abs(r1/r0-1)>0.01){
+    const h0=el.h; el.h=Math.max(4, Math.round(el.w*r1*100)/100);
+    boxNote=`box height ${Math.round(h0)} → ${Math.round(el.h)} px so the new picture keeps its shape — check what sits below it`;
+  }
+  const twin=el.fromPanel!=null?images.find(im=>im&&im.id===el.fromPanel):null;
+  if(twin&&!_isDataPanel(twin)){ _replaceInto(twin, d); syncLinkedInsets(); }
+  logAction('replaceImage',{label:el.label, from:was, to:_sourceName(el), mode:'freeform'});
+  updateFreeformElemList(); renderImgList(); scheduleRender(0);
+  const notes=plan.notes.filter(n=>!/aspect ratio/.test(n)).concat(boxNote?[boxNote]:[]);
+  if(twin) notes.push('the caption, metadata and history name the new file');
+  const L=_rtPlain(formatLabel(el.label||''))||'';
+  toast(`${L?'Picture '+L:'Picture'}: ${was} → ${d.name} — place, crop, letter and settings kept${notes.length?'; '+notes.join('; '):''}`, plan.warn?'warn':'ok');
   return true;
 }
 // One channel of a merge takes another file — the same channel of another field — and
@@ -4542,7 +4586,7 @@ function _replaceMatch(panels, files){
     bad:files.map((f,fi)=>fi).filter(fi=>!files[fi].ok)};
 }
 function openReplaceAll(){
-  if(layoutMode==='freeform'){ toast('Replace all works on grid panels — switch to a grid layout','warn'); return; }
+  if(layoutMode==='freeform'){ toast('Replace all works on grid panels — in freeform, right-click a picture › ⇄ Replace image… (it keeps its place, size, crop and letter)','warn'); return; }
   if(!images.some(im=>im&&!im.insetOf)){ toast('Add images first — this swaps new files into an existing figure','warn'); return; }
   const inp=document.getElementById('replace-all-input'); if(inp){ inp.value=''; inp.click(); }
 }
@@ -4609,7 +4653,8 @@ async function replaceAllImages(fileList){
 }
 (function bindReplacePickers(){
   const one=document.getElementById('replace-input'), all=document.getElementById('replace-all-input');
-  if(one) one.addEventListener('change',()=>{ const f=one.files[0], pid=_replaceTarget; _replaceTarget=null; if(f&&pid!=null) replacePanelImage(pid,f); one.value=''; });
+  if(one) one.addEventListener('change',()=>{ const f=one.files[0], pid=_replaceTarget; _replaceTarget=null;
+    if(f&&pid!=null){ if(typeof pid==='object'&&pid.ff!=null) replaceFreeformImage(pid.ff,f); else replacePanelImage(pid,f); } one.value=''; });
   if(all) all.addEventListener('change',()=>{ const fs=[...all.files]; all.value=''; if(fs.length) replaceAllImages(fs); });
 })();
 // The source a panel cites: the file's own name, and for a page of a multi-page TIFF
@@ -17710,8 +17755,31 @@ annCanvas.addEventListener('contextmenu', e=>{
   const {x,y}=canvasCoords(annCanvas,e);
   let hit=-1;
   for(const b of panelBounds){ if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h){hit=b.idx;break;} }
-  if(hit>=0) showPanelMenu(hit, e.clientX, e.clientY);
+  if(hit<0) return;
+  // In freeform the hit is an object of the canvas, not a grid panel: the grid's menu
+  // used to open for whichever grid panel shared its number (Open settings on a new
+  // picture opened gene map F's).
+  if(layoutMode==='freeform') showFfElemMenu(hit, e.clientX, e.clientY);
+  else showPanelMenu(hit, e.clientX, e.clientY);
 });
+function showFfElemMenu(i, cx, cy){
+  hidePanelMenu();
+  const el=freeformElements[i]; if(!el) return;
+  const id=el.id, here=()=>freeformElements.findIndex(e=>e&&e.id===id);
+  const menu=document.createElement('div'); menu.id='panel-ctx-menu';
+  menu.style.cssText=`position:fixed;left:${Math.min(cx, window.innerWidth-200)}px;top:${cy}px;z-index:900;
+    background:var(--surface);border:1px solid var(--border2);border-radius:7px;padding:4px 0;box-shadow:0 8px 28px rgba(0,0,0,.55);
+    min-width:168px;font-size:11px;font-family:var(--mono);color:var(--text)`;
+  const row=(label,fn,danger)=>{ const d=document.createElement('div'); d.textContent=label;
+    d.style.cssText=`padding:7px 14px;cursor:pointer;${danger?'color:var(--danger)':''}`;
+    d.addEventListener('mouseover',()=>d.style.background='var(--surf2)'); d.addEventListener('mouseout',()=>d.style.background='');
+    d.addEventListener('click',()=>{ hidePanelMenu(); fn(); }); menu.appendChild(d); };
+  const sel=()=>{ const k=here(); if(k<0) return -1; selectedElems.clear(); selectedElems.add(k); drawFreeformOverlay(); updateFreeformElemList(); if(typeof updateElemPropsBar==='function') updateElemPropsBar(); return k; };
+  if(el.type==='image') row('⇄  Replace image…', ()=>{ const k=sel(); if(k>=0) openReplaceImage(k); });
+  row('✕  Delete object', ()=>{ if(sel()>=0) deleteSelectedElems(); }, true);
+  document.body.appendChild(menu);
+  setTimeout(()=>document.addEventListener('click', hidePanelMenu, {once:true}), 20);
+}
 
 annCanvas.addEventListener('mouseleave', ()=>{
   hidePanelTooltip();
@@ -17984,7 +18052,13 @@ function _annFollow(mode, geo, W, H, ready){
     // where it now is against where the objects now are, and not followed again.
     if(a._pinFresh){ delete a._pinFresh; if(ready) a.pin=_annBind(a, P, mode, geo, W, H); continue; }
     let pin=a.pin;
-    const same=!!(pin&&pin.m===mode&&Array.isArray(pin.p)&&pin.p.length===pf.length&&pf.every((v,k)=>Math.abs(v-pin.p[k])<1e-9));
+    const still=!!(pin&&Array.isArray(pin.p)&&pin.p.length===pf.length&&pf.every((v,k)=>Math.abs(v-pin.p[k])<1e-9));
+    // A mark pinned in the other layout, and not moved since, is left as it is: it follows
+    // the objects of the layout it was made on. Visiting the grid used to re-pin a freeform
+    // TextBox to a grid panel, which then moved and shrank it, so it came back to the
+    // freeform canvas 76 px off with nothing said (freeform3-14).
+    if(still&&pin.m&&pin.m!==mode) continue;
+    const same=still&&pin.m===mode;
     if(!same){ if(!ready) continue; pin=a.pin=_annBind(a, P, mode, ref.geo, ref.W, ref.H); }
     const g=pin.id!=null?geo.get(pin.id):null;
     if(pin.id!=null&&!g) continue;                       // its panel is not drawn: left where it is
@@ -26887,9 +26961,21 @@ function deleteSelectedElems(){
   if(!selectedElems.size&&!anns.length) return;
   pushUndo();   // the Delete key and both ✕ buttons come here; none recorded a step
   const sorted=[...selectedElems].sort((a,b)=>b-a);
+  const gone=sorted.map(i=>freeformElements[i]).filter(Boolean);
   sorted.forEach(i=>freeformElements.splice(i,1));
   if(anns.length){ annotations=annotations.filter(a=>!anns.includes(a)); renderAnnotationList(); }
-  _ffClearSel(); updateFreeformElemList(); scheduleRender(0);
+  // A picture popped out of the grid is captioned, listed in metadata.csv and in
+  // PANEL_HISTORY from the grid panel it came from. Deleting the picture left that panel
+  // in, so the caption went on describing a picture that was no longer in the figure, and
+  // switching to the grid showed it again (freeform3-12/-14). The panel is hidden with it
+  // (one undo step brings both back).
+  const hid=[];
+  gone.forEach(el=>{ if(el.fromPanel==null) return;
+    if(freeformElements.some(e=>e&&e.fromPanel===el.fromPanel)) return;
+    const tw=images.find(im=>im&&im.id===el.fromPanel);
+    if(tw&&!tw.excluded){ tw.excluded=true; hid.push(_rtText(formatLabel(tw.label))||_sourceName(tw)||'?'); } });
+  _ffClearSel(); updateFreeformElemList(); if(hid.length) renderImgList(); scheduleRender(0);
+  if(hid.length) toast(`Deleted — ${hid.length>1?'panels':'panel'} ${_listAnd(hid)} ${hid.length>1?'are':'is'} also hidden in the grid it came from, so the caption, metadata and history no longer describe ${hid.length>1?'them':'it'} (Ctrl+Z brings ${hid.length>1?'them':'it'} back)`,'ok');
 }
 
 // Duplicate the selected element(s), offset slightly, and select the copies

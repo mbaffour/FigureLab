@@ -185,3 +185,98 @@ test('newcomer3-09: the replace toast names the caption note it kept', async ({ 
   expect(await lastToast(page)).toContain('caption note kept: “Colony PCR across fliC: lane 1, ladder” — edit it in ⚙ if it no longer fits');
   expect(errors).toEqual([]);
 });
+
+const ZIPREAD = () => {
+  window._zipRead = async (bytes) => {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset); const out = {}; let p = 0;
+    while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
+      const method = dv.getUint16(p + 8, true), csize = dv.getUint32(p + 18, true), nlen = dv.getUint16(p + 26, true), elen = dv.getUint16(p + 28, true);
+      const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nlen));
+      const off = p + 30 + nlen + elen; let data = bytes.subarray(off, off + csize);
+      if (method === 8) data = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      out[name] = data; p = off + csize;
+    }
+    return out;
+  };
+};
+// A grid of four pictures popped out to freeform; D has a caption note.
+async function poppedFigure(page) {
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange();
+    images[3].name = 'AcrB_2D_classes_3to1.png'; images[3].captionNote = 'Reference-free 2D class averages of AcrB'; render(); _popOut(); render(); });
+}
+async function pngOf(page, w, h, fill) {
+  const b64 = await page.evaluate(([w, h, fill]) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = fill; x.fillRect(0, 0, w, h); return c.toDataURL('image/png').split(',')[1]; }, [w, h, fill]);
+  return Buffer.from(b64, 'base64');
+}
+
+test('freeform3-12: right-click a freeform picture › ⇄ Replace image keeps its place, size, crop, letter and note, and the records name the new file', async ({ page }) => {
+  test.setTimeout(90000);
+  const errors = await loadApp(page);
+  await poppedFigure(page);
+  const before = await page.evaluate(() => { const d = freeformElements.find(e => e.type === 'image' && e.label === 'D'); d.cropL = 0.1; render(); return { x: d.x, y: d.y, w: d.w, h: d.h, cropL: d.cropL }; });
+  // right-click D on the canvas
+  await page.evaluate(() => { zoomToFit(); render(); });
+  const pt = await page.evaluate(() => { const d = freeformElements.find(e => e.type === 'image' && e.label === 'D');
+    const r = annCanvas.getBoundingClientRect(); return { x: r.left + (d.x + d.w / 2) * r.width / canvasLogicalW, y: r.top + (d.y + d.h / 2) * r.height / canvasLogicalH }; });
+  await page.mouse.click(pt.x, pt.y, { button: 'right' });
+  const items = await page.locator('#panel-ctx-menu > div').allTextContents();
+  expect(items.map(t => t.trim())).toEqual(['⇄  Replace image…', '✕  Delete object'].map(t => t.trim()));
+  await lastToast(page);
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.locator('#panel-ctx-menu > div', { hasText: 'Replace image' }).click()]);
+  await fc.setFiles({ name: 'AcrB_2D_classes_v2_round3_3to1.png', mimeType: 'image/png', buffer: await pngOf(page, 100, 100, '#c33') });
+  await page.waitForFunction(() => freeformElements.some(e => e.type === 'image' && e.name === 'AcrB_2D_classes_v2_round3_3to1.png'));
+  const r = await page.evaluate(() => { const d = freeformElements.find(e => e.type === 'image' && e.label === 'D');
+    return { x: d.x, y: d.y, w: d.w, h: d.h, cropL: d.cropL, note: d.captionNote, twin: images.find(im => im.id === d.fromPanel).name, n: freeformElements.length }; });
+  expect(r).toEqual({ ...before, note: 'Reference-free 2D class averages of AcrB', twin: 'AcrB_2D_classes_v2_round3_3to1.png', n: 4 });
+  expect(await lastToast(page)).toMatch(/Picture D: AcrB_2D_classes_3to1\.png → AcrB_2D_classes_v2_round3_3to1\.png — place, crop, letter and settings kept/);
+  await page.evaluate(ZIPREAD);
+  const z = await page.evaluate(async () => { const c = await _captureDownload(() => exportSubmissionPackage()); const z = await _zipRead(c.data);
+    const t = k => new TextDecoder().decode(z[Object.keys(z).find(n => n.endsWith(k))]); return { hist: t('PANEL_HISTORY.txt') }; });
+  expect(z.hist).toMatch(/── D ── \(source: AcrB_2D_classes_v2_round3_3to1\.png\)/);   // was: the deleted file
+  // Undo is one step: the old picture back
+  await page.evaluate(() => undo());
+  expect(await page.evaluate(() => freeformElements.find(e => e.type === 'image' && e.label === 'D').name)).toBe('AcrB_2D_classes_3to1.png');
+  expect(errors).toEqual([]);
+});
+
+test('freeform3-13 / freeform3-14: package panel files carry their own letters after a delete-and-add; a deleted picture leaves the caption and the grid', async ({ page }) => {
+  test.setTimeout(90000);
+  const errors = await loadApp(page);
+  await poppedFigure(page);
+  // delete D, add a new picture lettered D (it goes last in the object list)
+  await page.evaluate(() => { selectedElems.clear(); selectedElems.add(freeformElements.findIndex(e => e.type === 'image' && e.label === 'D')); deleteSelectedElems(); });
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).not.toContain('Reference-free 2D class averages');                    // was: still captioned from the deleted file
+  await page.evaluate(async () => { const c = document.createElement('canvas'); c.width = 120; c.height = 60; c.getContext('2d').fillRect(0, 0, 120, 60);
+    addFreeformElement({ type: 'image', src: c.toDataURL('image/png'), x: 400, y: 380, w: 240, h: 120, label: 'D', name: 'v2.png' });
+    await new Promise(r => setTimeout(r, 200)); render(); });
+  // order the objects so the grid's own order and the canvas's differ
+  await page.evaluate(() => { const b = freeformElements.findIndex(e => e.label === 'B'); const [el] = freeformElements.splice(b, 1); freeformElements.push(el); render(); });
+  await page.evaluate(ZIPREAD);
+  const files = await page.evaluate(async () => { const c = await _captureDownload(() => exportSubmissionPackage()); const z = await _zipRead(c.data);
+    const out = {}; for (const k of Object.keys(z).filter(k => k.startsWith('panels/'))) { const bm = await createImageBitmap(new Blob([z[k]], { type: 'image/png' })); out[k] = (bm.width / bm.height).toFixed(1); } return out; });
+  expect(Object.keys(files)).toEqual(['panels/panel_1_A.png', 'panels/panel_2_B.png', 'panels/panel_3_C.png', 'panels/panel_4_D.png']);
+  expect(files['panels/panel_4_D.png']).toBe('2.0');                               // the new 2:1 picture, not another panel
+  // back to the grid: the deleted picture is not drawn there either
+  await page.locator('#layout-mode').selectOption('grid');
+  expect(await page.evaluate(() => _figurePanels().map(im => im.label))).toEqual(['A', 'B', 'C']);
+  expect(errors).toEqual([]);
+});
+
+test('freeform3-14: a TextBox made on the freeform canvas comes back where it was after a visit to the grid', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', 2); sv('rows', 2); onLayoutChange(); render(); _popOut(); render(); sv('fm-canvas-w', 1000); sv('fm-canvas-h', 800); render();
+    const b = freeformElements.find(e => e.type === 'image' && e.label === 'B'); const W = canvasLogicalW, H = canvasLogicalH;
+    annotations.push({ type: 'textbox', xf: (b.x + 20) / W, yf: (b.y + 20) / H, x2f: (b.x + 176) / W, y2f: (b.y + 60) / H, text: 'AcrB-msfGFP', color: '#fff', fill: true, fillColor: '#000', fillOpacity: .6, fontSize: 16, width: 2 });
+    render(); render(); });
+  const px = () => page.evaluate(() => { render(); const a = annotations[0], W = canvasLogicalW; return [Math.round(a.xf * W), Math.round((a.x2f - a.xf) * W)]; });
+  const p0 = await px();
+  await page.locator('#layout-mode').selectOption('grid');
+  await page.evaluate(() => render());                                                 // the grid drawn as it was
+  await page.evaluate(() => { sv('panel-w', 250); sv('panel-h', 250); onLayoutChange(); render(); });   // then changed while visited
+  await page.locator('#layout-mode').selectOption('freeform');
+  expect(await px()).toEqual(p0);                                                      // was 8 px off and narrower
+  expect(errors).toEqual([]);
+});
