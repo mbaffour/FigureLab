@@ -135,7 +135,7 @@ test('charts3-11 / phage3-06: grouped bars name their series, a line chart its a
   const g = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); const ch = el.chart;
     ch.kind = 'groupedBar'; ch.mapping.xCol = 1; ch.mapping.seriesCol = 0; ch.mapping.yCols = [2]; ch.error = 'sd';
     ch.names = { dlasR: 'Δ*lasR*' }; ch.annos = [{ kind: 'sig', a: 0, b: 1, text: 'p < 0.01' }]; el._chartKey = ''; render(); return _captionText(); });
-  expect(g).toContain('(A) Grouped bar chart for cipro and gent (bars: PA14 and ΔlasR).');
+  expect(g).toContain('(A) Grouped bar chart of mic for cipro and gent (bars: PA14 and ΔlasR).');   // Y title defaults to the value column (ux3-data)
   expect(g).toContain('Brackets: p < 0.01 (cipro vs gent), from the author’s own statistical test.');
   // replicate columns averaged into series: the caption names the series, not the columns
   const LINE = 'time,WT_r1,WT_r2,WT_r3,dfhuA_r1,dfhuA_r2,dfhuA_r3\n0,0.1,0.1,0.1,0.1,0.1,0.1\n1,0.2,0.21,0.19,0.15,0.16,0.14';
@@ -243,7 +243,7 @@ test('freeform3-17: a popped-out grid with a chart describes the chart once, und
   await page.evaluate(() => { const b = document.querySelector('#confirm-modal-bg.open button.btn-primary'); if (b) b.click(); render(); });
   const cap = await page.evaluate(() => _captionText());
   expect(cap.match(/Bar chart/g).length).toBe(1);
-  expect(cap).toMatch(/\(C\) Bar chart for WT and dfliC\..*Mean of three days\.$/);
+  expect(cap).toMatch(/\(C\) Bar chart of cfu for WT and dfliC\..*Mean of three days\.$/);   // Y title defaults to the value column (ux3-data)
   expect(errors).toEqual([]);
 });
 

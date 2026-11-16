@@ -115,7 +115,7 @@ test('blot3-06: lanes given one shown-as name are one sample — mean ± SD with
   expect(new Set(c.colours).size).toBe(3);                       // one colour per sample, not per lane
   expect(c.key).toEqual(['WT', 'R42P', 'C431S']);                // the legend key and its text follow the names
   expect(c.starter).toMatch(/^WT \([^)]*\); R42P \([^)]*\); C431S \([^)]*\)\.?$/);
-  expect(c.caption).toMatch(/Mean ± SD, n = 3 per point/);
+  expect(c.caption).toMatch(/mean ± SD \(n−1\).*n = 3 per bar/);   // worded from what is drawn (ux3-texts)
   expect(c.caption).toMatch(/for WT, R42P and C431S/);
   // the names are this chart's own: "Lane 2" is no sample name for the whole figure
   expect(await page.evaluate(() => _sampleNames())).toEqual({});
