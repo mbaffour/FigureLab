@@ -438,7 +438,7 @@ test('the package names files the journal\'s way: PLOS Fig1 + S1_raw_images, eLi
   expect(names.plos).toContain('Fig1.tif');            // PLOS's own naming: .tif, not .tiff
   expect(names.plos).toContain('S1_raw_images.pdf');
   expect(names.plos.some(n => /uncropped_originals/.test(n))).toBe(false);
-  expect(names.elife).toContain('Figure 1—source data 1.pdf');
+  expect(names.elife).toContain('Figure 1-source data 1.pdf');   // an ASCII hyphen in the ZIP (fluor3-11: macOS unzip failed on the em dash)
   expect(errors).toEqual([]);
 });
 

@@ -1603,6 +1603,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <select id="ep-sbunit" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="_epSbUnit(this.value)"><option value="nm">nm</option><option value="µm">µm</option><option value="mm">mm</option></select>
       <button class="btn" style="padding:2px 6px;font-size:10px" onclick="_epAutoSB()" title="Snap the bar to a clean length (~20% of the image)">Auto</button>
       <div class="abar-sep"></div>
+      <label style="display:flex;align-items:center;gap:2px;font-size:10px" title="Caption note (not drawn): what the caption says about this picture, after its letter — as ⚙ › Caption note does for a grid panel">Caption note<input type="text" id="ep-capnote" placeholder="e.g. WT cells, 60×" style="width:120px;padding:1px 3px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text);font-size:10px" oninput="updateElemProp('captionNote',this.value)"></label>
+      <div class="abar-sep"></div>
       <label style="display:flex;align-items:center;gap:3px;font-size:10px" title="Make a flat background transparent. Non-destructive — the original pixels are kept and this can be turned off at any time.">BG<input type="checkbox" id="ep-bgkey" onchange="toggleBgRemove(this.checked)"></label>
       <select id="ep-bgkey-mode" style="font-size:10px;padding:1px 2px;background:var(--surf2);border:1px solid var(--border);border-radius:3px;color:var(--text)" onchange="updateBgKey('mode',this.value)" title="Which background colour to remove"><option value="white">white</option><option value="black">black</option><option value="color">pick…</option></select>
       <input type="color" id="ep-bgkey-color" value="#ffffff" style="width:26px;height:20px;padding:0;border:1px solid var(--border);border-radius:3px;background:var(--surf2)" oninput="updateBgKey('color',this.value)" title="Key colour (used when mode = pick)">
@@ -3590,6 +3592,7 @@ async function decodeTIFF(input, page){
     }
   }
   return { width, height, rgba, pages: pageOffsets.length, note: note.join('; '), umPerPx:_cal.umPerPx, calibSource:_cal.calibSource,
+           cmyk: photometric===5 && spp>=4,
            deltaT:_cal.deltaT, acqTime:_cal.acqTime, timeSource:_cal.timeSource,
            chan:_cal.chan||null, bits:(sampleFormat===3?32:bitsPerSample),
            // decLo/decHi: the native values the 8-bit decode shows as 0 and 255 (this
@@ -3900,7 +3903,8 @@ async function _loadTIFFFile(f, fail){
     const toImg=_tiffResToImg;
     const calibOf=(res,p)=>({umPerPx:res.umPerPx||0, source:res.calibSource||'', chan:res.chan||null, bits:res.bits||0,
                          deltaT:(res.deltaT==null?null:res.deltaT), acqTime:(res.acqTime==null?null:res.acqTime), timeSource:res.timeSource||'',
-                         page:p, pages:p?total:undefined});
+                         page:p, pages:p?total:undefined,
+                         importNotes:res.cmyk?['converted from CMYK to RGB for display (approximate, uncalibrated conversion)']:[]});
     const calNote=r=> r.umPerPx>0 ? ` · scale auto-calibrated ${(+r.umPerPx).toPrecision(4)} µm/px (${r.calibSource})` : '';
     if(pages>1){
       for(let p=0;p<pages;p++){
@@ -4034,7 +4038,11 @@ function _addOneFile(f, opts){
       img.onload=()=>{
         // finally: the serial loop in addFiles waits on done(); a throw while
         // committing must not strand every file after this one.
-        try{ _preCropQueue.push({img, src:ev.target.result, name:f.name}); _drainPreCrop(); }
+        try{ const o=_jpegExifOrientation(ev.target.result);
+          // The browser turns a phone photo upright from its EXIF orientation tag; the
+          // panel's record says so (PANEL_HISTORY), as it says any other change.
+          const calib=o>1?{importNotes:[`displayed upright per its EXIF orientation tag (${o}: ${_EXIF_ORIENT[o]||'reoriented'}); the stored pixels are ${img.naturalWidth}×${img.naturalHeight} after that`]}:undefined;
+          _preCropQueue.push({img, src:ev.target.result, name:f.name, calib}); _drainPreCrop(); }
         catch(e){ fail(); }
         finally{ done(); }
       };
@@ -4189,6 +4197,32 @@ function _resetCropModalUI(){
   ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display=''; });
 }
 
+// The EXIF orientation of a JPEG data URL (1 = as stored, or no tag), read from the
+// APP1 segment. Browsers apply it when they decode the picture.
+const _EXIF_ORIENT={2:'mirrored horizontally',3:'rotated 180°',4:'mirrored vertically',5:'mirrored and rotated 90°',6:'rotated 90° clockwise',7:'mirrored and rotated 90° counter-clockwise',8:'rotated 90° counter-clockwise'};
+function _jpegExifOrientation(dataUrl){
+  try{
+    const m=/^data:image\/jpe?g;base64,/i.exec(String(dataUrl||'')); if(!m) return 1;
+    const bin=atob(String(dataUrl).slice(m[0].length, m[0].length+87384));   // the first 64 KB
+    const b=i=>bin.charCodeAt(i)&255;
+    if(b(0)!==0xFF||b(1)!==0xD8) return 1;
+    let p=2;
+    while(p+4<bin.length&&b(p)===0xFF){
+      const mk=b(p+1), len=(b(p+2)<<8)|b(p+3);
+      if(mk===0xE1&&bin.slice(p+4,p+10)==='Exif\0\0'){
+        const t=p+10, le=bin.slice(t,t+2)==='II';
+        const u16=i=>le?(b(i)|(b(i+1)<<8)):((b(i)<<8)|b(i+1));
+        const u32=i=>le?(b(i)|(b(i+1)<<8)|(b(i+2)<<16)|(b(i+3)<<24))>>>0:((b(i)<<24)|(b(i+1)<<16)|(b(i+2)<<8)|b(i+3))>>>0;
+        const ifd=t+u32(t+4), n=u16(ifd);
+        for(let k=0;k<n;k++){ const e=ifd+2+k*12; if(u16(e)===0x0112){ const v=u16(e+8); return v>=1&&v<=8?v:1; } }
+        return 1;
+      }
+      if(mk===0xDA) break;
+      p+=2+len;
+    }
+  }catch(e){}
+  return 1;
+}
 function _commitImage(img,src,name,svgSource,calib,raw){
   const cu=(calib&&calib.umPerPx>0)?calib.umPerPx:0;      // µm/px auto-read from metadata
   const cs=(calib&&calib.source)||'';
@@ -4207,6 +4241,7 @@ function _commitImage(img,src,name,svgSource,calib,raw){
   // numbers are 8-bit display values, not the file's.
   const cbits=(raw&&raw.bps)||(calib&&calib.bits)||0;
   if(cbits>8) chanInit.srcBits=cbits;
+  if(calib&&Array.isArray(calib.importNotes)&&calib.importNotes.length) chanInit._importNotes=calib.importNotes.slice();
   // only keep native samples that actually match the committed pixels
   if(raw && (raw.w!==img.naturalWidth || raw.h!==img.naturalHeight)) raw=null;
   if(layoutMode==='freeform'){
@@ -4316,7 +4351,8 @@ function _decodeImageFile(f, page){
       return {img:it.img, src:it.src, name:f.name, svgSource:null, raw:res.raw||null, page:p, pages:total, pageMissing:page>total?page:0,
         calib:{umPerPx:res.umPerPx||0, source:res.calibSource||'', chan:res.chan||null, bits:res.bits||0, deltaT:res.deltaT==null?null:res.deltaT,
           acqTime:res.acqTime==null?null:res.acqTime, timeSource:res.timeSource||'',
-          page:total>1?p:0, pages:total>1?total:undefined}};
+          page:total>1?p:0, pages:total>1?total:undefined,
+          importNotes:res.cmyk?['converted from CMYK to RGB for display (approximate, uncalibrated conversion)']:[]}};
     }catch(e){ return null; }
   })();
   return new Promise(resolve=>{
@@ -4329,7 +4365,9 @@ function _decodeImageFile(f, page){
       reader.readAsText(f);
     } else {
       reader.onload=ev=>{ const img=new Image();
-        img.onload=()=>resolve({img, src:ev.target.result, name:f.name, svgSource:null, raw:null, calib:null, page:1, pages:1, pageMissing:page>1?page:0});
+        img.onload=()=>{ const o=_jpegExifOrientation(ev.target.result);
+          resolve({img, src:ev.target.result, name:f.name, svgSource:null, raw:null, page:1, pages:1, pageMissing:page>1?page:0,
+            calib:o>1?{importNotes:[`displayed upright per its EXIF orientation tag (${o}: ${_EXIF_ORIENT[o]||'reoriented'}); the stored pixels are ${img.naturalWidth}×${img.naturalHeight} after that`]}:null}); };
         img.onerror=()=>resolve(null); img.src=ev.target.result; };
       reader.readAsDataURL(f);
     }
@@ -4371,6 +4409,8 @@ function _replacePlan(im, d){
 function _replaceInto(im, d){
   const plan=_replacePlan(im, d), was=_sourceName(im)||'(unnamed)', c=d.calib||{};
   const nw=d.img.naturalWidth, nh=d.img.naturalHeight;
+  const wasPx=im.img?`${im.img.naturalWidth||im.img.width}×${im.img.naturalHeight||im.img.height}px`:'', wasNotes=im._importNotes||[];
+  im._importNotes=Array.isArray(c.importNotes)&&c.importNotes.length?c.importNotes.slice():undefined;
   im.img=d.img; im.src=d.src; im.name=d.name;
   im.svgSource=d.svgSource||null; im.isVector=!!d.svgSource;
   im.raw=(d.raw&&d.raw.w===nw&&d.raw.h===nh)?d.raw:null;   // native samples only when they match the pixels
@@ -4385,7 +4425,8 @@ function _replaceInto(im, d){
   delete im.sbAvoid; delete im.sbBurnedIn;
   im._adjCache=undefined; im._adjKey=undefined; im._cropCache=undefined; im._cropKey=undefined;
   // A new array, never a push: undo snapshots share the old one by reference.
-  im._replaced=[...(im._replaced||[]), {from:was, to:_sourceName(im)||d.name, at:new Date().toISOString()}];
+  im._replaced=[...(im._replaced||[]), {from:was, to:_sourceName(im)||d.name, at:new Date().toISOString(),
+    ...(wasPx?{fromPixels:wasPx}:{}), toPixels:`${nw}×${nh}px`, ...(wasNotes.length?{fromNotes:wasNotes.slice()}:{})}];
   return plan;
 }
 let _replaceTarget=null;
@@ -6438,7 +6479,7 @@ function renderImgList(){
           <input type="checkbox" class="f-cbar" ${im.cbar?'checked':''}></div>
         <div class="sec-lbl">Caption note (not rendered)</div>
         <input type="text" class="f-cap" value="${esc(im.captionNote)}" placeholder="e.g. WT cells, 60×" style="width:100%">
-        <div class="sec-lbl" style="margin-top:4px">Metadata note</div>
+        <div class="sec-lbl" style="margin-top:4px" title="Kept in the submission package's metadata.csv and PANEL_HISTORY — not written into the caption or alt text">Metadata note (records only, not the caption)</div>
         <input type="text" class="f-meta" value="${esc(im.metaNote)}" placeholder="Condition, date, etc." style="width:100%">
       </div>`;
 
@@ -6493,11 +6534,13 @@ function renderImgList(){
       if(note) toast(`${_rtText(formatLabel(im.label))||'Panel'} calibrated${note}`,'ok'); };
     item.querySelector('.f-obj').addEventListener('change', e=>{
       const v=parseFloat(e.target.value);
-      if(!isNaN(v)&&v>0){ images[idx].umPerPx=v; item.querySelector('.f-umppx').value=v; _calDone(); }
+      if(!isNaN(v)&&v>0){ images[idx].umPerPx=v; images[idx]._calibHow={um:v, how:`from the ${(e.target.selectedOptions[0]||{}).textContent||'objective'} objective preset`, kind:'objective'};
+        item.querySelector('.f-umppx').value=v; _calDone(); }
       scheduleRender();
     });
     item.querySelector('.f-umppx').addEventListener('input', e=>{
       images[idx].umPerPx=parseFloat(e.target.value)||0;
+      images[idx]._calibHow={um:images[idx].umPerPx, how:'set by hand', kind:'hand'};
       item.querySelector('.f-obj').value=''; scheduleRender();
     });
     item.querySelector('.f-umppx').addEventListener('change', ()=>{ if(images[idx].umPerPx>0){ _calDone(); scheduleRender(); } });
@@ -6629,7 +6672,7 @@ function renderImgList(){
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
     item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
-    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; });
+    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; _scheduleGenSync(); });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
     { const fc=item.querySelector('.f-chan');
       if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx]; if(v) im.chan=v; else delete im.chan; delete im.chanSrc;
@@ -6643,7 +6686,7 @@ function renderImgList(){
         if(!s.classList.contains('open')){ s.classList.add('open'); gear.classList.add('active'); }
         const fc=item.querySelector('.f-chan'); if(fc){ fc.scrollIntoView({block:'nearest'}); fc.focus(); fc.select(); } }); }
     item.querySelector('.f-cbar').addEventListener('change', e=>{ pushUndo(); images[idx].cbar=e.target.checked; scheduleRender(); });
-    item.querySelector('.f-meta').addEventListener('input', e=>{ images[idx].metaNote=e.target.value; });
+    item.querySelector('.f-meta').addEventListener('input', e=>{ images[idx].metaNote=e.target.value; _scheduleGenSync(); });
 
     // Channels
     function renderChList(){
@@ -7704,7 +7747,7 @@ function splitChannelRow(srcIdx){
   // looking like one. Tone, caption and letter stay each part's own.
   const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV',
     'sbOn','sbDX','sbDY','cbar','cbarDX','cbarDY','metaNote',
-    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource'];
+    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource','_calibHow','_calibCopy'];
   // Each part is its channel's file again: its own name, its native samples (so its
   // levels, intensity bar and measurements stay in camera counts) and its channel name.
   // Parts used to be new 8-bit images called "DAPI.png", "GFP.png", "RFP.png" — three
@@ -8874,7 +8917,12 @@ function _gelLoadingStale(a,im){
   if(a.loading.stamp&&(own?!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp):(now!=null&&now!==a.loading.stamp))) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
   return null;
 }
-function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; return lc?(formatLabel(lc.label)||String(_gelLoadingIdx(a)+1)):a.loading.label; }
+// An unlettered loading-control strip by what it shows (its tag or caption note) or its
+// file — "panel 3" was its position in the list, which the figure never shows.
+function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; if(!lc) return a.loading.label;
+  const L=_rtText(formatLabel(lc.label)); if(L) return L;
+  const t=_rtText(String(lc.tag||lc.captionNote||'').trim()), f=_sourceName(lc);
+  return t?`“${t}”`:f?`“${f}”`:String(_gelLoadingIdx(a)+1); }
 
 // Everything the table, the CSV and the Methods sentence read.
 // A band that cannot be quantified — saturated, or partly outside the image — is
@@ -11298,10 +11346,12 @@ function exportCSV(){
   // checking the table should not have to infer it.
   const header='Panel,Name,Label,umPerPx,sbUm,Brightness,Contrast,Gamma,Grayscale,Invert,LUT,BlackPt,WhitePt,CropT,CropL,CropB,CropR,CropAngle,Resampling,InsetOf,Magnification,FieldOfView,AcquisitionTime,Caption,Meta,DisplayRange';
   const lines=[header];
-  _figurePanels().forEach((im,i)=>{
+  // The panels the figure draws now: the grid's, or the freeform canvas's pictures, charts
+  // and gene maps (a freeform figure used to get a header and no rows).
+  _capItems().forEach(({im, letter},i)=>{
     // Label as the figure shows it (a, b… when the letters are lower case), and a scale-bar
     // length only for a panel that has its bar drawn (sbUm 10 was written for panels with none).
-    lines.push([i+1,_csvCell(_sourceName(im)),_csvCell(_rtText(formatLabel(im.label))),im.umPerPx||0,_scaleBarDrawn(im)?im.sbUm:'',
+    lines.push([i+1,_csvCell(_sourceName(im)||(im.chart&&im.chart.data&&im.chart.data.sourceName)||(im.map&&im.map.sourceName)||''),_csvCell(letter),im.umPerPx||0,_scaleBarDrawn(im)?im.sbUm:'',
       im.brightness,im.contrast,im.gamma||1,im.grayscale?1:0,im.invert?1:0,
       _csvCell(im.lut||'none'),im.blackPt||0,im.whitePt||255,
       im.cropT||0,im.cropL||0,im.cropB||0,im.cropR||0,im.cropAngle||0,
@@ -11598,14 +11648,19 @@ function render(targetCanvas, exportScale, opts){
   const canvas = targetCanvas || document.getElementById('fig-canvas');
   const ctx = canvas.getContext('2d');
   if(layoutMode==='freeform'){
-    if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.'); return; }
+    if(!isExport && !freeformElements.length){ hideHD(); setStatus('Add elements in freeform mode.');
+      // The Export readout measures the empty canvas as it is now (it kept the size and the
+      // smallest text of the figure before New, or before the canvas size changed).
+      figTextItems=[]; if(typeof _syncPhysReadout==='function') _syncPhysReadout(); return; }
     renderFreeform(canvas, ctx, S, Object.assign({}, opts, {export:isExport}));
     if(!isExport&&typeof _syncPhysReadout==='function') _syncPhysReadout();
     // the caption, Methods and alt text follow a freeform figure too
     if(!isExport&&typeof _scheduleGenSync==='function') _scheduleGenSync();
     return;
   }
-  if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.'); } return; }
+  if(images.length===0){ if(!isExport){ hideHD(); setStatus('Drop images to get started.');
+    // An empty figure prints nothing: the readout used to keep the figure before New.
+    figTextItems=[]; const pr=document.getElementById('phys-readout'); if(pr) pr.textContent=''; } return; }
 
   const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
   const pw=Math.max(20,gi('panel-w'));
@@ -15598,7 +15653,7 @@ function _figureKey(){
     const o=byKey.get(k);
     if(!o){ const n={...r}; if(r.desc) n.descs=[r.desc]; byKey.set(k,n); rows.push(n); return; }
     if(r.kind==='channel'){ if(!String(o.name).split(' / ').includes(String(r.name))) o.name=o.name+' / '+r.name; return; }
-    if(r.desc&&!(o.descs||[]).includes(r.desc)){ o.descs=(o.descs||[]).concat(r.desc); o.desc=o.descs.join(' and '); }
+    if(r.desc&&!(o.descs||[]).includes(r.desc)){ o.descs=(o.descs||[]).concat(r.desc); o.desc=_listAnd(o.descs); }
     if(r.line&&!o.line){ o.line=r.line; o.lineW=r.lineW; }
     if((!o.marker||o.marker==='none')&&r.marker&&r.marker!=='none'){ o.marker=r.marker; o.fill=r.fill; o.stroke=r.stroke; o.strokeW=r.strokeW; }
   };
@@ -15774,7 +15829,10 @@ function _keyWords(r){
 function _keyText(rows){
   rows=rows||_figureKey();
   if(!rows.length) return '';
-  return rows.map(r=>{ const w=_keyWords(r), nm=_rtText(r.name); return w?`${nm} (${w})`:nm; }).join('; ')+'.';
+  // A superscript on a sample name ("AcrB^{D407A}") in characters a legend can take as it
+  // is: "AcrB(D407A)", not the "AcrB^(D407A)" the plain-text form gives formulas.
+  const nmOf=r=>_rtText(r.name).replace(/([A-Za-z])\^\(([^()\s]+)\)/g,'$1($2)');
+  return rows.map(r=>{ const w=_keyWords(r), nm=nmOf(r); return w?`${nm} (${w})`:nm; }).join('; ')+'.';
 }
 function copyKeyText(){
   const ta=document.getElementById('key-text'); if(!ta) return;
@@ -18117,6 +18175,7 @@ function confirmNewFigure(){
       document.getElementById('fig-canvas').width, document.getElementById('fig-canvas').height);
     hideHD();
     document.getElementById('canvas-info').textContent='No figure rendered';
+    render();      // the Export readout and the texts follow the empty figure
     setStatus('Drop images to get started.');
     toast('New figure started','ok');
   });
@@ -18313,8 +18372,12 @@ function _exportScaleFor(dpi){
 // Physical size and true type size at the current settings — what the journal
 // actually receives, as opposed to the pixel count.
 function _physFacts(){
-  const dpi=getExportDPI(), lw=canvasLogicalW||1, lh=canvasLogicalH||1;
-  const scale=_exportScaleFor(dpi);
+  const dpi=getExportDPI();
+  // An empty freeform canvas is not rendered: its size is the one in its fields (the
+  // readout kept the previous figure's shape after a canvas-size preset).
+  const ffEmpty=layoutMode==='freeform'&&!(freeformElements||[]).length;
+  const lw=ffEmpty?Math.max(200,parseInt(gv('fm-canvas-w'))||1200):(canvasLogicalW||1), lh=ffEmpty?Math.max(200,parseInt(gv('fm-canvas-h'))||900):(canvasLogicalH||1);
+  const mmT=getTargetWidthMm(), scale=ffEmpty?(mmT>0?(mmT/25.4)*dpi/lw:Math.max(1,dpi/96)):_exportScaleFor(dpi);
   const wMm=(lw*scale/dpi)*25.4, hMm=(lh*scale/dpi)*25.4;
   // 1 logical px occupies (scale/dpi) inch = 72*scale/dpi points
   const ptPerPx=72*scale/dpi;
@@ -19736,7 +19799,7 @@ async function doExport(fmt, opts){
     if(asKey){
       await _exportKeyFile(fmt, dpi, name);
       logAction('exportKey',{format:fmt,dpi,name});
-      toast(`Saved ${name}-key.${fmt==='jpeg'?'jpg':(fmt==='pdf-lossless'?'pdf':fmt)}`,'ok');
+      toast(`Saved ${name}-key.${fmt==='jpeg'?'jpg':(fmt==='pdf-lossless'?'pdf':fmt==='tiff'?_tiffExt():fmt)}`,'ok');
       return;
     }
     _keyFmt=fmt; _keySyncUI();           // Download key follows the format the figure went out in
@@ -19768,7 +19831,8 @@ async function doExport(fmt, opts){
       await _exportPDFWithText(name, dpi, {lossless: fmt==='pdf-lossless'});
     }
     logAction('export',{format:fmt,dpi,name});
-    const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt);
+    // The extension the file was written with (PLOS's figures go out as .tif).
+    const _ext = fmt==='jpeg'?'jpg' : (fmt==='pdf-lossless'?'pdf':fmt==='tiff'?_tiffExt():fmt);
     if(fmt==='webp') toast(`Saved ${name}.webp — WebP has no print-resolution field, so it opens at your software's default DPI: set the size by hand, or use PNG/TIFF`, 'warn');
     else if(_altStale) toast(`Saved ${name}.${_ext} — with your alt text as written, though the figure has changed since: check it under Export › Alt text`, 'warn');
     else if(!_svgWarned) toast(`Saved ${name}.${_ext}`, 'ok');
@@ -20110,16 +20174,38 @@ function _insetMag(im){
 // writer, neither of which belongs in a dependency-free offline file. The wording is
 // C2PA-shaped (actions on an asset) and the file says plainly that it is unsigned.
 // ═══════════════════════════════════════════════════════════════
-function _panelHistory(im){
+function _panelHistory(im, letter){
   if(!im) return null;
   const ops=[];
+  const L=letter!=null?letter:(_rtText(formatLabel(im.label))||'');
+  // A chart or gene map is data, not pixels: where it came from and how much of it.
+  if(_isDataPanel(im)){
+    if(im.type==='chart'&&im.chart){ const D=im.chart.data||{};
+      ops.push({op:'chart', kind:im.chart.kind, data:D.sourceName||(D.source==='paste'?'typed or pasted':D.source||'(none)'),
+        rows:(D.rows||[]).length, columns:(D.columns||[]).length, ...(D.edited?{edited:'by hand in FigureLab'}:{}),
+        note:'Drawn from the data at every render; see source-data/ for the plotted values.'}); }
+    else if(im.map){ const mp=im.map;
+      ops.push({op:'geneMap', file:mp.sourceName||'(drawn by hand)', lengthBp:mp.length||null, features:(mp.features||[]).length}); }
+    if(String(im.metaNote||'').trim()) ops.push({op:'metadataNote', text:String(im.metaNote).trim()});
+    return {panel:L||'(unlettered)', source:_sourceName(im)||(im.chart&&im.chart.data&&im.chart.data.sourceName)||(im.map&&im.map.sourceName)||(im.type==='chart'?'chart':'gene map'), operations:ops};
+  }
   const src=im.img||im._imgEl;
   const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
-  ops.push({op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims,
-    nativeSamples: im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:(im.srcBits>8?`not retained — ${im.srcBits}-bit file scaled 0…its maximum to 8 bits for display`:'not retained (8-bit display)')});
-  // A panel whose file was swapped kept every setting below from the file before it.
-  (im._replaced||[]).forEach(r=>ops.push({op:'replaceImage', from:r.from, to:r.to, at:r.at,
-    note:`image replaced: ${r.from} → ${r.to}`}));
+  const native=im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:(im.srcBits>8?`not retained — ${im.srcBits}-bit file scaled 0…its maximum to 8 bits for display`:'not retained (8-bit display)');
+  // A panel whose file was swapped: the file it was imported with first, then each
+  // replacement — step 1 used to name the new file as the import.
+  const R=im._replaced||[];
+  const first=R.length?R[0]:null;
+  ops.push(first
+    ? {op:'import', file:first.from||'(unnamed)', ...(first.fromPixels?{pixels:first.fromPixels}:{}), ...(first.fromNotes&&first.fromNotes.length?{converted:first.fromNotes.join('; ')}:{})}
+    : {op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims, nativeSamples:native, ...(im._importNotes&&im._importNotes.length?{converted:im._importNotes.join('; ')}:{})});
+  // Every setting below was kept from the file before it.
+  R.forEach((r,i)=>{ const last=i===R.length-1;
+    ops.push({op:'replaceImage', from:r.from, to:r.to, at:r.at,
+      ...(last?{pixels:dims, nativeSamples:native}:r.toPixels?{pixels:r.toPixels}:{}),
+      ...(last&&im._importNotes&&im._importNotes.length?{converted:im._importNotes.join('; ')}:{}),
+      note:`image replaced: ${r.from} → ${r.to}; the panel's settings were kept`}); });
+  if(String(im.metaNote||'').trim()) ops.push({op:'metadataNote', text:String(im.metaNote).trim()});
   const cropped=(im.cropT||im.cropL||im.cropB||im.cropR);
   if(cropped||im.cropAngle){
     ops.push({op:'crop', topPct:im.cropT||0, leftPct:im.cropL||0, bottomPct:im.cropB||0, rightPct:im.cropR||0,
@@ -20127,7 +20213,8 @@ function _panelHistory(im){
       resampling: im.cropAngle?'bilinear (tilted crop — displayed pixels interpolated)':'none (pixels selected, not resampled)'});
   }
   if(im.cropShape&&im.cropShape!=='rect') ops.push({op:'clipShape', shape:im.cropShape});
-  if(im.rotate||im.flipH||im.flipV) ops.push({op:'orient', rotateDeg:im.rotate||0, flipH:!!im.flipH, flipV:!!im.flipV});
+  { const rot=layoutMode==='freeform'&&im.type==='image'?(+im.rotation||0):(+im.rotate||0);
+    if(rot||im.flipH||im.flipV) ops.push({op:'orient', rotateDeg:rot, flipH:!!im.flipH, flipV:!!im.flipV}); }
   const adj={};
   if((im.brightness??1)!==1) adj.brightness=im.brightness;
   if((im.contrast??1)!==1) adj.contrast=im.contrast;
@@ -20149,17 +20236,26 @@ function _panelHistory(im){
     note:'Computed on 8-bit display values; the source panels are kept.'});
   if(im.bgKey&&im.bgKey.on) ops.push({op:'backgroundKey', mode:im.bgKey.mode, tolerance:im.bgKey.tol,
     feather:im.bgKey.feather||0, note:'Reversible; does not alter stored pixels.'});
-  if(im.umPerPx>0) ops.push({op:'calibrate', umPerPx:im.umPerPx, scaleBarUm:im.sbUm||null});
+  if(im.umPerPx>0) ops.push({op:'calibrate', umPerPx:im.umPerPx, scaleBarUm:_scaleBarDrawn(im)?im.sbUm:null, source:_calibSourceOf(im).text});
   if(im.insetOf){
     const p=_findPanelById(im.insetOf);
     ops.push({op:'linkedInset', parentPanel:p?(p.label||'(unlabelled)'):'(parent deleted)',
       magnification:_insetMag(im)+'×',
       note:'Re-derived from the parent panel’s source on every render; display settings are the parent’s.'});
   }
-  return {panel:im.label||'(unlabelled)', source:_sourceName(im)||'(unnamed)', operations:ops};
+  return {panel:L||'(unlettered)', source:_sourceName(im)||'(unnamed)', operations:ops};
+}
+// Every panel the records describe, from the figure as it is at export: the grid's panels
+// (hidden ones marked), or the pictures, charts and gene maps on the freeform canvas —
+// a freeform figure built from scratch used to get no history at all, and a popped-out
+// one the grid's panels as they were before the pop-out.
+function _panelHistoryAll(){
+  if(layoutMode==='freeform') return _capItems().map(it=>Object.assign(_panelHistory(it.im, it.letter), {hidden:false}));
+  const shown=new Set(_figurePanels());
+  return images.filter(im=>im&&!im._waitMark).map(im=>Object.assign(_panelHistory(im), {hidden:!shown.has(im)}));
 }
 function _panelHistoryText(){
-  const hist=images.filter(Boolean).map(_panelHistory);
+  const hist=_panelHistoryAll();
   const L=[];
   L.push('PER-PANEL PROCESSING HISTORY');
   L.push(`FigureLab v${APP_VERSION} — generated ${new Date().toISOString()}`);
@@ -20168,10 +20264,10 @@ function _panelHistoryText(){
   L.push('provenance record: it is C2PA-shaped in intent but carries no cryptographic');
   L.push('signature, so treat it as the author’s account rather than as proof.');
   L.push('');
-  const _hidden=new Set(images.filter(im=>im&&im.excluded).map(im=>im.label));
+  if(layoutMode==='freeform') { L.push('Freeform layout: the pictures, charts and gene maps on the canvas, by the letter beside each.'); L.push(''); }
   for(const h of hist){
     L.push(`── ${_rtText(h.panel)} ── (source: ${h.source})`
-      + (_hidden.has(h.panel)?'  [hidden from the figure]':''));
+      + (h.hidden?'  [hidden from the figure]':''));
     h.operations.forEach((o,i)=>{
       const {op,note,...rest}=o;
       const args=Object.entries(rest).map(([k,v])=>`${k}=${typeof v==='object'?JSON.stringify(v):v}`).join(', ');
@@ -20267,13 +20363,14 @@ async function exportSubmissionPackage(){
           +'(generated by FigureLab v'+APP_VERSION+')\n\n'+credits+'\n'});
     // What was done to each panel, in order — the thing a reviewer asks for and an
     // author reconstructs from memory months later.
-    if(images.filter(Boolean).length){
-      files.push({name:'PANEL_HISTORY.txt', data:_panelHistoryText()});
-      files.push({name:'PANEL_HISTORY.json',
-        data:JSON.stringify({app:'FigureLab', version:APP_VERSION,
-          generated:new Date().toISOString(), signed:false,
-          panels:images.filter(Boolean).map(_panelHistory)},null,2)});
-    }
+    { const H=_panelHistoryAll();
+      if(H.length){
+        files.push({name:'PANEL_HISTORY.txt', data:_panelHistoryText()});
+        files.push({name:'PANEL_HISTORY.json',
+          data:JSON.stringify({app:'FigureLab', version:APP_VERSION,
+            generated:new Date().toISOString(), signed:false, layout:layoutMode,
+            panels:H},null,2)});
+      } }
     // What the image-reuse checks compared, found and the author decided.
     files.push({name:'IMAGE_REUSE_CHECK.txt', data:_reuseReportText()});
     // individual panels (movable pieces for downstream editing)
@@ -20284,10 +20381,16 @@ async function exportSubmissionPackage(){
       // dpi/96 then reads the wrong region entirely.
       const big=renderExportCanvas(dpi);
       const sc=big._exportScale || big.width/(canvasLogicalW||big.width);
-      const nShown=(panelBounds||[]).filter(b=>images[b.idx]).length;
+      // Grid: each drawn cell. Freeform: each picture, chart and gene map on the canvas, by
+      // its box (a freeform package used to have no panels/ folder at all).
+      const cells=grid
+        ? (panelBounds||[]).filter(b=>images[b.idx]).map(b=>({b, label:images[b.idx].label}))
+        : _capItems().map(it=>{ const e=it.im, W=canvasLogicalW||1, H=canvasLogicalH||1;
+            const x=Math.max(0,e.x), y=Math.max(0,e.y), w=Math.min(W,e.x+e.w)-x, h=Math.min(H,e.y+e.h)-y;
+            return {b:{x,y,w,h}, label:it.letter}; });
+      const nShown=cells.length;
       let pos=0;
-      for(const b of (panelBounds||[])){
-        if(!images[b.idx]) continue;   // skip empty grid cells
+      for(const {b, label} of cells){
         // The picture as drawn in its cell, at its own shape: every file used to be the whole
         // square cell, a 3:4 micrograph letterboxed in white. A cell with nothing measured
         // (a chart, a gene map) is written whole.
@@ -20305,7 +20408,7 @@ async function exportSubmissionPackage(){
           // the files sort in reading order; then the label, made safe for a file name.
           pos++;
           // as the caption names it (NFKC turns H₂O₂ into H2O2 for the file system)
-          const lbl=_rtText(formatLabel((images[b.idx]&&images[b.idx].label)||'')).normalize('NFKC').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
+          const lbl=_rtText(formatLabel(label||'')).normalize('NFKC').replace(/[^\w.-]+/g,'_').replace(/^[._]+|[._]+$/g,'');
           files.push({name:`panels/panel_${String(pos).padStart(String(nShown).length,'0')}${lbl?'_'+lbl:''}.png`, data:buf}); }
       }
     }catch(e){ _captureSkips.push({label:'per-panel PNGs', why:e&&e.message||String(e)}); }
@@ -20316,7 +20419,12 @@ async function exportSubmissionPackage(){
       const q=v=>_csvCell(v);
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
-      (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between groups ${(+a.a)+1} and ${(+a.b)+1} — author-supplied from their own test, NOT computed by FigureLab`));
+      // The groups a mark joins, by the names the chart shows (and the data's names), not
+      // only their positions: two "p < 0.001" marks could not be told apart.
+      { let cats=null, keys=null; try{ const st=_chartStatsCached(el); cats=st.categories||null; keys=st.catKeys||null; }catch(e){}
+        const g=i=>{ const sh=cats&&cats[+i]!=null?_rtText(String(cats[+i])):'', k=keys&&keys[+i]!=null?String(keys[+i]):'';
+          return sh?`${sh}${k&&k!==sh?` (${k})`:''}`:`group ${(+i)+1}`; };
+        (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between ${g(a.a)} and ${g(a.b)} (groups ${(+a.a)+1} and ${(+a.b)+1}) — author-supplied from their own test, NOT computed by FigureLab`)); }
       let csv=head.join('\n')+'\n'+D.columns.map(q).join(',')+'\n'+D.rows.map(r=>r.map(q).join(',')).join('\n')+'\n';
       // What is plotted, after averaging: one row per point or bar, with n and the error.
       try{ const P=_chartPlotted(el);
@@ -20327,7 +20435,7 @@ async function exportSubmissionPackage(){
           const shown=(v,k)=>{ const t=_rtText(String(v??'')); return t===String(k??'')?'':t; }, ms=P.rows.some(r=>r.skey!=='');
           csv+=(P.boxes?(ms?'series,':'')+'group,n,mean,'+P.boxErr+',median,q1,q3,min,max,'+(ms?'series_shown_as,':'')+'group_shown_as':'series,'+(P.numericX?'x':'category')+',n,mean,error,error_type,series_shown_as'+(P.numericX?'':',category_shown_as'))+'\n';
           csv+=P.rows.map(r=>(P.boxes?[...(ms?[r.skey]:[]),r.xkey,r.n,r.mean,r.err,r.med,r.q1,r.q3,r.min,r.max,...(ms?[shown(r.series,r.skey)]:[]),shown(r.x,r.xkey)]
-            :[r.skey,r.xkey,r.n,r.mean==null?'':r.mean,r.err||'',r.kind,shown(r.series,r.skey),...(P.numericX?[]:[shown(r.x,r.xkey)])]).map(q).join(',')).join('\n')+'\n';
+            :[r.skey,r.xkey,r.n,r.mean==null?'':r.mean,r.kind?(r.err||0):'',r.kind,shown(r.series,r.skey),...(P.numericX?[]:[shown(r.x,r.xkey)])]).map(q).join(',')).join('\n')+'\n';
         } }catch(e){}
       const safe=(el.label||('chart_'+(ci+1))).replace(/\.(csv|tsv|txt)$/i,'').replace(/[^\w.-]+/g,'_');
       files.push({name:`source-data/${safe}.csv`, data:csv});
@@ -20443,7 +20551,10 @@ function _zipEntryNames(files, reserved){
   const FOLDERS=new Set(['panels','source-data']);
   const MAX_CH=100, MAX_B=240, enc=new TextEncoder();
   const DEVICE=/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
-  const clean=s=>String(s).replace(/[\x00-\x1f\x7f\\/:*?"<>|]+/g,'_').replace(/^[\s.]+|[\s.]+$/g,'')||'file';
+  // Dashes and typographic quotes as their ASCII forms: macOS's /usr/bin/unzip stopped
+  // with "write error (disk full?)" on eLife's "Figure—source data 1.pdf" (em dash).
+  const clean=s=>String(s).replace(/[\u2010-\u2015\u2212]/g,'-').replace(/[\u2018\u2019]/g,"'").replace(/[\u201c\u201d]/g,'_')
+    .replace(/[\x00-\x1f\x7f\\/:*?"<>|]+/g,'_').replace(/^[\s.]+|[\s.]+$/g,'')||'file';
   // stem + tail within the limits, cut from the end of the stem.
   const fit=(stem, tail)=>{
     const cs=Array.from(stem), tb=enc.encode(tail).length, tl=Array.from(tail).length;
@@ -20483,7 +20594,7 @@ Created     : ${new Date().toISOString()}
 FigureLab   : v${APP_VERSION}
 Provenance  : SHA-256 ${provHash||'(unavailable)'}
 Export DPI  : ${dpi}
-Panels      : ${_figurePanels().length}
+Panels      : ${_capItems().length}
 
 Contents
 --------
@@ -22337,7 +22448,7 @@ function copyCalibrationToTicked(srcIdx){
   pushUndo();
   const from=_rtText(formatLabel(src.label))||'?', how=_calibSourceOf(src).how;
   const names=[];
-  ticked.forEach(i=>{ const im=images[i]; im.umPerPx=src.umPerPx; im._calibCopy={from, how, um:src.umPerPx}; _afterCalibration(im); names.push(`${_rtText(formatLabel(im.label))||'?'} (${_sbLabel(im)} bar)`); });
+  ticked.forEach(i=>{ const im=images[i]; im.umPerPx=src.umPerPx; im._calibCopy={from, fromId:src.id, fromFile:_sourceName(src)||'', how, um:src.umPerPx}; _afterCalibration(im); names.push(`${_rtText(formatLabel(im.label))||'?'} (${_sbLabel(im)} bar)`); });
   renderImgList(); scheduleRender(0);
   logAction('copyCalibration',{from, to:names.join(', '), umPerPx:src.umPerPx});
   toast(`${_fmtPxSize(src.umPerPx)} from ${from} → ${names.join(', ')}`,'ok');
@@ -22367,6 +22478,7 @@ function applyCalib(){
     if(P.length===2&&!calibState.pxTyped){
       const xs=P.map(p=>p.sx), ys=P.map(p=>p.sy);
       target.sbAvoid={x0:Math.min(...xs)-W*0.04, x1:Math.max(...xs)+W*0.04, y0:Math.min(...ys)-H*0.08, y1:Math.max(...ys)+H*0.06}; } }
+  target._calibHow={um:target.umPerPx, kind:'measured', how:`measured on the image (${+(+calibState.pxDist).toFixed(1)} px = ${umVal} ${document.getElementById('calib-unit').selectedOptions[0].textContent})`};
   const note=_afterCalibration(target);
   document.getElementById('calib-result').textContent=`✓ Set: ${_fmtPxSize(target.umPerPx)}`;
   toast(`Scale set: ${_fmtPxSize(target.umPerPx)} (${(+calibState.pxDist).toFixed(1)} px = ${umVal} ${document.getElementById('calib-unit').selectedOptions[0].textContent})${note}`,'ok');
@@ -22571,9 +22683,13 @@ function _genFresh(kind){
 // it. For the alt text that is its draft and the caption FigureLab would write now: the
 // draft quotes the caption box, so with an edited caption kept, a swap or a recalibration
 // would otherwise never reach it.
+// Each also carries the files the panels show, by letter: a picture replaced by another
+// file can leave the generated words the same ("(B) Panel B.") while the author's own words
+// describe the old picture, so an edited text is flagged then too.
+function _genFigKey(){ try{ return _capItems().map(it=>`${it.letter}:${_sourceName(it.im)||(it.im.chart&&it.im.chart.data&&it.im.chart.data.sourceName)||it.im.type||''}`).join('|'); }catch(e){ return ''; } }
 function _genSig(kind, fresh){
   fresh=String(fresh==null?_genFresh(kind)||'':fresh).trim();
-  return kind==='alt' ? fresh+'\u0001'+String(_captionText()||'').trim() : fresh;
+  return (kind==='alt' ? fresh+'\u0001'+String(_captionText()||'').trim() : fresh)+'\u0002'+_genFigKey();
 }
 function _setGeneratedText(kind, text, base){
   _genText[kind]=text; _genBase[kind]=base!=null?base:_genSig(kind,text); _genKept[kind]=false;
@@ -22582,11 +22698,17 @@ function _setGeneratedText(kind, text, base){
   const n=document.getElementById(kind+'-stale'); if(n) n.style.display='none';
 }
 function _resetGenState(){ _GEN_KINDS.forEach(k=>{ _genText[k]=null; _genBase[k]=null; _genKept[k]=false; }); }
-function _genStateSave(){ const o={}; _GEN_KINDS.forEach(k=>{ o[k]={gen:_genText[k], base:_genBase[k], kept:_genKept[k]}; }); return o; }
+// The generators' wording, raised whenever they word the same figure differently. The
+// baseline saved with a figure is the old wording's text, so after an update every kept
+// caption would read "the figure has changed" when only the words had: a session from
+// another wording starts in step (as text first seen is), and untouched text is rewritten.
+const _GEN_WORDING=2;
+function _genStateSave(){ const o={wording:_GEN_WORDING}; _GEN_KINDS.forEach(k=>{ o[k]={gen:_genText[k], base:_genBase[k], kept:_genKept[k]}; }); return o; }
 function _genStateLoad(o){
   _resetGenState(); if(!o||typeof o!=='object') return;
+  const same=o.wording===_GEN_WORDING;
   _GEN_KINDS.forEach(k=>{ const r=o[k]; if(!r||typeof r!=='object') return;
-    _genText[k]=typeof r.gen==='string'?r.gen:null; _genBase[k]=typeof r.base==='string'?r.base:null; _genKept[k]=!!r.kept; });
+    _genText[k]=typeof r.gen==='string'?r.gen:null; _genBase[k]=same&&typeof r.base==='string'?r.base:null; _genKept[k]=!!r.kept; });
 }
 // Is the box's text out of date: kept by the author (edited, typed or loaded) while the
 // figure has changed since it was last in step? Text the app wrote and nobody touched
@@ -22623,7 +22745,10 @@ function _syncGeneratedText(){
   // Not while a loaded figure is still decoding its pictures: the text written for a
   // half-loaded figure (no scale bars yet) would be taken as the baseline, and flagged
   // as out of date once loading finished. Waits up to ~10 s.
-  if(_genSyncWait<25&&images.some(im=>im&&im.img&&!(im.img.complete&&(im.img.naturalWidth||im.img.width)))){
+  // Only <img> elements decode: a chart or gene map panel draws into a canvas, which has
+  // no .complete, and used to hold every sync back for the full 10 s (the caption's
+  // "figure has changed" line never showed in the time anyone looked).
+  if(_genSyncWait<25&&images.some(im=>im&&im.img&&(typeof HTMLImageElement!=='undefined'&&im.img instanceof HTMLImageElement)&&!(im.img.complete&&(im.img.naturalWidth||im.img.width)))){
     _genSyncWait++; _genSyncT=setTimeout(_syncGeneratedText,400); return; }
   _genSyncWait=0;
   for(const kind of _GEN_KINDS){
@@ -22657,7 +22782,7 @@ function generateCaption(opts){
   // Guard and log on the panels the caption describes. The old count was
   // min(images, cols*rows), which logged 4 for a figure whose spanning panel
   // leaves 3 drawn, and let a figure with every panel hidden through the guard.
-  const n=_figurePanels().length+_captionObjects().length;
+  const n=_capItems().length;
   if(!n){ toast('No images, charts or gene maps to caption','warn'); return; }
   // The button asks before writing over an edited caption (the alt text's draft always
   // did); the "⚠ … Regenerate (replaces your edits)" link has already said so.
@@ -22683,29 +22808,60 @@ function _captionHeadings(){
 // A tag that only repeats a channel's stock name (the "RFP" a split gives a magenta
 // channel) says less than the column heading over it (the dye the author typed).
 const _stockChanTag=t=>Object.values(LUT_INFO).some(L=>L.chan&&L.chan.toLowerCase()===String(t||'').trim().toLowerCase());
-// Charts and gene maps on the freeform canvas: in the caption with the letter written
-// beside them (a text label at the object's top-left corner), in reading order. They
-// used to be left out, so a figure's chart and gene map had no legend text at all.
-function _captionObjects(){
-  if(layoutMode!=='freeform') return [];
-  const els=freeformElements.filter(e=>e&&!e.excluded&&((e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
-  if(!els.length) return [];
+// The pictures, charts and gene maps the caption, the alt text and the package records
+// describe, as the figure draws them now, each with the letter the figure shows beside it.
+// Grid: the drawn panels (hidden ones are not in the figure). Freeform: the objects on the
+// canvas — a picture by its Label, a chart or gene map by its letter, and an object with
+// neither by a one- or two-letter text placed at its top-left corner. Freeform used to be
+// captioned from the grid's panels plus its own charts and maps, so a popped-out figure
+// described its chart twice, and a figure built from scratch had no letters and was
+// called "Grayscale images" whatever its pictures were.
+function _ffLetterOf(el){
+  const own=String((el.type==='chart'||el.type==='genemap')?(el.letter||''):(el.label||'')).trim();
+  if(own) return _rtText(formatLabel(own));
   const W=canvasLogicalW||1, H=canvasLogicalH||1, letters=[];
   (annotations||[]).forEach(a=>{ if(a&&a.type==='text'&&a.text!=null) letters.push({t:_rtText(String(a.text)).trim(), x:a.xf*W, y:a.yf*H}); });
   freeformElements.forEach(e=>{ if(e&&(e.type==='text'||e.type==='textbox')&&e.text!=null) letters.push({t:_rtText(String(e.text)).trim(), x:e.x, y:e.y}); });
   const isLetter=t=>/^\(?[A-Za-z]{1,2}\)?$/.test(t)||/^\(?(i|ii|iii|iv|v|vi|vii|viii|ix|x)\)?$/i.test(t);
-  const letterFor=el=>{
-    const reach=Math.max(60, 0.25*Math.max(el.w||0, el.h||0));
-    const near=letters.filter(l=>isLetter(l.t)&&l.x>=el.x-reach&&l.x<=el.x+0.35*(el.w||0)&&l.y>=el.y-reach&&l.y<=el.y+0.35*(el.h||0))
-      .sort((a,b)=>Math.hypot(a.x-el.x,a.y-el.y)-Math.hypot(b.x-el.x,b.y-el.y));
-    return near.length?near[0].t.replace(/[()]/g,''):'';
-  };
-  const KIND={bar:'Bar chart', groupedBar:'Grouped bar chart', stackedBar:'Stacked bar chart', line:'Line chart', scatter:'Scatter plot',
-    box:'Box plot', violin:'Violin plot', beeswarm:'Dot plot', heatmap:'Heatmap', survival:'Survival curve'};
-  return els.slice().sort((a,b)=>(a.y-b.y)||(a.x-b.x)).map(el=>{
-    const L=letterFor(el);
-    return {letter:L, text:(L?`(${L}) `:'')+_dataCaption(el)};
-  });
+  const reach=Math.max(60, 0.25*Math.max(el.w||0, el.h||0));
+  const near=letters.filter(l=>isLetter(l.t)&&l.x>=el.x-reach&&l.x<=el.x+0.35*(el.w||0)&&l.y>=el.y-reach&&l.y<=el.y+0.35*(el.h||0))
+    .sort((a,b)=>Math.hypot(a.x-el.x,a.y-el.y)-Math.hypot(b.x-el.x,b.y-el.y));
+  return near.length?near[0].t.replace(/[()]/g,''):'';
+}
+function _capItems(){
+  if(layoutMode!=='freeform') return _figurePanels().map(im=>({im, letter:_rtText(formatLabel(im.label))}));
+  // A library icon or an AI schematic is drawing, not data: it is a panel only when it has a letter.
+  const els=(freeformElements||[]).filter(e=>e&&!e.excluded&&((e.type==='image'&&(e.img||e._imgEl||e.src)&&(!e.isIcon||String(e.label||'').trim()))||(e.type==='chart'&&e.chart)||(e.type==='genemap'&&e.map)));
+  const items=els.map(el=>({im:el, letter:_ffLetterOf(el)}));
+  // Lettered ones in letter order (A, B, … then AA), the rest after them in reading order.
+  const key=L=>L?(L.length===1?' ':'')+L.toUpperCase():'￿';
+  return items.sort((a,b)=>key(a.letter)<key(b.letter)?-1:key(a.letter)>key(b.letter)?1:((a.im.y-b.im.y)||(a.im.x-b.im.x)));
+}
+// Kept for callers that list the freeform charts and maps on their own.
+function _captionObjects(){
+  if(layoutMode!=='freeform') return [];
+  return _capItems().filter(it=>_isDataPanel(it.im)).map(it=>({letter:it.letter, text:(it.letter?`(${it.letter}) `:'')+_dataCaption(it.im)}));
+}
+// A panel's lane table in words: each row by its name, its cells left to right — a
+// dilution row as its range ("10⁻² to 10⁻⁷"). The spot assay used to be "(D) Panel D."
+function _laneTableWords(im){
+  const t=im&&im.laneTable;
+  if(!t||typeof _ltHasContent!=='function'||!_ltHasContent(t)) return '';
+  const n=_ltLanes(im), o=_ltOrient(im);
+  // Columns are stored in the file's lane order; a mirrored panel shows them reversed, and
+  // a turned one (not re-mapped) has no left-to-right order to state.
+  const turned=o.turned&&!_ltTurnOK(im);
+  const rows=(t.rows||[]).map(r=>{
+    let cells=(r.cells||[]).slice(0,n).map(v=>_rtText(_ltNorm(v)));
+    while(cells.length<n) cells.push('');
+    if(o.mirror) cells=cells.reverse();
+    const name=_rtText(String(r.name||'').trim());
+    if(!cells.some(Boolean)) return '';
+    const filled=cells.filter(Boolean), distinct=new Set(filled).size===filled.length;
+    const list=(cells.length>6&&distinct&&filled.length===cells.length)?`${cells[0]} to ${cells[cells.length-1]}`:cells.map(v=>v||'blank').join(', ');
+    return name?`${name}: ${list}`:list;
+  }).filter(Boolean);
+  return rows.length?`${turned?'Lanes':'Lanes, left to right'} — ${rows.join('; ')}`:'';
 }
 // What a chart or gene map shows, from its own settings: the kind, what is plotted
 // against what, the groups or series, mean ± SD/SEM and n when replicates are averaged,
@@ -22721,41 +22877,76 @@ function _dataCaption(el){
     const yt=_rtText((ch.axes&&ch.axes.y&&ch.axes.y.title)||''), xt=_rtText((ch.axes&&ch.axes.x&&ch.axes.x.title)||'');
     let d=(KIND[ch.kind]||'Chart');
     if(yt||xt) d+=` of ${yt||'the values'}${xt?` against ${xt}`:''}`;
-    // the groups a bar or box chart compares, else the series plotted
+    // The groups and the series as the chart shows them ("shown as" in Names & colours,
+    // the averaged series of replicate columns), as the legend and the key name them.
     let pl=null; try{ pl=_chartPlotted(el); }catch(e){ pl=null; }
-    // by the names the chart shows ("shown as" in Names & colours), as the legend and the key do
-    const shownAs=k=>{ const v=ch.names&&ch.names[k]; return _rtText(String(v!=null&&String(v).trim()?v:k)); };
-    const cats=pl&&!pl.numericX?[...new Set(pl.rows.map(r=>shownAs(String(r.x??''))).filter(Boolean))]:[];
-    if(cats.length>1&&cats.length<=12) d+=` for ${_listAnd(cats)}`;
-    else if(ys.length) d+=` (${ys.length>1?'series':'values'}: ${_listAnd(ys.slice(0,8))}${ys.length>8?', …':''})`;
+    let st=null; try{ st=_chartStatsCached(el); }catch(e){ st=null; }
+    const uniq=a=>[...new Set(a.map(v=>_rtText(String(v??''))).filter(Boolean))];
+    const cats=pl&&!pl.numericX?uniq(pl.rows.map(r=>r.x)):[];
+    const ser=pl?uniq(pl.rows.map(r=>r.series)):[];
+    const many=(a,k)=>`${_listAnd(a.slice(0,k))}${a.length>k?` and ${a.length-k} more`:''}`;
+    if(cats.length>1) d+=` for ${many(cats,12)}`;
+    // a grouped bar's bars within each group are its series, named as the key names them
+    if(ser.length>1) d+=` (${cats.length>1&&(ch.kind==='groupedBar'||ch.kind==='bar')?'bars':'series'}: ${many(ser,8)})`;
+    else if(!cats.length&&!ser.length&&ys.length>1) d+=` (series: ${many(ys,8)})`;
     if(pl&&pl.ylog) d+=', on a log scale';
     bits.push(d+'.');
+    // What the chart draws, from the same settings the renderer reads: a beeswarm's
+    // line is the mean with the whisker Error bars names, not a box; a box is the median
+    // and quartiles with min–max whiskers; a bar the mean with its error bar.
+    const pts=!!(ch.style&&ch.style.showPoints);
+    const ns=pl?pl.rows.map(r=>+r.n).filter(n=>n>0):[], lo=ns.length?Math.min(...ns):0, hi=ns.length?Math.max(...ns):0;
+    const nTxt=ns.length?(lo===hi?`n = ${lo}`:`n = ${lo}–${hi}`):'';
+    const errW=k=>k==='sd'?'SD (n−1)':k==='sem'?'SEM':k==='column'?'error bars from the data file':'';
     if(pl&&pl.rows.length){
-      const ns=pl.rows.map(r=>+r.n).filter(n=>n>0), lo=Math.min(...ns), hi=Math.max(...ns);
-      const nTxt=ns.length?(lo===hi?`n = ${lo}`:`n = ${lo}–${hi}`):'';
-      const ek=ch.error==='sd'?'mean ± SD':ch.error==='sem'?'mean ± SEM':ch.error==='column'?'error bars from the data file':'';
-      if(pl.boxes){ if(nTxt) bits.push(`Boxes show the median and quartiles; ${nTxt} per group.`); }
-      else if(hi>1&&ek) bits.push(`${_ucFirst(ek)}, ${nTxt} per point.`);
-      else if(hi>1) bits.push(`Means of replicates, ${nTxt} per point.`);
-      else if(ek==='error bars from the data file') bits.push('Error bars from the data file.');
+      if(ch.kind==='box') bits.push(`Boxes show the median and interquartile range; whiskers, minimum to maximum${pts?'; dots, individual values':''}; ${nTxt} per group.`);
+      else if(ch.kind==='violin') bits.push(`Violins show the distribution of the values (kernel density estimate); the bar marks the interquartile range and the white dot the median${pts?'; dots, individual values':''}; ${nTxt} per group.`);
+      else if(ch.kind==='beeswarm'){
+        const ek=(st&&st.boxes&&st.boxes[0]&&st.boxes[0].errKind)||'sd';
+        bits.push(`Each dot is one value; the line marks the mean${ek==='none'?'':`, whiskers ± ${ek==='sem'?'SEM':'SD (n−1)'}`}; ${nTxt} per group.`);
+      } else if(ch.kind==='stackedBar'){ if(hi>1) bits.push(`Segments show means of replicates, ${nTxt} per segment.`); }
+      else if(ch.kind==='bar'||ch.kind==='groupedBar'){
+        const ek=errW(ch.error);
+        if(hi>1&&ek&&ch.error!=='column') bits.push(`Bars show the mean ± ${ek}${pts?'; dots, individual replicates':''}; ${nTxt} per bar.`);
+        else if(hi>1) bits.push(`Bars show the mean${ek?` (${ek})`:''}${pts?'; dots, individual replicates':''}; ${nTxt} per bar.`);
+        else if(ek==='error bars from the data file') bits.push('Error bars from the data file.');
+      } else if(ch.kind==='line'||ch.kind==='scatter'){
+        const ek=errW(ch.error), agg=!!(st&&st.aggregated);
+        if(hi>1&&ek&&ch.error!=='column') bits.push(`Points show the mean ± ${ek}; ${nTxt} per point.`);
+        else if(hi>1) bits.push(`Points show the mean${ek?` (${ek})`:''}; ${nTxt} per point.`);
+        else if(ek==='error bars from the data file') bits.push('Error bars from the data file.');
+        else if(ch.kind==='scatter'&&!agg) bits.push('Each point is one value.');
+      } else if(ch.kind==='survival') bits.push('Kaplan–Meier estimates.');
     }
-    const src=ch.data&&ch.data.sourceName; if(src) bits.push(`Data from ${src}.`);
+    // Significance brackets are the author's own: said so, by the groups they join.
+    const sig=(ch.annos||[]).filter(a=>a&&a.kind==='sig');
+    if(sig.length){
+      const keys=st&&st.categories?st.categories:cats;
+      const g=i=>_rtText(String((keys||[])[+i]??`group ${+i+1}`));
+      bits.push(`Brackets: ${sig.map(a=>`${_rtText(String(a.text||''))} (${g(a.a)} vs ${g(a.b)})`).join('; ')}, from the author’s own statistical test.`);
+    }
+    const src=ch.data&&ch.data.sourceName;
+    if(src) bits.push(ch.data.edited?`Data from ${src}, edited in FigureLab.`:`Data from ${src}.`);
+    else if(ch.data&&ch.data.source==='paste') bits.push('Data typed or pasted into FigureLab.');
     const note=String(ch.caption||'').trim(); if(note) bits.push(note.replace(/\.?$/,'.'));
   } else if(el.type==='genemap'&&el.map){
     const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
     const t=_rtText((mp.style&&mp.style.title)||'');
-    bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${mp.length?` (${Math.round(mp.length).toLocaleString('en-US')} bp)`:''}${f.length?`, showing ${_listAnd(f.slice(0,10))}${f.length>10?' and others':''}`:''}.`);
+    // The title may already give the length ("(1–17,400 bp)"); it is not said twice.
+    const len=mp.length&&!/\bbp\b|\bkb\b/i.test(t)?` (${Math.round(mp.length).toLocaleString('en-US')} bp)`:'';
+    const fl=f.length<=12?_listAnd(f):`${f.slice(0,10).join(', ')} and ${f.length-10} other features`;
+    bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${len}${f.length?`, showing ${fl}`:''}.`);
     const src=mp.sourceName||mp.source; if(src&&typeof src==='string'&&/\.(gb|gbk|genbank|gff3?|fasta|fa|dna|txt)$/i.test(src)) bits.push(`Drawn from ${src}.`);
   }
   return bits.join(' ');
 }
 function _captionText(){
-  const objs=_captionObjects();
-  if(!_figurePanels().length&&!objs.length) return '';
+  const items=_capItems();
+  if(!items.length) return '';
+  const FP=items.map(it=>it.im), letterOf=new Map(items.map(it=>[it.im,it.letter]));
   const heads=_captionHeadings();
-  const parts=_figurePanels().map(im=>{
+  const parts=FP.map(im=>{
     const note=im.captionNote?.trim();
-    const meta=im.metaNote?.trim();
     // Build description: the caption note, else what the figure prints over the panel —
     // its column heading and its tag (a condition, a time point) — so "(B) GFP-LC3."
     // or "(B) 10 min." rather than "(B) Panel B."
@@ -22767,7 +22958,19 @@ function _captionText(){
     // (green)", "Membrane (magenta)" — not "CellMask, Magenta" or the stock "RFP".
     const lutLabel=LUT_NAMES[im.lut||'none'];
     let lutInDesc=false, grayInDesc=false;
-    if(lutLabel){
+    // A merge is named by its channels, each with its colour: "Merge of DAPI (blue),
+    // GFP (green) and Membrane (magenta)" — it used to be "Merge (blue)", the base's colour.
+    const mch=(im.channels||[]).filter(c=>c&&c.img);
+    if(mch.length&&!_isDataPanel(im)){
+      const one=(o,k)=>{ const n=_capChanName(o), c=_lutColourWord(k); return n&&c?`${n} (${c})`:n||c||''; };
+      const list=[...(im.lut&&im.lut!=='none'?[one(im,im.lut)]:[]), ...mch.map(c=>one(c,c.lut||'green'))].filter(Boolean);
+      if(list.length>1){
+        const dl=desc.toLowerCase();
+        desc=!desc||dl==='merge'||dl==='merged'?`Merge of ${_listAnd(list)}`:`${desc} (merge of ${_listAnd(list)})`;
+        lutInDesc=true;
+      }
+    }
+    if(lutLabel&&!lutInDesc){
       lutInDesc=true;
       const cn=_capChanName(im), col=_lutColourWord(im.lut), dl=desc.toLowerCase();
       const named=(cn&&dl.includes(cn.toLowerCase()))||/\b(gfp|dapi|lut)\b/.test(dl);
@@ -22782,12 +22985,12 @@ function _captionText(){
     // named as it is there: "(A) TFEB-GFP (greyscale)", not "(A) Panel A."
     else if(!desc&&!_isDataPanel(im)&&!(im.channels&&im.channels.length)){
       const cn=_capChanName(im);
-      if(cn&&_figurePanels().some(o=>o!==im&&o.lut&&o.lut!=='none'&&_capChanName(o)===cn)) desc=`${cn} (greyscale)`;
+      if(cn&&FP.some(o=>o!==im&&o.lut&&o.lut!=='none'&&_capChanName(o)===cn)) desc=`${cn} (greyscale)`;
     }
     // Grayscale hint
     if(im.grayscale&&!desc.toLowerCase().includes('grayscale')){ desc=desc?(desc+', grayscale'):'Grayscale'; grayInDesc=true; }
     else if(im.grayscale){ grayInDesc=true; }
-    const shown=_rtText(formatLabel(im.label));        // the letter style the figure shows
+    const shown=letterOf.get(im)||'';                  // the letter the figure shows beside it
     // A linked inset says what it is: the boxed region of its parent, and how much it
     // is enlarged RELATIVE to that parent — a ratio FigureLab genuinely knows, unlike an
     // objective magnification, which it never states.
@@ -22806,6 +23009,9 @@ function _captionText(){
       desc=desc?`${who}, ${desc[0].toLowerCase()+desc.slice(1)}`:who;
     }
     if(dataDesc){ const d0=desc; desc=d0?`${d0}. ${dataDesc.replace(/\.$/,'')}`:dataDesc.replace(/\.$/,''); }
+    // A lane table (a blot's conditions, a spot assay's dilutions) says what each lane is.
+    const lt=_isDataPanel(im)?'':_laneTableWords(im);
+    if(lt) desc=desc?`${desc}. ${lt}`:lt;
     if(!desc) desc=insetSentence||`Panel ${shown}`;
     let s=shown?`(${shown}) ${desc}.`:`${desc}.`;
     if(parent&&desc!==insetSentence) s+=` ${insetSentence}.`;
@@ -22826,8 +23032,9 @@ function _captionText(){
     // The field of view actually shown — the cropped region in physical units — which a
     // methods section needs and a reader cannot recover from a scale bar alone.
     if(im.umPerPx>0&&!parent){ const fov=_fovText(im); if(fov) s+=` Field of view ${fov}.`; }
-    // Metadata note
-    if(meta) s+=` ${meta}.`;
+    // The metadata note (plate number, date, lab-book page) goes to metadata.csv and
+    // PANEL_HISTORY, not the legend: it used to be appended here, and so reached the alt
+    // text and the SVG <desc>. The caption note is the field for the legend.
     // Image adjustments — every one that was applied, not just the levels. An inset
     // inherits its parent's, so it says so instead of repeating the list.
     const adj=_captionAdjustments(im,{lut:lutInDesc, grayscale:grayInDesc, native:true});
@@ -22842,10 +23049,11 @@ function _captionText(){
     if(p.row&&p.r!==lastRow){ grouped.push(`${p.row}: ${p.s}`); lastRow=p.r; }
     else grouped.push(p.s);
   });
-  objs.forEach(o=>grouped.push(o.text));
-  // Detect if fluorescence figure
-  const hasLut=_figurePanels().some(im=>im.lut&&im.lut!=='none');
-  const hasGray=_figurePanels().every(im=>im.grayscale);
+  // Detect if fluorescence figure. Only pictures count: "Grayscale images." was said of a
+  // freeform figure with no grid panels at all (every() of nothing is true).
+  const pics=FP.filter(im=>!_isDataPanel(im));
+  const hasLut=pics.some(im=>(im.lut&&im.lut!=='none')||(im.channels||[]).some(c=>c&&c.img));
+  const hasGray=pics.length>0&&pics.every(im=>im.grayscale);
   let preamble='';
   if(hasLut) preamble='Fluorescence microscopy images. ';
   else if(hasGray) preamble='Grayscale images. ';
@@ -22854,9 +23062,9 @@ function _captionText(){
   // that needs stating rather than being left for a reader to infer from the numbers.
   // Display ranges of files kept at their own bit depth, in their own values, panels
   // sharing a range named together — said once, not per panel in 8-bit numbers.
-  const nat=_nativeRangeGroups(_figurePanels(), im=>_rtText(formatLabel(im.label))||(_sourceName(im)?`“${_sourceName(im)}”`:'?'));
+  const nat=_nativeRangeGroups(pics, im=>letterOf.get(im)||(_sourceName(im)?`“${_sourceName(im)}”`:'?'));
   const ranges=nat.parts.length?` Display ranges in the files’ own ${_listAnd(nat.depth.filter(d=>!/^8-bit/.test(d)))} values: ${nat.parts.join('; ')}.`:'';
-  const U=_uniformity(_figurePanels());
+  const U=_uniformity(pics);
   let uniformity='';
   if(U.uni!==null){
     uniformity=U.byChannel
@@ -22896,7 +23104,7 @@ function generateMethodsParagraph(){
   const was=a=>a.length===1?'was':'were';
   const S=[];
   S.push(`Figures were assembled in FigureLab v${APP_VERSION} (Awuah 2026; https://doi.org/10.5281/zenodo.21269456).`);
-  const hasHistory=images.filter(Boolean).length>0;          // PANEL_HISTORY.txt ships only then
+  const hasHistory=_panelHistoryAll().length>0;             // PANEL_HISTORY.txt ships only then
   // Linear display adjustments. Whether they were uniform comes from the caption's own
   // predicate, which also counts gamma, LUT, inversion and keying, so the "differ"
   // sentence is worded as the caption words it, not as a claim about levels alone.
@@ -23116,24 +23324,33 @@ function _buildStructuralAltText(){
   const parts=[];
   const title=(gv('fig-title')||'').trim();
   if(title) parts.push(`Figure titled "${_rtText(title)}".`);
+  // The panels the figure draws now — never the hidden ones ("24 image panels" for a
+  // figure showing 10), counted once, in one sentence.
+  const items=_capItems(), P=items.map(it=>it.im);
+  const nc=P.filter(im=>im.type==='chart').length, ng=P.filter(im=>im.type==='genemap').length, ni=P.length-nc-ng;
+  const what=[ni?`${ni} image panel${ni!==1?'s':''}`:'', nc?`${nc} chart${nc!==1?'s':''}`:'', ng?`${ng} gene map${ng!==1?'s':''}`:''].filter(Boolean);
+  const sb=P.some(im=>!_isDataPanel(im)&&_scaleBarDrawn(im))?(ni>1?', some with scale bars':', with a scale bar'):'';
   if(layoutMode==='grid'){
-    const nc=images.filter(im=>im&&im.type==='chart').length, ng=images.filter(im=>im&&im.type==='genemap').length;
-    const n=images.filter(Boolean).length-nc-ng;
-    if(nc||ng) parts.push(`The grid holds ${[nc?`${nc} chart${nc!==1?'s':''}`:'',ng?`${ng} gene map${ng!==1?'s':''}`:''].filter(Boolean).join(' and ')} as panels.`);
-    if(n){ parts.push(`A ${gi('cols')}×${gi('rows')} panel grid of ${n} image panel${n!==1?'s':''}`+
-      (images.some(im=>im&&im.umPerPx>0)?', some with scale bars':'')+'.'); }
+    if(P.length){
+      const grid=`A ${gi('cols')}×${gi('rows')} panel grid`;
+      parts.push(what.length===1?`${grid} of ${what[0]}${sb}.`:`${grid} of ${P.length} panels: ${_listAnd(what)}${sb}.`);
+    }
   } else {
-    const byType={}; freeformElements.forEach(e=>{ byType[e.type]=(byType[e.type]||0)+1; });
     const bits=[];
-    if(byType.image) bits.push(`${byType.image} image${byType.image!==1?'s':''}`);
-    if(byType.chart){ const kinds=[...new Set(freeformElements.filter(e=>e.type==='chart').map(e=>e.chart&&e.chart.kind))].filter(Boolean); bits.push(`${byType.chart} chart${byType.chart!==1?'s':''}${kinds.length?` (${kinds.join(', ')})`:''}`); }
-    if(byType.genemap){ const maps=freeformElements.filter(e=>e.type==='genemap'&&e.map);
-      const bp=maps.map(e=>_bpLabel(Math.max(1,e.map.length|0)));
-      bits.push(`${byType.genemap} gene map${byType.genemap!==1?'s':''}${bp.length?` (${bp.join(', ')})`:''}`); }
+    if(what.length) bits.push(_listAnd(what)+sb);
+    const byType={}; freeformElements.forEach(e=>{ if(e&&!e.excluded) byType[e.type]=(byType[e.type]||0)+1; });
     if(byType.connector) bits.push(`${byType.connector} connector${byType.connector!==1?'s':''}`);
-    if(byType.text) bits.push(`${byType.text} text label${byType.text!==1?'s':''}`);
-    if(byType.rect||byType.ellipse) bits.push(`${(byType.rect||0)+(byType.ellipse||0)} shape(s)`);
-    if(bits.length) parts.push('A freeform figure containing '+bits.join(', ')+'.');
+    const nt=(byType.text||0)+(byType.textbox||0)-items.filter(it=>it.letter&&!String(it.im.label||it.im.letter||'').trim()).length;
+    if(nt>0) bits.push(`${nt} text label${nt!==1?'s':''}`);
+    if(byType.rect||byType.ellipse) bits.push(`${(byType.rect||0)+(byType.ellipse||0)} shape${(byType.rect||0)+(byType.ellipse||0)!==1?'s':''}`);
+    if(bits.length) parts.push('A freeform figure of '+_listAnd(bits)+'.');
+    // What each panel is, by its letter, when there is no caption to quote.
+    if(!(gv('caption-out')||'').trim()&&items.length){
+      const one=it=>{ const im=it.im, L=it.letter?`(${it.letter}) `:'';
+        if(_isDataPanel(im)) return L+_dataCaption(im).split('. ')[0].replace(/\.$/,'');
+        const n=String(im.captionNote||'').trim(); return L+(n||`picture${_sourceName(im)?` ${_sourceName(im)}`:''}`); };
+      parts.push(items.map(one).join('; ')+'.');
+    }
   }
   const ai=_aiGeneratedCount();
   if(ai) parts.push(`${ai} element${ai!==1?'s are':' is'} an AI-generated schematic.`);
@@ -23148,25 +23365,31 @@ function draftAltText(){
 async function generateAltText(){
   _syncGeneratedText();          // the draft quotes the caption: bring an untouched one up to date first
   const draft=_buildStructuralAltText();
-  let text=draft;
-  // Optional on-device polish — never leaves the machine, no key.
-  if(typeof LanguageModel!=='undefined'){
-    try{
-      const avail=await LanguageModel.availability().catch(()=>'unavailable');
-      if(avail!=='unavailable'){
-        const session=await LanguageModel.create({initialPrompts:[{role:'system',content:
-          'You write concise, factual alt-text for scientific figures for screen readers. Describe only the structure given — never invent results, numbers, or statistics. One short paragraph, no preamble.'}]});
-        const out=(await session.prompt('Write alt-text for a figure with this structure:\n\n'+draft)||'').trim();
-        if(session.destroy) session.destroy();
-        const echoed=/alt-text|screen reader|never invent/i.test(out);
-        if(out && !echoed && out.length<1200) text=out;
-      }
-    }catch(e){ /* keep the rule-based draft */ }
-  }
-  _setGeneratedText('alt', text, _genSig('alt', draft));
+  // The rule-based draft goes in at once. The on-device polish used to be awaited first,
+  // with no time limit: where the model's availability() never answered, the button did
+  // nothing at all.
+  _setGeneratedText('alt', draft, _genSig('alt', draft));
   focusAltText();
   toast('Alt text drafted from the figure’s structure — it says what is where, not what it shows; add the findings','ok');
   logAction('altText',{chars:_figAltText.length, onDevice:typeof LanguageModel!=='undefined'});
+  if(typeof LanguageModel!=='undefined'){
+    const within=(p,ms)=>Promise.race([p, new Promise(r=>setTimeout(()=>r(null),ms))]);
+    try{
+      const avail=await within(LanguageModel.availability().catch(()=>'unavailable'), 3000);
+      if(avail==='available'){
+        const session=await within(LanguageModel.create({initialPrompts:[{role:'system',content:
+          'You write concise, factual alt-text for scientific figures for screen readers. Describe only the structure given — never invent results, numbers, or statistics. One short paragraph, no preamble.'}]}), 10000);
+        const out=session?String(await within(session.prompt('Write alt-text for a figure with this structure:\n\n'+draft), 30000)||'').trim():'';
+        if(session&&session.destroy) session.destroy();
+        const echoed=/alt-text|screen reader|never invent/i.test(out);
+        // Only over the draft it polished: an edit made meanwhile is the author's.
+        if(out && !echoed && out.length<1200 && String(_figAltText).trim()===draft.trim()){
+          _setGeneratedText('alt', out, _genSig('alt', draft));
+          toast('Alt text polished on-device — nothing left your computer','ok');
+        }
+      }
+    }catch(e){ /* keep the rule-based draft */ }
+  }
   return _figAltText;
 }
 
@@ -23771,8 +23994,11 @@ function _chartPlotted(el){
   const ch=el.chart, st=_chartStatsCached(el), out=[];
   const ek=ch.error==='sd'?'SD (n-1)':ch.error==='sem'?'SEM = SD/sqrt(n)':ch.error==='column'?'from a column':'';
   // series and x are what the chart shows; skey and xkey the names in the data.
-  if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, skey:s.key, x:p.x, xkey:p.x, n:p.n, mean:p.y, err:p.err, kind:p.err>0?ek:''})));
-  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, skey:b.key, x:g.cat, xkey:g.key, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.err>0?ek:''})));
+  // A point averaged from replicates has an error even when it is 0 (three identical
+  // wells): it used to be written blank, which reads as missing.
+  const kOf=(err,n)=>err>0||(n>1&&(ch.error==='sd'||ch.error==='sem'))?ek:'';
+  if(st.series) st.series.forEach(s=>s.points.forEach(p=>out.push({series:s.name, skey:s.key, x:p.x, xkey:p.x, n:p.n, mean:p.y, err:p.err, kind:kOf(p.err,p.n)})));
+  else if(st.groups) st.groups.forEach(g=>g.bars.forEach(b=>out.push({series:b.series, skey:b.key, x:g.cat, xkey:g.key, n:b.n, mean:b.missing?null:b.value, err:b.err, kind:b.missing?'':kOf(b.err,b.n)})));
   else if(st.boxes) st.boxes.forEach(b=>out.push({series:st.nSeries>1?b.name:'', skey:st.nSeries>1?b.key:'', x:st.nSeries>1?b.cat:b.name, xkey:st.nSeries>1?st.catKeys[b.ci]:b.key, n:b.n, mean:b.mean,
     err:ch.kind==='beeswarm'?b.err:b.sd, kind:ch.kind==='beeswarm'?(b.errKind==='sem'?'SEM = SD/sqrt(n)':b.errKind==='none'?'':'SD (n-1)'):'SD (n-1)', med:b.med, q1:b.q1, q3:b.q3, min:b.min, max:b.max}));
   const bk=st.boxes&&st.boxes[0]&&ch.kind==='beeswarm'?st.boxes[0].errKind:'sd';
@@ -28640,18 +28866,20 @@ function _gelChartTable(ids, metric, names){
   const nL=Math.max(...P.map(im=>im.gelAnalysis.lanes.length));
   const ladder=new Set(P.map(im=>im.gelAnalysis.ladder?im.gelAnalysis.ladder.lane:-1));
   const R=P.map(im=>_gelRows(im.gelAnalysis,im)), Tg=P.map(im=>_gelChartTarget(im.gelAnalysis,im));
-  const rows=[];
+  const rows=[]; let nd=false;
   for(let li=0; li<nL; li++){
     if(ladder.has(li)&&P.every(im=>!im.gelAnalysis.ladder||im.gelAnalysis.ladder.lane===li)) continue;   // the marker lane is no sample
     const row=[`Lane ${li+1}`];
     P.forEach((im,k)=>{ const a=im.gelAnalysis;
       if((a.ladder&&a.ladder.lane===li)||!Tg[k]){ row.push(''); return; }
       const r=_gelRowAt(a, R[k], li, Tg[k]);
-      row.push(r&&r[metric]!=null&&isFinite(r[metric])?+(+r[metric]).toPrecision(6):''); });
+      const v=r&&r[metric]!=null&&isFinite(r[metric])?+(+r[metric]).toPrecision(6):'';
+      if(v==='') nd=true;
+      row.push(v); });
     rows.push(row);
   }
   const chosen=P.map((im,k)=>`${out[k]}: the band at ${Tg[k]?_gelTargetText(Tg[k]):'— (no bands)'}${Tg[k]?` (${Tg[k].how})`:''}`);
-  return {columns:['Lane',...out], rows, names:out, chosen};
+  return {columns:['Lane',...out], rows, names:out, chosen, nd};
 }
 // A link's series names by panel id. A link saved before they were kept takes them from
 // the chart's own columns, in order.
@@ -28740,7 +28968,7 @@ function chartFromDensitometry(idx){
   ids.forEach((id,i)=>{ names[id]=T.names[i]; });
   const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
   const raw=metric==='volume';
-  const caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background), ${label.charAt(0).toLowerCase()+label.slice(1)}: ${T.chosen.join('; ')}; n.d., no quantifiable band at that position.`;
+  const caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background), ${label.charAt(0).toLowerCase()+label.slice(1)}: ${T.chosen.join('; ')}${T.nd?'; n.d., no quantifiable band at that position':''}.`;
   const link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`, names};
   const notes=[];
   if(raw) notes.push(`raw volumes: ${_gelPanelName(me).replace(/^Panel /,'panel ')} has no reference lane or loading control`);
@@ -29120,6 +29348,9 @@ function applyChartModal(){
     if(ch.link){ const T=_chartLinkTable(ch);
       if(T.error||JSON.stringify(T.columns)!==JSON.stringify(ch.data.columns)||JSON.stringify(T.rows)!==JSON.stringify(ch.data.rows)){ ch.link=null; toast('Chart data edited by hand — it is no longer linked to the densitometry','warn'); }
       else ch.data.source='densitometry'; }
+    // The caption names the file the chart came from; it says so when the table was then
+    // edited or replaced by hand (it used to cite a raw file whose values were pasted over).
+    if(ch.data.sourceName&&ch.data.source!=='densitometry') ch.data.edited=true;
   }
   el.chart=ch;
   // Colours set here are the figure's sample colours: every chart and the key follow.
@@ -30303,6 +30534,10 @@ function _popOut(lost){
         _metaUmPerPx:im._metaUmPerPx, _metaCalibSource:im._metaCalibSource,
         _metaDeltaT:im._metaDeltaT, _metaAcqTime:im._metaAcqTime, _metaTimeSource:im._metaTimeSource,
         ...(im.srcPage?{srcPage:im.srcPage, srcPages:im.srcPages}:{}),
+        // where its pixel size came from, its import notes and its replacements: the
+        // Methods and PANEL_HISTORY of the popped-out figure read them from here
+        ...(im._calibHow?{_calibHow:{...im._calibHow}}:{}), ...(im._calibCopy?{_calibCopy:{...im._calibCopy}}:{}),
+        ...(im._importNotes?{_importNotes:im._importNotes.slice()}:{}), ...(im._replaced?{_replaced:im._replaced.map(r=>({...r}))}:{}),
         captionNote:im.captionNote||'', metaNote:im.metaNote||''});
       // Its borders, as rectangles grouped with it.
       [[borderW, borderC, borderIn],[+im.borderW||0, im.borderC||'#ffffff', +im.borderInset||0]].forEach(([bw,bc,bi])=>{
@@ -33754,9 +33989,18 @@ function _calibSourceOf(im){
   if(!im||!(im.umPerPx>0)) return {kind:'none', how:'', text:'uncalibrated'};
   // copied from another panel (⇉ Same µm/px on ticked panels), and not changed since
   if(im._calibCopy&&Math.abs(im.umPerPx-im._calibCopy.um)<1e-12){
-    const how=`copied from panel ${im._calibCopy.from}${im._calibCopy.how?` (${im._calibCopy.how})`:''}`;
+    // The source by the letter it has now (it was the letter at the time of the copy, so
+    // after a swap a panel was said to copy from itself), else by its file.
+    const C=im._calibCopy, sp=C.fromId!=null?_findPanelById(C.fromId):null;
+    const L=sp?(_rtText(formatLabel(sp.label))||(_sourceName(sp)?`“${_sourceName(sp)}”`:'')):'';
+    const who=sp&&sp!==im&&!sp.excluded&&L?`panel ${L}`:(C.fromFile?`“${C.fromFile}”`:`panel ${C.from}`);
+    const how=`copied from ${who}${C.how?` (${C.how})`:''}`;
     return {kind:'copy', how, text:how};
   }
+  // Recorded when the panel was calibrated: auto-detected bar, two clicked points, an
+  // objective preset or a typed value — while the value is still the one recorded.
+  if(im._calibHow&&im._calibHow.how&&Math.abs(im.umPerPx-im._calibHow.um)<1e-12)
+    return {kind:im._calibHow.kind||'hand', how:im._calibHow.how, text:im._calibHow.how};
   const known=im._metaUmPerPx!==undefined&&im._metaUmPerPx!==null;
   const fromMeta=known&&im._metaUmPerPx>0&&Math.abs(im.umPerPx-im._metaUmPerPx)<1e-9;
   const how=fromMeta?`read from ${im._metaCalibSource||'the image file'} metadata`:known?'set by hand':'';
@@ -34400,18 +34644,23 @@ async function saveToLibrary(){
   if(!name){ toast('Not saved: give the copy a name','warn'); return; }
   // The entry this figure is saved as: the reuse check knows its own saved copy by it.
   const id=_uid(); _reuse.libId=id;
-  try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:_withRawSave(()=>serializeSession(true))});
+  // The reproducibility log goes with the copy, beside the figure (not in it: it is a record
+  // of the session, not a setting an undo puts back), so a package built after reopening it
+  // has its log — it used to be missing for a figure opened from the library.
+  try{ render(); await _dbPut({id, name, savedAt:Date.now(), thumb:_sessionThumb(), data:_withRawSave(()=>serializeSession(true)), reproLog:reproLog.map(e=>({...e}))});
     toast(`Saved "${name}" to your sessions`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not save session (storage error)','err'); }
 }
 async function loadFromLibrary(id){
   try{ const rec=await _dbGet(id); if(!rec){ toast('Session not found','warn'); return; }
-    applySession(rec.data,{silent:true, origin:'library'}); _reuse.libId=rec.id; toast(`Opened "${rec.name}"`,'ok');
+    applySession(rec.data,{silent:true, origin:'library'}); _reuse.libId=rec.id;
+    if(Array.isArray(rec.reproLog)) reproLog=rec.reproLog.filter(e=>e&&typeof e==='object'&&typeof e.action==='string').map(e=>({...e})).concat(reproLog);
+    toast(`Opened "${rec.name}"`,'ok');
   }catch(e){ toast('Could not open session','err'); }
 }
 async function overwriteLibrary(id){
   try{ const rec=await _dbGet(id); if(!rec) return; render();
-    _reuse.libId=rec.id; rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=_withRawSave(()=>serializeSession(true));
+    _reuse.libId=rec.id; rec.savedAt=Date.now(); rec.thumb=_sessionThumb(); rec.data=_withRawSave(()=>serializeSession(true)); rec.reproLog=reproLog.map(e=>({...e}));
     await _dbPut(rec); toast(`Updated "${rec.name}"`,'ok'); renderSessionLibrary();
   }catch(e){ toast('Could not update','err'); }
 }
@@ -34648,11 +34897,14 @@ function logAction(type, params={}){
   reproLog.push({ts:new Date().toISOString(), action:type, ...params});
 }
 function exportReproLog(){
-  if(!reproLog.length){ toast('No actions logged yet','warn'); return; }
+  const hasFig=images.some(Boolean)||(typeof freeformElements!=='undefined'&&freeformElements.length);
+  if(!reproLog.length&&!hasFig){ toast('No actions logged yet','warn'); return; }
   const lines=[
     '# FigureLab Reproducibility Log',
     `# Session exported: ${new Date().toLocaleString()}`,
     `# Figure: ${gv('export-name')||'untitled'}`,
+    ...(reproLog.length?[]:['# No actions are recorded for this figure: it was opened from a saved session file',
+      '# (or a library copy saved before the log was kept with it), and nothing has been done to it since.']),
     '',
     ...reproLog.map((e,i)=>{
       const {ts,action,...rest}=e;
@@ -34933,6 +35185,7 @@ function updateElemPropsBar(){
     const umppxEl=document.getElementById('ep-umppx'); if(umppxEl) umppxEl.value=el.umPerPx||'';
     const sbumEl=document.getElementById('ep-sbum'); if(sbumEl) sbumEl.value=+(Math.round((el.sbUm||0)/_sbUnitFactor(u)*1000)/1000);
     const sbunitEl=document.getElementById('ep-sbunit'); if(sbunitEl) sbunitEl.value=u;
+    const capEl=document.getElementById('ep-capnote'); if(capEl&&document.activeElement!==capEl) capEl.value=el.captionNote||'';
     // Background-removal controls
     const bk=el.bgKey||{};
     const bkOn=document.getElementById('ep-bgkey'); if(bkOn) bkOn.checked=!!bk.on;
@@ -35254,6 +35507,9 @@ function applyScaleDetect(imgIdx,barPx,um,opts){
   const im=images[imgIdx]; if(!im){ toast(_PANEL_GONE,'warn'); return; }
   pushUndo();
   im.umPerPx=+(um/barPx).toPrecision(6);
+  // Where it came from, for the Methods and the ruler CSV: they used to call an
+  // auto-detected bar "set by hand".
+  im._calibHow={um:im.umPerPx, kind:'burned', how:`measured on the scale bar burned into the image (${+(+barPx).toFixed(1)} px = ${_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)})})`};
   // Where the burned-in bar is (with room for its label), so FigureLab's own bar keeps
   // clear of it: it used to be drawn exactly on top of it (newcomer3-01).
   const b=opts.bar, W=(im.img&&(im.img.naturalWidth||im.img.width))||0, H=(im.img&&(im.img.naturalHeight||im.img.height))||0;

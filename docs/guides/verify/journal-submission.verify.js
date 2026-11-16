@@ -360,13 +360,15 @@ async function card(T, i, { open = false } = {}) {
     const d = await card(T, 3, { open: true });
     await d.locator('input.f-cap').fill('Plaques of phiGuide on E. coli MG1655 (1e-6 dilution)');
     await d.locator('input.f-cap').press('Enter');
-    await btn(T, '⟳ Render').click();
-    await p.waitForTimeout(900);
+    // ux3 (newcomer3-02): the line comes from the note itself, without ⟳ Render, within 2 s
     const stale = p.locator('#caption-stale');
-    expect(await stale.isVisible(), 'no out-of-date flag');
+    await stale.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+    expect(await stale.isVisible(), 'no out-of-date flag within 2 s of the caption note');
+    const txt = (await stale.innerText()).trim();
+    expect(/since this caption was written/.test(txt) && /✦ Regenerate/.test(txt) && /Keep mine/.test(txt), txt);
     const kept = await p.locator('#caption-out').inputValue();
     expect(/three experiments/.test(kept), 'edit lost');
-    return (await stale.innerText()).trim();
+    return txt;
   });
 
   await step(T, '4.3b Keep mine on the flag keeps your caption and hides the flag', async () => {

@@ -310,7 +310,8 @@ test('phage2-07 / phage-29: an EM pixel size reads in nm, and a chart in a grid 
   const cap = await page.locator('#caption-out').inputValue(), meth = await page.locator('#methods-out').inputValue();
   expect(cap).toContain('(0.4 nm per pixel)');                // was "(0.0004 µm per pixel)"
   expect(meth).toContain('(0.4 nm per pixel)');
-  expect(cap).toContain('(B) Bar chart of CFU/mL for WT and dfliC, on a log scale. Mean ± SD, n = 3 per point. Data from cfu.csv.');  // was "(B) Panel B."
+  // (ux3 charts3-02: the statistic is worded from what the chart draws — bars, mean ± SD)
+  expect(cap).toContain('(B) Bar chart of CFU/mL for WT and dfliC, on a log scale. Bars show the mean ± SD (n−1); n = 3 per bar. Data from cfu.csv.');  // was "(B) Panel B."
   // the names the chart shows (Names & colours › shown as), as in its legend
   const shown = await page.evaluate(() => { images.find(im => im.type === 'chart').chart.names = { dfliC: 'Δ*fliC*' }; render(); return _captionText(); });
   expect(shown).toContain('for WT and ΔfliC, on a log scale');
