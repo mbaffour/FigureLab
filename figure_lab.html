@@ -16966,12 +16966,12 @@ function _keyLayout(rows, fs, font){
   return {rows,fs,font,pad,sw,sh,gap,lh,w,h,cols,colX};
 }
 // The width a key placed Below may span (layout px), or 0 for a key in one column.
-// A key placed automatically that found no free spot and went under the panels (k._below)
-// runs across the figure too: it was a four-row list that grew the bottom margin by a
-// quarter of the figure's height, mostly empty (fluor5-15).
 function _keyBelowAvail(){
   const k=(annotations||[]).find(a=>a&&a.type==='legend'&&!a.hidden);
-  if(!k||(k.where||'auto')!=='bottom') return 0;
+  // A key placed automatically that found no free spot and went under the panels (k._below)
+  // runs across the figure too: it was a four-row list that grew the bottom margin by a
+  // quarter of the figure's height, mostly empty (fluor5-15).
+  if(!k||((k.where||'auto')!=='bottom'&&!(k._below&&(k.where||'auto')==='auto'))) return 0;
   return Math.max(0,(_keyRenderW||canvasLogicalW||0)-12);
 }
 // THE key renderer. `emit` is a canvas or SVG backend (the chart vocabulary plus chip,
@@ -17311,7 +17311,7 @@ function _ckKeyAutoPlace(W, H){
   _keyRenderW=W;
   const keys=annotations.filter(a=>a&&a.type==='legend'&&!a.hidden);
   if(!keys.length||!_figureKey().length) return;
-  const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
+  const fs=_keyFs(); let L=_keyLayout(_figureKey(), fs, _keyFont(fs));
   const busy=_ckKeyBusy(W,H);
   const cur=id=>parseInt(gv(id))||0;
   keys.forEach(a=>{
@@ -17324,21 +17324,38 @@ function _ckKeyAutoPlace(W, H){
     if(!a.auto) return;
     // The search runs only when what it reads changed: the figure's size, the key's, the
     // place asked for, or anything drawn.
-    const where=a.where||'auto';
     const bsig=busy.map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
-    const sig=[W,H,L.w.toFixed(1),L.h.toFixed(1),where,layoutMode].join(',')+'|'+bsig;
-    const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(L.w, L.h, where, W, H, busy);
-    _ckKeyCache={sig, p};
-    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h;
-    delete a._busyNow; delete a._roomBusy;          // (kept by sessions saved before 3.19)
-    // The margins this key grew that still read what it set them to.
+    const find=(LL, wh)=>{ const sig=[W,H,LL.w.toFixed(1),LL.h.toFixed(1),wh,layoutMode].join(',')+'|'+bsig;
+      const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(LL.w, LL.h, wh, W, H, busy);
+      _ckKeyCache={sig, p}; return {p, sig}; };
+    // The margins this key grew that still read what it set them to, and the layout
+    // without that room: the margin back at `from` (a left margin shifts what is drawn).
     const own=a._grown?Object.entries(a._grown).filter(([id,g])=>g&&g.from!=null&&g.to!==g.from&&cur(id)===g.to):[];
+    let Wb=W, Hb=H, dx=0;
+    own.forEach(([id,g])=>{ const d=g.to-g.from; if(id==='m-btm'||id==='fm-canvas-h') Hb-=d; else { Wb-=d; if(id==='m-left') dx=d; } });
+    const bb=dx?busy.map(b=>({...b, x:b.x-dx})):busy;
+    // Auto in a grid: the key in one column where it fits; with no free spot and the room
+    // to be made under the panels, it goes Below and runs across the figure, as a key placed
+    // Below does (fluor5-15: a four-row list grew the bottom margin by a quarter of the
+    // figure's height). Decided on the one-column key in the layout without the key's own
+    // room, so the same layout always gives the same key, and a figure that gains a free
+    // corner takes the key back there.
+    let where=a.where||'auto';
+    if(where==='auto'&&layoutMode!=='freeform'&&_figureKey().length>1){
+      a._below=false;
+      const L1=_keyLayout(_figureKey(), fs, _keyFont(fs)), p1=own.length?_keyFreeSpot(L1.w, L1.h, 'auto', Wb, Hb, bb):find(L1,'auto').p;
+      if(!p1.free&&p1.need&&p1.need.side==='bottom'){ a._below=true; L=_keyLayout(_figureKey(), fs, _keyFont(fs)); where='bottom'; }
+      else L=L1;
+    } else if(a._below) delete a._below;
+    const {p, sig}=find(L, where);
+    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h;
+    // A key that went under the panels on its own starts at panel A's left edge, as a key in
+    // a strip under the panels does (newcomer4-04), not centred under the canvas.
+    if(a._below){ const P=busy.filter(b=>b.what==='panel'||b.what==='object');
+      if(P.length){ const pl=Math.min(...P.map(b=>b.x)); if(pl+L.w<=W-6+0.5) a.xf=pl/W; } }
+    delete a._busyNow; delete a._roomBusy;          // (kept by sessions saved before 3.19)
     if(own.length){
-      // The layout without that room: the margin back at `from` (a left margin shifts what
-      // is drawn), searched as a fresh placement would be.
-      let Wb=W, Hb=H, dx=0;
-      own.forEach(([id,g])=>{ const d=g.to-g.from; if(id==='m-btm'||id==='fm-canvas-h') Hb-=d; else { Wb-=d; if(id==='m-left') dx=d; } });
-      const bb=dx?busy.map(b=>({...b, x:b.x-dx})):busy;
+      // Searched in the layout without that room, as a fresh placement would be.
       const ksig=[Wb,Hb,dx].join(',')+'|'+sig;
       const pb=(_ckKeyBaseCache&&_ckKeyBaseCache.sig===ksig)?_ckKeyBaseCache.p:_keyFreeSpot(L.w, L.h, where, Wb, Hb, bb);
       _ckKeyBaseCache={sig:ksig, p:pb};

@@ -507,7 +507,9 @@ test('newcomer5-11: when the edited caption is out of date, the alt text that qu
   expect(f['README.txt']).toContain('CHECK THESE TEXTS');
   expect(f['README.txt']).toContain('Fig2-caption.txt is your edited caption');
   expect(f['README.txt']).toMatch(/Fig2-alt\.txt is your alt text/);
-  expect(f['Fig2-alt-generated.txt']).toContain('Caption: ' + f['Fig2-caption-generated.txt'].trim());
+  // the alt text quotes the generated caption, shortened as alt text is (fluor5-11)
+  const short = await page.evaluate((c) => _altCaptionSummary(c), f['Fig2-caption-generated.txt'].trim());
+  expect(f['Fig2-alt-generated.txt']).toContain('Caption, shortened: ' + short);
   expect(f['Fig2-alt-generated.txt']).not.toContain('Edited by hand.');
   expect(errors).toEqual([]);
 });

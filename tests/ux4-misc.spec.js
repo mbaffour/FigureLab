@@ -126,9 +126,11 @@ test('fluor4-05 / fluor3-06: a name typed in one panel\'s Channel field renames 
   await row.locator('button.f-chan-chip').click();
   await expect(row.locator('.f-chan-note')).toContainText('renames this panel only');
   await row.locator('.f-chan').fill('TOM20'); await row.locator('.f-chan').press('Enter'); await row.locator('.f-chan').blur();
-  // was: B, D, the merge E and the inset F all became "TOM20"
-  expect(await tagsOf(page)).toEqual(['DAPI', 'TOM20', 'DAPI', 'mScarlet-Parkin', 'DAPI mScarlet-Parkin', 'TOM20']);
-  await expect(page.locator('#toast')).toContainText('this panel only');
+  // was: B, D, the merge E and the inset F all became "TOM20". The other field's D keeps its
+  // name; the merge E shows B's own file, so its channel takes B's name (fluor5-02: a merge
+  // kept the old indicator after its split panel was renamed).
+  expect(await tagsOf(page)).toEqual(['DAPI', 'TOM20', 'DAPI', 'mScarlet-Parkin', 'DAPI TOM20', 'TOM20']);
+  await expect(page.locator('#toast')).toContainText('this panel only; merge E takes it for the same file’s channel');
   await expect(page.locator('#img-list .img-item').nth(5).locator('.f-chan')).toBeDisabled();      // the inset goes by its panel
   const r = await page.evaluate(() => { generateCaption(); return {
     key: document.getElementById('key-text').value,
@@ -150,7 +152,7 @@ test('fluor4-05 / fluor3-06: a name typed in one panel\'s Channel field renames 
   const json = await page.evaluate(() => JSON.stringify(serializeSession(true)));
   await page.evaluate(async (j) => { applySession(JSON.parse(j), { origin: 'file' }); await new Promise(r => setTimeout(r, 600)); render(); }, json);
   await page.waitForFunction(() => images.filter(Boolean).every(im => im.img && (im.img.complete !== false)));
-  expect(await tagsOf(page)).toEqual(['DAPI', 'TOM20', 'DAPI', 'mScarlet-Parkin', 'DAPI mScarlet-Parkin', 'TOM20']);
+  expect(await tagsOf(page)).toEqual(['DAPI', 'TOM20', 'DAPI', 'mScarlet-Parkin', 'DAPI TOM20', 'TOM20']);
   // Ctrl/⌘+S from the untouched "A / B" Channel names box saves without renaming anything
   await page.evaluate(() => render());
   const kf = page.locator('#key-names-ui .key-name-in[data-lut="magenta"]');
