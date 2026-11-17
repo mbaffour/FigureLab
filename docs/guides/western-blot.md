@@ -25,7 +25,7 @@ This guide was checked step by step on synthetic 16-bit blots by `verify/western
 
 Batch crop keeps one box size across all the scans, so the strips come out the same width with the lanes in the same place.
 
-1. Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type `batch crop`, press <kbd>Enter</kbd>. (It is also **Crop & Scale › ▦ Batch crop all images…**.) The dialog reads **✂ Batch Crop (1 / 4)**.
+1. Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type `batch crop`, press <kbd>Enter</kbd>. (It is also **Crop & Scale › ▦ Batch crop all images…**.) The dialog reads **✂ Batch Crop (1 / 4)**: scan 1 of the 4 you added.
 2. Draw a box around the ladder, the sample lanes and the band you need, or type it under **px** (**X**, **Y**, **W**, **H**, in any order). Make the box tall enough to hold at least three ladder markers around your band: the MW fit in task 3 needs three. Leave a little room at the sides; a box that runs off the image after tilting shows "⚠ extends past the image".
 3. Click **📐 Level**, then click two points along one band row, one near each end. The **Tilt** field fills in and the box turns with the blot.
 4. Click **✓ Apply & Next**. The next scan opens with the same box (X, Y, W and H). Type its **Y** (bands sit at different heights on different blots), leave **X** as it is so the ladder lines up, and level it the same way.
@@ -42,7 +42,7 @@ On the test blots, Level found 1.1°, −0.9° and 0.7° for true tilts of 1.2°
 2. Check what it found: the number of lanes, "dark on light" for a blot, and lanes marked *inferred* where a lane has no signal (a knock-out lane). Drag a lane edge if one is wrong.
 3. **Ladder lane**: pick the ladder's lane. The box beside it starts with a default ladder (`250,130,100,70,55,35,25`); replace it with the sizes of the markers visible in the crop, top to bottom, e.g. `75, 50, 37`, and click **Fit**. It needs at least three markers; with two it says "At least 3 ladder markers are needed for a molecular-weight fit".
 4. **Reference lane**: the lane every ratio is relative to (e.g. WT + inducer).
-5. **Loading control**: pick the loading-control panel. Choose **Loading band(s)** for a housekeeping band, or pick the stain's panel and **Total protein (whole lane)**, which JBC and ASBMB ask for. The table gains **÷ LC** and **÷LC rel ref** columns.
+5. **Loading control**: pick the loading-control panel. Choose **Loading band(s)** for a housekeeping band, or pick the stain's panel and **Total protein (whole lane)**, which JBC and ASBMB ask for. The table gains **÷ LC** and **÷LC rel ref** columns. For a phospho-protein over its total protein, see [Phospho over total](#phospho-over-total-pakt--total-akt) below.
 6. Click **⬇ CSV** to save the band table (`…-panelA-densitometry.csv`). **⬇ Lane profiles CSV** saves each lane's signal and background.
 7. Repeat for each target blot, with the same reference lane and loading control. A blot without them is left out of the chart (task 6).
 8. Opened the dialog on the wrong panel? **✕ Remove analysis** takes the analysis off it, with its MW labels ("Lane analysis removed from panel B (Ctrl/⌘+Z brings it back)").
@@ -50,6 +50,18 @@ On the test blots, Level found 1.1°, −0.9° and 0.7° for true tilts of 1.2°
 ![Lanes & bands on a 16-bit blot normalised to total protein](img/western-blot-lanes-bands.png)
 
 On the test blot (bands loaded 0.3 / 1 / 0 / 0 / 0.4 / 1.6), ÷LC rel ref read 0.30 / 1.00 / 0 / 0 / 0.40 / 1.60 against total protein, and the same against the GapA band.
+
+### Phospho over total (pAKT ÷ total AKT)
+
+A phospho-protein is usually shown over its own total protein, probed on a second blot of the same samples.
+
+1. Add the phospho blot, the total blot and a loading control (GAPDH) as in task 1.
+2. Click the phospho strip and open **⫼ Lanes & bands** (⌘K `densitometry`). Set the **Reference lane**.
+3. **Loading control**: pick the total-protein blot's panel, and in the menu beside it choose **Another target (phospho/total)**. Each band is divided by the total blot's band in the paired lane (lanes are paired by order). The dialog says so: "Normalised to another target, AKT_total (panel B) (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane) … It is no loading control: show one as well where the journal asks."
+4. **📊 Chart these values**. The Y title, caption and Methods name the ratio: "Band volume ÷ AKT_total, relative to lane 3" (the total blot is named by its file); type your own **Y title** (`pAKT / total AKT`) if you like.
+5. Under EMBO J, the compliance report's **Loading control** row (ℹ) says "A is normalised to another target, AKT_total (panel B) (a phospho/total ratio), not to a loading control", so show the GAPDH strip as well.
+
+On a test pair (pAKT 0.3 / 1 / 0.6 / 1.2 / 0.2 / 0.8 over total AKT 0.6 / 1 / 1 / 1 / 0.5 / 1), the ratios relative to lane 3 came out within 0.01 of 0.5 / 1 / 0.6 / 1.2 / 0.4 / 0.8.
 
 ## 4. Put MW labels on the ladder
 
@@ -98,26 +110,26 @@ Lane names on a densitometry chart belong to that chart: naming Lane 2 "WT" ther
 
 ## 9. Journal and printed width
 
-1. Press <kbd>⌘K</kbd>, type the journal (`embo`, `jbc`, `nature` …) and press <kbd>Enter</kbd> on **Journal: …**. The toast lists what it set, for example "EMBO J preset applied — printed width kept at 180 mm (EMBO J allows up to 180 mm), Helvetica letters, 600 DPI — letters 10.4 pt, headings 8 pt, text 7 pt, lane table with the headings". (It says "kept" although the figure had no width before: the preset set 180 mm.)
+1. Press <kbd>⌘K</kbd>, type the journal (`embo`, `jbc`, `nature` …) and press <kbd>Enter</kbd> on **Journal: …**. The toast lists what it set, for example "EMBO J preset applied — printed width 180 mm (EMBO J allows up to 180 mm), Helvetica letters, 600 DPI — letters 10.4 pt, headings 8 pt, text 7 pt, lane table with the headings". Some presets set no width: JBC's toast reads "JBC figure guide applied — no printed width set — JBC’s data-presentation page states none …: pick the column width from JBC’s author instructions under Export › Printed width".
 2. A one-column stack at a journal's full width prints very tall and its strips below 300 ppi: on the test figure, 180 mm gave a figure 323.4 mm tall and **Panel resolution** ✗ at 149 ppi. Choose a narrower width in **Export › Printed width** (here **87 mm — narrowest (EMBO J)…**). The toast warns that text now looks larger against the pictures: "Printed width 180 → 87 mm: text keeps its point size, so it is 2.07× larger against the pictures now…".
 3. Open **Check** and click **✓ Check journal compliance**. After the narrower width, the test figure's lane table printed at 4.3 pt and **Text size** failed ("Lane-table text prints at 4.3 pt…"). Click the row's **Lane tables to 7 pt** button: the lane table takes the figure's text size and the row passes.
-4. Read the blot rows. On the test figure at 87 mm: **Panel resolution** ✓ (lowest 308 ppi), **Printed height** 159.3 mm ✓, **MW markers** ✓ ("A: 3 markers, above and below every analysed band"), **Charts from densitometry** ✓ (linked and current), and two notes: **Loading control** (EMBO J asks for it on the same blot) and **Uncropped originals**, with an **S1…** button (task 10). **Panel labels** warns "2/5 panels labelled" because the stack is one panel with one letter (task 8); leave it. **Text contrast** on the letters: see [journal-submission.md](journal-submission.md).
+4. Read the blot rows. On the test figure at 87 mm: **Panel resolution** ✓ (lowest 308 ppi), **Printed height** 159.3 mm ✓, **MW markers** ✓ ("A: 3 markers, above and below every analysed band"), **Charts from densitometry** ✓ (linked and current), and, under EMBO J, two notes: **Loading control** (EMBO J asks for it on the same blot) and **Uncropped originals**, with an **S1…** button (task 10). Other journals show the rows their own guides ask for. **Panel labels** warns "2/5 panels labelled" because the stack is one panel with one letter (task 8); leave it. **Text contrast** on the letters: see [journal-submission.md](journal-submission.md).
 
 A lane-table row prints at one size, the size its tightest cell needs. If a row's labels are too long for their lanes (here `Parkin WT`, `Parkin R42P` in a strip one column of three wide, under Nature), they are drawn smaller and **Text size** fails ("some lane-table text is drawn smaller than its table’s size to fit its lanes … 3.2 pt"). Its **Widen A** button gives the strip the whole row of the grid ("Panel A now spans all 3 columns, so its lanes are wider — Ctrl+Z undoes it"); after it the row passed at 6.7–7.0 pt. Shorter names also work.
 
 ## 10. Uncropped originals (S1)
 
-1. Open **Export** and click **🗎 Export uncropped originals (S1)…**. Every cropped panel is ticked, marked "(tilted crop)" where you levelled it.
+1. Open **Export** and click **📄 Export uncropped originals (S1)…**. Every cropped panel is ticked, marked "(tilted crop)" where you levelled it.
 2. Click **⬇ PDF (one page per panel)**. You get `S1_uncropped_originals.pdf`, one page per scan with the crop outlined. **⬇ PNG sheet** puts them on one image.
 
 The S1 file is also in the submission package (**Export › 📦 Export submission package (ZIP)**), together with each analysed blot's band table as source data: in the test, `S1_uncropped_originals.pdf`, `source-data/panel_A-densitometry.csv` and, for the strip whose letter was cleared, `source-data/panel_2026-11-03_PhoB_ChemiDoc-densitometry.csv` (named by its file). See [journal-submission.md](journal-submission.md).
 
 ## 11. Revision: replace a blot
 
-1. Right-click the strip on the canvas › **⇄ Replace image…** and pick the new scan. The letter, crop, lane table, MW labels and analysis settings are kept; the toast says what was kept and that the lane analysis is now out of date.
+1. Right-click the strip on the canvas › **⇄ Replace image…** and pick the new scan. The letter, crop, lane table, MW labels and analysis settings are kept; the toast says what was kept and that the lane analysis is now out of date. The MW labels stay at the old scan's heights for now: "its MW labels sit where the old scan’s ladder bands were — the re-analysis moves them onto the new ladder, or ↕ Place MW labels again".
 2. The kept tilt belongs to the old scan. Right-click the strip › **⚙ Open settings** › **✂ Open Crop Editor**, click **📐 Level** along a band row (or move the box), then **✓ Apply Crop**.
-3. The chart panel now says it is out of date, on the figure and in its dialog ("⚠ Linked to the densitometry of panels A, B, which has changed since: panel A: the crop changed since this analysis."). Double-click the chart and click **↻ Update from densitometry**: it re-analyses the new scan with the same ladder, reference lane and loading control, and the chart updates ("1 chart updated from the re-analysed densitometry"). Click **Apply**.
-4. Open **⫼ Lanes & bands** on the strip and click **⬇ CSV** for the new numbers, then re-export the figure and S1.
+3. The chart panel now says it is out of date, on the figure and in its dialog ("⚠ Linked to the densitometry of panels A, B, which has changed since: panel A: the crop changed since this analysis."). Double-click the chart and click **↻ Update from densitometry**: it re-analyses the new scan with the same lane count, ladder, reference lane and loading control, moves the MW labels onto the new ladder, and updates the chart ("1 chart updated from the re-analysed densitometry; 3 MW labels of panel A moved onto the new ladder’s bands"). Click **Apply**.
+4. Open **⫼ Lanes & bands** on the strip: it reads the same 7 lanes, reference lane and loading control as before. Click **⬇ CSV** for the new numbers, then re-export the figure and S1.
 
 On the test re-run (tilted −2.0°), Level found −2.2°, and the re-analysed values were 0.30 / 1.00 / 0 / 0 / 0.40 / 1.60.
 
@@ -128,7 +140,7 @@ Typing over the numbers in a linked chart's data box (to pool replicates by hand
 If you apply typed numbers, the dialog reads "⚠ Not linked: typed by hand …", the caption says "Values entered by hand", and when the blot later changes (a replaced or re-analysed scan) everything says the numbers may be stale. On the test figure, after **⇄ Replace image…** on the strip:
 
 - the replace toast: "a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values";
-- the chart, on screen and in exports: "⚠ typed values — the densitometry of panel A has changed since";
+- the chart, on screen and in exports: "⚠ typed values — out of date";
 - the caption: "Values entered by hand. [⚠ Not current: the densitometry of panel A has changed since these values were entered — check them before submitting.]";
 - **✓ Check journal compliance**: **Charts from densitometry** ✗ "… — double-click it › ↻ Link again, or check the typed values";
 - the package's `source-data/C.csv`: "# WARNING: Values entered by hand; typed by hand and no longer linked to the densitometry of panel A, which has changed since …".
@@ -142,6 +154,7 @@ Double-click the chart: **↻ Link again** reads the current densitometry and li
 - In a batch crop each scan opens with the previous box; leave **X** as it is so the ladder and lanes line up.
 - Analyse the loading control or total-protein panel as well if you want its own CSV; the target blot's dialog reads it either way, and it is never charted as a series.
 - <kbd>⌘K</kbd> reaches everything here by name: `batch crop`, `densitometry`, `lane table`. They act on the panel you clicked last; with none picked they ask **Which panel?**.
+- Phospho over total: **Loading control** › the total blot › **Another target (phospho/total)**, not **Loading band(s)**: the chart, caption and Methods then call it a ratio to that blot, and the compliance check does not take it for a loading control.
 - Replicate lanes: give them one name (shown as, or a lane-table row of names) rather than typing their mean into the chart. Names keep the chart linked; typed numbers do not.
 - Before submitting, run the compliance check and add the legend key and caption: [journal-submission.md](journal-submission.md). More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).
 
@@ -155,6 +168,7 @@ Double-click the chart: **↻ Link again** reads the current densitometry and li
 - **A blot is missing from the chart.** The toast named it as "left out": it has no reference lane or loading control, or not the same ones. Set them in its **⫼ Lanes & bands**, then click **📊 Chart these values** in the dialog of a blot already in the chart.
 - **A second chart appeared.** **📊 Chart these values** in a blot that was left out makes a new chart. Press <kbd>Ctrl/⌘+Z</kbd> and click it in the dialog of a blot already in the chart; that updates the existing one.
 - **A lane reads n.d. but has a band.** The band is not at the charted position. Check **Band to chart** in **⫼ Lanes & bands** and pick the right band.
+- **MW labels sit between the ladder bands after a revision.** The scan was replaced and not yet re-analysed. **↻ Update from densitometry** in the chart moves them onto the new ladder; or click **↕ Place MW labels on the ladder bands** again.
 - **Replicate lanes show as separate bars.** Their names differ: give them exactly the same **shown as** name (task 7).
 - **The chart says "typed values" or "Not linked".** Its numbers were typed in the Chart dialog. Double-click it › **↻ Link again**, or **These are my own values** if you meant them.
 - More: [troubleshooting.md](troubleshooting.md).

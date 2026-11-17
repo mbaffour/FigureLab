@@ -410,7 +410,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(pr.icon === '✓' || !/below the 300 ppi/.test(pr.note), 'Panel resolution: ' + pr.icon + ' ' + pr.note);
     expect(/S1…/.test(rowOf(R, 'Uncropped originals').buttons.join(' ')), 'no S1… button');
     const open = R.rows.filter(r => r.icon === '⚠' || r.icon === '✗').map(r => r.icon + ' ' + r.label);
-    return `before: Text size ✗ "${(ts0.note.match(/smallest text: [^(]*/) || [''])[0]}"; after "Lane tables to 7 pt": ${R.title}; Text size "${rowOf(R, 'Text size').note.slice(0, 80)}"; Printed height ${rowOf(R, 'Printed height').note}; Panel resolution ${pr.icon} ${pr.note.slice(0, 50)}; MW markers "${rowOf(R, 'MW markers').note.slice(0, 50)}…"; Panel labels "${rowOf(R, 'Panel labels').note}"; still open: ${open.join(', ')}`;
+    return `before: Text size ✗ "${(ts0.note.match(/smallest text: [^(]*/) || [''])[0]}"; after "Lane tables to 7 pt": ${R.title}; Text size "${rowOf(R, 'Text size').note.slice(0, 80)}"; Printed height ${rowOf(R, 'Printed height').note}; Panel resolution ${pr.icon} ${pr.note.slice(0, 50)}; MW markers "${rowOf(R, 'MW markers').note.slice(0, 50)}…"; Charts from densitometry "${rowOf(R, 'Charts from densitometry').note.slice(0, 200)}"; Panel labels "${rowOf(R, 'Panel labels').note}"; still open: ${open.join(', ')}`;
   });
 
   // ---------------------------------------------------------------- Task 8
@@ -482,11 +482,12 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(st.link && !st.stale, JSON.stringify(st));
     return 'note: "' + nt.slice(0, 120) + '"; Update → toast "' + t.slice(0, 120) + '"; after Apply: linked, up to date';
   });
-  await step(T, '11.4 ⫼ Lanes & bands on strip A shows the re-analysis (same reference, loading control, ladder; the chart holds its values); ⬇ CSV saves the new numbers', async () => {
+  await step(T, '11.4 ⫼ Lanes & bands on strip A shows the re-analysis (same 7 lanes, reference, loading control (the total-protein strip), ladder; the chart holds its values); ⬇ CSV saves the new numbers', async () => {
     await L.toasts(T);
     const title = await openGel(0);
     const t = await g.innerText();
     const ref = await g.locator('#gel-ref').inputValue(), lc = await g.locator('#gel-lc-mode').inputValue(), lad = await g.locator('#gel-ladder-lane').inputValue();
+    const lcPanel = await g.locator('#gel-lc option:checked').innerText();
     const head = t.split('\n').find(l => /^Lane\tBand/.test(l)).split('\t'); const col = head.indexOf('÷LC rel ref');
     const r = await tableRows();
     const tab = [2, 3, 4, 5, 6, 7].map(l => { const row = r.find(x => x[0] === String(l) && x[1] === '1'); return row ? +row[col] : 0; });
@@ -495,10 +496,12 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const toast = await L.toasts(T);
     const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return { stale: _chartLinkState(el).stale, v: _chartStatsCached(el).groups.map(g => g.bars[0] ? g.bars[0].value : 0) }; });
     expect(/panel A/.test(title) && ref === '2' && lc === 'total' && lad === '0', `ref ${ref} lc ${lc} ladder ${lad}`);
+    // ux4 (blot4-01/04): the re-analysis keeps the lane count and the loading control's panel
+    expect(/7 lane\(s\)/.test(t) && /TotalProtein/.test(lcPanel), 'lanes / loading control after the re-analysis: ' + (t.match(/\d+ lane\(s\)/) || [''])[0] + ', ' + lcPanel);
     expect(!st.stale, 'chart still stale');
     tab.forEach((v, k) => expect(Math.abs(st.v[k] - v) < 1e-3, `chart ${st.v[k]} vs table ${v}`));
     TRUTH.PhoA.forEach((v, k) => expect(Math.abs(tab[k] - v) < 0.05 + 0.03 * v, `lane ${k + 2}: ${tab[k]} vs ${v}`));
-    return path.basename(csv) + '; re-run PhoA: ' + tab.map(v => v.toFixed(3)).join(' / ') + '; ' + ((t.match(/tilted crop [^,]*/) || [''])[0]);
+    return path.basename(csv) + '; 7 lanes, loading control ' + lcPanel + ' total protein; re-run PhoA: ' + tab.map(v => v.toFixed(3)).join(' / ') + '; ' + ((t.match(/tilted crop [^,]*/) || [''])[0]);
   });
 
   await step(T, '10.2 Export › 📦 Export submission package (ZIP) carries the S1 originals and each analysed blot\'s densitometry', async () => {
@@ -698,6 +701,63 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     await p.keyboard.press('Escape');
     expect(/^Panel A now spans all \d columns, so its lanes are wider — Ctrl\+Z undoes it/.test(wt) && ts2.icon === '✓', wt + ' | ' + JSON.stringify(ts2));
     return `before: "${ts.note.slice(0, 90)}…"; Widen A → "${wt}"; after: "${ts2.note.slice(0, 90)}…"`;
+  });
+
+  // ---------------------------------------------------------------- A third figure: phospho / total (round 4)
+  // pAKT and total AKT on their own blots, plus GAPDH. pAKT is normalised to total AKT with
+  // Loading control › Another target (phospho/total): each lane is pAKT ÷ AKT of the paired lane.
+  const PAKT = [0.3, 1, 0.6, 1.2, 0.2, 0.8], AKT = [0.6, 1, 1, 1, 0.5, 1];
+  const PT = PAKT.map((v, k) => (v / AKT[k]) / (PAKT[1] / AKT[1]));          // relative to lane 3
+  const pakt = I.blotTiff(f('pAKT_S473.tif'), { amounts: PAKT, tiltDeg: 0, seed: 31, bandY: 0.5 });
+  const akt = I.blotTiff(f('AKT_total.tif'), { amounts: AKT, tiltDeg: 0, seed: 32, bandY: 0.5 });
+  const gapdh = I.blotTiff(f('GAPDH.tif'), { amounts: [1, 1, 1, 1, 1, 1], tiltDeg: 0, seed: 33, bandY: 0.6 });
+  await step(T, '3.7 (third figure) Phospho/total: pAKT\'s ⫼ Lanes & bands › Loading control = the total-AKT panel, Another target (phospho/total) → pAKT ÷ AKT per lane; 📊 Chart these values names it in the Y title, caption and Methods', async () => {
+    await p.keyboard.press('Escape');
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [pakt, akt, gapdh]);
+    await p.waitForFunction(() => images.filter(Boolean).length === 3, null, { timeout: 20000 });
+    await p.waitForTimeout(800); await dismissTip();
+    const title = await openGel(0);
+    expect(/panel A/.test(title), title);
+    await g.locator('#gel-ladder-lane').selectOption({ label: 'lane 1' }); await p.waitForTimeout(300);
+    await g.locator('#gel-ladder-sizes').fill('75, 50, 37, 25');
+    await g.locator('button', { hasText: /^Fit$/ }).click(); await p.waitForTimeout(500);
+    await g.locator('#gel-ref').selectOption({ label: 'lane 3' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc').selectOption({ label: 'panel B' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc-mode').selectOption({ label: 'Another target (phospho/total)' }); await p.waitForTimeout(1500);
+    const t = await g.innerText();
+    const note = (t.match(/Normalised to another target[^\n]*/) || [''])[0];
+    expect(/^Normalised to another target, AKT_total \(panel B\) \(a phospho\/total ratio: each band ÷ that blot's band volume in the paired lane\), lanes paired by order .*It is no loading control: show one as well where the journal asks\./.test(note), 'note: ' + note);
+    const head = t.split('\n').find(l => /^Lane\tBand/.test(l)).split('\t'); const col = head.indexOf('÷LC rel ref');
+    const r = await tableRows();
+    const got = [2, 3, 4, 5, 6, 7].map(l => { const row = r.find(x => x[0] === String(l) && x[1] === '1'); return row ? +row[col] : 0; });
+    PT.forEach((v, k) => expect(Math.abs(got[k] - v) < 0.03 + 0.03 * v, `lane ${k + 2}: ${got[k]} vs ${v}`));
+    await L.toasts(T);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1500);
+    const ct = await L.toasts(T);
+    expect(/^Charted 6 lanes × 1 panel: Band volume ÷ AKT_total, relative to lane 3;/.test(ct), 'chart toast: ' + ct);
+    globalThis.__ptToast = ct;
+    const y = await p.evaluate(() => images.find(i => i && i.type === 'chart').chart.axes.y.title);
+    expect(y === 'Band volume ÷ AKT_total, relative to lane 3', 'Y title: ' + y);
+    await closeGel();
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600);
+    const cap = await p.locator('#caption-out').inputValue();
+    await btn(T, '✎ Write Methods paragraph').click(); await p.waitForTimeout(600);
+    const meth = await p.evaluate(() => document.getElementById('methods-out').value);
+    expect(/band volume ÷ AKT_total, relative to lane 3/.test(cap), 'caption: ' + cap);
+    expect(/volumes were normalised to a second target, AKT_total \(panel B\), probed on its own blot \(each band divided by the summed band volume of the paired lane: a phospho\/total ratio\)/.test(meth), 'Methods: ' + meth);
+    return `chart toast "${ct.slice(0, 260)}"; pAKT ÷ AKT rel. lane 3: ${got.map(v => v.toFixed(3)).join(' / ')} (truth ${PT.map(v => v.toFixed(2)).join(' / ')}); note "${note.slice(0, 120)}…"; Y title "${y}"`;
+  });
+  await step(T, '9.5 (third figure) Under EMBO J the Loading control row says pAKT is normalised to another target, not to a loading control; JBC sets no printed width and says so', async () => {
+    await L.cmdk(T, 'embo'); await p.waitForTimeout(800);
+    const lcr = rowOf(await check(), 'Loading control');
+    expect(lcr.icon === 'ℹ' && /^A is normalised to another target, AKT_total \(panel B\) \(a phospho\/total ratio\), not to a loading control — EMBO J asks for the loading control on the same blot: show one for this blot as well/.test(lcr.note), JSON.stringify(lcr));
+    await L.toasts(T);
+    await L.cmdk(T, 'jbc'); await p.waitForTimeout(800);
+    const jt = (await L.toasts(T)).split(' | ').find(x => /^JBC/.test(x)) || '';
+    expect(/^JBC figure guide applied — no printed width set — JBC’s data-presentation page states none \(180 mm kept\): pick the column width from JBC’s author instructions under Export › Printed width/.test(jt), 'JBC toast: ' + jt);
+    return `Loading control ℹ "${lcr.note.slice(0, 140)}…"; JBC toast "${jt.slice(0, 200)}"`;
   });
 
   await L.finish(T);
