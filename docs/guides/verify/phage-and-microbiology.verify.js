@@ -161,7 +161,7 @@ const { step, expect, btn } = L;
     const t = await L.toasts(T);
     expect(Math.abs(um * 1000 - 0.5) / 0.5 < 0.01, 'nm/px ' + um * 1000);
     // ux3 (newcomer3-01): the toast says where FigureLab's bar is drawn (clear of the burned-in one)
-    expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · FigureLab's 100 nm bar is drawn bottom (right|left)/.test(t), 'toast: ' + t);
+    expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · FigureLab's 200 nm bar is drawn bottom (right|left)/.test(t), 'toast: ' + t);
     return `auto-detect found the bar (${said[1]} px); default "${dflt.slice(0, 40)}…"; toast "${t}"`;
   });
 
@@ -554,7 +554,7 @@ const { step, expect, btn } = L;
   await step(T, 'Export: ↓ SVG → chart and gene map are vector text', async () => {
     const r = await L.exportVia(T, 'SVG', { name: 'Fig1_phiGuide' });
     const svg = fs.readFileSync(r.file, 'utf8');
-    const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', '100 nm', '10 mm', 'Dilution'];
+    const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', '200 nm', '10 mm', 'Dilution'];   // ux4: FigureLab's bar takes the detected 200 nm
     const miss = want.filter(w => !new RegExp('>[^<]*' + w.replace(/ /g, '\\s') + '[^<]*<').test(svg));
     expect(!miss.length, 'not text in the SVG: ' + miss.join(', '));
     // ux3 (phage3-04): a map of 10 kb or more has its ruler in kb, with fewer ticks that keep apart
@@ -572,7 +572,7 @@ const { step, expect, btn } = L;
       let b = Buffer.from(m[1], 'latin1'); try { b = zlib.inflateSync(b); } catch (_) {}
       tj = tj.concat([...b.toString('latin1').matchAll(/\(([^)]*)\)\s*Tj/g)].map(x => x[1]));
     }
-    const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', 'Dilution', '100 nm', '10 mm'];
+    const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', 'Dilution', '200 nm', '10 mm'];
     const miss = want.filter(w => !tj.includes(w));
     expect(!miss.length, 'not text in the PDF: ' + miss.join(', '));
     expect(!tj.includes('\\205') && tj.filter(t => t === '10').length >= 8, 'dilution labels cut to "…": ' + tj.join('|').slice(0, 300));

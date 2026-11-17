@@ -15386,7 +15386,8 @@ function _checkCompliance(asJ){
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
-  { const br=_ckBlankRow(_targetJournal()); if(br) checks.push(br); }
+  // Against a journal only: the report with no target journal stays the one it always was.
+  { const J0=_targetJournal(), br=J0?_ckBlankRow(J0):null; if(br) checks.push(br); }
   // With a target journal the rows come from its own figure guide; without one the
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
