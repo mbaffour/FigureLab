@@ -58,6 +58,25 @@ for (const [file, n, span] of PLATES) {
   });
 }
 
+// The same export with its time written as plain minutes, decimal hours and h:mm.
+for (const [form, head, conv] of [['minutes', 'Time (min)', m => String(m)], ['decimal hours', 'Time [h]', m => (m / 60).toFixed(4)], ['h:mm', 'Time', m => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`]]) {
+  test(`phage4-01: the 8 h export with its time as ${form} opens as a plate too`, async ({ page }) => {
+    const errors = await loadApp(page);
+    const L = read('Lr3_Gen5_export_20261112.csv').trim().split('\n'), H = L[0].split(',');
+    H[0] = head;
+    const csv = [H.join(',')].concat(L.slice(1).map(l => { const c = l.split(','); const [h, m] = c[0].split(':').map(Number); c[0] = conv(h * 60 + m); return c.join(','); })).join('\n');
+    const n0 = await page.evaluate(() => images.filter(p => p && p.type === 'chart').length);
+    await page.evaluate(T => addFiles([new File([T], 'export.csv', { type: 'text/csv' })]), csv);
+    await page.waitForFunction(n0 => images.filter(p => p && p.type === 'chart').length > n0, n0);
+    await expect(modal(page).locator('#chart-kind')).toHaveValue('line');
+    await expect(modal(page).locator('#chart-xcol option:checked')).toHaveText(head);
+    await expect(modal(page).locator('#chart-seriescol option:checked')).toHaveText('— none —');
+    await expect(modal(page).locator('#chart-wells-wrap')).toContainText('Plate wells (15: A1–E3)');
+    expect(await modal(page).locator('#chart-ycols input:checked').count()).toBe(15);
+    expect(errors).toEqual([]);
+  });
+}
+
 test('phage4-01: the 8 h export, wells by row with Row A as the blank, plots the tester\'s blank-subtracted means and SDs', async ({ page }) => {
   const errors = await loadApp(page);
   await drop(page, ['Lr3_Gen5_export_20261112.csv']);
@@ -88,7 +107,13 @@ test('charts4-01: the export with a medium-only blank row matches the tester\'s 
   expect(S.map(s => s.name)).toEqual(['Row B', 'Row C', 'Row D']);
   S.forEach(s => s.pts.forEach(p => { const t = T[s.name][String(Math.round(p[0] * 60))];
     expect(p[1]).toBeCloseTo(t.mean, 9); expect(p[2]).toBeCloseTo(t.sd, 9); expect(p[3]).toBe(t.n); }));
-  // charts4-07: 16 h of reads end the x axis at 16 h, not 20
+  expect(errors).toEqual([]);
+});
+
+test('charts4-07: 16 h of reads end the x axis at 16 h, not on a 0–20 h axis', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { addChartElement('line');
+    document.getElementById('chart-data-ta').value = 'Time (h)\tOD600\n' + Array.from({ length: 33 }, (_, i) => `${i / 2}\t${(0.05 * Math.exp(i / 10)).toFixed(4)}`).join('\n'); applyChartModal(); });
   const ticks = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); const T = []; el._chartKey = '';
     _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s, x, y, f, c, a, b, r) { if (!r) T.push(String(s)); } }); return T; });
   expect(ticks).toContain('16');
@@ -114,7 +139,7 @@ test('phage4-01: in a mixed pick with a picture the toast names a line of the we
 // ── charts4-02, charts4-03: one sample, one name and one colour in every chart ──
 async function cfuAndPlate(page) {
   await page.evaluate(TOASTS);
-  await drop(page, ['cfu_cipro_24h.csv', 'plate_reader_growth.csv']);
+  await drop(page, ['cfu_cipro_24h.csv', 'Lr3_V4_guide_like.csv']);
   for (let k = 0; k < 3 && await modal(page).isVisible(); k++) { await apply(page); await page.waitForTimeout(150); }
   await openChart(page, 1);
   await modal(page).locator('#chart-wells-by').selectOption('row');
@@ -196,7 +221,7 @@ test('charts4-04: a tidy file with a numeric MOI column is a line of OD600 again
   expect(errors).toEqual([]);
 });
 
-test('charts4-04 / charts4-06: switched from a bar of every column to a line by MOI, the X, Series and replicate columns are unticked and Apply draws the preview\'s colours', async ({ page }) => {
+test('charts4-04: switched from a bar of every column to a line by MOI, the X, Series and replicate columns are unticked', async ({ page }) => {
   const errors = await loadApp(page);
   await drop(page, ['lysis_tidy.csv']);
   // the bar of every column the tester got (and Apply pins its bogus groups' colours)
@@ -208,6 +233,23 @@ test('charts4-04 / charts4-06: switched from a bar of every column to a line by 
   await modal(page).locator('#chart-xcol').selectOption({ label: 'time_min' });
   await modal(page).locator('#chart-seriescol').selectOption({ label: 'MOI' });
   expect(await modal(page).locator('#chart-ycols input:checked').evaluateAll(b => b.map(x => x.parentElement.textContent.trim()))).toEqual(['OD600']);
+  await apply(page);
+  expect((await series(page)).map(s => s.name)).toEqual(['MOI 0', 'MOI 1', 'MOI 10']);
+  expect(errors).toEqual([]);
+});
+
+test('charts4-06: after the bogus bar of every column, a line by MOI is applied in the colours its dialog showed', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, ['lysis_tidy.csv']);
+  await modal(page).locator('#chart-kind').selectOption('bar');
+  await modal(page).locator('#chart-layout').selectOption('columns');
+  await apply(page);                                  // pins time_min, MOI, replicate, OD600
+  await openChart(page);
+  await modal(page).locator('#chart-kind').selectOption('line');
+  await modal(page).locator('#chart-xcol').selectOption({ label: 'time_min' });
+  await modal(page).locator('#chart-seriescol').selectOption({ label: 'MOI' });
+  for (const v of ['0', '1', '2']) { const b = modal(page).locator(`#chart-ycols input[value="${v}"]`); if (await b.isChecked()) await b.uncheck(); }
+  await modal(page).locator('#chart-ycols input[value="3"]').check();
   const swatches = await modal(page).locator('#chart-names [data-key] input[type=color]').evaluateAll(b => b.map(x => x.value.toLowerCase()));
   await apply(page);
   const S = await series(page);
@@ -280,7 +322,7 @@ test('charts4-10: a Columns-layout bar chart\'s help line describes the Columns 
 // ── phage4-04: Y title typed first, then the names ──
 test('phage4-04: typing the Y title and then clicking into the first name box keeps the first name typed', async ({ page }) => {
   const errors = await loadApp(page);
-  await drop(page, ['Lr3_V2_12wells.csv']);
+  await drop(page, ['Lr3_V4_guide_like.csv']);              // the tester's nametest.js file
   await modal(page).locator('#chart-wells-by').selectOption('row');
   await modal(page).locator('#chart-wells-blank').selectOption('Row A');
   await modal(page).locator('#chart-ytitle').click();
@@ -296,7 +338,7 @@ test('phage4-04: typing the Y title and then clicking into the first name box ke
 // ── phage4-16: no Okabe–Ito yellow for a line on white ──
 test('phage4-16: a line chart of five series on white is not given Okabe–Ito yellow', async ({ page }) => {
   const errors = await loadApp(page);
-  await drop(page, ['Lr3_Gen5_export_20261112.csv']);
+  await drop(page, ['Lr3_V3_11rows.csv']);
   await modal(page).locator('#chart-wells-by').selectOption('row');
   await apply(page);
   const cols = (await series(page)).map(s => s.color);
@@ -310,7 +352,7 @@ const ROWS = `window.__rows = () => [...document.querySelectorAll('#info-modal-b
 test('phage4-03: long shown-as names wrap in the legend instead of running off the panel; one that cannot fit is a compliance row', async ({ page }) => {
   const errors = await loadApp(page);
   await page.evaluate(ROWS);
-  await drop(page, ['Lr3_V2_12wells.csv']);
+  await drop(page, ['Lr3_V4_guide_like.csv']);
   await modal(page).locator('#chart-wells-by').selectOption('row');
   await modal(page).locator('#chart-wells-blank').selectOption('Row A');
   await modal(page).locator('#chart-legend').check();
@@ -452,4 +494,75 @@ test('ISSUES: "Uninfected" typed for MOI_0 reaches a MOI 0 mean chart; paper_sty
   await page.evaluate(f => { loadLabStyle(f, 'paper_style.json'); addChartElement('line'); document.getElementById('chart-data-ta').value = 'time\tMOI_0\n0\t1\n30\t2'; applyChartModal(); }, file);
   expect((await series(page, 0)).map(s => s.name)).toEqual(['Uninfected']);
   expect(errors).toEqual([]);
+});
+
+// ── Plate rows are each chart's own; sessions saved before keep working ──
+async function plateByRow(page, file, k, names) {
+  await drop(page, [file]);
+  await modal(page).locator('#chart-wells-by').selectOption('row');
+  await modal(page).locator('#chart-wells-blank').selectOption('Row A');
+  for (const [r, v] of names) await modal(page).locator(`#chart-names [data-key="${r}"] input[type=text]`).fill(v);
+  await apply(page);
+}
+test('charts4-02 design: two plates in one figure — Row B named differently in each is two samples, two colours and two key rows', async ({ page }) => {
+  const errors = await loadApp(page);
+  await plateByRow(page, 'Lr3_V4_guide_like.csv', 0, [['Row B', 'MG1655'], ['Row C', 'MG1655 + Lr3'], ['Row D', 'dompC + Lr3']]);
+  await plateByRow(page, 'Lr3_V3_11rows.csv', 1, [['Row B', 'BW25113'], ['Row C', 'BW25113 + Lr3'], ['Row D', 'dfhuA + Lr3'], ['Row E', 'dfhuA dlamB + Lr3']]);
+  const a = await series(page, 0), b = await series(page, 1);
+  expect(a.map(s => s.name)).toEqual(['MG1655', 'MG1655 + Lr3', 'dompC + Lr3']);
+  expect(b.map(s => s.name)).toEqual(['BW25113', 'BW25113 + Lr3', 'dfhuA + Lr3', 'dfhuA dlamB + Lr3']);
+  expect(a[0].color).not.toBe(b[0].color);
+  const key = await page.evaluate(() => _keyText());
+  expect(key).toMatch(/MG1655 \(/); expect(key).toMatch(/BW25113 \(/);
+  expect(errors).toEqual([]);
+});
+
+test('a session saved on 41f6721 with "Row C" shown as dacrB figure-wide: the name shows, can be changed and can be cleared', async ({ page }) => {
+  const errors = await loadApp(page);
+  await plateByRow(page, 'Lr3_V4_guide_like.csv', 0, []);
+  await page.evaluate(() => { sv('sample-names', JSON.stringify({ 'Row C': 'dacrB' })); images.forEach(p => { if (p) { p._chartKey = ''; p._chartStat = null; } }); render(); });
+  expect((await series(page)).map(s => s.name)).toEqual(['Row B', 'dacrB', 'Row D']);
+  await openChart(page);
+  await expect(modal(page).locator('#chart-names [data-key="Row C"] input[type=text]')).toHaveValue('dacrB');
+  await modal(page).locator('#chart-names [data-key="Row C"] input[type=text]').fill('Δ*acrB*');
+  await apply(page);
+  expect((await series(page)).map(s => s.name)).toEqual(['Row B', 'ΔacrB', 'Row D']);
+  await openChart(page);
+  await modal(page).locator('#chart-names [data-key="Row C"] input[type=text]').fill('');
+  await apply(page);
+  expect((await series(page)).map(s => s.name)).toEqual(['Row B', 'Row C', 'Row D']);
+  expect(await page.evaluate(() => gv('sample-names'))).toBe('');
+  expect(errors).toEqual([]);
+});
+
+test('charts4-03 after reopening: a saved session keeps one name in one colour across the CFU and plate charts, and a phospho/total normalisation', async ({ page }) => {
+  const errors = await loadApp(page);
+  await cfuAndPlate(page);
+  await openChart(page, 0);
+  await modal(page).locator('#chart-names [data-key="dacrB"] input[type=text]').fill('Δ*acrB*');
+  await apply(page);
+  const before = { a: await series(page, 1), key: await page.evaluate(() => _keyText()) };
+  const S = await page.evaluate(() => JSON.stringify(serializeSession(true)));
+  const p = await page.context().newPage(); const e2 = await loadApp(p);
+  await p.evaluate(async S => { applySession(JSON.parse(S), { origin: 'file' }); await new Promise(r => setTimeout(r, 400)); render(); }, S);
+  const after = { a: await series(p, 1), key: await p.evaluate(() => _keyText()) };
+  expect(after).toEqual(before);
+  expect(after.key.match(/ΔacrB/g)).toHaveLength(1);
+  // the rename typed after reopening still takes the CFU chart's colour
+  await openChart(p, 1);
+  await p.locator('#chart-modal #chart-names [data-key="Row D"] input[type=text]').fill('Δ*tolC*');
+  await p.locator('#chart-modal').getByRole('button', { name: 'Apply' }).click();
+  const k2 = await p.evaluate(() => _keyText());
+  expect(k2.match(/ΔacrB/g)).toHaveLength(1);
+  // a phospho/total normalisation survives the round trip as itself
+  await p.evaluate(GEL);
+  const t = await p.evaluate(async () => {
+    await __gelMake(__blot('pAKT.png', [[[50, 40]], [[50, 90]]], 3)); await __gelMake(__blot('AKT-total.png', [[[50, 80]], [[50, 82]]], 7));
+    const n = images.length; runGelAnalysis(n - 2); runGelAnalysis(n - 1); gelSetLoading(n - 2, n - 1, 'target');
+    const S2 = JSON.stringify(serializeSession(true)); applySession(JSON.parse(S2), { origin: 'file' }); await new Promise(r => setTimeout(r, 400));
+    const a = images[images.length - 2].gelAnalysis; return { target: _gelLoadTarget(a), what: _gelLoadingWhat(a) };
+  });
+  expect(t.target).toBe(true);
+  expect(t.what).toMatch(/^another target, AKT-total/);
+  expect(errors).toEqual([]); expect(e2).toEqual([]);
 });

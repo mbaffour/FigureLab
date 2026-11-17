@@ -9314,17 +9314,17 @@ function _gelLoadingIdx(a){
 // Why the loading-control values can no longer be used, or null.
 function _gelLoadingStale(a,im){
   if(!a||!a.loading) return null;
-  const li=_gelLoadingIdx(a), lc=images[li];
-  if(!lc) return `the loading-control panel ${a.loading.label} is no longer in the figure`;
-  if(im&&lc===im) return 'the loading control is now this panel itself';
-  if(_gelCropKey(lc)!==a.loading.cropKey) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-cropped after it was measured`;
+  const li=_gelLoadingIdx(a), lc=images[li], LCP=a.loading.target?'the other target\'s panel':'the loading-control panel';
+  if(!lc) return `${LCP} ${a.loading.label} is no longer in the figure`;
+  if(im&&lc===im) return (a.loading.target?'the other target':'the loading control')+' is now this panel itself';
+  if(_gelCropKey(lc)!==a.loading.cropKey) return `${LCP} ${formatLabel(lc.label)||li+1} was re-cropped after it was measured`;
   const fp=_gelFingerprint(lc);
-  if(fp!=null&&a.loading.fp!=null&&fp!==a.loading.fp) return `the loading-control panel ${formatLabel(lc.label)||li+1} has a different image now`;
+  if(fp!=null&&a.loading.fp!=null&&fp!==a.loading.fp) return `${LCP} ${formatLabel(lc.label)||li+1} has a different image now`;
   // Paired from the panel's own analysis: that analysis must still be the one used. Paired
   // from a detection of its own: any analysis the panel has since been given must agree
   // with it, in whichever order the two were made.
   const own=a.loading.from==='its own analysis', now=lc.gelAnalysis&&_gelFresh(lc)?_gelLoadStamp(lc.gelAnalysis,a.loading.mode):null;
-  if(a.loading.stamp&&(own?!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp):(now!=null&&now!==a.loading.stamp))) return `the loading-control panel ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
+  if(a.loading.stamp&&(own?!(lc.gelAnalysis&&_gelLoadStamp(lc.gelAnalysis,a.loading.mode)===a.loading.stamp):(now!=null&&now!==a.loading.stamp))) return `${LCP} ${formatLabel(lc.label)||li+1} was re-analysed or edited after it was used`;
   return null;
 }
 // An unlettered loading-control strip by what it shows (its tag or caption note) or its
@@ -10018,7 +10018,7 @@ function _gelComplianceRow(shown){
     if(a.polarityUncertain&&a.polaritySetBy!=='user'){ warn=true; notes.push(`${nm}: the band polarity was guessed with low confidence — check the Bands setting`); }
     if(a.lanes.some(L=>L.inferred&&L.end)){ warn=true; notes.push(`${nm}: end lane${a.lanes.filter(L=>L.inferred&&L.end).length>1?'s':''} inferred from the lane pitch — check the lane numbering`); }
     const lcWhy=_gelLoadingStale(a,im);
-    if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the loading control again`); }
+    if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the ${_gelLoadTarget(a)?'other target':'loading control'} again`); }
     else if(a.loading){
       const bad=_gelLoadSatLanes(a);
       notes.push(`${nm}: normalised to ${esc(_gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:_gelLoadTarget(a)?`another target, ${_gelTargetName(a)} (phospho/total)`:`loading band(s) in panel ${_gelLoadingLabel(a)}`)}`);
@@ -10359,7 +10359,7 @@ function _gelRenderModal(){
     ${_gelFlagCount(a,'slope')?`<div style="color:var(--muted);margin-top:2px">${_gelFlagCount(a,'slope')} band${_gelFlagCount(a,'slope')===1?' sits':'s sit'} on a sloping background — the background follows the slope (the rolling minimum is taken off each lane's straight-line trend).</div>`:''}
     ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
     ${!a.loading&&a.loadingDropped?`<div style="color:var(--warn);margin-top:3px">⚠ ${a.loadingDropped.target?'Normalisation to another target':'Loading control'} dropped at the re-analysis: ${esc(a.loadingDropped.why)}. No normalised values are shown — set the lane count to match, or pick the ${a.loadingDropped.target?'other target':'loading control'} again.</div>`:''}
-    ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
+    ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the ${_gelLoadTarget(a)?'other target':'loading control'} again.</div>`
       :_gelLoadMode(a)==='total'
         ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes${_gelTpLocal(a)?' (on either side of each lane, interpolated across it)':''}, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>${_gelTpNotes(a).map((s,k)=>`<div style="color:${k===0&&_gelTpUneven(a)?'var(--muted)':'var(--warn)'};margin-top:2px">${k===0&&_gelTpUneven(a)?'':'⚠ '}${esc(s.charAt(0).toUpperCase()+s.slice(1))}.</div>`).join('')}`
         :_gelLoadTarget(a)?`<div style="margin-top:3px">Normalised to <b>another target, ${esc(_gelTargetName(a))}</b> (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane), lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each). It is no loading control: show one as well where the journal asks.</div>`
@@ -11172,7 +11172,7 @@ function _samplePinSync(){
 function _sampleDrawn(el){
   let st=null; try{ st=_chartStatsCached(el); }catch(e){ return []; }
   const L=st.catColours||(st.boxes&&!(st.nSeries>1)?st.boxes:null)||(st.groups?null:st.series)||st.seriesNames||((st.curves&&!st.singleGroup)?st.curves:null)||[];
-  return L.map(x=>({key:String(x.key??x.name), disp:String(x.name), color:x.color}));
+  return L.map(x=>{ const k=String(x.key??x.name); return {key:_chartOwnKey(el.chart,k)?String(x.name):k, disp:String(x.name), color:x.color}; });
 }
 function _chartAxisW(){ const v=parseFloat(gv('chart-axis-w')); return v>0?v:1; }
 function _labStylePlan(settings){
@@ -29452,16 +29452,19 @@ function _chartStats(el){
   const style=ch.style||{};
   const S=_chartShape(ch, warn), obs=S.obs;
   const disp=k=>_chartDisp(ch,k);
+  // A chart's own keys (a plate's "Row B", a blot's "Lane 2") are another sample in another
+  // chart: their colour goes by the name they are shown under, never by the bare key.
+  const ck=k=>_chartOwnKey(ch,k)?disp(k):k;
   // Colours by category are given in the data's order, so moving a group never moves
   // its colour; then read in the order drawn.
-  const catColOf=keys=>{ const m=new Map(), cd=S.catsData; _seriesColours(cd, colours, cd.map(disp)).forEach((c,i)=>m.set(cd[i],c)); return keys.map(k=>m.get(k)); };
+  const catColOf=keys=>{ const m=new Map(), cd=S.catsData; _seriesColours(cd.map(ck), colours, cd.map(disp)).forEach((c,i)=>m.set(cd[i],c)); return keys.map(k=>m.get(k)); };
 
   if(kind==='scatter'||kind==='line'){
     // Points sharing an x within a series are averaged (always on a line; on a scatter
     // when error bars are asked for), with the error and n of each point kept.
     const aggOn=kind==='line'||(ch.error&&ch.error!=='none')||ch.agg==='mean';
     const byS=new Map(); S.skeys.forEach(k=>byS.set(k,[])); obs.forEach(o=>byS.get(o.s).push(o));
-    const keys=S.skeys, scol=_seriesColours(keys, colours, keys.map(disp), true);
+    const keys=S.skeys, scol=_seriesColours(keys.map(ck), colours, keys.map(disp), true);
     const series=keys.map((k,si)=>{
       const list=byS.get(k)||[]; let points;
       if(aggOn){
@@ -29489,7 +29492,7 @@ function _chartStats(el){
     // the category, coloured by series: the strains used to be pooled into one mean ± SD
     // with no word.
     const multi=S.sc!=null&&S.skeys.length>1;
-    const sNames=S.skeys.map(disp), scol=multi?_seriesColours(S.skeys, colours, sNames):null;
+    const sNames=S.skeys.map(disp), scol=multi?_seriesColours(S.skeys.map(ck), colours, sNames):null;
     const ccol=multi?null:catColOf(catKeys);
     const byC=new Map(); obs.forEach(o=>{ const k=multi?o.cat+'\u0001'+o.s:o.cat; let l=byC.get(k); if(!l){ l=[]; byC.set(k,l); } l.push(o.y); });
     const one=(vals,extra)=>{ vals=vals.slice().sort((a,b)=>a-b);
@@ -29514,7 +29517,7 @@ function _chartStats(el){
       seriesNames:multi?S.skeys.map((k,si)=>({name:sNames[si], key:k, color:scol[si]})):undefined, yDomain:yd, warn};
   }
   // bar / groupedBar / stackedBar: categories on x, one bar per series per category.
-  const skeys=S.skeys, snames=skeys.map(disp), scol=_seriesColours(skeys, colours, snames);
+  const skeys=S.skeys, snames=skeys.map(disp), scol=_seriesColours(skeys.map(ck), colours, snames);
   // A one-series bar chart of samples (strains on the x axis, or one column per strain)
   // takes the colours by category, since there is no series to name; the key and Look ›
   // Sample colours then list the categories. (It used to switch to that only once some
@@ -30842,7 +30845,7 @@ function _selectedChartEl(){
   return (el&&el.type==='chart')?el:null;
 }
 let _chartFreshSnap=null;   // the undo step that added the chart now open as new (Cancel takes it back)
-let _chartDraft=null, _chartDraftColours={}, _chartDraftNames={}, _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
+let _chartDraft=null, _chartDraftColours={}, _chartDraftNames={}, _chartDraftOwn=new Set(), _chartFreshId=null, _chartParseT=0, _chartPrevEl=null;
 function _chartModalOpen(){ const m=document.getElementById('chart-modal'); return !!(m&&m.classList.contains('open')); }
 // What the sig/ref/name editors act on: the draft while the dialog is open, else the chart.
 function _chartTarget(){ if(_chartDraft&&_chartModalOpen()) return _chartDraft; const el=_selectedChartEl(); return el?el.chart:null; }
@@ -30851,7 +30854,7 @@ function openChartModal(){
   _chartDraft=JSON.parse(JSON.stringify(el.chart));
   const d=_chartDraft; d.mapping=d.mapping||{}; d.axes=d.axes||{}; d.axes.x=d.axes.x||{}; d.axes.y=d.axes.y||{}; d.style=d.style||{}; d.fit=d.fit||{};
   if(d.kind==='beeswarm'&&d.error==='none'&&!d.whiskerOff) d.error='sd';   // the menu says what is drawn
-  _chartDraftColours={}; _chartDraftNames={};
+  _chartDraftColours={}; _chartDraftNames={}; _chartDraftOwn=new Set();
   _chartModalSync();
   document.getElementById('chart-modal').classList.add('open');
   _chartPreview();
@@ -31184,7 +31187,7 @@ function _chartNameEdit(key,val){
   // is another sample, so the name is not made the figure's.
   const own=_chartOwnKey(ch, key);
   if(_chartDraft===ch){
-    if(!own) _chartDraftNames[key]=(val.trim()===''||val===key)?null:val;
+    if(!own) _chartDraftNames[key]=(val.trim()===''||val===key)?null:val; else _chartDraftOwn.add(key);
     if(_chartMergeDefaults(ch, before)){ sv('chart-err', ch.error); sc('chart-points', !!ch.style.showPoints); _chartRenderErrCols(); }
     _chartMergeNote(); _chartPreview(); }
 }
@@ -31292,6 +31295,11 @@ function applyChartModal(){
   // So are the names typed under "shown as": one per sample, in every chart (a chart's
   // own older name for it gives way).
   const renamedIn=Object.keys(_chartDraftNames).length?_setSampleNames(_chartDraftNames, el):[];
+  // A plate row named in a session saved before its names were the chart's own kept that
+  // name figure-wide, so clearing the box here could not remove it: it goes now.
+  { const F=Object.assign({}, _sampleNames()), gone=[..._chartDraftOwn].filter(k=>_own(F,k));
+    if(gone.length){ gone.forEach(k=>delete F[k]); sv('sample-names', Object.keys(F).length?JSON.stringify(F):''); } }
+  _chartDraftOwn=new Set();
   _samplePinSync();
   if(typeof _sampleColoursRender==='function') _sampleColoursRender();
   el._chartKey=''; el._chartStat=null;       // force stats recompute
