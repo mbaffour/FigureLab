@@ -4432,13 +4432,47 @@ function _replacePlan(im, d){
   // toast says "… kept, but <what was not>" and then lists the rest — it used to read
   // "crop and label kept, but; caption note kept…" with nothing after "but".
   const note=(t,kind)=>{ notes.push(t); items.push({t, kind:kind||'info'}); };
-  let um=im.umPerPx||0, warn=false;
+  let um=im.umPerPx||0, warn=false, dropped=null, keepHow=null;
+  // Where the old pixel size came from decides whether it can describe the new file. A
+  // size measured on the old picture (its burned-in bar, two clicked points) is a fact
+  // about that picture only: a TEM taken at twice the magnification has the same 2048 ×
+  // 1600 px and a bar of nearly the same pixel length (320 px = 100 nm against 323 px =
+  // 200 nm), so neither the dimensions nor the bar's length can tell them apart, and the
+  // old "200 nm" bar was drawn 2× too short while the caption, Methods and compliance
+  // called it calibrated (phage5-01). It is cleared, and the record says why, so the
+  // compliance check and the toast can say "calibration predates the replaced image". A
+  // size from the set-up (an objective preset, a typed value, the old file's metadata, a
+  // copy) is kept at the same pixel dimensions unless both files carry a burned-in bar of
+  // different lengths — and the toast says it was kept, never silently.
+  const cs=_calibSourceOf(im), fmt=v=>_fmtPxSize(+v);
+  const newBar=()=>{ if(d._bar===undefined){ try{ d._bar=_findBurnedBar(d.img)||null; }catch(e){ d._bar=null; } } return d._bar; };
   if(c.umPerPx>0){
     if(Math.abs(um-c.umPerPx)>1e-9) note(`calibration ${(+c.umPerPx).toPrecision(4)} µm/px from the new file’s ${c.source||'metadata'}`);
     um=c.umPerPx;
   } else if(um>0 && !(ow===nw&&oh===nh)){
     note(`calibration cleared: the new file is ${nw}×${nh} px and the old one ${ow}×${oh}, so ${(+um).toPrecision(4)} µm/px may be wrong — calibrate it again`,'warn');
+    dropped={um, how:cs.how||'', kind:cs.kind, why:'size', newBarPx:(newBar()||{}).px||0};
     um=0; warn=true;
+  } else if(um>0 && (cs.kind==='burned'||cs.kind==='measured')){
+    const nb=newBar();
+    dropped={um, how:cs.how||'', kind:cs.kind, why:'measured', newBarPx:nb?nb.px:0};
+    note(`calibration cleared: ${fmt(um)} was ${cs.how||'measured on the old picture'} of the old file, which says nothing about the new one${nb?` — the new picture has a ${+nb.px.toFixed(1)} px bar: 🔍 Auto-detect scale bar in ⚙ and say what length it shows`:' — calibrate it again (🔍 Auto-detect scale bar or 🔬 Calibrate from image in ⚙)'}`,'warn');
+    um=0; warn=true;
+  } else if(um>0){
+    let ob=null; try{ ob=o?_findBurnedBar(o):null; }catch(e){ ob=null; }
+    const nb=ob?newBar():null;
+    if(ob&&nb&&Math.abs(nb.px/ob.px-1)>0.015){
+      dropped={um, how:cs.how||'', kind:cs.kind, why:'bar', newBarPx:nb.px};
+      note(`calibration cleared: the bar burned into the new picture is ${+nb.px.toFixed(1)} px long and the old one’s ${+ob.px.toFixed(1)} px, so it was taken at another magnification and ${fmt(um)} would be wrong — 🔍 Auto-detect scale bar in ⚙, or set the µm/px again`,'warn');
+      um=0; warn=true;
+    } else {
+      const how=cs.how||'set by hand';
+      note(`calibration ${fmt(um)} kept (${how}) — the new file has the same pixel dimensions and no pixel size of its own; if it was taken at another magnification, set it again in ⚙`,'kept');
+      // The old file's metadata no longer describes the panel's file: say where the value
+      // came from, or Methods calls it "set by hand" once the new file's (empty) metadata
+      // is read in.
+      if(cs.kind==='metadata') keepHow={at:new Date().toISOString(), um, kind:'metadata', how:`${how} of the replaced file ${_sourceName(im)||''}, kept for the new file (same pixel dimensions)`.replace(/ {2,}/g,' ')};
+    }
   }
   if(ow&&oh&&nw&&nh){
     const a=ow/oh, b=nw/nh;
@@ -4479,7 +4513,7 @@ function _replacePlan(im, d){
   if(cn&&cn!=='Merge') note(`caption note kept: “${short(cn)}” — edit it in ${ff?'the Props bar › Caption note':'⚙'} if it no longer fits`,'kept');
   const mn=String(im.metaNote||'').trim();
   if(mn&&!ff) note(`metadata note kept: “${short(mn)}” — edit it in ⚙ › Metadata note if it was about the old file`,'kept');
-  return {um, notes, items, warn, dims:`${nw}×${nh}`, nl};
+  return {um, notes, items, warn, dims:`${nw}×${nh}`, nl, dropped, keepHow};
 }
 // "… kept, but <what was not kept>. Also: <what was kept>" — one sentence per toast.
 function _replaceTail(plan, keptAll, keptSome, extra){
@@ -4511,6 +4545,9 @@ function _replaceInto(im, d){
   im._metaUmPerPx=c.umPerPx>0?c.umPerPx:0; im._metaCalibSource=c.source||'';
   im._metaDeltaT=c.deltaT!=null?c.deltaT:null; im._metaAcqTime=c.acqTime!=null?c.acqTime:null; im._metaTimeSource=c.timeSource||'';
   im.umPerPx=plan.um;
+  if(plan.dropped) im._calibDropped={...plan.dropped, from:was, to:_sourceName(im)||d.name, at:new Date().toISOString()};
+  else if(plan.um>0) delete im._calibDropped;
+  if(plan.keepHow) im._calibHow=plan.keepHow;
   // A projection's record names the panels it was computed from; this file is not that.
   im._projection=undefined; im._importCrop=undefined; im._sbSkip=undefined;
   // Where the old picture's burned-in bar or ruler sat says nothing about the new one.
@@ -4573,7 +4610,11 @@ async function replacePanelImage(pid, f){
     if(users.length){ const ch=typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&users.some(u=>(el.chart.link.ids||[]).includes(u.id)));
       extra.push(`${_listAnd(users.map(u=>_chartPanelWho(u)))} ${users.length>1?'are':'is'} normalised to it — ${ch?'↻ Update from densitometry in the linked chart measures it again and pairs it again':'open ⫼ Lanes & bands on '+(users.length>1?'them':'it')+' and pick it again as '+(_gelLoadTarget(users[0].gelAnalysis)?'the other target':'the loading control')}`); } }
   if(im.gelAnalysis&&annotations.some(a=>a&&a.mw&&a.blotPanel===im.id)) extra.push('its MW labels sit where the old scan’s ladder bands were — the re-analysis moves them onto the new ladder, or ↕ Place MW labels again');
-  toast(`${_rtPlain(formatLabel(im.label))?'Panel '+_rtPlain(formatLabel(im.label)):_ucFirst(_panelWho(im))}: ${was} → ${d.name}${pg} — ${_replaceTail(plan,'crop, label and settings','crop and label',extra)}`, (plan.warn||pm)?'warn':'ok');
+  const msg=`${_rtPlain(formatLabel(im.label))?'Panel '+_rtPlain(formatLabel(im.label)):_ucFirst(_panelWho(im))}: ${was} → ${d.name}${pg} — ${_replaceTail(plan,'crop, label and settings','crop and label',extra)}`;
+  // A cleared calibration is made again from the new picture in one step: its bar is
+  // found, and the user says what length it shows (phage5-01).
+  if(plan.dropped&&plan.dropped.newBarPx>0) toastAction(msg, 'warn', '🔍 Calibrate on its bar…', ()=>{ const k=_pidx(pid); if(k>=0) autoDetectScaleBar(k); });
+  else toast(msg, (plan.warn||pm)?'warn':'ok');
   return true;
 }
 // A freeform picture takes another file and keeps its place, width, crop, letter, caption
@@ -6675,7 +6716,7 @@ function renderImgList(){
         <span class="drag-handle" title="Drag to reorder">⠿</span>
         <img class="img-thumb" src="${_safeSrc(im._thumb||im.src)}" data-thumb="${im.id}" draggable="false" title="${esc(im.name||'')}"${im.excluded?' style="filter:grayscale(1)"':''}>
         <input class="img-label-input" type="text" value="${esc(im.label)}" maxlength="6" title="Panel label" draggable="false">
-        <span class="img-name" title="${esc(im.name)}">${esc(im.name)}</span>
+        <span class="img-name" title="${esc(_listName(im))}">${esc(_listName(im))}</span>
         ${im.excluded?`<span style="font-size:10px;color:var(--muted);flex-shrink:0" title="Hidden from the figure — still here, still saved">hidden</span>`:''}
         <button class="icon-btn" aria-label="${im.excluded?'Show':'Hide'} panel in the figure" title="${im.excluded?'Show in the figure':'Hide from the figure (kept in the list)'+(layoutMode==='freeform'?'':' — '+(_hiddenLeavesGap()?'its cell stays blank':'the panels after it move up')+'; change this under Grid › Hidden panels leave a gap')}" data-eye="${idx}">${im.excluded?'🚫':'👁'}</button>
         <button class="icon-btn" aria-label="Duplicate panel" title="Duplicate" data-dup="${idx}">⎘</button>
@@ -6684,7 +6725,7 @@ function renderImgList(){
         <button class="icon-btn del"  aria-label="Remove panel" title="Remove"   data-del="${idx}">×</button>
       </div>
       <div class="img-meta" style="font-size:10px;color:var(--muted);padding:1px 0 3px 40px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-        <span class="f-fname" title="${esc(_sourceName(im)||im.name||'')}" style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);opacity:.8">${esc(im.name||'')}</span>
+        <span class="f-fname" title="${esc(_isDataPanel(im)?_listName(im):(_sourceName(im)||im.name||''))}" style="max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);opacity:.8">${esc(_listName(im))}</span>
         ${_isDataPanel(im)?`<span title="Drawn from its data at its cell's size — vector in SVG, redrawn at the export resolution in PNG, TIFF and PDF">${im.type==='chart'?`📊 chart · ${((im.chart&&im.chart.data&&im.chart.data.rows)||[]).length} rows`:`🧬 gene map · ${_bpLabel(Math.max(1,(im.map&&im.map.length)|0), im.map&&im.map.unit)}`}</span>`
           :_iw?`<span>${im.insetOf!=null?'inset ':''}${_iw}×${_ih}px</span><span title="Aspect ratio">${_asp}</span>`:''}
         <span class="f-ppi" data-ppi="${idx}" title="Pixels per inch this panel prints at: its source pixels across the crop divided by its printed width. Below ~300 ppi the export interpolates pixels the camera never recorded, and a higher export DPI does not change that."></span>
@@ -6698,14 +6739,17 @@ function renderImgList(){
         <span class="f-sbbadge" data-sbb="${idx}" style="display:inline-flex;flex-shrink:0"></span>
       </div>
       <div class="img-settings" id="settings-${idx}">
-        <button class="btn" onclick="openReplaceImage(${idx})" style="width:100%;justify-content:center;margin-bottom:4px" title="Swap in another file and keep everything else: label, crop, tilt, rotation, adjustments, LUT, scale-bar settings, tags, annotations, span and insets. Calibration comes from the new file's metadata, or is kept only when the pixel dimensions are identical.">⇄ Replace image…</button>
+        <button class="btn" onclick="openReplaceImage(${idx})" style="width:100%;justify-content:center;margin-bottom:4px" title="Swap in another file and keep everything else: label, crop, tilt, rotation, adjustments, LUT, scale-bar settings, tags, annotations, span and insets. Calibration comes from the new file's metadata; one measured on the old picture (its burned-in bar, two clicked points) is cleared, and one set from the objective or typed is kept only when the pixel dimensions are identical — the toast says which.">⇄ Replace image…</button>
         <div class="sec-lbl">Scale bar</div>
         <div class="field"><label>Enable</label>
           <input type="checkbox" class="f-sb-on" ${im.sbOn?'checked':''}></div>
         <div class="field"><label>Objective</label>
           <select class="f-obj"><option value="">Custom…</option>${objOpts}</select></div>
         <div class="field"><label>µm / px</label>
-          <input type="number" class="f-umppx" value="${im.umPerPx||''}" placeholder="0" step="0.001" min="0"></div>
+          <input type="number" class="f-umppx" value="${im.umPerPx||''}" placeholder="0" step="any" min="0" title="${im.umPerPx>0?esc(String(im.umPerPx))+' µm per source pixel':'µm per source pixel'}"></div>
+        <!-- The box shows about five characters: 0.000619195 read "0.00061", so 0.619 and
+             0.610 nm/px looked the same (phage5-17). The size in the unit it is read in. -->
+        <div class="f-pxsize" style="font-size:10px;color:var(--muted);margin:-2px 0 3px 0;text-align:right">${im.umPerPx>0?esc(_fmtPxSize(im.umPerPx))+(im.umPerPx<0.1?` (${+(+im.umPerPx).toPrecision(4)} µm/px)`:''):''}</div>
         <div class="field"><label>Bar length</label>
           <input type="number" class="f-sbum" value="${+(Math.round((im.sbUm||0)/_sbUnitFactor(im.sbUnit||'µm')*1000)/1000)}" min="0" step="any" style="width:56px">
           <select class="f-sbunit" style="width:50px">
@@ -6875,11 +6919,12 @@ function renderImgList(){
     item.querySelector('.f-obj').addEventListener('change', e=>{
       const v=parseFloat(e.target.value);
       if(!isNaN(v)&&v>0){ images[idx].umPerPx=v; images[idx]._calibHow={at:new Date().toISOString(), um:v, how:`from the ${(e.target.selectedOptions[0]||{}).textContent||'objective'} objective preset`, kind:'objective'};
-        item.querySelector('.f-umppx').value=v; _calDone(); }
+        item.querySelector('.f-umppx').value=v; _calDone(); _pxSizeShow(); }
       scheduleRender();
     });
+    const _pxSizeShow=()=>{ const el=item.querySelector('.f-pxsize'), u=images[idx]&&images[idx].umPerPx; if(el) el.textContent=u>0?_fmtPxSize(u)+(u<0.1?` (${+(+u).toPrecision(4)} µm/px)`:''):''; };
     item.querySelector('.f-umppx').addEventListener('input', e=>{
-      images[idx].umPerPx=parseFloat(e.target.value)||0;
+      images[idx].umPerPx=parseFloat(e.target.value)||0; _pxSizeShow();
       images[idx]._calibHow={at:new Date().toISOString(), um:images[idx].umPerPx, how:'set by hand', kind:'hand'};
       item.querySelector('.f-obj').value=''; scheduleRender();
     });
@@ -8260,7 +8305,7 @@ function splitChannelRow(srcIdx, again){
   // looking like one. Tone, caption and letter stay each part's own.
   const FRAME=['cropT','cropL','cropB','cropR','cropAngle','cropShape','rotate','flipH','flipV',
     'sbOn','sbDX','sbDY','cbar','cbarDX','cbarDY','metaNote',
-    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource','_calibHow','_calibCopy'];
+    '_metaUmPerPx','_metaCalibSource','_metaDeltaT','_metaAcqTime','_metaTimeSource','_calibHow','_calibCopy','_calibDropped'];
   // Each part is its channel's file again: its own name, its native samples (so its
   // levels, intensity bar and measurements stay in camera counts) and its channel name.
   // Parts used to be new 8-bit images called "DAPI.png", "GFP.png", "RFP.png" — three
@@ -15756,6 +15801,13 @@ function _checkCompliance(asJ){
     // the ones that truly have none, and the mark is kept with the figure.
     (()=>{ const sus=_P.filter(_ckMicrographNoScale), nmS=im=>_rtText(formatLabel(_lblOf(im)))||'?';
       const anyOn=_P.some(im=>im.sbOn);
+      // A calibration ⇄ Replace image had to clear (measured on the old picture, or a file
+      // of another size or bar): named as such, not as a bar switched on without one —
+      // the user calibrated it once and may not know the new file undid that (phage5-01).
+      const drop=_P.filter(_ckCalibDropped);
+      if(drop.length) return {label:'Scale-bar calibration', ok:false, warn:false,
+        note:`calibration predates the replaced image — ${esc(drop.map(im=>_calibDroppedText(im, nmS(im))).join('; '))}`,
+        fix:{a:'recalreplaced',t:'Calibrate the new picture…'}, fix2:{a:'noscaledrop',t:'No scale needed'}};
       if(uncal) return {label:'Scale-bar calibration', ok:false, warn:false,
         note:`${uncal} scale bar(s) switched on without a calibration (${esc(_P.filter(im=>im.sbOn&&!(im.umPerPx>0)).map(nmS).join(', '))}) — calibrate a micrograph${_ff?' (its µm/px in the object bar)':''}; a blot, gel, chart or photo with no scale needs no bar`,
         fix:{a:'calibrate',t:'Calibrate…'}, fix2:{a:'sboffuncal',t:'No scale bar on these'}};
@@ -15920,6 +15972,24 @@ function _auditFix(action){
     const L=(layoutMode==='freeform'?freeformElements.filter(e=>e&&!e.hidden):_figurePanels()).filter(_ckMicrographNoScale);
     if(L.length){ pushUndo(); L.forEach(im=>{ im.noScale=true; }); renderImgList(); scheduleRender(0);
       toast(`Marked as needing no scale: ${L.map(im=>_rtText(formatLabel(im.label))||'?').join(', ')} — calibrating one later clears the mark`,'ok'); }
+  }
+  else if(action==='noscaledrop'){
+    const L=(layoutMode==='freeform'?freeformElements.filter(e=>e&&!e.hidden):_figurePanels()).filter(_ckCalibDropped);
+    if(L.length){ pushUndo(); L.forEach(im=>{ im.noScale=true; im.sbOn=false; delete im._calibDropped; }); renderImgList(); scheduleRender(0);
+      toast(`Marked as needing no scale: ${L.map(im=>_rtText(formatLabel(im.label))||'?').join(', ')} — no scale bar on ${L.length>1?'them':'it'}`,'ok'); }
+  }
+  else if(action==='recalreplaced'){
+    // The first panel whose calibration a replace cleared: Auto-detect when the new
+    // picture has a bar (one question: what length it shows), else the calibrator.
+    if(layoutMode==='freeform'){
+      const i=freeformElements.findIndex(e=>e&&!e.hidden&&_ckCalibDropped(e));
+      if(i>=0){ if(m) m.remove(); selectedElems.clear(); selectedElems.add(i); if(typeof updateFreeformElemList==='function') updateFreeformElemList(); if(typeof updateElemPropsBar==='function') updateElemPropsBar(); scheduleRender(0);
+        toast(`${_rtText(formatLabel(freeformElements[i].label))||'This picture'} is selected — type its µm/px in the object bar above the canvas`,'ok'); return; }
+    } else {
+      const shown=new Set(_figurePanels());
+      const idx=images.findIndex(im=>im&&shown.has(im)&&_ckCalibDropped(im));
+      if(idx>=0){ if(m) m.remove(); if(images[idx]._calibDropped.newBarPx>0) autoDetectScaleBar(idx); else if(typeof openCalib==='function') openCalib(idx); return; }
+    }
   }
   else if(action==='calibrate'&&layoutMode==='freeform'){
     // A freeform picture is calibrated in its object bar (µm/px): select the first one.
@@ -21348,7 +21418,7 @@ function _complianceRowHtml(c){
   const color={ok:'var(--a2)',info:'var(--muted)',unv:'var(--muted)',warn:'var(--warn)',fail:'var(--danger)'}[st];
   // The buttons go under the note, so a row with one keeps its full width to read
   // (beside it, the note shrank to ~150 px and wrapped over 15 lines).
-  const _fb=(f,first)=>`<button class="btn" style="padding:1px 8px;font-size:10px;margin:3px ${first?0:4}px 0 0" onclick="_auditFix('${esc(f.a)}')" title="${f.a==='s1'||f.a==='jfmt'||f.a==='alttext'||f.a==='jlowppi'||f.a==='calibrate'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(f.t)}</button>`;
+  const _fb=(f,first)=>`<button class="btn" style="padding:1px 8px;font-size:10px;margin:3px ${first?0:4}px 0 0" onclick="_auditFix('${esc(f.a)}')" title="${f.a==='s1'||f.a==='jfmt'||f.a==='alttext'||f.a==='jlowppi'||f.a==='calibrate'||f.a==='recalreplaced'?'Opens the tool for this':'One undo step; the report runs again'}">${esc(f.t)}</button>`;
   const _fl=(!c.ok||c.info||c.unverified)?[c.fix,c.fix2].filter(Boolean):[];
   const fixBtn=_fl.length?`<span class="c-fix" style="display:block">${_fl.map((f,i)=>_fb(f,i===0)).join('')}</span>`:'';
   const src=c.src?`<span class="c-src" style="display:block;font-size:9.5px;color:var(--muted);opacity:.85">${c.unverified?'':'Source: '}${esc(c.src)}</span>`:'';
@@ -33920,6 +33990,7 @@ function _popOut(lost){
         // where its pixel size came from, its import notes and its replacements: the
         // Methods and PANEL_HISTORY of the popped-out figure read them from here
         ...(im._calibHow?{_calibHow:{...im._calibHow}}:{}), ...(im._calibCopy?{_calibCopy:{...im._calibCopy}}:{}),
+        ...(im._calibDropped?{_calibDropped:{...im._calibDropped}}:{}),
         ...(im._importNotes?{_importNotes:im._importNotes.slice()}:{}), ...(im._replaced?{_replaced:im._replaced.map(r=>({...r}))}:{}),
         captionNote:im.captionNote||'', metaNote:im.metaNote||''});
       // Its borders, as rectangles grouped with it.
@@ -37524,6 +37595,14 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
 
 // Where a panel's µm/px came from. Three cases, not two — see the Methods paragraph,
 // which reads this too, so the CSV and the Methods can never disagree about provenance.
+// A calibration ⇄ Replace image cleared, not made again since (and the picture not
+// marked as needing no scale): the compliance check fails it by name (phage5-01).
+function _ckCalibDropped(im){ return !!(im&&im._calibDropped&&!(im.umPerPx>0)&&!im.noScale&&!im.sbBurnedIn); }
+function _calibDroppedText(im, L){
+  const r=im._calibDropped||{};
+  const why=r.why==='size'?'the new file has other pixel dimensions':r.why==='bar'?'the new file’s burned-in bar has another length':'it was measured on the old picture';
+  return `${L}: ${_fmtPxSize(+r.um||0)}${r.how?` (${r.how})`:''} was set on ${r.from||'the old file'}, which ⇄ Replace image swapped for ${r.to||'another file'}; ${why}, so it was cleared — calibrate the new picture${r.newBarPx>0?` (it has a ${+(+r.newBarPx).toFixed(1)} px bar: 🔍 Auto-detect and say what length it shows)`:''}`;
+}
 function _calibSourceOf(im){
   if(!im||!(im.umPerPx>0)) return {kind:'none', how:'', text:'uncalibrated'};
   // copied from another panel (⇉ Same µm/px on ticked panels), and not changed since
@@ -38064,9 +38143,19 @@ function _measCurrent(){ return measurements.filter(m=>m&&!m.stale); }
 function _rulersOf(im){ const ids=_withInsets(im).map(p=>p.id); return annotations.filter(a=>a&&a.type==='ruler'&&!a.rulerStale&&a.rulerPanel!=null&&ids.includes(a.rulerPanel)); }
 // Called by _replaceInto (after its undo step): the panel's measurements and rulers are
 // marked as made on `was`, the Count marks drawn over it are cleared, and the log says so.
+// A chart's or gene map's name is its title, typed with *italic* markup: the list showed
+// "*Escherichia* phage vB_EcoS_Tq4" with its asterisks (phage5-13). File names are shown as
+// they are — an asterisk there is part of the name.
+function _listName(im){ const n=String((im&&im.name)||''); return im&&_isDataPanel(im)?_rtPlain(n):n; }
 function _staleMeasurements(im, was, now){
   const ms=_measOf(im), rs=_rulersOf(im), at=new Date().toISOString();
   ms.forEach(m=>{ m.stale={was:m.file||was, now, at}; });
+  // The result block above the list shows the last measurement made. When that one goes
+  // out of date it said so only in the list below, while the block still read "Objects
+  // detected: 29 … Equivalent diameter 813 ± 91.5 µm" as current (phage5-12).
+  { const rr=document.getElementById('roi-results'), last=measurements[measurements.length-1];
+    if(rr&&rr.className==='show'&&last&&ms.includes(last)&&!rr.querySelector('.roi-stale'))
+      rr.innerHTML=`<div class="roi-stale" style="color:var(--warn,#c98a00);font-size:10px;font-weight:600;margin-bottom:3px;line-height:1.35">⚠ Out of date: made on ${esc(last.stale.was||was)}, which ⇄ Replace image swapped for ${esc(now)} — not exported, not in the caption or Methods; ${last.type==='cellCount'?'count':'measure'} again</div><div style="opacity:.5">${rr.innerHTML}</div>`; }
   // Annotations are copied, never edited in place: an undo step holds the old objects.
   if(rs.length) annotations=annotations.map(a=>rs.includes(a)?{...a, rulerStale:{was, now, at}}:a);
   if(_countOverlay&&(_countOverlay.pid==null||_withInsets(im).some(p=>p.id===_countOverlay.pid))) _countOverlay=null;
