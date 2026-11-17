@@ -247,6 +247,10 @@ test('blot4-04: MW labels follow the new ladder after ⇄ Replace and a re-analy
   expect(r).toEqual([0, 0, 0, 0]);                                  // was: each ~9 px (scaled) off
   expect(await page.evaluate(() => annotations.filter(a => a.mw).map(a => a.yf))).not.toEqual(ys0);
   expect(await mwRow(page)).toMatch(/4 markers, above and below every analysed band ✓/);
+  // a layout change moves the labels with the panel: still on their bands
+  await page.evaluate(() => { sv('cols', 2); onLayoutChange(); render(); });
+  expect(await mwRow(page)).toMatch(/4 markers, above and below every analysed band ✓/);
+  await page.evaluate(() => { sv('cols', 1); onLayoutChange(); render(); });
   // a label dragged off its band is caught
   await page.evaluate(() => { const i = annotations.findIndex(a => a.mw && a.text === '55'); pushUndo(); annotations[i] = { ...annotations[i], yf: annotations[i].yf - 12 / annCanvas.height }; render(); });
   expect(await mwRow(page)).toMatch(/MW label 55 \(\d+ px above its band\)/);
@@ -314,7 +318,7 @@ test('phage4-11: after Save session, a reload offers the saved file first, not "
   await page.waitForFunction(() => { try { return !!JSON.parse(localStorage.getItem('fl-autosave-v2')).saved; } catch (e) { return false; } });
   await page.reload();
   await page.waitForFunction(() => typeof render === 'function');
-  const bar = page.locator('div', { hasText: /saved as/ }).filter({ has: page.locator('button') }).last();
+  const bar = page.locator('div', { hasText: /last saved with Save session/ }).filter({ has: page.locator('button') }).last();
   await expect(bar).toContainText('Fig5-session.json');
   await expect(bar).toContainText('with no changes after');
   await expect(bar).not.toContainText('Recover unsaved session');
@@ -460,5 +464,56 @@ test('charts4-08 / freeform4-10: the replace toast names a kept metadata note, n
   expect(t2).toMatch(/caption note kept: “Brightfield of the same field in the mother ma…” — edit it in the Props bar › Caption note/);
   expect(t2).not.toMatch(/⚙/);
   expect(t2).not.toMatch(/but;/);
+  expect(errors).toEqual([]);
+});
+
+test('blot4-01: an empty Lanes field still means auto-detect after a count was kept', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(BLOT);
+  const r = await page.evaluate(async () => {
+    await __addStrip(__strip([40, 60, 80, 100, 120, 140], 60, 120), 'pAKT_repeat.png');
+    runGelAnalysis(0, { laneCount: 6 });
+    const forced = [images[0].gelAnalysis.laneMode, images[0].gelAnalysis.lanes.length];
+    runGelAnalysis(0, { laneCount: '' });                    // the dialog's Re-detect with Lanes empty
+    const auto = [images[0].gelAnalysis.laneMode, images[0].gelAnalysis.lanes.length];
+    runGelAnalysis(0);                                       // a run for the user (chart update): keeps what it has
+    return { forced, auto, again: images[0].gelAnalysis.laneMode };
+  });
+  expect(r.forced).toEqual(['forced', 6]);
+  expect(r.auto).toEqual(['auto', 5]);
+  expect(r.again).toBe('auto');
+  expect(errors).toEqual([]);
+});
+
+test('phage4-02: a generated caption in the box follows the replace; a count on an inset of the replaced panel goes out of date too', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addPng(page, await platePng(page, 12, 5, 7), 'IMG_7702_plate.png');
+  await page.evaluate(() => { images[0].umPerPx = 150; render(); });
+  await countPanel(page, 0);
+  await page.evaluate(() => generateCaption());
+  await page.waitForFunction(() => /12 objects counted/.test(document.getElementById('caption-out').value));
+  await page.evaluate(() => { selectedPanel = 0; addLinkedInset(0.1, 0.1, 0.5, 0.5); render(); });
+  await countPanel(page, 1);                                  // a count on the inset
+  expect(await page.evaluate(() => measurements.map(m => !!m.stale))).toEqual([false, false]);
+  await replaceWith(page, 0, await platePng(page, 20, 5, 99), 'IMG_7731_plate_repeat.png');
+  expect(await page.evaluate(() => measurements.map(m => !!m.stale))).toEqual([true, true]);
+  await page.waitForFunction(() => !/12 objects counted/.test(document.getElementById('caption-out').value));
+  expect(await page.locator('#caption-out').inputValue()).not.toMatch(/objects counted/);
+  expect(errors).toEqual([]);
+});
+
+test('phage4-02: a count saved in a session and reopened still goes out of date when its panel is replaced', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addPng(page, await platePng(page, 12, 5, 7), 'IMG_7702_plate.png');
+  await countPanel(page, 0);
+  const saved = await page.evaluate(() => JSON.stringify(_withRawSave(() => serializeSession(true))));
+  await page.reload();
+  await page.waitForFunction(() => typeof render === 'function' && typeof _commitImage === 'function');
+  await page.evaluate((t) => _loadSessionText(t, 'plates-session.json'), saved);
+  await page.waitForFunction(() => images[0] && images[0].img && images[0].img.complete && images[0].img.naturalWidth > 0);
+  await page.evaluate(() => render());
+  await replaceWith(page, 0, await platePng(page, 20, 5, 99), 'IMG_7731_plate_repeat.png');
+  expect(await page.evaluate(() => measurements.map(m => [m.count, !!m.stale]))).toEqual([[12, true]]);
+  expect(await page.evaluate(() => _measurementsCSV().csv)).toBe('');
   expect(errors).toEqual([]);
 });

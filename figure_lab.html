@@ -9341,12 +9341,14 @@ function runGelAnalysis(idx,opts){
   // kept rather than re-guessed — a repeat scan whose lanes 12 and 13 ran together came
   // back with 12 lanes, the 13-lane loading control was silently dropped and every bar of
   // the linked chart went n.d. under "1 chart updated" (blot4-01).
-  const userN=+opts.laneCount>0;
-  if(prev&&!userN&&prev.laneMode==='forced'&&+prev.laneCount>0) opts.laneCount=prev.laneCount;
+  // Only a run that names no count (opts.laneCount undefined) carries one over: the
+  // dialog's Re-detect passes its Lanes field, and an empty field means auto-detect.
+  const unnamed=opts.laneCount===undefined;
+  if(prev&&unnamed&&prev.laneMode==='forced'&&+prev.laneCount>0) opts.laneCount=prev.laneCount;
   const moved=prev?_gelStaleWhy(im):null;
   let a=_gelAnalyse(im,opts), laneKept=null;
   if(a.error){ toast(a.error,'warn'); return false; }
-  if(prev&&moved&&!(+opts.laneCount>0)&&prev.lanes.length>1&&a.lanes.length!==prev.lanes.length){
+  if(prev&&moved&&unnamed&&!(+opts.laneCount>0)&&prev.lanes.length>1&&a.lanes.length!==prev.lanes.length){
     const b=_gelAnalyse(im,Object.assign({}, opts, {laneCount:prev.lanes.length}));
     if(!b.error&&b.lanes.length===prev.lanes.length){ laneKept={found:a.lanes.length, n:b.lanes.length}; a=b; }
   }
@@ -24581,6 +24583,10 @@ function _renderMeasList(){
     box.querySelectorAll('[data-meas-del]').forEach(b=>b.onclick=()=>removeMeasurement(+b.dataset.measDel));
   }
   const b=document.getElementById('export-measurements-btn'); if(b) b.style.display=measurements.length?'':'none';
+  // A count is in the generated caption and Methods: an untouched text follows it, an
+  // edited one is flagged out of date.
+  // (_resetFigureState can run this before the sync's timer variable exists)
+  try{ _scheduleGenSync(); }catch(e){}
 }
 function removeMeasurement(i){
   if(!measurements[i]) return;
@@ -35880,10 +35886,12 @@ function _measIsOn(m, im){
   if(m.pid!=null) return m.pid===im.id;
   return m.type==='cellCount'&&!!m.panel&&m.panel===(_rtText(formatLabel(im.label))||'');
 }
-function _measOf(im){ return measurements.filter(m=>m&&!m.stale&&_measIsOn(m, im)); }
+// A panel's measurements and those made on its linked insets, which show its pixels.
+function _withInsets(im){ return [im, ...images.filter(p=>p&&p.insetOf!=null&&p.insetOf===im.id)]; }
+function _measOf(im){ const ps=_withInsets(im); return measurements.filter(m=>m&&!m.stale&&ps.some(p=>_measIsOn(m, p))); }
 function _measName(m){ return m.type==='cellCount'?`${m.label||'Count'} (${m.count} object${m.count===1?'':'s'})`:(m.label||m.type||'a measurement'); }
 function _measCurrent(){ return measurements.filter(m=>m&&!m.stale); }
-function _rulersOf(im){ return annotations.filter(a=>a&&a.type==='ruler'&&!a.rulerStale&&a.rulerPanel!=null&&a.rulerPanel===im.id); }
+function _rulersOf(im){ const ids=_withInsets(im).map(p=>p.id); return annotations.filter(a=>a&&a.type==='ruler'&&!a.rulerStale&&a.rulerPanel!=null&&ids.includes(a.rulerPanel)); }
 // Called by _replaceInto (after its undo step): the panel's measurements and rulers are
 // marked as made on `was`, the Count marks drawn over it are cleared, and the log says so.
 function _staleMeasurements(im, was, now){
@@ -35891,7 +35899,7 @@ function _staleMeasurements(im, was, now){
   ms.forEach(m=>{ m.stale={was:m.file||was, now, at}; });
   // Annotations are copied, never edited in place: an undo step holds the old objects.
   if(rs.length) annotations=annotations.map(a=>rs.includes(a)?{...a, rulerStale:{was, now, at}}:a);
-  if(_countOverlay&&(_countOverlay.pid==null||_countOverlay.pid===im.id)) _countOverlay=null;
+  if(_countOverlay&&(_countOverlay.pid==null||_withInsets(im).some(p=>p.id===_countOverlay.pid))) _countOverlay=null;
   if(ms.length||rs.length){
     logAction('measurementsOutOfDate',{panel:_rtText(formatLabel(im.label))||'', madeOn:was, replacedBy:now,
       measurements:ms.map(_measName), rulers:rs.length});
@@ -36073,7 +36081,7 @@ function checkAutosave(){
   // that is what the bar offers first; the browser copy stays available.
   const sv0=data.saved;
   if(sv0&&sv0.name){
-    bar.querySelector('span').innerHTML=`↺ Your figure was saved as <b>${esc(sv0.name)}</b> at ${esc(new Date(sv0.t).toLocaleString())}, with no changes after — open that file (📂 Load session) to get it back with everything${sv0.raw?', 16-bit values included':''}.${deep.length?` <span style="color:var(--warn)">The browser copy has ${deep.length} panel${deep.length>1?'s':''} without ${deep.length>1?'their':'its'} 16-bit values.</span>`:''}`;
+    bar.querySelector('span').innerHTML=`↺ Your figure was last saved with Save session (downloaded as <b>${esc(sv0.name)}</b>) at ${esc(new Date(sv0.t).toLocaleString())}, with no changes after — open that file (📂 Load session) to get it back with everything${sv0.raw?', 16-bit values included':''}.${deep.length?` <span style="color:var(--warn)">The browser copy has ${deep.length} panel${deep.length>1?'s':''} without ${deep.length>1?'their':'its'} 16-bit values.</span>`:''}`;
     const [rb, db]=[bar.querySelector('.btn-primary'), bar.querySelector('.btn:not(.btn-primary)')];
     rb.textContent='Restore the browser copy'; rb.classList.remove('btn-primary'); db.classList.add('btn-primary');
     db.parentNode.insertBefore(db, rb);
