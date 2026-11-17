@@ -6042,6 +6042,8 @@ function _refreshPreflight(){
       m:`Legend key on the figure: ${kr.note.replace(/ — a key must sit[^]*$/,'')}.`+(kr.fix?` <button class="btn" style="padding:0 6px;font-size:10px" onclick="_ckKeyToFree();_refreshPreflight()">Move to free space</button>`:'')}); }
   { const tr=(typeof _ckTextOverRow==='function')?_ckTextOverRow():null; if(tr&&!tr.ok) warns.push({t:'warn',
       m:`Text over text: ${tr.note}`+(tr.fix?` <button class="btn" style="padding:0 6px;font-size:10px" onclick="${tr.fix.fn}();_refreshPreflight()">${esc(tr.fix.t)}</button>`:'')}); }
+  { const te=(typeof _ckTextEdgeRow==='function')?_ckTextEdgeRow():null; if(te) warns.push({t:'warn',
+      m:`Text past the edge: ${te.note}`+(te.fix?` <button class="btn" style="padding:0 6px;font-size:10px" onclick="_ckTextEdgeFix();_refreshPreflight()">${esc(te.fix.t)}</button>`:'')}); }
   const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
   if(notDrawn.length) warns.push({t:'warn',
     m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}.`});
@@ -15442,6 +15444,7 @@ function _checkCompliance(asJ){
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
+  { const te=_ckTextEdgeRow(); if(te) checks.push(te); }
   // Against a journal only: the report with no target journal stays the one it always was.
   { const J0=_targetJournal(), br=J0?_ckBlankRow(J0):null; if(br) checks.push(br); }
   // With a target journal the rows come from its own figure guide; without one the
@@ -15526,6 +15529,7 @@ function _auditFix(action){
   }
   else if(action==='ckkeyfree'){ _ckKeyToFree(); }
   else if(action==='cktextover'){ _ckTextOverFix(); }
+  else if(action==='cktextedge'){ _ckTextEdgeFix(); }
   else if(action==='ckbalance'){ _ckBalanceMargins(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='noscale'){
@@ -16004,6 +16008,7 @@ function restoreState(s){
   if(selectedAnnotation>=0) showAnnFloat(selectedAnnotation);
 }
 function _pushSnap(snap){
+  _dropRecoverBar();      // an edit makes the browser copy older than the figure on screen
   // A control edited but not yet committed (the field still has focus) is its own step,
   // recorded first so it is not folded into this one.
   if(_pendingUndoSnap!==snap && _pendingUndoDirty) _flushPendingUndo();
@@ -16429,7 +16434,7 @@ function _keyLayout(rows, fs, font){
 function _keyBelowAvail(){
   const k=(annotations||[]).find(a=>a&&a.type==='legend'&&!a.hidden);
   if(!k||(k.where||'auto')!=='bottom') return 0;
-  return Math.max(0,(canvasLogicalW||0)-12);
+  return Math.max(0,(_keyRenderW||canvasLogicalW||0)-12);
 }
 // THE key renderer. `emit` is a canvas or SVG backend (the chart vocabulary plus chip,
 // gradient and text); `st` is {ink, bg, bgOpacity}: the placed key's chip and text
@@ -16703,6 +16708,24 @@ function _keyFreeSpot(w, h, where, W, H, busy){
     if(far) best=null;
   }
   if(best&&(where==='right'||where==='bottom')&&best.s>=1e6) best=null;
+  // A key in a strip beside the panels lines up with the panel block, not the canvas edge:
+  // under the panels it started at the left margin's edge, 37 px left of panel A
+  // (newcomer4-04). Only when that place is free too.
+  if(best&&where!=='bottom'&&where!=='right'){
+    const P=busy.filter(b=>b.what==='panel'||b.what==='object');
+    if(P.length){
+      const pl=Math.min(...P.map(b=>b.x)), pr=Math.max(...P.map(b=>b.x+b.w)), pt=Math.min(...P.map(b=>b.y)), pb=Math.max(...P.map(b=>b.y+b.h));
+      const free=(x,y)=>x>=0&&y>=0&&x+w<=W&&y+h<=H&&!B.some(b=>!(b.x>=x+w||b.x+b.w<=x||b.y>=y+h||b.y+b.h<=y));
+      const below=best.y>=pb-0.5||best.y+h<=pt+0.5, beside=best.x>=pr-0.5||best.x+w<=pl+0.5;
+      if(below&&!beside){
+        if(best.x<pl&&free(pl,best.y)) best.x=pl;
+        else if(best.x+w>pr&&pr-w>=pl&&free(pr-w,best.y)) best.x=pr-w;
+      } else if(beside&&!below){
+        if(best.y<pt&&free(best.x,pt)) best.y=pt;
+        else if(best.y+h>pb&&pb-h>=pt&&free(best.x,pb-h)) best.y=pb-h;
+      }
+    }
+  }
   if(best) return {xf:best.x/W, yf:best.y/H, free:true};
   // No free spot: say which margin would make one, and by how much.
   // Free space: the margin that adds the less to the figure — beside it for a tall key,
@@ -16723,15 +16746,31 @@ function _keyFreeSpot(w, h, where, W, H, busy){
 // A key the switch placed, re-placed at the end of every on-screen render from the
 // layout just drawn. A key from a session saved before keys were marked is taken as
 // placed automatically only when it covers something or runs off the figure.
-var _ckKeyNeed=null, _ckKeyCache=null;
+//
+// The room a key needs is worked out from the layout each time, never added up: a margin
+// (freeform: a canvas side) the key grew is remembered as {from, to}, and while it still
+// reads `to` it is the key's, set to `from` plus what the key needs in the layout as it is
+// now (nothing, when the key fits in free space without it). It used to grow by what the key
+// lacked and never shrink: a session reopened grew its bottom margin again (43 → 90 px,
+// 65 → 156 px: newcomer5-02, phage5-05) and a margin grown at 85 mm stayed at 289 px when
+// the figure went back to 178 mm (blot5-09). The same layout now gives the same margin,
+// however it was reached, so a reopened session draws pixel for pixel as saved.
+var _ckKeyNeed=null, _ckKeyCache=null, _ckKeyBaseCache=null, _keyRenderW=0;
+function _ckKeyFid(side){
+  if(layoutMode==='freeform') return side==='bottom'?'fm-canvas-h':'fm-canvas-w';
+  return ({right:'m-right',left:'m-left',bottom:'m-btm'})[side]||null;
+}
 function _ckKeyAutoPlace(W, H){
   _ckKeyNeed=null;
+  // The key placed Below spans the width being drawn now (canvasLogicalW is only set after
+  // the render: 0 on a fresh page, so a reopened key was laid out in one column and grew
+  // the margin for a key three times its height).
+  _keyRenderW=W;
   const keys=annotations.filter(a=>a&&a.type==='legend'&&!a.hidden);
   if(!keys.length||!_figureKey().length) return;
   const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
   const busy=_ckKeyBusy(W,H);
-  // Where the objects and panels are (not the words, which re-flow): what a regrow reads.
-  const objSig=busy.filter(b=>b.what!=='text').map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
+  const cur=id=>parseInt(gv(id))||0;
   keys.forEach(a=>{
     if(a.auto==null){
       const r={x:a.xf*W,y:a.yf*H,w:L.w,h:L.h};
@@ -16742,26 +16781,40 @@ function _ckKeyAutoPlace(W, H){
     if(!a.auto) return;
     // The search runs only when what it reads changed: the figure's size, the key's, the
     // place asked for, or anything drawn.
-    const sig=[W,H,L.w.toFixed(1),L.h.toFixed(1),a.where||'auto',layoutMode].join(',')+'|'+busy.map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
-    const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(L.w, L.h, a.where||'auto', W, H, busy);
+    const where=a.where||'auto';
+    const bsig=busy.map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
+    const sig=[W,H,L.w.toFixed(1),L.h.toFixed(1),where,layoutMode].join(',')+'|'+bsig;
+    const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(L.w, L.h, where, W, H, busy);
     _ckKeyCache={sig, p};
-    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h; a._busyNow=objSig;
+    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h;
+    delete a._busyNow; delete a._roomBusy;          // (kept by sessions saved before 3.19)
+    // The margins this key grew that still read what it set them to.
+    const own=a._grown?Object.entries(a._grown).filter(([id,g])=>g&&g.from!=null&&g.to!==g.from&&cur(id)===g.to):[];
+    if(own.length){
+      // The layout without that room: the margin back at `from` (a left margin shifts what
+      // is drawn), searched as a fresh placement would be.
+      let Wb=W, Hb=H, dx=0;
+      own.forEach(([id,g])=>{ const d=g.to-g.from; if(id==='m-btm'||id==='fm-canvas-h') Hb-=d; else { Wb-=d; if(id==='m-left') dx=d; } });
+      const bb=dx?busy.map(b=>({...b, x:b.x-dx})):busy;
+      const ksig=[Wb,Hb,dx].join(',')+'|'+sig;
+      const pb=(_ckKeyBaseCache&&_ckKeyBaseCache.sig===ksig)?_ckKeyBaseCache.p:_keyFreeSpot(L.w, L.h, where, Wb, Hb, bb);
+      _ckKeyBaseCache={sig:ksig, p:pb};
+      const want={}; own.forEach(([id,g])=>{ want[id]=g.from; });
+      if(!pb.free){ const fid=_ckKeyFid(pb.need.side); if(fid) want[fid]=(want[fid]!=null?want[fid]:cur(fid))+pb.need.px; }
+      if(Object.entries(want).some(([id,v])=>v!==cur(id)))
+        _ckKeyNeed={a, set:want, sig:[Math.round(L.w),Math.round(L.h),where,pb.free?'free':pb.need.side].join('|')};
+      return;
+    }
     if(!p.free){
       // Room is made once for a key of this size in this place; a margin the author
       // narrowed again afterwards is left alone, and the check flags the key instead.
-      // A margin still at the size it was grown to is the key's own: when an object moves
-      // into the key's band afterwards it grows again, rather than leaving the key cut at the
-      // edge (freeform4-08 — the export went out without the last names).
-      const sig=[Math.round(L.w),Math.round(L.h),a.where||'auto',p.need.side].join('|');
-      const fid=layoutMode==='freeform'?(p.need.side==='bottom'?'fm-canvas-h':'fm-canvas-w'):({right:'m-right',left:'m-left',bottom:'m-btm'}[p.need.side]);
-      // Only after the objects themselves moved since the last growth (never because the
-      // growth moved them), so a key that cannot be freed does not grow the figure forever.
-      const g=a._grown&&fid&&a._grown[fid], ours=!!g&&(parseInt(gv(fid))||0)===g.to;
-      if(a._room!==sig||(ours&&a._roomBusy!==objSig)) _ckKeyNeed={a, side:p.need.side, px:p.need.px, sig};
+      const rsig=[Math.round(L.w),Math.round(L.h),where,p.need.side].join('|');
+      const fid=_ckKeyFid(p.need.side);
+      if(fid&&a._room!==rsig) _ckKeyNeed={a, set:{[fid]:cur(fid)+p.need.px}, sig:rsig};
     }
   });
 }
-// Grow the margin the placed key needs (freeform: the canvas), a few passes since a wider
+// Set the margins the placed key needs (freeform: the canvas), a few passes since a wider
 // figure at a set printed width prints its type smaller and so redraws the key at another
 // size. Never inside an export render, never an undo step of its own: it belongs to the
 // change that made the key need room, and undoing that change takes the margin back too.
@@ -16769,26 +16822,30 @@ var _ckRoomT=null;
 function _ckKeyMakeRoom(now, quiet){
   if(!now){ clearTimeout(_ckRoomT); _ckRoomT=setTimeout(()=>_ckKeyMakeRoom(true),0); return; }
   if(!_ckKeyNeed) return '';
-  const fld={right:'m-right', left:'m-left', bottom:'m-btm'};
-  const before={}, grown={};
-  let guard=0, last=null;
-  while(_ckKeyNeed&&guard++<5){
-    const {a, side, px, sig}=_ckKeyNeed;
-    let id=fld[side];
-    if(layoutMode==='freeform') id=side==='bottom'?'fm-canvas-h':'fm-canvas-w';
-    if(!id) break;
-    if(!(id in before)) before[id]=parseInt(gv(id))||0;
-    const v=(parseInt(gv(id))||0)+px;
-    sv(id, String(v)); grown[id]=v; a._room=sig; last=a;
-    // what was grown for this key, so it is given back when the key moves or goes
-    a._grown={...(a._grown||{})}; if(!a._grown[id]) a._grown[id]={from:before[id]}; a._grown[id].to=v;
+  const before={}, after={};
+  let guard=0;
+  while(_ckKeyNeed&&guard++<6){
+    const {a, set, sig}=_ckKeyNeed;
+    a._grown={...(a._grown||{})};
+    Object.entries(set).forEach(([id,v])=>{
+      const was=parseInt(gv(id))||0; if(v===was) return;
+      if(!(id in before)) before[id]=was;
+      // The margin's own size: what it was before the key took it (while it is still the
+      // key's), otherwise what the author left it at.
+      const g=a._grown[id], from=(g&&g.from!=null&&g.to===was)?g.from:was;
+      sv(id, String(v)); after[id]=v;
+      if(v===from) delete a._grown[id]; else a._grown[id]={from, to:v};
+    });
+    if(!Object.keys(a._grown).length) delete a._grown;
+    a._room=sig;
     render();
   }
   _ckKeyNeed=null;
-  if(last) last._roomBusy=last._busyNow;     // the layout the room was made for
-  const ids=Object.keys(grown); if(!ids.length) return '';
+  const ids=Object.keys(after).filter(id=>after[id]!==before[id]); if(!ids.length) return '';
   const nm={'m-right':'right margin','m-left':'left margin','m-btm':'bottom margin','fm-canvas-w':'canvas width','fm-canvas-h':'canvas height'};
-  const msg=`The legend key needed free space, so the ${ids.map(id=>`${nm[id]} grew from ${before[id]} to ${grown[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`;
+  const up=ids.filter(id=>after[id]>before[id]), down=ids.filter(id=>after[id]<before[id]);
+  const msg=[up.length?`The legend key needed free space, so the ${up.map(id=>`${nm[id]} grew from ${before[id]} to ${after[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`:'',
+    down.length?`The legend key needs less room now, so the ${down.map(id=>`${nm[id]} went back from ${before[id]} to ${after[id]} px`).join(' and ')}.`:''].filter(Boolean).join(' ');
   // A message shown a moment ago (the printed-width warning that made the key need room) is
   // kept, with this one after it: replacing it hid the width warning (newcomer4-14).
   if(!quiet) toast(msg,'ok');
@@ -19729,7 +19786,10 @@ function _textRecEmit(out){
     text(str,x,y,font){ const raw=String(str??''); str=_rtText(raw); if(!str.trim()) return;
       const m=/(\d+(?:\.\d+)?)px/.exec(font||''); out.push({fs:m?+m[1]:12, str, script:_ckHasScript(raw)}); }};
 }
-const _qt=v=>`“${String(v).replace(/\s+/g,' ').trim().slice(0,24)}”`;
+// A text quoted in a row or toast: whole up to 40 characters, otherwise cut at a word with
+// "…" — cut at 24 with no mark, "10⁸ CFU g^{-1}" read "10⁸ CFU g" (freeform5-08).
+const _qt=v=>{ const t=String(v).replace(/\s+/g,' ').trim(); if(t.length<=40) return `“${t}”`;
+  const c=t.slice(0,38), sp=c.lastIndexOf(' '); return `“${(sp>24?c.slice(0,sp):c).trim()}…”`; };
 // A freeform figure draws its own objects, not the grid's panels and annotations: its
 // text objects, and each picture object's label and scale-bar text.
 // Every text the figure prints, each with `where` (what it is and what it says), so a
@@ -19803,14 +19863,15 @@ function _textFloorRow(k, J){
   // smaller than their text) are measured too, as their own warning.
   const fail=sm.pt<TEXT_PT_FLOOR-0.05, soft=!fail&&sm.pt<TEXT_PT_SOFT-0.05;
   const sc=_ckScriptLow(k, TEXT_PT_FLOOR), lt=_ckLaneLow(k, TEXT_PT_SOFT);
-  const ok=!fail&&!soft&&!sc&&!lt, ltFail=!!(lt&&lt.fail);
+  const edge=_ckEdgeTextNote();
+  const ok=!fail&&!soft&&!sc&&!lt&&!edge, ltFail=!!(lt&&lt.fail);
   return {label:'Text size', ok, warn:!fail&&!ok&&!ltFail,
-    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:null),
+    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:(edge&&edge.movable?{a:'cktextedge',t:'Move inside'}:null)),
     fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:(sc&&sc.raiseTo&&!fail&&!soft?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null),
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
       +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
         :soft?` — below ${TEXT_PT_SOFT} pt: no journal FigureLab has read accepts it without a stated size, and most production desks reject it`:'')
-      +(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'')
+      +(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'')+(edge?`. ${edge.note}`:'')
       +(J?` · ${nm} ${J.ptMin!=null&&!J.verified?`gives ${esc(J.ptNote||`${J.ptMin}–${J.ptMax} pt`)} only in unverified sources`:`states no type size, so FigureLab’s floor (${TEXT_PT_FLOOR} pt, ${TEXT_PT_SOFT} pt recommended) is checked`}`:'')};
 }
 const TEXT_PT_SOFT=6;
@@ -20431,7 +20492,9 @@ function _ckBalanceMargins(){
   const ml=gi('m-left'), mt=gi('m-top');
   sv('m-left', String(Math.max(0,ml-dl))); sv('m-top', String(Math.max(0,mt-dt)));
   onLayoutChange(); render();
-  toast(`Margins balanced: left ${ml} → ${gi('m-left')} px, top ${mt} → ${gi('m-top')} px (Arrange › Margins) — a journal preset keeps them`,'ok');
+  // Only the margins that changed are named ("left 50 → 50 px" read as a change: newcomer5-06).
+  const ch=[['left',ml,gi('m-left')],['top',mt,gi('m-top')]].filter(([,a,b])=>a!==b).map(([n,a,b])=>`${n} ${a} → ${b} px`);
+  toast(ch.length?`Margins balanced: ${ch.join(', ')} (Arrange › Margins) — a journal preset keeps them`:'The margins are already as small as they go (Arrange › Margins)','ok');
   return true;
 }
 // Words drawn over other words — a merge's channel names over its panel letter or the next
@@ -20474,6 +20537,65 @@ function _ckTextOverFix(){
   pushUndo(); sv('tag-pos', np); render();
   const left=_ckTextOver().pairs.filter(({a,b})=>a.kind==='tag'||b.kind==='tag').length;
   toast(`Tags moved to the ${np[0]==='t'?'top':'bottom'} ${np[1]==='r'?'right':'left'} of each panel${left?` — ${left} still overlap${left>1?"":"s"}: shorten them in ⚙ › Tag`:''}`, left?'warn':'ok');
+}
+// Text that runs past the figure's edge is cut there in every export: "Raise to 6 pt" grew a
+// label rightwards from its anchor past the canvas, the check then read Text size ✓ 7.2 pt,
+// and the PNG and PDF printed "10⁸ CFU g" without its "⁻¹" (freeform5-01). Text annotations
+// and text boxes (measured in the font they are drawn in), freeform text objects, and every
+// word the last render placed (letters, tags, headings, lane tables, bar text).
+_GENERAL_ROWS.push('Text past the edge');
+function _ckTextOffEdge(){
+  const W=canvasLogicalW||0, H=canvasLogicalH||0; if(!(W>0&&H>0)) return [];
+  const out=[], tol=1;
+  const past=(b)=>{ const o={right:b.x+b.w-W, left:-b.x, bottom:b.y+b.h-H, top:-b.y};
+    const side=Object.keys(o).filter(k=>o[k]>tol).sort((p,q)=>o[q]-o[p])[0]; return side?{side, by:Math.ceil(o[side])}:null; };
+  const mc=_rtMc(), f0=mc.font;
+  annotations.forEach(a=>{ if(!a||a.hidden||!String(a.text||'').trim()) return;
+    let b=null;
+    if(a.type==='text'){ mc.font=_annTextFont(a); const fs=a.fontSize||16;
+      b={x:a.xf*W, y:a.yf*H, w:_rtMeasure(mc, String(a.text)), h:fs*1.2}; }
+    else if(a.type==='textbox'){ try{ b=_annBox(a,W,H); }catch(e){} }
+    if(!b) return;
+    const p=past(b); if(p) out.push({a, b, ...p, str:_rtText(String(a.text)), what:a.type==='textbox'?'text box':'text'}); });
+  mc.font=f0;
+  if(layoutMode==='freeform') (freeformElements||[]).forEach(el=>{ if(!el||el.hidden||el.type!=='text'||!String(el.text??'').trim()) return;
+    const p=past({x:el.x, y:el.y, w:el.w||0, h:el.h||0}); if(p) out.push({el, ...p, str:_rtText(String(el.text)), what:'text object'}); });
+  (figTextItems||[]).forEach(t=>{ if(!t||!t.bbox||t.kind==='ann'||t.kind==='key'||t.kind==='data'||!String(t.str||'').trim()) return;
+    const p=past(t.bbox); if(p) out.push({t, ...p, str:_rtText(String(t.str)), what:(_TEXT_KIND[t.kind]||t.kind).replace(/s$/,'')}); });
+  return out;
+}
+// Move each text annotation, text box and freeform text that runs past the edge back inside
+// (by the least that does it). Returns [{str, by, side, wide}] — wide: wider (or taller)
+// than the figure, so it cannot fit at this size. No undo step of its own.
+function _ckTextEdgeMove(){
+  const W=canvasLogicalW||0, H=canvasLogicalH||0, moved=[]; if(!(W>0&&H>0)) return moved;
+  _ckTextOffEdge().forEach(o=>{
+    const b=o.a?(o.a.type==='text'?o.b:_annBox(o.a,W,H)):o.el?{x:o.el.x,y:o.el.y,w:o.el.w,h:o.el.h}:null; if(!b) return;
+    const m=2, wide=b.w>W-2*m||b.h>H-2*m;
+    const dx=b.x+b.w>W-m?Math.max(m-b.x, (W-m)-(b.x+b.w)):(b.x<0?m-b.x:0);
+    const dy=b.y+b.h>H-m?Math.max(m-b.y, (H-m)-(b.y+b.h)):(b.y<0?m-b.y:0);
+    if(!dx&&!dy) return;
+    if(o.a) _annMove(o.a, dx, dy, W, H); else { o.el.x+=dx; o.el.y+=dy; }
+    moved.push({str:o.str, side:o.side, by:Math.round(Math.abs(dx||dy)), dir:dx<0?'left':dx>0?'right':dy<0?'up':'down', wide});
+  });
+  return moved;
+}
+const _ckEdgeWords=L=>_listAnd(L.map(o=>`${_qt(o.str)} ${o.wide?`(wider than the figure: shorten it or set it smaller)`:`moved ${o.by} px ${o.dir}`}`));
+// The Text size rows say it too: a size that passes is no use on words the export cuts.
+function _ckEdgeTextNote(){
+  const L=_ckTextOffEdge(); if(!L.length) return null;
+  return {movable:L.some(o=>o.a||o.el), note:`but ${esc(_listAnd(L.slice(0,3).map(o=>_qt(o.str))))}${L.length>3?` and ${L.length-3} more`:''} ${L.length>1?'run':'runs'} past the figure’s edge, so the export cuts ${L.length>1?'them':'it'} (Text past the edge)`};
+}
+function _ckTextEdgeRow(){
+  const L=_ckTextOffEdge(); if(!L.length) return null;
+  const movable=L.some(o=>o.a||o.el);
+  return {label:'Text past the edge', ok:false, warn:true,
+    note:`${esc(_listAnd(L.slice(0,5).map(o=>`${o.what} ${_qt(o.str)} runs ${o.by} px past the figure’s ${o.side} edge`)))}${L.length>5?` and ${L.length-5} more`:''} — the export cuts it there${movable?'; “Move inside” shifts it in (Ctrl+Z undoes)':'; make the panel or margin larger, or the text smaller'}`,
+    fix:movable?{a:'cktextedge',t:'Move inside', fn:'_ckTextEdgeFix'}:null};
+}
+function _ckTextEdgeFix(){
+  pushUndo(); const mv=_ckTextEdgeMove(); render(); if(typeof renderAnnotationList==='function') renderAnnotationList();
+  toast(mv.length?`Text moved inside the figure: ${_ckEdgeWords(mv)}`:'Nothing to move — no text runs past the edge', mv.some(o=>o.wide)?'warn':'ok');
 }
 _GENERAL_ROWS.push('Charts from densitometry');
 _GENERAL_ROWS.push('Measurements');
@@ -20554,11 +20676,12 @@ function _journalRows(J, g){
     const lmin=J.ptMin!=null?J.ptMin:TEXT_PT_SOFT, lt=_ckLaneLow(pf.ptPerPx, lmin), sc=_ckScriptLow(pf.ptPerPx, lmin, J.ptMax);
     const extra=(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'');
     const scFix=sc&&sc.raiseTo&&!tr.bad.length?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null;
-    rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc, warn:!tr.bad.length&&!!(lt||sc)&&!(lt&&lt.fail), src,
+    const edge=_ckEdgeTextNote(); const extraE=extra+(edge?`. ${edge.note}`:'');
+    rows.push({label:'Text size', ok:!tr.bad.length&&!lt&&!sc&&!edge, warn:!tr.bad.length&&!!(lt||sc||edge)&&!(lt&&lt.fail), src,
       fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:scFix,
-      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${tr.over&&!tr.under&&tr.largest?`largest: ${_smallTxt(tr.largest)}`:`smallest: ${_smallTxt(tr.smallest)}${tr.over&&tr.largest?`, largest: ${_smallTxt(tr.largest)}`:''}`} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extra}`
-        : (tr.list?`${esc(tr.list)}${lt||sc?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extra}`:`No text ✓ — ${nm}: ${rng}`),
-      fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:null))});
+      note:tr.bad.length ? `${esc(tr.badList)} at final print size — ${tr.over&&!tr.under&&tr.largest?`largest: ${_smallTxt(tr.largest)}`:`smallest: ${_smallTxt(tr.smallest)}${tr.over&&tr.largest?`, largest: ${_smallTxt(tr.largest)}`:''}`} — ${nm}: ${rng}${tr.bad.some(([k])=>!_TEXT_FIXABLE.has(k))?'. Some of this text has a size of its own that Fit does not set: change it where it was made':''}${titleClash?`. The title is drawn 4 px larger than the headings, so at this width both cannot sit inside ${rng} — drop the title or change the printed width`:''}${floorBad?`. Panel letters are drawn no smaller than 7 px, which prints at ${(7*pf.ptPerPx).toFixed(1)} pt at this printed width — above ${J.ptMax} pt, so no letter size reaches the range here; ${narrow?`a printed width of ${narrow} mm brings them inside`:'a narrower printed width brings them inside'}`:''}${extraE}`
+        : (tr.list?`${esc(tr.list)}${lt||sc||edge?'':' ✓'} (smallest: ${_smallTxt(tr.smallest)}) — ${nm}: ${rng}${extraE}`:`No text ✓ — ${nm}: ${rng}`),
+      fix:canFit?{a:'jtext',t:`Fit ${rng.split(' (')[0]}`}:(narrow&&!titleClash?{a:'jnarrow',t:`Set ${narrow} mm`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:(edge&&edge.movable?{a:'cktextedge',t:'Move inside'}:null)))});
   } else rows.push(_textFloorRow(pf.ptPerPx, J));
   // An unverified size range never fails, so FigureLab's own floor is checked beside it.
   if(!V&&J.ptMin!=null){ const fr=_textFloorRow(pf.ptPerPx, J); if(!fr.ok){ fr.label='Text size (floor)'; rows.push(fr); } }
@@ -20742,13 +20865,18 @@ function _journalFix(action){
     // floor (5 pt ÷ 70% ≈ 7.2 pt): raised to 6 pt, a title's 10^{8} printed at 4.2 pt and
     // the row turned ⚠ straight after the button (freeform4-04).
     const k=_physFacts().ptPerPx, need=TEXT_PT_FLOOR/_RT_SCRIPT, lifted=[];
+    let liftPt=0;
     const lift=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='textbox')||!_ckHasScript(a.text)) return;
       const pt=(a.fontSize||16)*k; if(pt*_RT_SCRIPT>=TEXT_PT_FLOOR-0.05) return;
-      const d=a.fontSize||16, v=Math.ceil(need/k*2)/2; a.fontSize=v; if(a.type==='textbox') _tbGrowFor(a, d, v); lifted.push(_rtText(a.text)); };
+      const d=a.fontSize||16, v=Math.ceil(need/k*2)/2; a.fontSize=v; liftPt=Math.max(liftPt, v*k); if(a.type==='textbox') _tbGrowFor(a, d, v); lifted.push(_rtText(a.text)); };
     annotations.forEach(lift); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(lift));
     if(lifted.length){ did=true; render(); }
+    // Raised text grows from its anchor: what now runs past the figure's edge is moved back in.
+    const mv=did?_ckTextEdgeMove():[]; if(mv.length) render();
     if(did){ _pushSnap(snap);
-      toast(`Text raised to ${TEXT_PT_SOFT} pt${lifted.length?`; ${_listAnd(lifted.map(t=>`“${t.slice(0,24)}”`))} to ${_ckF1(need)} pt, so ${lifted.length>1?'their':'its'} superscripts and subscripts print at ${TEXT_PT_FLOOR} pt`:''}`,'ok'); }
+      // The size the text was set to, rounded as the report rounds it (the toast said 7.1 pt
+      // and the row 7.2 pt: freeform5-08).
+      toast(`Text raised to ${TEXT_PT_SOFT} pt${lifted.length?`; ${_listAnd(lifted.map(_qt))} to ${_ckF1(liftPt)} pt, so ${lifted.length>1?'their':'its'} superscripts and subscripts print at ${TEXT_PT_FLOOR} pt or more`:''}${mv.length?`. ${_ckEdgeWords(mv)} to stay inside the figure`:''}`, mv.some(o=>o.wide)?'warn':'ok'); }
     else toast('Nothing here can be raised — the smallest text has a size of its own; change it where it was made','warn');
     if(typeof renderAnnotationList==='function') renderAnnotationList();
     return true;
@@ -20756,7 +20884,7 @@ function _journalFix(action){
   if(action==='jtextfloor'){
     // Everything Fit can set, up to FigureLab's floor; one undo step, none if nothing moves.
     render(); const snap=snapshotState();
-    if(_journalClampText({ptMin:TEXT_PT_FLOOR, ptMax:null})) _pushSnap(snap);
+    if(_journalClampText({ptMin:TEXT_PT_FLOOR, ptMax:null})){ const mv=_ckTextEdgeMove(); if(mv.length){ render(); toast(`Text raised to ${TEXT_PT_FLOOR} pt; ${_ckEdgeWords(mv)} to stay inside the figure`, mv.some(o=>o.wide)?'warn':'ok'); } _pushSnap(snap); }
     else toast('Nothing here can be raised — the smallest text has a size of its own; change it where it was made','warn');
     if(typeof renderAnnotationList==='function') renderAnnotationList();
     return true;
@@ -20776,7 +20904,7 @@ function _journalFix(action){
     if(st&&st.clash){ toast('The title is drawn 4 px larger than the headings, so both cannot fit this range at this width — drop the title or change the printed width','warn'); return true; }
     if(_textStepEmpty(st)){ toast('Nothing Fit can change — see the Text size row','warn'); return true; }
     const snap=snapshotState();
-    if(_journalClampText(J)) _pushSnap(snap);
+    if(_journalClampText(J)){ const mv=_ckTextEdgeMove(); if(mv.length){ render(); toast(`Text fitted; ${_ckEdgeWords(mv)} to stay inside the figure`, mv.some(o=>o.wide)?'warn':'ok'); } _pushSnap(snap); }
     if(typeof renderAnnotationList==='function') renderAnnotationList();
     if(layoutMode==='freeform'&&typeof updateFreeformElemList==='function') updateFreeformElemList();
     return true;
@@ -24976,6 +25104,11 @@ function _fillPendingPanel(newImg){
 // none, the old measurements and notes.
 function _resetFigureState(opts){
   opts=opts||{};
+  if(typeof _dropRecoverBar==='function') _dropRecoverBar();
+  // The last export was of the figure being replaced: the next figure's Export format row
+  // said "changed after it was last exported (as PDF)" for a file it never wrote
+  // (freeform5-10, fluor5-10).
+  if(!opts.keepImages){ _lastExportFmt=null; _ckExports=[]; }
   _nameBeforeJournal=null;            // the name a journal replaced belongs to the figure that had it
   _applyFigControls(null);
   if(!opts.keepImages) images=[];
@@ -28644,8 +28777,11 @@ function insertIcon(name){
   if(switched){ pushUndo(); const sel=document.getElementById('layout-mode'); if(sel){ sel.value='freeform'; } setLayoutMode('freeform'); }
   const dataURL='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(ic.svg);
   _rasterizeSVG(dataURL,(img,pngSrc)=>{
-    const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
-    const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
+    // The canvas as it is set now (the last render's size could be the canvas before a ⌘K
+    // canvas preset: a phage icon arrived at Y 505 on a 531 px abstract, 104 px past its
+    // bottom edge — freeform5-09), and the icon kept wholly inside it.
+    const W=parseInt(gv('fm-canvas-w'))||canvasLogicalW||1200;
+    const H=parseInt(gv('fm-canvas-h'))||canvasLogicalH||900;
     const w=ic.w||90, h=ic.h||90;
     const mono=_iconIsMono(ic);
     if(switched) _undoHeld++;   // the step taken before the switch is this icon's
@@ -28657,7 +28793,7 @@ function insertIcon(name){
       // The licence record rides on the placed object, so it survives into the session
       // file and can be gathered at export time without re-deriving anything.
       iconName:name, iconLabel:ic.label, iconLic:_iconLic(ic),
-      x:Math.round(W/2-w/2), y:Math.round(H/2-h/2), w, h,
+      x:Math.max(0,Math.round(Math.min(W-w,W/2-w/2))), y:Math.max(0,Math.round(Math.min(H-h,H/2-h/2))), w, h,
       brightness:1,contrast:1,cropT:0,cropL:0,cropB:0,cropR:0,cropShape:'rect',
       // No letter: an icon used to arrive with its name as a letter chip drawn over it, and
       // with that cleared it was "image" in the Elements list and the layered exports. Its
@@ -32276,7 +32412,10 @@ function relabelPanels(){
     // Pictures, charts and gene maps are the panels; in reading order (rows of objects
     // whose tops are within half the smaller one's height, then left to right). A chart's
     // letter is drawn at its top-left in the figure's letter style; its name is kept.
-    const imgs=freeformElements.filter(e=>e&&['image','chart','genemap'].includes(e.type));   // not the decorative icons
+    // Not the decorative icons: an inserted icon is a picture (type image, isIcon) and was
+    // lettered F, so the caption ended "(F) Panel F." and the package held a panel file of the
+    // cartoon (freeform5-04). An icon the author gave a letter of its own is a panel.
+    const imgs=freeformElements.filter(e=>e&&['image','chart','genemap'].includes(e.type)&&!(e.isIcon&&!String(e.label||'').trim()));
     if(!imgs.length){ toast('No panels (pictures, charts, gene maps) to relabel','warn'); return; }
     pushUndo();
     const rows=[];
@@ -36743,6 +36882,23 @@ function startAutosave(){
   const cb=document.getElementById('autosave-toggle'); if(cb) cb.checked=autosaveEnabled();
   const el=document.getElementById('autosave-status'); if(el) el.textContent = autosaveEnabled()?'Autosave on':'Autosave off';
 }
+// The recovery bar offers the copy autosave kept before this page opened. Once a session is
+// opened, ✕ New is pressed or the figure is edited, that copy is older than what is on
+// screen and Restore would swap it in — the bar stayed up through all three (freeform5-07,
+// newcomer5-07), so it goes then. On a phone it sits above the figure in the page's flow,
+// not over the start screen's buttons.
+var _RECOVER_BAR_ID='recover-bar';   // built at start-up only when there is a copy to offer
+function _dropRecoverBar(){ const b=document.getElementById(_RECOVER_BAR_ID||'recover-bar'); if(b) b.remove(); }
+function _mountRecoverBar(bar){
+  bar.id=_RECOVER_BAR_ID; bar.setAttribute('role','region'); bar.setAttribute('aria-label','Recover unsaved session');
+  const cw=document.getElementById('canvas-wrap');
+  if(window.innerWidth<700&&cw&&cw.parentNode){
+    bar.style.cssText=`position:relative;margin:6px 8px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;
+      padding:8px 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex-shrink:0;
+      font-size:11px;font-family:var(--mono)`;
+    cw.parentNode.insertBefore(bar, cw);
+  } else document.body.appendChild(bar);
+}
 function checkAutosave(){
   let raw; try{ raw=localStorage.getItem(AUTOSAVE_KEY); }catch(e){ return; }
   if(!raw) return;
@@ -36780,7 +36936,7 @@ function checkAutosave(){
       toast(deep.length?`Browser copy restored: ${deep.join(', ')} ${deep.length>1?'are':'is'} in 8-bit display values — ${sv0.name} keeps the 16-bit values`:'Browser copy restored', deep.length?'warn':'ok'); }catch(e){ toast('Could not recover session','err'); }
       bar.remove(); });
     db.addEventListener('click',()=>bar.remove());
-    document.body.appendChild(bar);
+    _mountRecoverBar(bar);
     return;
   }
   bar.querySelector('.btn-primary').addEventListener('click',()=>{
@@ -36790,7 +36946,7 @@ function checkAutosave(){
     bar.remove();
   });
   bar.querySelector('.btn:not(.btn-primary)').addEventListener('click',()=>bar.remove());
-  document.body.appendChild(bar);
+  _mountRecoverBar(bar);
 }
 
 // ═══════════════════════════════════════════════════════════════
