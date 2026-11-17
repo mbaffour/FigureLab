@@ -62,15 +62,12 @@ const { step, expect, btn } = L;
     return luts.join(', ');
   });
 
-  await step(T, '2. Arrange › Columns 2, Rows 2', async () => {
+  // ux4: four pictures dropped on an empty figure arrive as 2 × 2 (three as 3 × 1); nothing to type
+  await step(T, '2. Four pictures arrive as a 2 × 2 grid: Arrange reads Columns 2, Rows 2 without typing', async () => {
     await L.openSection(T, 'Arrange');
-    await p.getByLabel('Columns', { exact: true }).fill('2');
-    await p.getByLabel('Columns', { exact: true }).press('Tab');
-    await p.getByLabel('Rows', { exact: true }).fill('2');
-    await p.getByLabel('Rows', { exact: true }).press('Tab');
-    await p.waitForTimeout(400);
     const g = await p.evaluate(() => [document.getElementById('cols').value, document.getElementById('rows').value]);
     expect(g[0] === '2' && g[1] === '2', 'grid is ' + g);
+    return 'Columns ' + g[0] + ', Rows ' + g[1];
   });
 
   await step(T, '3. Letters A–D are on; Look › Label format › a b c changes them', async () => {
@@ -81,6 +78,13 @@ const { step, expect, btn } = L;
     expect(labs.join('') === 'abcd', 'labels ' + labs.join(','));
     await p.locator('#label-format').selectOption({ label: 'A B C' });
     return labs.join(' ');
+  });
+
+  // ux4 (newcomer4): name the figure before the journal — PLOS takes the number from it, and the Save dialog uses it
+  await step(T, '4a. Export › File name: type Fig1 before choosing the journal', async () => {
+    await L.openSection(T, 'Export');
+    await p.locator('#export-name').fill('Fig1'); await p.locator('#export-name').press('Tab');
+    return 'File name ' + await p.locator('#export-name').inputValue();
   });
 
   // ux2: the preset now checks the height too — a 2 × 2 at 183 mm printed 177.5 mm tall, over
@@ -148,7 +152,8 @@ const { step, expect, btn } = L;
 
   let pdfFile;
   await step(T, '6a. ↓ PDF lossless → Save PDF writes an 89 mm wide page', async () => {
-    const r = await L.exportVia(T, 'PDF lossless', { name: 'Fig1' });
+    const r = await L.exportVia(T, 'PDF lossless');
+    expect(/Fig1/.test(path.basename(r.file)), 'the Save dialog did not take the File name: ' + r.file);
     pdfFile = r.file;
     const s = fs.readFileSync(pdfFile, 'latin1');
     const mb = s.match(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/);
@@ -159,7 +164,8 @@ const { step, expect, btn } = L;
   });
 
   await step(T, '6b. ↓ TIFF → Save TIFF is 300 dpi at 89 mm (saved after the PDF)', async () => {
-    const r = await L.exportVia(T, 'TIFF', { name: 'Fig1' });
+    const r = await L.exportVia(T, 'TIFF');
+    expect(/^Fig1\./.test(path.basename(r.file)), 'file ' + r.file);
     const info = L.tiffInfo(fs.readFileSync(r.file));
     const mm = info.w / info.xres * 25.4;
     expect(Math.abs(info.xres - 300) < 1 && Math.abs(mm - 89) < 1, JSON.stringify(info));
