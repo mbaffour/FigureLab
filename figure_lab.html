@@ -4510,7 +4510,7 @@ function _replacePlan(im, d){
   const ff=typeof freeformElements!=='undefined'&&freeformElements.includes(im);
   const short=t=>t.length>48?t.slice(0,46)+'…':t;
   const cn=_rtText(String(im.captionNote||'')).trim();
-  if(cn&&cn!=='Merge') note(`caption note kept: “${short(cn)}” — edit it in ${ff?'the Props bar › Caption note':'⚙'} if it no longer fits`,'kept');
+  if(cn&&cn!=='Merge'&&!_capNoteAuto(im)) note(`caption note kept: “${short(cn)}” — edit it in ${ff?'the Props bar › Caption note':'⚙'} if it no longer fits`,'kept');
   const mn=String(im.metaNote||'').trim();
   if(mn&&!ff) note(`metadata note kept: “${short(mn)}” — edit it in ⚙ › Metadata note if it was about the old file`,'kept');
   return {um, notes, items, warn, dims:`${nw}×${nh}`, nl, dropped, keepHow};
@@ -4862,10 +4862,20 @@ const _CHAN_DEFS=[
   {re:/mitotracker|^tmrm$/, label:'MitoTracker', lut:'magenta', color:'#e5e'},
   {re:/lysotracker/, label:'LysoTracker', lut:'magenta', color:'#e5e'},
   {re:/^(cfp|bfp|ecfp|cerulean|mturquoise2?)$/, label:'CFP', lut:'cyan', color:'#3cc'},
-  {re:/egfp|gfp|fitc|^yfp$|^venus$|mneongreen|alexa ?488|^af488$|^488$/, label:'GFP', lut:'green', color:'#3c3'},
-  {re:/mcherry|rfp|dsred|tdtomato|mscarlet|tritc|^cy3$|alexa ?(555|568|594)|^af(555|568|594)$|^(555|568|594)$|texas/, label:'RFP', lut:'magenta', color:'#e5e'},
-  {re:/^cy5$|alexa ?647|^af647$|^647$|far.?red|^sir$/, label:'Cy5', lut:'fire', color:'#e80'},
+  // Green and red indicators and fluorescent proteins are their colour family's channel
+  // too: C2-…_GCaMP6s.tif stayed grey with no chip under Auto-channels while the guide
+  // promised named fluorophores are recognised (fluor5-05).
+  {re:/egfp|gfp|fitc|^yfp$|^eyfp$|^venus$|mneongreen|alexa ?488|^af488$|^488$|gcamp|^g-?geco|snfr$|^dlight|^grab-|^citrine$|^m?clover\d?$|^memerald$|^mwasabi$/, label:'GFP', lut:'green', color:'#3c3'},
+  {re:/mcherry|rfp|dsred|tdtomato|mscarlet|tritc|^cy3$|alexa ?(555|568|594)|^af(555|568|594)$|^(555|568|594)$|texas|r-?geco|rcamp|^mruby\d?$|^mkate2?$|^mapple$|^morange2?$|^mstrawberry$/, label:'RFP', lut:'magenta', color:'#e5e'},
+  // A far-red channel (Cy5, Alexa 647) is the fourth channel of a DAPI | green | red
+  // stain, and the convention for it is grey: Fire, a heat map, drew its dendrites in
+  // yellow over the green indicator in every merge (fluor5-06). Grey in single panels
+  // and in merges, so one channel has one colour in every row.
+  {re:/^cy5$|alexa ?647|^af647$|^647$|far.?red|^sir$/, label:'Cy5', lut:'none', color:'#bbb'},
 ];
+// The file's own word for a named fluorophore or indicator, kept as the channel's name:
+// its family (GFP, RFP) gives only the colour (fluor4-09, fluor5-05).
+const _CHAN_OWN_WORD=/^(mneongreen|venus|yfp|eyfp|fitc|citrine|m?clover\d?|memerald|mwasabi|mruby\d?|mkate2?|mapple|morange2?|mstrawberry)$|gcamp|geco|rcamp|snfr$|^dlight|^grab-/i;
 function _chanDefOfToken(t){
   for(const m of _CHAN_DEFS){ if(m.re.test(t)) return m; }
   return null;
@@ -4887,7 +4897,7 @@ function _detectChannel(name){
     // name"): C2-…_mScarlet.tif is mScarlet, not "RFP" — RFP is only its colour family, and
     // a dye (TRITC, Cy3, Alexa 568) is no red fluorescent protein at all (fluor4-09). The
     // LUT still comes from the family. A bare "RFP"/"GFP" or a wavelength stays as before.
-    if(!viaPart&&((m.label==='RFP'&&!/^rfp$/i.test(tok)&&!/^\d+$/.test(tok))||(m.label==='GFP'&&/^(mneongreen|venus|yfp|fitc)$/i.test(tok)))) return {...m, label:tok};
+    if(!viaPart&&((m.label==='RFP'&&!/^rfp$/i.test(tok)&&!/^\d+$/.test(tok))||(m.label==='GFP'&&_CHAN_OWN_WORD.test(tok)))) return {...m, label:tok};
     return m;
   }
   // No separators ("cellsdapi"): the old anywhere-in-the-name match.
@@ -6481,6 +6491,19 @@ function _derivedPanel(im){ return !!(im&&(im.insetOf!=null||(im.channels&&im.ch
 // by channel. Typing in ⚙ › Channel used to rename every panel of the colour, merges and
 // insets included, although the guide and the field promise one panel (fluor3-06, fluor4-05).
 // Typing a name under Channel names gives every panel of the colour that name again.
+// A panel's channel as it appears inside merges: the merge channels showing the same file
+// (the same decoded picture, or the same file name for a single-page file), as
+// [{panel, ch}]. Used so a channel renamed on its single panel is renamed in its merge.
+function _mergeChannelsOf(im){
+  const out=[]; if(!im||!im.img) return out;
+  const nm=String(im.name||''), page=im.srcPage||0;
+  (images||[]).forEach(p=>{ if(!p||p===im) return;
+    (p.channels||[]).forEach(ch=>{ if(!ch) return;
+      if(ch.img===im.img||(nm&&ch.name===nm&&!(page>1)&&!(ch.srcPage>1))) out.push({panel:p, ch}); });
+    // the merge's base is the first channel's file
+    if((p.channels||[]).length&&p.img===im.img&&!p.excluded) out.push({panel:p, ch:p}); });
+  return out;
+}
 function _ownChan(o){ return (o&&o.chanOwn)?String(o.chan||'').trim():''; }
 function _chanFieldValue(im){
   const own=_ownChan(im); if(own) return own;
@@ -6865,7 +6888,7 @@ function renderImgList(){
         <div class="field" style="margin-top:4px"><label title="A vertical LUT bar with the display range at its ends — for pseudocoloured or grayscale intensity panels">Intensity bar</label>
           <input type="checkbox" class="f-cbar" ${im.cbar?'checked':''}></div>
         <div class="sec-lbl">Caption note (not rendered)</div>
-        <input type="text" class="f-cap" value="${esc(im.captionNote)}" placeholder="e.g. WT cells, 60×" style="width:100%">
+        <input type="text" class="f-cap" value="${esc(_capNoteAuto(im)?_capNote(im):im.captionNote)}"${_capNoteAuto(im)?' title="Filled in from the channel’s name when the channels were split — it follows the channel if you rename it; type to write your own"':''} placeholder="e.g. WT cells, 60×" style="width:100%">
         <div class="sec-lbl" style="margin-top:4px" title="Kept in the submission package's metadata.csv and PANEL_HISTORY — not written into the caption or alt text">Metadata note (records only, not the caption)</div>
         <input type="text" class="f-meta" value="${esc(im.metaNote)}" placeholder="Condition, date, etc." style="width:100%">
       </div>`;
@@ -6948,7 +6971,7 @@ function renderImgList(){
     // you could see — and the Methods then said the panel "was converted to grayscale".
     // On a LUT panel it now switches the LUT off (the panel turns grey, the levels stay).
     item.querySelector('.f-gray').addEventListener('click', ()=>{ pushUndo(); const im=images[idx];
-      if(im.lut&&im.lut!=='none'){ const was=LUT_INFO[im.lut]?LUT_INFO[im.lut].btn:im.lut, old=im.lut; im.lut='none'; im.grayscale=false; _carryChannelName(im, old);
+      if(im.lut&&im.lut!=='none'){ const was=LUT_INFO[im.lut]?LUT_INFO[im.lut].btn:im.lut, old=im.lut; im.lut='none'; im._lutChosen=true; im.grayscale=false; _carryChannelName(im, old);
         toast(`${_rtText(formatLabel(im.label))||'Panel'} shown in greys: ${was} LUT switched off (levels kept)`,'ok'); }
       else im.grayscale=!im.grayscale;
       im._adjCache=undefined; im._adjKey=undefined; renderImgList(); scheduleRender(0); });
@@ -7022,7 +7045,7 @@ function renderImgList(){
     item.querySelectorAll('.f-lut').forEach(btn=>{
       btn.addEventListener('click',()=>{
         const im=images[idx], was=_channelName(im), oldLut=im.lut;
-        im.lut=btn.dataset.lut||'none';
+        im.lut=btn.dataset.lut||'none'; im._lutChosen=true;
         _carryChannelName(im, oldLut);
         item.querySelectorAll('.f-lut').forEach(b=>b.classList.remove('lut-active'));
         btn.classList.add('lut-active');
@@ -7060,7 +7083,7 @@ function renderImgList(){
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
     item.querySelector('[data-openmulticrop]').addEventListener('click',()=>startMultiCrop([idx]));
 
-    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; _scheduleGenSync(); });
+    item.querySelector('.f-cap').addEventListener('input', e=>{ images[idx].captionNote=e.target.value; delete images[idx]._capAuto; _scheduleGenSync(); });
     item.querySelector('.f-tag').addEventListener('input', e=>{ images[idx].tag=e.target.value; scheduleRender(); });
     { const fc=item.querySelector('.f-chan');
       if(fc) fc.addEventListener('change', e=>{ const v=e.target.value.trim(), im=images[idx];
@@ -7068,19 +7091,29 @@ function renderImgList(){
         // The colour already carries another name in Legend key › Channel names: the name
         // typed here is this panel's own, and the other panels of the colour keep theirs.
         const rn=im.lut&&im.lut!=='none'?_keyRename(im.lut):'';
+        // The same file's channel in a merge (the merge this panel was split from, or the
+        // one it was merged into) is this channel: it takes the name too, so the row's
+        // channel panel, the merge's tag, the caption and Methods agree. A merge's channel
+        // could not be named at all, and O kept GCaMP6s after L was renamed GCaMP6f
+        // (fluor5-02). A merge channel named otherwise on purpose keeps its name.
+        const oldId=channelIdentity(im);
+        const followers=v?_mergeChannelsOf(im).filter(x=>channelIdentity(x.ch)===oldId):[];
         // The only panel in the colour: the colour's name is this panel's, so it follows
         // (setKeyChannelName records the one undo step).
-        const sameCol=_channelObjects().filter(x=>x.o!==im&&x.o.lut===im.lut);
-        const others=[...new Set(sameCol.filter(x=>!x.o.chanOwn).map(x=>x.who))];
+        const sameCol=_channelObjects().filter(x=>x.o!==im&&x.o.lut===im.lut&&!followers.some(f=>f.ch===x.o));
+        // Hidden panels (a merge's sources) are not in the figure: not listed (fluor5-12).
+        const others=[...new Set(sameCol.filter(x=>!x.o.chanOwn&&!x.panel.excluded).map(x=>x.who))];
         const sole=!!(v&&rn&&rn!==v&&!sameCol.length&&typeof setKeyChannelName==='function');
         if(sole) setKeyChannelName(im.lut, v); else pushUndo();
         if(v) im.chan=v; else delete im.chan; delete im.chanSrc;
+        followers.forEach(({ch})=>{ ch.chan=v; ch.chanOwn=true; delete ch.chanSrc; });
+        const fw=followers.length?`; merge ${_listAnd([...new Set(followers.map(x=>_rtText(formatLabel(x.panel.label))||'?'))])} takes it for the same file’s channel`:'';
         if(sole) delete im.chanOwn;
         else if(v&&rn&&rn!==v){
           im.chanOwn=true;
           const col=_colourName(_LUT_SWATCH[im.lut]||'#888888');
-          toast(`Panel ${_rtText(formatLabel(im.label))||'?'}'s channel is now ${v} — this panel only${others.length?`; the other ${col} panels (${others.join(', ')}) keep ${rn}`:''}. ≡ Sync by channel now treats it as its own channel. To rename every ${col} panel, type the name under Export › Legend key › Channel names.`,'ok');
-        } else delete im.chanOwn;
+          toast(`Panel ${_rtText(formatLabel(im.label))||'?'}'s channel is now ${v} — this panel only${fw}${others.length?`; the other ${col} panels (${others.join(', ')}) keep ${rn}`:''}. ≡ Sync by channel now treats it as its own channel. To rename every ${col} panel, type the name under Export › Legend key › Channel names.`,'ok');
+        } else { delete im.chanOwn; if(fw) toast(`Panel ${_rtText(formatLabel(im.label))||'?'}'s channel is now ${v}${fw}`,'ok'); }
         logAction('panelChannelName',{panel:_rtText(formatLabel(im.label))||'', name:v, own:!!im.chanOwn});
         renderImgList(); scheduleRender(); }); }
     { const cc=item.querySelector('[data-chanchip]');
@@ -7101,7 +7134,8 @@ function renderImgList(){
         const lutNames=Object.fromEntries(Object.entries(LUT_INFO).map(([k,L])=>[k,L.btn]));
         const row=document.createElement('div');
         row.style.cssText='display:flex;align-items:center;gap:4px;font-size:10px';
-        row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">${esc(ch.name||'ch'+(ci+1))}</span>
+        row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)" title="${esc(ch.name||'')}">${esc(ch.name||'ch'+(ci+1))}</span>
+          <input type="text" class="ch-name" value="${esc(_channelName(ch)||'')}" maxlength="60" style="width:74px;font-size:10px;padding:1px 3px" aria-label="Name of channel ${ci+2} in this merge" title="This channel's name in the merge's tag, the caption and Methods — this merge only. Renaming the channel on its own panel (its chip) renames it here too.">
           <select class="ch-lut" style="font-size:10px;padding:1px 3px">${
             Object.entries(lutNames).map(([v,l])=>`<option value="${v}"${ch.lut===v?' selected':''}>${l}</option>`).join('')
           }</select>
@@ -7109,6 +7143,17 @@ function renderImgList(){
           <button class="icon-btn del ch-del" style="font-size:11px" title="Remove this channel">×</button>`;
         row.querySelector('.ch-lut').addEventListener('change',e=>{
           im2.channels[ci].lut=e.target.value; scheduleRender();
+        });
+        // A merge's channel named on its own (fluor5-02): the tag, caption and Methods follow.
+        row.querySelector('.ch-name').addEventListener('change',e=>{
+          const c=im2.channels[ci]; if(!c) return; const v=e.target.value.trim();
+          if(v===(_channelName(c)||'')) return;
+          pushUndo();
+          if(v){ c.chan=v; delete c.chanSrc; const rn=c.lut&&c.lut!=='none'?_keyRename(c.lut):''; if(rn&&rn!==v) c.chanOwn=true; else delete c.chanOwn; }
+          else { delete c.chan; delete c.chanOwn; delete c.chanSrc; }
+          logAction('mergeChannelName',{panel:_rtText(formatLabel(im2.label))||'', channel:ci+2, name:v});
+          toast(`Panel ${_rtText(formatLabel(im2.label))||'?'}: channel ${ci+2} is now ${v||_channelName(c)} in this merge — its tag, the caption and Methods`,'ok');
+          renderImgList(); scheduleRender();
         });
         row.querySelector('.ch-del').addEventListener('click',()=>{
           _freezeParked(); pushUndo();
@@ -7820,7 +7865,10 @@ function channelIdentityGroups(opts){
   _channelObjects().forEach(({o,panel,who})=>{
     if(shown&&!shown.has(panel)) return;
     if(o.type&&o.type!=='image') return;
-    const extra=o!==panel, lut=(o.lut&&o.lut!=='none')?o.lut:(extra?'green':'none');
+    // An extra channel with no LUT at all draws green; one switched Off draws grey and is
+    // grey here too — it was filed under green, and the Display ranges row then advised
+    // giving the grey MAP2 and the green GCaMP6s "one name" (fluor5-04).
+    const extra=o!==panel, lut=(o.lut&&o.lut!=='none')?o.lut:(extra&&!o.lut?'green':'none');
     if(!extra&&lut==='none'&&(panel.channels||[]).length===0&&!_chanLabel(o)) return;
     const name=channelIdentity(extra&&!o.lut?{...o, lut}:o); if(!name) return;
     if(!groups.has(name)) groups.set(name,{name, luts:[], members:[]});
@@ -8315,7 +8363,8 @@ function splitChannelRow(srcIdx, again){
     const cap=_channelName(o, lut);
     const p=_freshPanel(o.img, o.src, o.name||((cap||'channel')+'.png'), 'tmp');
     p.lut=lut||'none'; p.blackPt=(bp!=null?bp:0); p.whitePt=(wp!=null?wp:255);
-    p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.sbUnit=im.sbUnit; p.captionNote=cap; p.channels=[]; p.group=im.group||'';
+    p.umPerPx=im.umPerPx; p.sbUm=im.sbUm; p.sbUnit=im.sbUnit; p.captionNote=cap; p._capAuto=cap; p.channels=[]; p.group=im.group||'';
+    if(p.lut==='none') p._lutChosen=true;
     for(const k of FRAME) if(im[k]!==undefined) p[k]=im[k];
     p.raw=raw||null; if(o.chan){ p.chan=o.chan; if(o.chanOwn) p.chanOwn=true; } if(o.srcBits) p.srcBits=o.srcBits;
     p._splitOf=im.id;
@@ -12359,8 +12408,8 @@ function exportCSV(){
       // Whatever acquisition time the file carried, as it was read — never inferred.
       _csvCell(im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():''),true),
       // The note as the caption prints it (N_{2}O → N₂O, *nosZ* → nosZ), not with its format marks
-      // (freeform5-06).
-      _csvCell(_rtText(String(im.captionNote||'')),true),
+      // (freeform5-06); a note the split filled in, by the channel's name now (fluor5-01).
+      _csvCell(_rtText(_capNote(im)),true),
       _csvCell(im.metaNote||'',true),
       // BlackPt/WhitePt are 8-bit display values; this says what they mean for the file
       // (a 16-bit panel's window in its own values, linear). A chart or gene map has no pixels
@@ -17461,7 +17510,9 @@ function setKeyPictureName(oldName, name){
 function setKeyChannelName(lut, name){
   if(!lut) return;
   const m={..._keyRenames()}, v=String(name||'').trim().slice(0,60);
-  if((m[lut]||'')===v) return;
+  // The colour's own name typed again is "every panel of this colour takes this name":
+  // it did nothing while a panel named on its own kept its name (ISSUES round 4).
+  if((m[lut]||'')===v&&!(v&&_channelObjects().some(({o})=>o.lut===lut&&o.chanOwn))) return;
   pushUndo();
   // The channel's other panels — the same channel shown in grey or another colour (a
   // revision to greyscale, an OME page coloured otherwise) — take the new name too, so
@@ -17478,7 +17529,7 @@ function setKeyChannelName(lut, name){
   // the caption then said "(B) GFP" for a panel the figure calls TFEB-GFP. A note that is
   // only the old name follows the rename; a note the author wrote is left alone.
   if(v) objs.forEach(({o,panel})=>{ if(o!==panel||channelIdentity(o)!==v) return;
-    const n=String(o.captionNote||'').trim(); if(n&&n!==v&&oldNames.has(n)) o.captionNote=v; });
+    const n=String(o.captionNote||'').trim(); if(n&&n!==v&&oldNames.has(n)&&!_capNoteAuto(o)) o.captionNote=v; });
   if(v&&typeof renderImgList==='function') renderImgList();
   logAction('keyChannelName',{lut, name:v});
   const box=document.getElementById('key-names-ui'); if(box) box.dataset.sig='';
@@ -24605,6 +24656,13 @@ function _sameAdjustments(a,b){
 // tags print (Legend key › Channel names, ⚙ › Channel, an OME name, the file name),
 // else its lookup table's usual channel. One wrapper, so the texts and the key cannot
 // name a channel differently.
+// A panel's caption note as the caption uses it. ⑃ Split fills each part's note with its
+// channel's name at the time; that note follows the channel's name since (a chip rename,
+// a grey channel renamed under Channel names, a merge channel's own name), so the caption
+// never names the old indicator: "(L) GCaMP6s, GCaMP6f (green)" and "(D) Cy5." beside a
+// tag and key saying MAP2 (fluor5-01). A note the author typed is theirs and kept as typed.
+function _capNoteAuto(im){ const n=String((im&&im.captionNote)||'').trim(); return !!(n&&im._capAuto!=null&&n===String(im._capAuto).trim()); }
+function _capNote(im){ const n=String((im&&im.captionNote)||'').trim(); return _capNoteAuto(im)?(_capChanName(im)||n):n; }
 function _capChanName(o){ return (typeof channelIdentity==='function'&&channelIdentity(o))||(typeof _channelName==='function'&&_channelName(o))||_lutChannelName(o&&o.lut); }
 // A lookup table as a colour word for a legend ("green", "magenta"); a colour map by name.
 function _lutColourWord(k){ const L=LUT_INFO[k||'none']; if(!L||!L.name) return '';
@@ -24991,7 +25049,7 @@ function _captionText(){
   const FP=items.map(it=>it.im), letterOf=new Map(items.map(it=>[it.im,it.letter]));
   const heads=_captionHeadings();
   const parts=FP.map(im=>{
-    const note=_rtText(String(im.captionNote||'').trim());   // P_{lsrA} → P_lsrA, as headings and axis titles are (freeform4-05)
+    const note=_rtText(_capNote(im));   // P_{lsrA} → P_lsrA, as headings and axis titles are (freeform4-05)
     // Build description: the caption note, else what the figure prints over the panel —
     // its column heading and its tag (a condition, a time point) — so "(B) GFP-LC3."
     // or "(B) 10 min." rather than "(B) Panel B."
@@ -25007,8 +25065,10 @@ function _captionText(){
     // GFP (green) and Membrane (magenta)" — it used to be "Merge (blue)", the base's colour.
     const mch=(im.channels||[]).filter(c=>c&&c.img);
     if(mch.length&&!_isDataPanel(im)){
-      const one=(o,k)=>{ const n=_capChanName(o), c=_lutColourWord(k); return n&&c?`${n} (${c})`:n||c||''; };
-      const list=[...(im.lut&&im.lut!=='none'?[one(im,im.lut)]:[]), ...mch.map(c=>one(c,c.lut||'green'))].filter(Boolean);
+      // A channel switched Off is drawn grey in the merge, and named so: "… and MAP2 (grey)"
+      // read as if its colour had been left out (fluor5-13).
+      const one=(o,k)=>{ const n=_capChanName(o), c=k==='none'?'grey':_lutColourWord(k); return n&&c?`${n} (${c})`:n||c||''; };
+      const list=[...(im.lut&&im.lut!=='none'?[one(im,im.lut)]:channelIdentity(im)?[one(im,'none')]:[]), ...mch.map(c=>one(c,c.lut||'green'))].filter(Boolean);
       if(list.length>1){
         const dl=desc.toLowerCase();
         desc=!desc||dl==='merge'||dl==='merged'?`Merge of ${_listAnd(list)}`:`${desc} (merge of ${_listAnd(list)})`;
@@ -25177,11 +25237,15 @@ function generateMethodsParagraph(){
   // Pseudocolour: each channel by its name and colour, panels sharing both named
   // together ("TFEB-GFP in green (panels A and B)"); a channel also shown without a
   // lookup table is said to be in greyscale there, not left out.
-  const luts=new Map(), say=(o,k,im)=>{ const t=`${_capChanName(o)} in ${_lutColourWord(k)||LUT_NAMES[k]||k}`;
+  // A merge's channel switched Off is drawn grey: it is named "in greyscale" with the
+  // others, not left out (fluor5-13: MAP2 was missing from the sentence).
+  const luts=new Map(), say=(o,k,im)=>{ const t=`${_capChanName(o)} in ${k==='none'?'greyscale':_lutColourWord(k)||LUT_NAMES[k]||k}`;
     if(!luts.has(t)) luts.set(t,new Set()); luts.get(t).add(nm(im)); };
+  const mergeGrey=new Set();
   P.forEach(im=>{
     if(im.lut&&im.lut!=='none') say(im,im.lut,im);
-    (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') say(ch,k,im); });
+    else if((im.channels||[]).some(c=>c&&c.img)&&channelIdentity(im)){ say(im,'none',im); mergeGrey.add(_capChanName(im)); }
+    (im.channels||[]).forEach(ch=>{ const k=ch.lut||'green'; if(k!=='none') say(ch,k,im); else if(channelIdentity(ch)){ say(ch,'none',im); mergeGrey.add(_capChanName(ch)); } });
   });
   if(luts.size) S.push(`Images were pseudocoloured with lookup tables: ${[...luts].map(([t,who])=>`${t} (${_panelsPhrase([...who])})`).join('; ')}.`);
   // Only a channel that is pseudocoloured on another panel (the same channel by its file
@@ -25190,7 +25254,7 @@ function generateMethodsParagraph(){
   { const coloured=new Map();
     P.forEach(im=>[im,...(im.channels||[])].forEach(o=>{ const k=o.lut||(o===im?'none':'green'); if(k==='none') return;
       const c=_capChanName(o); if(c&&!coloured.has(c)) coloured.set(c,c); }));
-    const grey=P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&!_isDataPanel(im)&&coloured.has(_capChanName(im)));
+    const grey=P.filter(im=>!(im.lut&&im.lut!=='none')&&!(im.channels&&im.channels.length)&&!im.grayscale&&!_isDataPanel(im)&&(coloured.has(_capChanName(im))||mergeGrey.has(_capChanName(im))));
     if(grey.length) S.push(`${_ucFirst(_panelsPhrase(grey.map(nm)))} ${grey.length===1?'shows':'show'} ${_listAnd([...new Set(grey.map(im=>_capChanName(im)))])} in greyscale, without a lookup table.`); }
   P.filter(im=>im.channels&&im.channels.some(c=>c.img)).forEach(im=>{
     // The base image plus each channel that has pixels; a channel without them is not drawn.
@@ -25405,7 +25469,7 @@ function _buildStructuralAltText(){
     if(!(gv('caption-out')||'').trim()&&items.length){
       const one=it=>{ const im=it.im, L=it.letter?`(${it.letter}) `:'';
         if(_isDataPanel(im)) return L+_dataCaption(im).split('. ')[0].replace(/\.$/,'');
-        const n=_rtText(String(im.captionNote||'').trim()); return L+(n||`picture${_sourceName(im)?` ${_sourceName(im)}`:''}`); };
+        const n=_rtText(_capNote(im)); return L+(n||`picture${_sourceName(im)?` ${_sourceName(im)}`:''}`); };
       parts.push(items.map(one).join('; ')+'.');
     }
   }
@@ -27426,8 +27490,14 @@ function mergeTickedPanels(){
   // the next colour-blind-safe one not yet taken. Named ones are placed first so a
   // fallback cannot take the green a later GFP file needs. A base with none stays grey,
   // as when you add a channel to a LUT-less panel.
+  // A panel whose LUT was switched off on purpose (grey) stays grey in the merge: a Cy5
+  // panel set to Off came into every merge in Fire, and one renamed MAP2 first in cyan,
+  // so one channel had two colours across rows (fluor5-06).
   const luts=sel.map(i=>{ const s=images[i];
-    return (s.lut&&s.lut!=='none') ? s.lut : ((_detectChannel(s.chan||s.name)||{}).lut||null); });
+    if(s.lut&&s.lut!=='none') return s.lut;
+    if(s._lutChosen) return 'none';
+    const d=_detectChannel(s.chan||'')||_detectChannel(s.name||'');
+    return (d&&d.lut)||null; });
   const used=new Set(luts.filter(Boolean)), cbSafe=['magenta','green','cyan','yellow'];
   for(let k=1;k<luts.length;k++) if(!luts[k]){
     luts[k]=cbSafe.find(c=>!used.has(c))||'magenta'; used.add(luts[k]); }
@@ -27466,7 +27536,7 @@ function mergeTickedPanels(){
   document.querySelectorAll('#img-list .panel-pick:checked').forEach(cb=>{ cb.checked=false; });
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('mergeTicked',{from:labels, into:formatLabel(p.label)});
-  toast(`${labels} merged into ${_rtText(formatLabel(p.label))} (${luts.join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
+  toast(`${labels} merged into ${_rtText(formatLabel(p.label))} (${luts.map(l=>l==='none'?'grey':l).join(' + ')}) — the sources are hidden, not deleted; ⑃ Split channels makes the channels | merge row`
     + (mixedFrame?' — the base panel’s crop applies to every channel':''),'ok');
 }
 
@@ -39561,7 +39631,7 @@ async function exportPNGWithMeta(name, dpi, canvas){
       im.umPerPx?`${im.umPerPx.toFixed(4)}µm/px`:'',
       `B:${im.brightness.toFixed(2)} C:${im.contrast.toFixed(2)} G:${(im.gamma||1).toFixed(2)}`,
       `Levels:${_levelsDisclosure(im).replace(/[–—]/g,'-')}`,
-      im.captionNote||'',
+      _capNote(im),
     ].filter(Boolean).join(', ');
   });
   const base=_safeDataURL(canvas,'image/png');

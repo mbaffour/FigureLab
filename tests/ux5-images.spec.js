@@ -152,3 +152,136 @@ test('phage5-13: a gene map titled with *italic* markup is listed under its plai
   await expect(row.locator('.f-fname')).toHaveText('Escherichia phage vB_EcoS_Tq4');
   expect(errors).toEqual([]);
 });
+
+// Single-channel files as Fiji's Split Channels writes them, one field per `fields` entry.
+async function addChannelFiles(page, fields, words) {
+  await page.evaluate(async ([fields, words]) => {
+    const mk = (name, seed) => new Promise(r => { const c = document.createElement('canvas'); c.width = 120; c.height = 90; const x = c.getContext('2d');
+      x.fillStyle = '#000'; x.fillRect(0, 0, 120, 90); x.fillStyle = `rgb(${seed},${seed},${seed})`; x.fillRect(10 + seed % 37, 12 + seed % 23, 40, 30);
+      c.toBlob(b => r(new File([b], name, { type: 'image/png' }))); });
+    const fs = []; let k = 50;
+    for (const f of fields) for (let i = 0; i < words.length; i++) fs.push(await mk(`C${i + 1}-DIV14_${f}_63x_${words[i]}.png`, k += 23));
+    await addFiles(fs);
+  }, [fields, words]);
+  const n = fields.length * words.length;
+  await page.waitForFunction((n) => images.filter(Boolean).length === n && images.every(im => im.img && im.img.complete && im.img.naturalWidth), n);
+}
+// Tick a field's panels in the list and press ⊕ Merge, then ⑃ Split the merge.
+async function mergeAndSplit(page, field) {
+  await page.evaluate((f) => { document.querySelectorAll('#img-list .panel-pick').forEach(cb => { cb.checked = !images[+cb.dataset.pick].excluded && images[+cb.dataset.pick].name.includes(f) && !(images[+cb.dataset.pick].channels || []).length && !images[+cb.dataset.pick]._splitOf; });
+    mergeTickedPanels(); }, field);
+  const toast = await shownToast(page);
+  await page.evaluate((f) => { const m = images.findIndex(im => im && !im.excluded && (im.channels || []).length && im.name.includes(f)); splitChannelRow(m); render(); }, field);
+  return toast;
+}
+const L = (page, re) => page.evaluate((src) => { const rx = new RegExp(src); const im = images.find(im => im && !im.excluded && !(im.channels || []).length && rx.test(im.name)); return _rtText(formatLabel(im.label)); }, re.source);
+const M = (page, f) => page.evaluate((f) => { const im = images.find(im => im && !im.excluded && (im.channels || []).length && im.name.includes(f)); return _rtText(formatLabel(im.label)); }, f);
+
+test('fluor5-05, fluor5-06: Auto-channels recognises GCaMP6s as green under its own name and gives a far-red channel grey, and a merge keeps a panel switched to grey grey', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addChannelFiles(page, ['shCtrl_f1'], ['DAPI', 'GCaMP6s', 'mCherry', 'Cy5']);
+  await page.evaluate(() => autoDetectChannels());
+  expect(await shownToast(page)).toBe('Assigned channels to 4 panels from filenames');     // was 3: GCaMP6s stayed grey
+  expect(await page.evaluate(() => images.map(im => [im.lut, _channelName(im)]))).toEqual([['blue', 'DAPI'], ['green', 'GCaMP6s'], ['magenta', 'mCherry'], ['none', 'Cy5']]);
+  await expect(page.locator('[data-chanchip="1"]')).toHaveText('GCaMP6s');
+  expect(await mergeAndSplit(page, 'shCtrl_f1')).toMatch(/merged into A \(blue \+ green \+ magenta \+ grey\)/);   // was "+ fire"
+  expect(await page.evaluate(() => images.filter(im => !im.excluded).map(im => im.lut))).toEqual(['blue', 'green', 'magenta', 'none', 'blue']);
+  // a channel no file word names (MAP2), switched Off in ⚙ › LUT: grey in the merge too, not the next free colour (cyan)
+  const errors2 = await loadApp(page);
+  await addChannelFiles(page, ['f2'], ['DAPI', 'GFP', 'MAP2']);
+  await page.evaluate(() => autoDetectChannels());
+  await page.evaluate(() => { images[2].lut = 'magenta'; renderImgList(); });
+  await page.locator('[data-gear="2"]').click();
+  await page.locator('#settings-2 .f-lut[data-lut="none"]').click();
+  expect(await mergeAndSplit(page, 'f2')).toMatch(/\(blue \+ green \+ grey\)/);
+  expect(errors).toEqual([]); expect(errors2).toEqual([]);
+});
+
+test('fluor5-01, fluor5-02, fluor5-12: a channel renamed on one split panel is renamed in its merge — tag, caption and Methods — and a merge channel can be named in ⚙ › Channels', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addChannelFiles(page, ['shCtrl_f1', 'shNlgn1_f1'], ['DAPI', 'GCaMP6s', 'mCherry']);
+  await page.evaluate(() => autoDetectChannels());
+  await mergeAndSplit(page, 'shCtrl_f1'); await mergeAndSplit(page, 'shNlgn1_f1');
+  const g1 = await L(page, /shCtrl.*GCaMP6s/), m1 = await M(page, 'shCtrl'), m2 = await M(page, 'shNlgn1');
+  // the green channel named for the whole figure under Export › Legend key › Channel names, as the tester did
+  await page.evaluate(() => { render(); _keyNamesUI(); const i = document.querySelector('#key-names-ui .key-name-in[data-lut="green"]'); i.value = 'GCaMP6s'; i.dispatchEvent(new Event('change')); render(); });
+  // the row's GCaMP6s panel › chip › GCaMP6f, as the tester renamed L
+  const gi = await page.evaluate((g) => images.findIndex(im => im && _rtText(formatLabel(im.label)) === g), g1);
+  await page.locator(`[data-chanchip="${gi}"]`).click();
+  await page.locator(`#settings-${gi} .f-chan`).fill('GCaMP6f');
+  await page.locator(`#settings-${gi} .f-chan`).press('Enter');
+  const t = await shownToast(page);
+  expect(t).toMatch(new RegExp(`this panel only; merge ${m1} takes it for the same file’s channel`));
+  // hidden sources are not "other green panels"
+  const hidden = await page.evaluate(() => images.filter(im => im && im.excluded).map(im => _rtText(formatLabel(im.label))));
+  const listed = (t.match(/the other green panels \(([^)]*)\)/) || [, ''])[1].split(', ');
+  expect(listed.filter(x => hidden.includes(x))).toEqual([]);
+  expect(listed.length).toBe(2);                                  // the other field's GCaMP6s panel and its merge
+  await page.evaluate(() => render());
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).toContain(`(${g1}) GCaMP6f (green).`);              // was "(L) GCaMP6s, GCaMP6f (green)."
+  expect(cap).toMatch(new RegExp(`\\(${m1}\\) Merge of DAPI \\(blue\\), GCaMP6f \\(green\\) and mCherry \\(magenta\\)`));
+  expect(cap).toMatch(new RegExp(`\\(${m2}\\) Merge of DAPI \\(blue\\), GCaMP6s \\(green\\)`));
+  const meth = await page.evaluate(() => generateMethodsParagraph());
+  expect(meth).toMatch(new RegExp(`GCaMP6f in green \\(panels ${g1} and ${m1}\\)`));
+  expect(await page.evaluate((m) => _panelTagParts(images.find(im => _rtText(formatLabel(im.label)) === m), '#fff').map(p => p.str), m1)).toEqual(['DAPI', 'GCaMP6f', 'mCherry']);
+  // ⚙ › Channels of the second merge: its red channel named on its own
+  const mi = await page.evaluate((m) => images.findIndex(im => im && _rtText(formatLabel(im.label)) === m), m2);
+  await page.locator(`[data-gear="${mi}"]`).click();
+  const nameIn = page.locator(`#settings-${mi} .ch-name`).nth(1);
+  await expect(nameIn).toHaveValue('mCherry');
+  await nameIn.fill('Homer1-mCherry'); await nameIn.press('Enter');
+  await page.evaluate(() => render());
+  expect(await page.evaluate(() => _captionText())).toMatch(new RegExp(`\\(${m2}\\) Merge of DAPI \\(blue\\), GCaMP6s \\(green\\) and Homer1-mCherry \\(magenta\\)`));
+  expect(await page.evaluate((m) => _panelTagParts(images.find(im => _rtText(formatLabel(im.label)) === m), '#fff').map(p => p.str), m2)).toEqual(['DAPI', 'GCaMP6s', 'Homer1-mCherry']);
+  expect(errors).toEqual([]);
+});
+
+test('fluor5-01, fluor5-13, fluor5-04: a grey channel renamed under Channel names is renamed in the caption notes the split filled in; merges say "(grey)", Methods names it, and Display ranges does not file it under green', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addChannelFiles(page, ['shCtrl_f1', 'shNlgn1_f1'], ['DAPI', 'GCaMP6s', 'Cy5']);
+  await page.evaluate(() => autoDetectChannels());
+  await mergeAndSplit(page, 'shCtrl_f1'); await mergeAndSplit(page, 'shNlgn1_f1');
+  // the green channel matched across the figure, the grey one at another range
+  await page.evaluate(() => { images.forEach(im => { if (!im || im.excluded) return;
+    (im.channels || []).forEach(c => { if (c.lut === 'green') { c.blackPt = 10; c.whitePt = 200; } else { c.blackPt = 30; c.whitePt = 120; } });
+    if (im.lut === 'green') { im.blackPt = 10; im.whitePt = 200; } else if (im.lut === 'none') { im.blackPt = 30; im.whitePt = 120; } }); render(); });
+  const d = await L(page, /shCtrl.*Cy5/), m = await M(page, 'shCtrl');
+  // Export › Legend key › Channel names: the grey row Cy5 → MAP2
+  await page.evaluate(() => { render(); _keyNamesUI(); });
+  const grey = page.locator('#key-names-ui .key-name-in[data-lut="grey"]');
+  await expect(grey).toHaveValue('Cy5');
+  await page.evaluate(() => { const i = document.querySelector('#key-names-ui .key-name-in[data-lut="grey"]'); i.value = 'MAP2'; i.dispatchEvent(new Event('change')); render(); });
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).toContain(`(${d}) MAP2.`);                          // was "(D) Cy5."
+  expect(cap).not.toMatch(/Cy5/);
+  expect(cap).toMatch(new RegExp(`\\(${m}\\) Merge of DAPI \\(blue\\), GCaMP6s \\(green\\) and MAP2 \\(grey\\)`));   // was "… and MAP2"
+  // ⚙ › Caption note shows the name the caption uses
+  const di = await page.evaluate((x) => images.findIndex(im => im && _rtText(formatLabel(im.label)) === x), d);
+  await page.locator(`[data-gear="${di}"]`).click();
+  await expect(page.locator(`#settings-${di} .f-cap`)).toHaveValue('MAP2');
+  const meth = await page.evaluate(() => generateMethodsParagraph());
+  expect(meth).toMatch(/MAP2 in greyscale \(panels [A-Z] and [A-Z]\)/);
+  expect(meth).toMatch(/show MAP2 in greyscale, without a lookup table/);
+  const row = await complianceRow(page, /^\W*Display ranges by channel/);
+  expect(row).toMatch(/Same range per channel across panels ✓/);
+  expect(row).not.toMatch(/give it one name/);
+  // a note the author types is theirs: kept when the channel is renamed again
+  await page.locator(`#settings-${di} .f-cap`).fill('MAP2 (dendrites)');
+  await page.evaluate(() => { const i = document.querySelector('#key-names-ui .key-name-in[data-lut="grey"]'); i.value = 'MAP2-Cy5'; i.dispatchEvent(new Event('change')); render(); });
+  expect(await page.evaluate(() => _captionText())).toContain(`(${d}) MAP2 (dendrites).`);
+  expect(errors).toEqual([]);
+});
+
+test('ISSUES round 4: typing a colour\'s own name under Channel names gives it back to a panel named on its own', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addChannelFiles(page, ['f1', 'f2'], ['DAPI', 'CellMask']);
+  await page.evaluate(() => { autoDetectChannels(); render(); _keyNamesUI(); const i = document.querySelector('#key-names-ui .key-name-in[data-lut="magenta"]'); i.value = 'Membrane'; i.dispatchEvent(new Event('change')); render(); });
+  // one magenta panel's chip › CellMask (this panel only)
+  await page.locator('[data-chanchip="1"]').click();
+  await page.locator('#settings-1 .f-chan').fill('CellMask'); await page.locator('#settings-1 .f-chan').press('Enter');
+  expect(await page.evaluate(() => [_channelName(images[1]), _channelName(images[3])])).toEqual(['CellMask', 'Membrane']);
+  await page.evaluate(() => { render(); _keyNamesUI(); const i = document.querySelector('#key-names-ui .key-name-in[data-lut="magenta"]'); i.value = 'Membrane'; i.dispatchEvent(new Event('change')); render(); });
+  expect(await page.evaluate(() => [_channelName(images[1]), _channelName(images[3])])).toEqual(['Membrane', 'Membrane']);
+  expect(errors).toEqual([]);
+});
