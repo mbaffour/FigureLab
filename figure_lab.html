@@ -1116,9 +1116,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
   <div class="acc-body">
     <div class="sec-lbl">Tool</div>
     <div style="display:flex;gap:4px;flex-wrap:wrap">
-      <button class="ann-tool" data-tool="measure-roi" onclick="setTool('measure-roi')" style="font-size:11px">⬚ ROI</button>
-      <button class="ann-tool" data-tool="measure-line" onclick="setTool('measure-line')" style="font-size:11px">📏 Profile</button>
-      <button class="ann-tool" data-tool="measure-count" onclick="setTool('measure-count')" style="font-size:11px">🔢 Count</button>
+      <button class="ann-tool" data-tool="measure-roi" onclick="setTool(activeTool==='measure-roi'?'none':'measure-roi')" style="font-size:11px" title="Click again to put the tool down">⬚ ROI</button>
+      <button class="ann-tool" data-tool="measure-line" onclick="setTool(activeTool==='measure-line'?'none':'measure-line')" style="font-size:11px" title="Click again to put the tool down">📏 Profile</button>
+      <button class="ann-tool" data-tool="measure-count" onclick="setTool(activeTool==='measure-count'?'none':'measure-count')" style="font-size:11px" title="Click again to put the tool down">🔢 Count</button>
       <button class="ann-tool" data-tool="ruler" onclick="setTool('ruler')" style="font-size:11px" title="Draw a ruler on a calibrated panel: it reads its length in nm, µm or mm from the panel's source pixels and µm/px. Name rulers below (e.g. capsid, tail) to get n, mean and SD.">⊢ Ruler</button>
     </div>
     <div class="field" id="count-thresh-row" style="display:none;margin-top:4px;flex-wrap:wrap;gap:4px">
@@ -4399,23 +4399,27 @@ function _decodeImageFile(f, page){
 function _replacePlan(im, d){
   const o=im.img||im._imgEl, ow=o?(o.naturalWidth||o.width||0):0, oh=o?(o.naturalHeight||o.height||0):0;
   const nw=d.img.naturalWidth||d.img.width||0, nh=d.img.naturalHeight||d.img.height||0;
-  const c=d.calib||{}, notes=[];
+  const c=d.calib||{}, notes=[], items=[];
+  // Each note is what was not kept (warn), what was kept (kept), or a pointer (info): the
+  // toast says "… kept, but <what was not>" and then lists the rest — it used to read
+  // "crop and label kept, but; caption note kept…" with nothing after "but".
+  const note=(t,kind)=>{ notes.push(t); items.push({t, kind:kind||'info'}); };
   let um=im.umPerPx||0, warn=false;
   if(c.umPerPx>0){
-    if(Math.abs(um-c.umPerPx)>1e-9) notes.push(`calibration ${(+c.umPerPx).toPrecision(4)} µm/px from the new file’s ${c.source||'metadata'}`);
+    if(Math.abs(um-c.umPerPx)>1e-9) note(`calibration ${(+c.umPerPx).toPrecision(4)} µm/px from the new file’s ${c.source||'metadata'}`);
     um=c.umPerPx;
   } else if(um>0 && !(ow===nw&&oh===nh)){
-    notes.push(`calibration cleared: the new file is ${nw}×${nh} px and the old one ${ow}×${oh}, so ${(+um).toPrecision(4)} µm/px may be wrong — calibrate it again`);
+    note(`calibration cleared: the new file is ${nw}×${nh} px and the old one ${ow}×${oh}, so ${(+um).toPrecision(4)} µm/px may be wrong — calibrate it again`,'warn');
     um=0; warn=true;
   }
   if(ow&&oh&&nw&&nh){
     const a=ow/oh, b=nw/nh;
-    if(Math.abs(b/a-1)>0.01){ notes.push(`aspect ratio ${a.toFixed(2)} → ${b.toFixed(2)}: the crop is kept as percentages, so check it`); warn=true; }
+    if(Math.abs(b/a-1)>0.01){ note(`aspect ratio ${a.toFixed(2)} → ${b.toFixed(2)}: the crop is kept as percentages, so check it`,'warn'); warn=true; }
   }
   // A blot's lane analysis was made on the old pixels; its lane table is kept, but its
   // columns were placed on the old lanes.
   if(im.gelAnalysis||(im.laneTable&&(im.laneTable.rows||[]).length)){
-    notes.push(`its lane analysis is now out of date — re-detect the lanes${im.laneTable&&(im.laneTable.rows||[]).length?'; the lane table is kept but may no longer line up with the new lanes':''}`);
+    note(`its lane analysis is now out of date — re-detect the lanes${im.laneTable&&(im.laneTable.rows||[]).length?'; the lane table is kept but may no longer line up with the new lanes':''}`,'warn');
     warn=true;
   }
   // The display range is kept in the files' own values (camera counts), not as 8-bit
@@ -4423,14 +4427,33 @@ function _replacePlan(im, d){
   // matched to its row at 300–12000 came back at 278–11119 (fluor3-02). A new file
   // without native samples cannot be shown at counts; that is said, not glossed over.
   const nl=_nativeLevels(im);
-  if(nl&&!(d.raw&&d.raw.data)){ notes.push(`display range ${nl.text} (native values) cannot be kept: the new file has no ${_rawOf(im)?_rawDepth(_rawOf(im)):'16-bit'} samples, so its levels are 8-bit display values now — check them against the panels it is compared with`); warn=true; }
+  if(nl&&!(d.raw&&d.raw.data)){ note(`display range ${nl.text} (native values) cannot be kept: the new file has no ${_rawOf(im)?_rawDepth(_rawOf(im)):'16-bit'} samples, so its levels are 8-bit display values now — check them against the panels it is compared with`,'warn'); warn=true; }
+  // Measurements made on the old pixels (a count, an ROI, a line profile, a ruler) are
+  // not measurements of the new ones: they are named here and marked out of date.
+  const ms=_measOf(im);
+  if(ms.length){ note(`${_listAnd(ms.map(_measName))} ${ms.length>1?'were':'was'} made on the old picture — marked out of date and left out of the Measurements CSV, the caption and Methods; ${ms.some(m=>m.type==='cellCount')?'count':'measure'} again`,'warn'); warn=true; }
+  const rs=_rulersOf(im);
+  if(rs.length){ note(`${rs.length} ruler${rs.length>1?'s':''} drawn on the old picture ${rs.length>1?'give':'gives'} no length until ${rs.length>1?'they are':'it is'} dragged onto the new one`,'warn'); warn=true; }
   const lostCh=(im.channels||[]).length;
-  if(lostCh) notes.push(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — if ${lostCh>1?'they':'it'} belonged to it, use ⇄ beside each channel in ⚙ › Channels to swap ${lostCh>1?'them':'it'} too (their ranges are kept)`);
-  // The caption note was written for the old picture; it stays, and is named, so a gel's
-  // note does not go on captioning a swim plate unseen (newcomer3-09).
+  if(lostCh) note(`${lostCh} channel overlay${lostCh>1?'s':''} kept from the old field — if ${lostCh>1?'they':'it'} belonged to it, use ⇄ beside each channel in ⚙ › Channels to swap ${lostCh>1?'them':'it'} too (their ranges are kept)`,'kept');
+  // The caption and metadata notes were written for the old picture; they stay, and are
+  // named, so a gel's note does not go on captioning a swim plate unseen (newcomer3-09),
+  // nor the old plate's lab-book page on the new photo's metadata row (charts4-08). A
+  // freeform picture has no ⚙: its notes are in the Props bar above the canvas.
+  const ff=typeof freeformElements!=='undefined'&&freeformElements.includes(im);
+  const short=t=>t.length>48?t.slice(0,46)+'…':t;
   const cn=String(im.captionNote||'').trim();
-  if(cn&&cn!=='Merge') notes.push(`caption note kept: “${cn.length>48?cn.slice(0,46)+'…':cn}” — edit it in ⚙ if it no longer fits`);
-  return {um, notes, warn, dims:`${nw}×${nh}`, nl};
+  if(cn&&cn!=='Merge') note(`caption note kept: “${short(cn)}” — edit it in ${ff?'the Props bar › Caption note':'⚙'} if it no longer fits`,'kept');
+  const mn=String(im.metaNote||'').trim();
+  if(mn&&!ff) note(`metadata note kept: “${short(mn)}” — edit it in ⚙ › Metadata note if it was about the old file`,'kept');
+  return {um, notes, items, warn, dims:`${nw}×${nh}`, nl};
+}
+// "… kept, but <what was not kept>. Also: <what was kept>" — one sentence per toast.
+function _replaceTail(plan, keptAll, keptSome, extra){
+  const it=plan.items.concat((extra||[]).map(t=>({t, kind:'warn'})));
+  const w=it.filter(i=>i.kind==='warn').map(i=>i.t), k=it.filter(i=>i.kind!=='warn').map(i=>i.t);
+  if(!w.length) return `${keptAll} kept${k.length?'; '+k.join('; '):''}`;
+  return `${keptSome} kept, but ${w.join('; ')}${k.length?`. Also: ${k.join('; ')}`:''}`;
 }
 // Swap the pixels in, keep the panel. The gel analysis is left as it is: its bitmap
 // fingerprint no longer matches, so it reads "image replaced" and asks to re-detect.
@@ -4449,8 +4472,8 @@ function _replaceInto(im, d){
   if((im.channels||[]).length){ im.raw=null; im.dispRaw=nraw; } else { im.raw=nraw; delete im.dispRaw; }
   if(c.bits>8) im.srcBits=c.bits; else if(d.raw==null) delete im.srcBits;
   const kept=_reapplyNative(im, plan.nl);
-  if(kept&&kept.moved){ plan.notes.push(`display range ${kept.was} could not be kept exactly: it is ${kept.now} now`); plan.warn=true; }
-  else if(kept&&kept.ok) plan.notes.unshift(`display range ${kept.now} (native values) kept`);
+  if(kept&&kept.moved){ const t=`display range ${kept.was} could not be kept exactly: it is ${kept.now} now`; plan.notes.push(t); plan.items.push({t, kind:'warn'}); plan.warn=true; }
+  else if(kept&&kept.ok){ const t=`display range ${kept.now} (native values) kept`; plan.notes.unshift(t); plan.items.unshift({t, kind:'kept'}); }
   if(c.page>0){ im.srcPage=c.page; im.srcPages=c.pages||undefined; } else { delete im.srcPage; delete im.srcPages; }
   im._metaUmPerPx=c.umPerPx>0?c.umPerPx:0; im._metaCalibSource=c.source||'';
   im._metaDeltaT=c.deltaT!=null?c.deltaT:null; im._metaAcqTime=c.acqTime!=null?c.acqTime:null; im._metaTimeSource=c.timeSource||'';
@@ -4458,12 +4481,13 @@ function _replaceInto(im, d){
   // A projection's record names the panels it was computed from; this file is not that.
   im._projection=undefined; im._importCrop=undefined; im._sbSkip=undefined;
   // Where the old picture's burned-in bar or ruler sat says nothing about the new one.
-  if(im.sbBurnedIn) plan.notes.push('the old image’s burned-in scale bar is not in this one — 🔍 Auto-detect or switch its bar on');
+  if(im.sbBurnedIn){ const t='the old image’s burned-in scale bar is not in this one — 🔍 Auto-detect or switch its bar on'; plan.notes.push(t); plan.items.push({t, kind:'info'}); }
   delete im.sbAvoid; delete im.sbBurnedIn;
   im._adjCache=undefined; im._adjKey=undefined; im._cropCache=undefined; im._cropKey=undefined;
   // A new array, never a push: undo snapshots share the old one by reference.
   im._replaced=[...(im._replaced||[]), {from:was, to:_sourceName(im)||d.name, at:new Date().toISOString(),
     ...(wasPx?{fromPixels:wasPx}:{}), toPixels:`${nw}×${nh}px`, ...(wasNotes.length?{fromNotes:wasNotes.slice()}:{})}];
+  _staleMeasurements(im, was, _sourceName(im)||d.name);
   return plan;
 }
 let _replaceTarget=null;
@@ -4507,10 +4531,11 @@ async function replacePanelImage(pid, f){
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   const pg=d.pages>1?` (page ${d.page} of ${d.pages})`:'';
   const pm=d.pageMissing?`page ${d.pageMissing} is not in the new file (${d.pages} page${d.pages===1?'':'s'}), so page ${d.page} was used`:'';
-  const notes=(pm?[pm]:[]).concat(plan.notes);
-  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) notes.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
-  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>!el.chart.link&&el.chart.unlinked&&!el.chart.unlinked.own&&(el.chart.unlinked.ids||[]).includes(im.id))) notes.push('a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values');
-  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — ${plan.warn?'crop and label kept, but':'crop, label and settings kept'}${notes.length?'; '+notes.join('; '):''}`, (plan.warn||pm)?'warn':'ok');
+  const extra=pm?[pm]:[];
+  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) extra.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
+  if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>!el.chart.link&&el.chart.unlinked&&!el.chart.unlinked.own&&(el.chart.unlinked.ids||[]).includes(im.id))) extra.push('a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values');
+  if(im.gelAnalysis&&annotations.some(a=>a&&a.mw&&a.blotPanel===im.id)) extra.push('its MW labels sit where the old scan’s ladder bands were — the re-analysis moves them onto the new ladder, or ↕ Place MW labels again');
+  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — ${_replaceTail(plan,'crop, label and settings','crop and label',extra)}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
 // A freeform picture takes another file and keeps its place, width, crop, letter, caption
@@ -4543,10 +4568,13 @@ async function replaceFreeformImage(eid, f){
   if(twin&&!_isDataPanel(twin)){ _replaceInto(twin, d); syncLinkedInsets(); }
   logAction('replaceImage',{label:el.label, from:was, to:_sourceName(el), mode:'freeform'});
   updateFreeformElemList(); renderImgList(); scheduleRender(0);
-  const notes=plan.notes.filter(n=>!/aspect ratio/.test(n)).concat(boxNote?[boxNote]:[]);
-  if(twin) notes.push('the caption, metadata and history name the new file');
+  // A box that took the new shape is said, not warned: the picture is not stretched.
+  plan.items=plan.items.filter(i=>!/^aspect ratio/.test(i.t));
+  plan.warn=plan.items.some(i=>i.kind==='warn');
+  if(boxNote) plan.items.push({t:boxNote, kind:'info'});
+  if(twin) plan.items.push({t:'the caption, metadata and history name the new file', kind:'info'});
   const L=_rtPlain(formatLabel(el.label||''))||'';
-  toast(`${L?'Picture '+L:'Picture'}: ${was} → ${d.name} — ${plan.warn?'place, crop and letter kept, but':'place, crop, letter and settings kept'}${notes.length?'; '+notes.join('; '):''}`, plan.warn?'warn':'ok');
+  toast(`${L?'Picture '+L:'Picture'}: ${was} → ${d.name} — ${_replaceTail(plan,'place, crop, letter and settings','place, crop and letter')}`, plan.warn?'warn':'ok');
   return true;
 }
 // One channel of a merge takes another file — the same channel of another field — and
@@ -4573,6 +4601,8 @@ async function replaceChannelFile(pid, ci, f){
   im.channels=im.channels.map((x,k)=>k===ci?nch:x);
   im._compCache=undefined; im._compKey=undefined; im._adjCache=undefined; im._adjKey=undefined;
   im._replaced=[...(im._replaced||[]), {from:ch.name||'', to:d.name, channel:key, at:new Date().toISOString()}];
+  const staleN=_measOf(im).map(_measName);
+  _staleMeasurements(im, ch.name||'(unnamed)', d.name);
   const kept=_reapplyNative(nch, nl);
   logAction('replaceChannel',{label:im.label, channel:key, from:ch.name, to:d.name});
   renderImgList(); scheduleRender(0);
@@ -4581,7 +4611,8 @@ async function replaceChannelFile(pid, ci, f){
     : kept&&kept.ok?`colour and display range ${kept.now} (native values) kept`
     : kept&&kept.moved?`colour kept; display range ${kept.was} could not be kept exactly: it is ${kept.now} now`
     : `colour kept; display range ${nl.text} (native values) cannot be kept: the new file has no native samples, so its levels are 8-bit display values now`;
-  toast(`Panel ${L}, ${key==='plain'?'channel '+(ci+2):key}: ${ch.name||'(unnamed)'} → ${d.name} — ${how}`, (nl&&!(kept&&kept.ok))?'warn':'ok');
+  const sn=staleN.length?`; ${_listAnd(staleN)} ${staleN.length>1?'were':'was'} made on the old channel — marked out of date and left out of the Measurements CSV; measure again`:'';
+  toast(`Panel ${L}, ${key==='plain'?'channel '+(ci+2):key}: ${ch.name||'(unnamed)'} → ${d.name} — ${how}${sn}`, ((nl&&!(kept&&kept.ok))||sn)?'warn':'ok');
   return true;
 }
 // Which file goes to which panel. By file name first — the rule a figure opened without
@@ -4676,7 +4707,7 @@ async function replaceAllImages(fileList){
     logAction('replaceAll',{n:live.length, unchanged:m.unchanged.length});
     renderImgList(); renderMiniGrid(); scheduleRender(0);
     const kept=m.unchanged.length+missing.length+bad.length, nBad=m.bad.length;
-    toast(`${live.length} panel${live.length===1?'':'s'} took new files${kept?`, ${kept} left unchanged`:''}${missing.length?` (${missing.length} because the page is not in the new file)`:''}${nBad?`; ${nBad} file${nBad===1?'':'s'} could not be read`:''}${warns?` — ${warns} need a look (calibration, crop or lane analysis), see each panel`:''}`, (warns||missing.length||nBad)?'warn':'ok');
+    toast(`${live.length} panel${live.length===1?'':'s'} took new files${kept?`, ${kept} left unchanged`:''}${missing.length?` (${missing.length} because the page is not in the new file)`:''}${nBad?`; ${nBad} file${nBad===1?'':'s'} could not be read`:''}${warns?` — ${warns} need a look (calibration, crop, lane analysis or measurements made on the old pictures), see each panel`:''}`, (warns||missing.length||nBad)?'warn':'ok');
   };
   return bg;
 }
@@ -9299,35 +9330,66 @@ function runGelAnalysis(idx,opts){
   // The background method is the user's choice and survives a re-detection, as the
   // reference lane and the ladder do.
   if(prev&&prev.baseline&&opts.method==null){ opts.method=prev.baseline.method; opts.smooth=prev.baseline.smooth; opts.pct=prev.baseline.pct; }
-  const a=_gelAnalyse(im,opts);
+  // The lane count is a setting too. A count the user typed is kept by a re-analysis run
+  // for them (↻ Update in a chart, opening the dialog on a replaced scan); and when the
+  // pixels changed under the analysis (⇄ Replace image, a new crop), the count it had is
+  // kept rather than re-guessed — a repeat scan whose lanes 12 and 13 ran together came
+  // back with 12 lanes, the 13-lane loading control was silently dropped and every bar of
+  // the linked chart went n.d. under "1 chart updated" (blot4-01).
+  const userN=+opts.laneCount>0;
+  if(prev&&!userN&&prev.laneMode==='forced'&&+prev.laneCount>0) opts.laneCount=prev.laneCount;
+  const moved=prev?_gelStaleWhy(im):null;
+  let a=_gelAnalyse(im,opts), laneKept=null;
   if(a.error){ toast(a.error,'warn'); return false; }
+  if(prev&&moved&&!(+opts.laneCount>0)&&prev.lanes.length>1&&a.lanes.length!==prev.lanes.length){
+    const b=_gelAnalyse(im,Object.assign({}, opts, {laneCount:prev.lanes.length}));
+    if(!b.error&&b.lanes.length===prev.lanes.length){ laneKept={found:a.lanes.length, n:b.lanes.length}; a=b; }
+  }
   // Settings the user chose survive a re-detection; the lanes and bands do not.
   let dropped=null;
   if(prev){
     if(prev.refLane!=null&&prev.refLane<a.lanes.length) a.refLane=prev.refLane;
     if(prev.ladder&&prev.ladder.lane<a.lanes.length) a.ladder={lane:prev.ladder.lane, sizes:prev.ladder.sizes};
-    // The loading control follows its panel by id. It is dropped — and said to be — when
-    // that panel is gone, is now this panel, or no longer pairs lane for lane.
+    // The loading control follows its panel by id. It is dropped — and said to be, in the
+    // dialog, the chart's note and the update's toast — when that panel is gone, is now
+    // this panel, or no longer pairs lane for lane.
     if(prev.loading){ const li=_gelLoadingIdx(prev);
       const lc=(li>=0&&images[li]!==im)?_gelLoadingFrom(li,a.lanes.length,prev.loading.mode):{error:li<0?'its panel is no longer in the figure':'it is now this panel itself'};
-      if(lc.error) dropped=`Loading control dropped: ${lc.error}`; else a.loading=lc; }
+      if(lc.error){ dropped=`Loading control dropped: ${lc.error}`; a.loadingDropped={label:prev.loading.label||'', why:lc.error}; } else a.loading=lc; }
+    else if(prev.loadingDropped) a.loadingDropped=prev.loadingDropped;
   }
   _gelApplyLadder(a);
   const kept=_gelReapplyEdits(a, prev);
   pushUndo();
   im.gelAnalysis=a;
-  if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source});
-  if(kept.deleted||kept.added||kept.lost||kept.bandLost) toast([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
+  if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source, ...(laneKept?{laneCountKept:laneKept.n, autoFound:laneKept.found}:{}), ...(dropped?{loadingDropped:a.loadingDropped.why}:{})});
+  // What the re-analysis could not carry over, said together — and folded into the
+  // chart update's toast when a linked chart is updated from it, which used to replace
+  // these at once with "1 chart updated" (one toast shows at a time).
+  const said=[];
+  if(laneKept) said.push(`${laneKept.n} lanes kept as before — auto-detection found ${laneKept.found} on the ${moved==='image'?'new image':'new crop'}; if it really has ${laneKept.found}, type ${laneKept.found} in Lanes and ↻ Re-detect`);
+  if(kept.deleted||kept.added||kept.lost||kept.bandLost) said.push([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
     kept.lost||kept.bandLost?`${kept.lost?`${kept.lost} band${kept.lost>1?'s':''} you had deleted`:''}${kept.lost&&kept.bandLost?' and ':''}${kept.bandLost?'the band picked to chart':''} could not be found again (the crop or the lanes changed and no ladder gives sizes) — ${kept.lost&&kept.bandLost?'delete them and pick it again':kept.lost?'delete them again':'pick it again'}`:'',
-    kept.added?`${kept.added} band${kept.added>1?'s':''} you had added by hand ${kept.added>1?'were':'was'} not re-made — click ${kept.added>1?'them':'it'} in again`:''].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection','warn');
-  if(!a.lanes.length) toast(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`,'warn');
-  else if(dropped) toast(dropped,'warn');
-  // A lane table is never re-mapped onto a different number of lanes behind your back:
-  // which lane gained or lost a column is not something to guess.
-  else if(im.laneTable&&_ltLanes(im)!==a.lanes.length) toast(`${a.lanes.length} lanes now, and the lane table has ${_ltLanes(im)} columns — it is spaced evenly until you match it (⊞ Lane table…)`,'warn');
+    kept.added?`${kept.added} band${kept.added>1?'s':''} you had added by hand ${kept.added>1?'were':'was'} not re-made — click ${kept.added>1?'them':'it'} in again`:''].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection');
+  if(!a.lanes.length) said.push(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`);
+  else {
+    if(dropped) said.push(dropped);
+    // A lane table is never re-mapped onto a different number of lanes behind your back:
+    // which lane gained or lost a column is not something to guess.
+    if(im.laneTable&&_ltLanes(im)!==a.lanes.length) said.push(`${a.lanes.length} lanes now, and the lane table has ${_ltLanes(im)} columns — it is spaced evenly until you match it (⊞ Lane table…)`);
+  }
+  // MW labels the app placed on the old ladder bands follow the new ones (blot4-04).
+  const mw=_gelMovedMWLabels(im, prev, a);
+  if(mw) said.push(mw);
+  _gelRunNotes=said.slice();
   _gelRefresh();
+  if(_gelRunNotes&&_gelRunNotes.length) toast(_gelRunNotes.join('; '), (laneKept||dropped||!a.lanes.length||kept.deleted||kept.added||kept.lost||kept.bandLost||/not moved|stale/.test(mw||''))?'warn':'ok');
+  _gelRunNotes=null;
   return true;
 }
+// What runGelAnalysis has to say, while it refreshes the charts linked to it (read and
+// cleared by _chartLinksSync, which says it with its own line).
+let _gelRunNotes=null;
 function _gelEdit(idx,fn){
   const im=images[idx]; if(!im||!im.gelAnalysis){ toast('Analyse the panel first','warn'); return false; }
   if(!_gelFresh(im)){ toast(_gelStaleText(im)+' — press ↻ Re-detect','warn'); return false; }
@@ -9501,11 +9563,11 @@ function gelSetRefLane(idx,li){
 // (total protein, whole-lane signal). Left out, the current mode is kept.
 function gelSetLoading(idx,lcIdx,mode){
   return _gelEdit(idx,a=>{
-    if(lcIdx==null||lcIdx<0){ if(!a.loading) return false; a.loading=null; return; }
+    if(lcIdx==null||lcIdx<0){ if(!a.loading&&!a.loadingDropped) return false; a.loading=null; delete a.loadingDropped; return; }
     if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel as the loading control','warn'); return false; }
     const lc=_gelLoadingFrom(lcIdx,a.lanes.length,mode||_gelLoadMode(a));
     if(lc.error){ toast(`Loading control: ${lc.error}`,'warn'); return false; }
-    a.loading=lc;
+    a.loading=lc; delete a.loadingDropped;
   });
 }
 function gelSetLadder(idx,li,sizes){
@@ -9645,11 +9707,67 @@ function gelPlaceMWLabels(idx){
     const x=left>=tw+8?left-6-tw:left+0.02*M.map.dw;     // in the margin beside the blot, if there is one
     // Tagged like the labels the MW-ladder button places, so the journal report's
     // marker check counts them and the S1 sheet knows which panel they belong to.
-    annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, mw:true}); }
+    annotations.push({type:'text', xf:x/M.W, yf:(M.fy(bands[i].yc)-fs/2)/M.H, text:t, fontSize:fs, color:'#000000', halo:false, blotPanel:im.id, mw:true, onLadder:true}); }
   if(typeof renderAnnotationList==='function') renderAnnotationList();
   scheduleRender(0);
   toast(`${_replaced?'Replaced':'Placed'} ${n} MW labels on the ladder bands of panel ${_rtText(formatLabel(im.label))} — they move with the panel`,'ok');
   return true;
+}
+// Where each ladder size's band is on the figure now — [{kda, y}] in canvas px — for a
+// ladder that pairs one size per band; null otherwise. M: _gelFigMap's fy and H.
+function _gelMWTargets(a, M){
+  if(!a||!M||!a.ladder||a.ladder.assignError||!a.lanes[a.ladder.lane]) return null;
+  const r=_gelLadderSizes(a.ladder.sizes); if(r.error||!r.sizes.length) return null;
+  const bands=a.lanes[a.ladder.lane].bands.slice().sort((x,y)=>x.yc-y.yc);
+  if(r.sizes.length!==bands.length) return null;
+  return r.sizes.map((k,i)=>({kda:+k, y:M.fy(bands[i].yc)}));
+}
+// The figure map without a render (the compliance check reads it many times).
+function _gelFigMapNow(idx){
+  const pb=(panelBounds||[]).find(p=>p.idx===idx), im=images[idx], map=pb&&im&&_panelSourceMap(pb,im); if(!map) return null;
+  return {fy:v=>map.dy+(v-map.sy)/map.ky, H:annCanvas.height||1};
+}
+const _mwCy=(x,H)=>x.yf*H+(x.fontSize||13)/2;          // a text label hangs from its top
+// MW labels sit at the old ladder's heights after ⇄ Replace image and a re-analysis: a
+// '55' midway between the new 70 and 55 kDa bands, 6% off in kDa, with nothing to say so
+// and the compliance row passing them (blot4-04). When the analysis is re-run on changed
+// pixels, each MW label of the panel whose number is one of the ladder's sizes is moved to
+// that size's band (its x, size and colour kept); a label the new ladder cannot place is
+// marked stale, and the compliance row names it. Returns what to say, or ''.
+function _gelMovedMWLabels(im, prev, a){
+  const mine=annotations.filter(x=>x&&x.mw&&x.blotPanel===im.id&&x.type==='text');
+  if(!mine.length||!prev) return '';
+  const changed=prev.cropKey!==a.cropKey||(prev.fp!=null&&a.fp!=null&&prev.fp!==a.fp);
+  if(!changed) return '';
+  const M=_gelFigMap(images.indexOf(im)); if(!M) return '';
+  const T=_gelMWTargets(a, M), upd=new Map(); let moved=0, left=[];
+  mine.forEach(x=>{
+    const v=parseFloat(String(x.text||'')), t=T&&T.find(q=>Math.abs(q.kda-v)<1e-9);
+    if(!t){ left.push(String(x.text||'').trim()); upd.set(x,{...x, mwStale:true}); return; }
+    const ny=(t.y-(x.fontSize||13)/2)/M.H, y={...x, yf:ny, onLadder:true}; delete y.mwStale;
+    if(Math.abs(ny-x.yf)*M.H>0.5) moved++;
+    upd.set(x, y);
+  });
+  // Copies, never edits in place: the undo step just taken holds the old objects.
+  annotations=annotations.map(x=>upd.has(x)?upd.get(x):x);
+  if(typeof renderAnnotationList==='function') renderAnnotationList();
+  const L=_rtText(formatLabel(im.label))||'?';
+  if(left.length) return `MW label${left.length>1?'s':''} ${_listAnd(left)} of panel ${L} not moved: ${T?'no ladder band of that size':'the new ladder does not pair one size per band'} — ${left.length>1?'they stay':'it stays'} at the old scan’s height${left.length>1?'s':''} and ${left.length>1?'are':'is'} marked stale; ↕ Place MW labels again once the ladder is set`;
+  return moved?`${moved} MW label${moved>1?'s':''} of panel ${L} moved onto the new ladder’s bands`:'';
+}
+// MW labels of a panel that no longer sit on their ladder bands — placed on an analysis
+// that is out of date, left stale by a re-analysis, or more than a third of their height
+// from the band of their size — for the compliance row.
+function _gelMWOff(im){
+  const mine=annotations.filter(x=>x&&x.mw&&x.blotPanel===im.id&&x.type==='text'&&!x.hidden);
+  if(!mine.length) return null;
+  const st=mine.filter(x=>x.mwStale).map(x=>String(x.text||'').trim());
+  if(st.length) return `MW label${st.length>1?'s':''} ${_listAnd(st)} ${st.length>1?'were':'was'} placed on the old scan’s ladder and could not be moved onto the new one — ↕ Place MW labels again`;
+  if(!_gelFresh(im)) return `the MW labels were placed on the ladder of the analysis before ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} — re-analyse (⫼ Lanes & bands): the labels then move onto the new ladder`;
+  const M=_gelFigMapNow(images.indexOf(im)), T=_gelMWTargets(im.gelAnalysis, M); if(!T) return null;
+  const off=mine.map(x=>{ const v=parseFloat(String(x.text||'')), t=T.find(q=>Math.abs(q.kda-v)<1e-9); if(!t) return null;
+    const d=_mwCy(x,M.H)-t.y, tol=Math.max(3,(x.fontSize||13)*0.35); return Math.abs(d)>tol?`${String(x.text).trim()} (${Math.round(Math.abs(d))} px ${d<0?'above':'below'} its band)`:null; }).filter(Boolean);
+  return off.length?`MW label${off.length>1?'s':''} ${_listAnd(off)} — ↕ Place MW labels to put ${off.length>1?'them':'it'} on the ladder bands`:null;
 }
 // Remove one panel's MW labels (and nothing else). One undo step.
 // Take the analysis off a panel — one opened on the wrong panel stayed for good, in the
@@ -9746,8 +9864,10 @@ function _gelComplianceRow(shown){
     }
     if(!im.gelAnalysis) return;
     const a=im.gelAnalysis, nm=nm0, sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
-    if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting`); return; }
+    if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting${annotations.some(x=>x&&x.mw&&x.blotPanel===im.id)?' (its MW labels sit on the old ladder until then)':''}`); return; }
     if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
+    if(a.loadingDropped&&!a.loading){ warn=true; notes.push(`${nm}: its loading control was dropped at the re-analysis (${esc(a.loadingDropped.why)}) — no normalised values`); }
+    { const off=_gelMWOff(im); if(off){ warn=true; notes.push(`${nm}: ${esc(off)}`); } }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
     if(part){ warn=true; notes.push(`${nm}: ${part} band${part===1?'':'s'} partly outside the image — not quantified`); }
     { const cut=_gelFlagCount(a,'edge'), ov=_gelFlagCount(a,'overlap'), el=_gelEdgeLanes(a);
@@ -10098,6 +10218,7 @@ function _gelRenderModal(){
     ${_gelFlagCount(a,'overlap')?`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelFlagCount(a,'overlap')} band${_gelFlagCount(a,'overlap')===1?'':'s'} overlap${_gelFlagCount(a,'overlap')===1?'s':''} a neighbour — valley-to-valley under-measures them, so they are left out of every ratio. Use the rolling minimum for close bands.</div>`:''}
     ${_gelFlagCount(a,'slope')?`<div style="color:var(--muted);margin-top:2px">${_gelFlagCount(a,'slope')} band${_gelFlagCount(a,'slope')===1?' sits':'s sit'} on a sloping background — the background follows the slope (the rolling minimum is taken off each lane's straight-line trend).</div>`:''}
     ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
+    ${!a.loading&&a.loadingDropped?`<div style="color:var(--warn);margin-top:3px">⚠ Loading control dropped at the re-analysis: ${esc(a.loadingDropped.why)}. No normalised values are shown — set the lane count to match, or pick the loading control again.</div>`:''}
     ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
       :_gelLoadMode(a)==='total'
         ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes${_gelTpLocal(a)?' (on either side of each lane, interpolated across it)':''}, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>${_gelTpNotes(a).map((s,k)=>`<div style="color:${k===0&&_gelTpUneven(a)?'var(--muted)':'var(--warn)'};margin-top:2px">${k===0&&_gelTpUneven(a)?'':'⚠ '}${esc(s.charAt(0).toUpperCase()+s.slice(1))}.</div>`).join('')}`
@@ -15129,6 +15250,7 @@ function _checkCompliance(asJ){
   // Only figures with a densitometry analysis get the row; nothing to say otherwise.
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
   { const cr=_chartDataComplianceRow(); if(cr) checks.push(cr); }
+  { const mr=_measComplianceRow(); if(mr) checks.push(mr); }
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   // With a target journal the rows come from its own figure guide; without one the
@@ -19921,6 +20043,7 @@ function _blotRows(J, shown){
       const span=_gelMarkerSpan(im), labels=_mwLabelsFor(im);
       const n=Math.max(span?span.marks.length:0, labels.length);
       if(!n){ warn=true; notes.push(`${nm(im)}: no molecular-weight labels recognised (place them with ↕ MW ladder, or type a column of numbers beside the blot)`); return; }
+      { const off=_gelMWOff(im); if(off){ warn=true; notes.push(`${nm(im)}: ${esc(off)}`); return; } }
       if(n<2){ warn=true; notes.push(`${nm(im)}: only one labelled marker`); return; }
       if(bl.mw==='bracket'){
         if(span&&span.marks.length>=2&&span.bands.length){
@@ -19987,6 +20110,17 @@ const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration
   'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
 _GENERAL_ROWS.push('Legend key on the figure');
 _GENERAL_ROWS.push('Charts from densitometry');
+_GENERAL_ROWS.push('Measurements');
+// Compliance: counts, ROIs, profiles and rulers made on a picture that ⇄ Replace image
+// swapped since. Only a figure with one gets the row — its numbers are of a picture the
+// figure no longer shows.
+function _measComplianceRow(){
+  const ms=measurements.filter(m=>m&&m.stale), rs=annotations.filter(a=>a&&a.type==='ruler'&&a.rulerStale);
+  if(!ms.length&&!rs.length) return null;
+  const notes=ms.map(m=>`${esc(_measName(m))}${m.panel?` on panel ${esc(m.panel)}`:''} was made on ${esc(m.stale.was||'the old picture')}, since replaced by ${esc(m.stale.now||'another file')} — left out of the CSV; measure again or remove it (× in Measure)`);
+  if(rs.length) notes.push(`${rs.length} ruler${rs.length>1?'s were':' was'} drawn on a picture since replaced — no length is printed until ${rs.length>1?'they are':'it is'} dragged onto the new one`);
+  return {label:'Measurements', ok:false, warn:true, note:notes.join('; ')};
+}
 // Compliance: every chart made from densitometry — linked and current, out of date, or
 // typed by hand (and whether its blot changed since). Only figures with one get the row.
 function _chartDataComplianceRow(){
@@ -24380,6 +24514,13 @@ function _resetFigureState(opts){
   if(!opts.keepImages) reproLog=[];
   selectedPanel=-1; selectedAnnotation=-1; selectedPanelAnn=null; selectedElems.clear();
   if(typeof hideAnnFloat==='function') hideAnnFloat();
+  // A measuring tool and the last result belong to the figure they were used on: ✕ New
+  // left the Count tool on, its marks and its "38 objects" box showing, and a double-click
+  // on the next figure's chart did nothing (phage4-06).
+  _countOverlay=null;
+  if(activeTool!=='none'&&typeof setTool==='function'&&typeof annCanvas!=='undefined'&&annCanvas) setTool('none');
+  { const rr=document.getElementById('roi-results'); if(rr){ rr.className=''; rr.innerHTML=''; }
+    const lp=document.getElementById('line-profile-canvas'); if(lp) lp.style.display='none'; }
   resetAxisLabels([], []);
   _syncFigureLists();
 }
@@ -24396,8 +24537,9 @@ function _syncFigureLists(){
 function _renderMeasList(){
   const box=document.getElementById('meas-list');
   if(box){
-    box.innerHTML=measurements.map((m,i)=>`<div class="inline-row meas-row" style="font-size:10px;gap:4px;margin-top:2px">
-      <span style="flex:1">${esc(m.label||m.type||'Measurement')}${m.type==='roi'?` · mean ${esc(m.meanGray)}`:m.type==='cellCount'?` · ${esc(m.count)} objects`:''}</span>
+    // A measurement of a picture that was replaced since says so, and on which file it was made.
+    box.innerHTML=measurements.map((m,i)=>`<div class="inline-row meas-row${m.stale?' meas-stale':''}" style="font-size:10px;gap:4px;margin-top:2px"${m.stale?` title="Made on ${esc(m.stale.was||'')} before ⇄ Replace image swapped in ${esc(m.stale.now||'')} — not exported, not in the caption or Methods. Measure again."`:m.file?` title="Measured on ${esc(m.file)}"`:''}>
+      <span style="flex:1${m.stale?';color:var(--warn,#c98a00)':''}">${esc(m.label||m.type||'Measurement')}${m.type==='roi'?` · mean ${esc(m.meanGray)}`:m.type==='cellCount'?` · ${esc(m.count)} objects`:''}${m.stale?` · ⚠ out of date: made on ${esc(m.stale.was||'the old picture')}`:''}</span>
       <button class="icon-btn del" data-meas-del="${i}" title="Remove this measurement (Ctrl+Z brings it back)">×</button></div>`).join('');
     box.querySelectorAll('[data-meas-del]').forEach(b=>b.onclick=()=>removeMeasurement(+b.dataset.measDel));
   }
@@ -29871,16 +30013,39 @@ function _chartOwnValuesDraft(){
 }
 // Re-read every linked chart from its analyses (called whenever an analysis changes).
 function _chartLinksSync(){
-  let n=0;
+  let n=0; const lost=[];
   _allCharts().forEach(el=>{
     if(!el.chart.link) return;
     const st=_chartLinkState(el); if(!st.stale||!st.table) return;
+    const gone=_chartSeriesEmptied(el.chart, st.table);
+    if(gone.length) lost.push(...gone);
     el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows});
     el._chartKey=''; el._chartStat=null; n++;
     if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   });
-  if(n){ logAction('chartLinkUpdate',{charts:n}); toast(`${n} chart${n>1?'s':''} updated from the re-analysed densitometry`,'ok'); scheduleRender(0); }
+  const pre=_gelRunNotes||[]; if(n) _gelRunNotes=null;     // said here, with the update
+  if(n){ logAction('chartLinkUpdate',{charts:n, ...(lost.length?{emptied:lost.join('; ')}:{})});
+    // A series that had values and has none now is not an update to report as done.
+    const head=lost.length?`${n} chart${n>1?'s':''} re-read from the re-analysed densitometry, but ${_listAnd(lost)} — the bars are gone`
+      :`${n} chart${n>1?'s':''} updated from the re-analysed densitometry`;
+    toast(head+(pre.length?'; '+pre.join('; '):''), lost.length||pre.length?'warn':'ok'); scheduleRender(0); }
   return n;
+}
+// The series of a linked chart that had numbers and would have none after an update
+// ("Panel A is now n.d. in every lane (no loading control)"), by the chart's own names.
+function _chartSeriesEmptied(ch, T){
+  const D=ch.data||{}, num=v=>typeof v==='number'&&isFinite(v), out=[], L=ch.link||{};
+  const ids=Object.keys(L.names||{});
+  (T.columns||[]).forEach((c,i)=>{ if(!i) return;
+    const oi=(D.columns||[]).indexOf(c);
+    if(!(oi>0&&(D.rows||[]).some(r=>num(r[oi])))||(T.rows||[]).some(r=>num(r[i]))) return;
+    const id=(L.ids||[])[i-1]!=null?L.ids[i-1]:ids.find(k=>L.names[k]===c);
+    const im=images.find(p=>p&&String(p.id)===String(id));
+    const why=im&&im.gelAnalysis&&!_gelChartMetricOK(im.gelAnalysis, im, L.metric)?_gelMetricWhyNot(im, L.metric):'no band at the charted position';
+    const shown=(ch.names&&ch.names[c])||c;
+    out.push(`${shown} is now n.d. in every lane (${why})`);
+  });
+  return out;
 }
 // An analysis the chart cannot read any more (its panel re-cropped or its image
 // replaced) is re-run — with its ladder, reference lane, loading control and charted
@@ -29893,9 +30058,11 @@ function _chartLinkUpdateDraft(){
   let st=_chartLinkState({chart:ch});
   if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState({chart:ch}); }
   if(!st.table){ toast(st.why?`Cannot update: ${st.why} — open ⫼ Lanes & bands on it`:'Already up to date','warn'); return; }
+  const gone=_chartSeriesEmptied(ch, st.table);
   ch.data=Object.assign({}, ch.data, {columns:st.table.columns, rows:st.table.rows});
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
   _chartModalPickers(); _chartModalRefresh();
+  if(gone.length) toast(`Read from the densitometry, but ${_listAnd(gone)} — the bars are gone`,'warn');
 }
 function _chartLinkUpdateSelected(){
   const el=_selectedChartEl(); if(!el) return;
@@ -29903,12 +30070,15 @@ function _chartLinkUpdateSelected(){
   if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState(el); if(!st.stale){ updateElemPropsBar(); scheduleRender(0); return; } }
   if(!st.table){ toast(st.stale?`Cannot update: ${st.why} — re-analyse it (⫼ Analyse lanes & bands)`:'Already up to date', st.stale?'warn':'ok'); return; }
   if(!st.stale){ toast('Already up to date','ok'); return; }
+  const gone=_chartSeriesEmptied(el.chart, st.table);
   pushUndo(); el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows}); el._chartKey=''; el._chartStat=null;
   if(_isDataPanel(el)) _dataPanelRefresh(el, true);
-  logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0); toast('Chart updated from the densitometry','ok');
+  logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0);
+  toast(gone.length?`Chart re-read from the densitometry, but ${_listAnd(gone)} — the bars are gone`:'Chart updated from the densitometry', gone.length?'warn':'ok');
 }
 function _gelMetricWhyNot(im, metric){
   const a=im.gelAnalysis, lc=a.loading&&!_gelLoadingStale(a,im), ref=a.refLane!=null;
+  if(!a.loading&&a.loadingDropped&&/^normLC/.test(metric)) return `its loading control was dropped at the re-analysis (${a.loadingDropped.why})`;
   if(metric==='normLCRef') return !lc&&!ref?'no loading control and no reference lane':!lc?(a.loading?'its loading control is out of date':'no loading control'):'no reference lane';
   if(metric==='normLC') return a.loading?'its loading control is out of date':'no loading control';
   if(metric==='relRef') return 'no reference lane';
@@ -35047,7 +35217,7 @@ function measureAndShowROI(ctx,rx,ry,rw,rh){
     source:rawStat?`raw ${_rawDepth(raw)}`:'8-bit display',
     rawMean:rawStat?_fmtRaw(rawStat.mean,raw):'', rawMin:rawStat?_fmtRaw(rawStat.min,raw):'',
     rawMax:rawStat?_fmtRaw(rawStat.max,raw):'', rawSD:rawStat?_fmtRaw(rawStat.sd,raw):'',
-    rawIntDens:rawStat?String(rawStat.sum):''});
+    rawIntDens:rawStat?String(rawStat.sum):'', ..._measOn(im)});
   _renderMeasList();
 }
 
@@ -35099,7 +35269,7 @@ function measureAndShowLineProfile(ctx,x0,y0,x1,y1){
         :`<div style="font-size:9px;color:var(--warn,#c98a00);margin-top:4px;line-height:1.3">⚠ ${raw?'Part of this line falls outside the panel image, so raw samples could not be used. ':''}${_MEASURE_DISCLAIMER}${esc(_adjustedPanelNote(im))}</div>`}`;
   pushUndo();
   measurements.push({type:'lineProfile',label:`Profile ${measurements.length+1}`,values:vals.join(','),
-    source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display'});
+    source:usedRaw?`raw ${_rawDepth(raw)}`:'8-bit display', ..._measOn(im)});
   _renderMeasList();
 }
 
@@ -35158,7 +35328,7 @@ function _rulerFmt(um, umPerPx){
   }
 }
 
-var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image', moved:'moved off its panel'};
+var _RULER_NOTE={uncal:'uncalibrated', nomap:'cannot map', off:'not on one image', moved:'moved off its panel', stale:'drawn on the old picture'};
 // A ruler is a measurement OF one image, so it records which panel it was drawn on.
 // Rulers are figure-level marks and stay where they are on the canvas; after a swap, or
 // hiding a panel with no gap left, another image slid under the ruler and it silently
@@ -35169,6 +35339,7 @@ function _rulerBind(a){
   const W=canvasLogicalW||annCanvas.width, H=canvasLogicalH||annCanvas.height;
   const h=_measurePanelAt(a.xf*W, a.yf*H);
   if(h&&h.im&&h.im.id!=null) a.rulerPanel=h.im.id; else delete a.rulerPanel;
+  delete a.rulerStale;       // placed again, on the picture there now
 }
 // One ruler, measured now. status: ok | uncal | nomap | off. Only 'ok' carries a length.
 function _rulerMeasure(a, W, H){
@@ -35188,6 +35359,10 @@ function _rulerMeasure(a, W, H){
   // (an object popped out of the grid is still the panel the ruler was drawn on)
   if(a.rulerPanel!=null&&h1.im.id!==a.rulerPanel&&h1.im.fromPanel!==a.rulerPanel){ out.status='moved'; out.note=_RULER_NOTE.moved;
     out.why='the image it was drawn on has moved, been hidden or been removed — drag the ruler onto an image to measure again'; return out; }
+  // Its ends were placed on what the old picture showed; the new one may show something
+  // else there, so it gives no length until it is dragged onto the new picture.
+  if(a.rulerStale){ out.status='stale'; out.note=_RULER_NOTE.stale; out.im=h1.im; out.pb=h1.pb;
+    out.why=`drawn on ${a.rulerStale.was||'the old picture'}, which ⇄ Replace image swapped for ${a.rulerStale.now||'another file'} — drag an end onto what it measures in the new picture`; return out; }
   if(h1.im.type&&h1.im.type!=='image'){ out.why='not an image'; return out; }
   out.im=h1.im; out.pb=h1.pb;
   const map=_panelSourceMap(h1.pb,h1.im);
@@ -35594,6 +35769,38 @@ function openS1Dialog(){
   bg.querySelector('#s1-cancel').onclick=()=>bg.remove();
 }
 
+// ── Which picture a measurement was made on ─────────────────────
+// A count, an ROI or a line profile is a fact about the pixels it read. It records the
+// panel (by id) and the file; when ⇄ Replace image swaps that file, the record is marked
+// out of date — it stays in the list, says so, and is never exported or written into the
+// caption or Methods as a measurement of the new picture (phage4-02: a plate's 52-plaque
+// count was exported as the repeat plate's after a replace, with "settings kept").
+function _measOn(im){ return im&&im.id!=null?{pid:im.id, file:_sourceName(im)||im.name||''}:{}; }
+// A record from before panels were recorded names a count's panel by its letter only.
+function _measIsOn(m, im){
+  if(!m||!im) return false;
+  if(m.pid!=null) return m.pid===im.id;
+  return m.type==='cellCount'&&!!m.panel&&m.panel===(_rtText(formatLabel(im.label))||'');
+}
+function _measOf(im){ return measurements.filter(m=>m&&!m.stale&&_measIsOn(m, im)); }
+function _measName(m){ return m.type==='cellCount'?`${m.label||'Count'} (${m.count} object${m.count===1?'':'s'})`:(m.label||m.type||'a measurement'); }
+function _measCurrent(){ return measurements.filter(m=>m&&!m.stale); }
+function _rulersOf(im){ return annotations.filter(a=>a&&a.type==='ruler'&&!a.rulerStale&&a.rulerPanel!=null&&a.rulerPanel===im.id); }
+// Called by _replaceInto (after its undo step): the panel's measurements and rulers are
+// marked as made on `was`, the Count marks drawn over it are cleared, and the log says so.
+function _staleMeasurements(im, was, now){
+  const ms=_measOf(im), rs=_rulersOf(im), at=new Date().toISOString();
+  ms.forEach(m=>{ m.stale={was:m.file||was, now, at}; });
+  // Annotations are copied, never edited in place: an undo step holds the old objects.
+  if(rs.length) annotations=annotations.map(a=>rs.includes(a)?{...a, rulerStale:{was, now, at}}:a);
+  if(_countOverlay&&(_countOverlay.pid==null||_countOverlay.pid===im.id)) _countOverlay=null;
+  if(ms.length||rs.length){
+    logAction('measurementsOutOfDate',{panel:_rtText(formatLabel(im.label))||'', madeOn:was, replacedBy:now,
+      measurements:ms.map(_measName), rulers:rs.length});
+    _renderMeasList(); if(typeof _rulerTableRefresh==='function') _rulerTableRefresh();
+  }
+  return ms.length+rs.length;
+}
 function exportMeasurements(){
   if(!measurements.length){ toast('No measurements yet','warn'); return; }
   // A value of 0 is a value: `m.minV||''` wrote a black region's Min and Max, and a
@@ -35603,9 +35810,19 @@ function exportMeasurements(){
   // or dark), the region (box or ellipse), how many the rim cut, and the equivalent
   // diameters (mean, SD, median, unit, and each object's) — so plaque sizes and a count
   // made with the wrong settings can be told apart in the file (phage2-03).
+  // Each row names the file it was measured on. A measurement made on a picture that was
+  // replaced since is left out of the rows and listed in the header, so a count of the
+  // old plate is never read as the new plate's (phage4-02).
+  const cur=_measCurrent(), old=measurements.filter(m=>m&&m.stale);
+  if(!cur.length){ toast(`Nothing to export: ${_listAnd(old.map(_measName))} ${old.length>1?'were':'was'} made on a picture that has been replaced since — measure the new one`,'warn'); return; }
+  // One unit per column: a count's diameters in µm on one row and mm on the next could not
+  // be compared or pasted into a sheet (phage4-17). Calibrated rows take the largest unit
+  // any of them uses.
+  const calU=cur.some(m=>m.type==='cellCount'&&m.dia&&m.dia.unit==='mm')?'mm':'µm';
+  const conv=(v,u)=>{ if(v==null||v==='') return ''; if(u===calU||!/^(µm|mm)$/.test(u)) return v; return +(u==='mm'?v*1000:v/1000).toPrecision(3); };
   const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values',
-    'Panel','Objects','Region','Cut by the rim (not counted)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters']];
-  measurements.forEach(m=>{
+    'Panel','Objects','Region','Cut by the rim (not counted)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters','Source file']];
+  cur.forEach(m=>{
     const v=k=>m[k]??'';
     const cnt=m.type==='cellCount', d=m.dia||null;
     rows.push([m.type,m.label,m.source||'8-bit display',v('x'),v('y'),v('w'),v('h'),
@@ -35614,14 +35831,17 @@ function exportMeasurements(){
       v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'',
       v('panel'), cnt?(m.polarity==='dark'?'dark (plaques)':m.polarity?'bright':''):'', cnt?(m.roi==='ellipse'?'ellipse (round, a dish)':m.roi?'box':''):'',
       cnt&&m.roi==='ellipse'?(m.edgeObjects??''):'',
-      d?d.mean:'', d?d.sd:'', d?d.med:'', d?d.unit:'', d?d.values.join(' '):'']);
+      d?conv(d.mean,d.unit):'', d?conv(d.sd,d.unit):'', d?conv(d.med,d.unit):'', d?(/^(µm|mm)$/.test(d.unit)?calU:d.unit):'', d?d.values.map(v=>conv(v,d.unit)).join(' '):'',
+      m.file||'']);
   });
-  const anyRaw=measurements.some(m=>/^raw /.test(m.source||''));
-  const csv='# The "Measured on" column states, per row, which pixels produced the numbers.\n'
+  const anyRaw=cur.some(m=>/^raw /.test(m.source||''));
+  const csv='# The "Measured on" column states, per row, which pixels produced the numbers; "Source file" names the file they were read from.\n'
     +'# Rows measured on the 8-bit display: '+_MEASURE_DISCLAIMER+'\n'
     +(anyRaw?'# Rows measured on raw: '+_RAW_MEASURE_NOTE+' SD uses an n-1 denominator.\n':'')
+    +old.map(m=>`# Left out (out of date): ${_measName(m)}${m.panel?`, panel ${m.panel}`:''}, was made on ${m.stale.was||'the old picture'}, which ⇄ Replace image swapped for ${m.stale.now||'another file'} — measure the new picture again.\n`).join('')
     +rows.map(r=>_csvRow(r,true)).join('\n');
   dl(blobUrl(csv),'figurelab-measurements.csv');
+  if(old.length) toast(`Measurements CSV saved — ${old.length} out-of-date measurement${old.length>1?'s':''} (made on a replaced picture) left out and listed in its header`,'warn');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -36056,7 +36276,8 @@ function exportReproLog(){
 // adjustment), so a 1-mm plaque is not 3 figure pixels merged with its neighbour, and a
 // calibrated panel gets areas and each object's equivalent diameter in µm or mm. The
 // box and the objects found are drawn over the figure until the next count.
-let _countOverlay=null;
+// `var`: _resetFigureState (✕ New, opening a file) clears it and can run before this line.
+var _countOverlay=null;
 function countCellsROI(ctx,rx,ry,rw,rh){
   const thresh=parseInt(document.getElementById('count-threshold').value)||128;
   const dark=(document.getElementById('count-polarity')||{}).value==='dark';
@@ -36172,7 +36393,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   }
   // what was counted, over the figure: the selection and a mark on each object
   const toFig=onSrc ? ((x,y)=>[map.dx+(x0+x-map.sx)/map.kx, map.dy+(y0+y-map.sy)/map.ky]) : ((x,y)=>[x0+x, y0+y]);
-  _countOverlay={rx:ell.cx-ell.ax, ry:ell.cy-ell.ay, rw:ell.ax*2, rh:ell.ay*2, round, pts:cxs.map((x,k)=>toFig(x,cys[k]))};
+  _countOverlay={pid:im?im.id:null, rx:ell.cx-ell.ax, ry:ell.cy-ell.ay, rw:ell.ax*2, rh:ell.ay*2, round, pts:cxs.map((x,k)=>toFig(x,cys[k]))};
   const res=document.getElementById('roi-results');
   res.className='show';
   const how=src==='raw'?`raw ${_fmtRaw(rawThresh,raw)}`:'';
@@ -36192,9 +36413,9 @@ function countCellsROI(ctx,rx,ry,rw,rh){
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
     count,edgeObjects:edgeN,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',polarity:dark?'dark':'bright',roi:round?'ellipse':'rect',
     panel:im?(_rtText(formatLabel(im.label))||''):'', dia:diaRec,
-    source:src==='raw'?`raw ${_rawDepth(raw)}`:src==='source'?'source pixels (8-bit)':'8-bit display'});
+    source:src==='raw'?`raw ${_rawDepth(raw)}`:src==='source'?'source pixels (8-bit)':'8-bit display', ..._measOn(im)});
   _renderMeasList();
-  logAction('cellCount',{count,threshold:thresh,polarity:dark?'dark':'bright',roi:round?'ellipse':'rect'});
+  logAction('cellCount',{panel:im?(_rtText(formatLabel(im.label))||''):'', file:im?_sourceName(im)||'':'', count,threshold:thresh,polarity:dark?'dark':'bright',roi:round?'ellipse':'rect'});
   drawAnnOverlay();
 }
 
