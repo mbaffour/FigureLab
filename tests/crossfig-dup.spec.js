@@ -609,7 +609,9 @@ const TP_EXPECT = {
   'blot on a clipped white background': { gen: '[__wblot({seed:41,blotches:0,noise:2,bg:262}),__wblot({seed:42,blotches:0,noise:2,bg:262})]',
     want: { copy: 'identical', jpeg90: 'same', jpeg50: 'same', jpeg20: 'same', jpeg5: 'layout (not counted)', gamma04: 'identical', gamma25: 'same', inverted: 'identical', fireLUT: 'identical', redOnly: 'identical', blueOnly: 'identical',
       blur1: 'same', blur2: 'same', blur3: 'same', blur4: 'layout (not counted)', noise10: 'same', noise25: 'same', noise50: 'none',
-      s045: 'same', s050: 'identical', s070: 'identical', s150: 'identical', s200: 'identical', s220: 'identical', k1: 'identical', k5s06: 'identical', crop10: 'none', crop25: 'none', mirScaleCrop: 'none', montage: 'none' } },
+      // s045: 'same' until round 5; the final score now sets aside the few samples the two
+      // resamplings of the clipped edge disagree on (_xdEval robust), and it verifies whole.
+      s045: 'identical', s050: 'identical', s070: 'identical', s150: 'identical', s200: 'identical', s220: 'identical', k1: 'identical', k5s06: 'identical', crop10: 'none', crop25: 'none', mirScaleCrop: 'none', montage: 'none' } },
   'plaque plate': { gen: '[__plate(41,360,360),__plate(42,360,360)]',
     want: { copy: 'identical', jpeg90: 'identical', jpeg50: 'same', jpeg20: 'same', jpeg5: 'same', gamma04: 'identical', gamma25: 'identical', inverted: 'identical', fireLUT: 'identical', redOnly: 'identical', blueOnly: 'identical',
       blur1: 'identical', blur2: 'same', blur3: 'same', blur4: 'layout (not counted)', noise10: 'same', noise25: 'same', noise50: 'same',
