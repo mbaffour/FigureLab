@@ -62,7 +62,7 @@ Symptom → cause → fix. The first table is for habits from earlier versions: 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Lane-table labels print tiny and **Text size** fails, with a **Widen …** button | The labels are too long for their lanes at the journal's type size | Click **Widen …** (the panel takes the whole row), give the panel **Col span** 2, or use shorter labels. → `phage-and-microbiology`, `western-blot` |
-| Lane-table labels drop under 5 pt after a narrower printed width | The lane table is shrunk with the pictures | Click **Lane tables to 7 pt** on the **Text size** row. → `western-blot` |
+| Lane-table labels drop under 5 pt after a narrower printed width | The compliance report's **Text size** row fails on the lane table, although the width toast says text keeps its point size | Click **Lane tables to 7 pt** on the **Text size** row. → `western-blot` |
 | Chart or gene-map words run together after a narrower printed width | Text keeps its point size, so it grows against the pictures (the toast says by how much) | Enlarge the panel (span, or W and H in freeform) and re-run the check. → `freeform`, `journal-submission` |
 | The **Export format** row is ℹ "not checked — the figure changed after it was last exported" | The file you saved shows an earlier version | Click the row's **Save as …** button. → `quickstart`, `journal-submission` |
 | A chart says "typed values" or "Not linked", or **Charts from densitometry** fails | Its numbers were typed in the Chart dialog, and the blot has changed since | Double-click it › **↻ Link again**, or **These are my own values**. → `western-blot` |

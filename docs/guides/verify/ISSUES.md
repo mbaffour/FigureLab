@@ -4,7 +4,7 @@ Each guide in `docs/guides/` was followed step by step on this build by its scri
 
 Severity: **blocker** (the task cannot be done), **hard** (it can, but most people would not find the way), **annoying** (works with a workaround the guide states), **polish** (cosmetic or wording).
 
-**Round 3 (16 November 2026).** After the five round-3 fixer groups merged, every script was run again and each of the 20 issues still open after round 2 was re-checked: **11 fixed, 9 still open**. Each of those entries now starts with a round-3 status and its evidence. Verifying the round-3 guides found **10 new issues**, listed first under [New in round 3](#new-in-round-3). The guides no longer give workarounds for the fixed ones.
+**Round 3 (16 November 2026).** After the five round-3 fixer groups merged, every script was run again and each of the 20 issues still open after round 2 was re-checked: **11 fixed, 9 still open**. Each of those entries now starts with a round-3 status and its evidence. Verifying the round-3 guides found **9 new issues**, listed first under [New in round 3](#new-in-round-3). The guides no longer give workarounds for the fixed ones.
 
 Open issues by severity after round 3 (still open + new):
 
@@ -13,7 +13,7 @@ Open issues by severity after round 3 (still open + new):
 | blocker | 0 | 0 | 0 |
 | hard | 0 | 0 | 0 |
 | annoying | 3 | 3 | 6 |
-| polish | 6 | 7 | 13 |
+| polish | 6 | 6 | 12 |
 
 **Round 2 (16 November 2026).** After the five round-2 fixer groups merged, every script was run again and each of the 44 issues logged with the guides was re-checked: **33 fixed, 11 still open**. Verifying the round-2 guides found **9 new issues** (under [New in round 2](#new-in-round-2)). After round 2 the open issues were 6 annoying and 14 polish.
 
@@ -78,12 +78,6 @@ Found while re-verifying the guides after the round-3 fixes.
 - **What happened:** the chart, caption, compliance row and package say "typed by hand"; the panel's row in Images and its ⚙ do not (the Props-bar note shows in freeform only).
 - **Severity:** polish
 - **Suggestion:** show the same note in the grid panel's ⚙.
-
-### The Text size row on the graphical abstract may leave out the title's superscript
-- **What I tried:** the abstract's title text box at Fnt 32 with `10^{8}`, then ✓ Check journal compliance (`freeform` 7.6).
-- **What happened:** the row reads "smallest text: annotation text “infects” 6.2 pt (3 text items measured…)", while the superscript should print at about 5.3 pt (the round-3 fix notes give 5.3 pt). Either the smallest-text line skips text-box superscripts or the estimate is off; not investigated further.
-- **Severity:** polish (unconfirmed)
-- **Suggestion:** include text-box superscripts in the smallest-text line, or say they were measured.
 
 ## New in round 2
 

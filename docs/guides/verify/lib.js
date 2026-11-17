@@ -32,6 +32,9 @@ async function start(guide, { width = 1440, height = 900 } = {}) {
   // uses its ordinary download path (the one Firefox and Safari use).
   await context.addInitScript(() => { window.showSaveFilePicker = undefined; });
   const page = await context.newPage();
+  // A busy machine (other browsers, a full run-all) can take longer than Playwright's 30 s
+  // default to make a button clickable; a real failure still fails, only later.
+  page.setDefaultTimeout(90000);
   const T = { guide, out, browser, context, page, errors: [], results: [], downloads: [], dialogs: [] };
   page.on('pageerror', e => T.errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/favicon|ERR_FILE_NOT_FOUND/.test(m.text())) T.errors.push('console.error: ' + m.text()); });
@@ -92,7 +95,7 @@ async function cmdk(T, phrase, { enter = true, pick } = {}) {
   const p = T.page;
   await p.keyboard.press('ControlOrMeta+k');
   const box = p.locator('#cmdp-input');
-  await box.waitFor({ state: 'visible', timeout: 3000 });
+  await box.waitFor({ state: 'visible', timeout: 15000 });
   await box.fill(phrase);
   await p.waitForTimeout(250);
   const hits = await p.evaluate(() => [...document.querySelectorAll('#cmdp-list .cmdp-item')]
@@ -110,7 +113,7 @@ async function cmdk(T, phrase, { enter = true, pick } = {}) {
 
 /** Click a control that opens a file chooser, and give it files. */
 async function pickFiles(T, trigger, files) {
-  const [fc] = await Promise.all([T.page.waitForEvent('filechooser', { timeout: 5000 }), trigger.click()]);
+  const [fc] = await Promise.all([T.page.waitForEvent('filechooser', { timeout: 30000 }), trigger.click()]);
   await fc.setFiles(files);
   await T.page.waitForTimeout(500);
 }

@@ -305,7 +305,7 @@ const PHRASES = {
 
   // ux3 (newcomer3-10, newcomer3-12): Fit panels to images with mixed shapes offers ⛶ Crop to
   // fill cells; a journal preset keeps the panel shape Fit made
-  await step(T, '⌘K "fit panels to images" on mixed shapes offers ⛶ Crop to fill cells; a journal preset then keeps the panel shape', async () => {
+  await step(T, '⌘K "fit panels to images" on mixed shapes offers ⛶ Crop to fill cells', async () => {
     const shape = () => p.evaluate(() => { const b = panelBounds.find(q => formatLabel(images[q.idx].label) === 'B'); return +(b.w / b.h).toFixed(3); });
     await L.openSection(T, 'Arrange');
     await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } });
@@ -319,10 +319,10 @@ const PHRASES = {
     await L.cmdk(T, 'fit panels to images'); await p.waitForTimeout(600);
     await p.locator('#toast button', { hasText: 'Crop to fill cells' }).click(); await p.waitForTimeout(600);
     const t2 = await L.toasts(T);
-    expect(/aren.t all the same shape/.test(t) && btns.some(b => /⛶ Crop to fill cells/.test(b)) && Math.abs(s1 - s2) < 0.01 && /cropped to fill their cells/.test(t2), JSON.stringify({ t, btns, s1, s2, t2 }));
+    expect(/aren.t all the same shape/.test(t) && btns.some(b => /⛶ Crop to fill cells/.test(b)) && /cropped to fill their cells/.test(t2), JSON.stringify({ t, btns, s1, s2, t2 }));
     await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);   // the crops back
     await L.openSection(T, 'Look'); await p.locator('#target-journal').selectOption({ index: 0 }); await p.waitForTimeout(400);   // back to no journal
-    return `"${t.slice(0, 110)}…" [${btns.join(', ')}]; panel B ${s1}:1 → ${s2}:1 after the PLOS ONE preset; ${t2}`;
+    return `"${t.slice(0, 110)}…" [${btns.join(', ')}]; ${t2}`;
   });
 
   await step(T, 'Ctrl/⌘+S downloads the session file', async () => {
@@ -361,6 +361,23 @@ const PHRASES = {
     const t = await L.toasts(T), f = await p.locator('#label-font').inputValue();
     expect(/New figure started — font Times New Roman kept/.test(t) && /Times New Roman/.test(f), t + ' | ' + f);
     return t + ' — Font family ' + f;
+  });
+
+  // ux3 (newcomer3-10): a journal preset keeps the panel shape Fit panels to images made (two
+  // 900 × 420 blots, so the fitted cells are not the default square)
+  await step(T, 'Two blots › ⌘K "fit panels to images" makes wide cells; ⌘K "plos" keeps that panel shape', async () => {
+    const blots = [I.blotTiff(path.join(inp, 'blot_1.tif')), I.blotTiff(path.join(inp, 'blot_2.tif'), { seed: 5 })];
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), blots);
+    await p.waitForFunction(() => images.filter(Boolean).length === 2, null, { timeout: 15000 });
+    await btn(T, 'Got it').click({ timeout: 800 }).catch(() => {});
+    const shape = () => p.evaluate(() => { const b = panelBounds.find(q => images[q.idx]); return +(b.w / b.h).toFixed(2); });
+    const s0 = await shape();
+    await L.cmdk(T, 'fit panels to images'); await p.waitForTimeout(600);
+    const s1 = await shape();
+    await L.cmdk(T, 'plos'); await p.waitForTimeout(800);
+    const s2 = await shape();
+    expect(Math.abs(s1 - 900 / 420) < 0.05 && Math.abs(s2 - s1) < 0.02, JSON.stringify({ s0, s1, s2 }));
+    return `panel shape ${s0}:1 → Fit ${s1}:1 → PLOS ONE preset ${s2}:1`;
   });
 
   await L.finish(T);
