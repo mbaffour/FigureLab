@@ -197,7 +197,9 @@ test('newcomer3-03: the Nature preset leaves a chart inside 5–7 pt, and a late
   expect(r1.j).toBe('nature');
   expect(r1.r.icon).toBe('✓');
   // the author types 7 pt again: the row names the largest text and offers Fit
-  const r2 = await page.evaluate(() => { sv('text-pt', '7'); render(); const r = __row('Text size'); __close(); return r; });
+  // ux5 (newcomer5-04): at 7 pt the chart titles stay at Nature's 7 pt (they were 7.7 pt), so
+  // the overshoot is a text size past the maximum
+  const r2 = await page.evaluate(() => { sv('text-pt', '7.5'); render(); const r = __row('Text size'); __close(); return r; });
   expect(r2.icon).toBe('✗');
   expect(r2.text).toMatch(/largest: chart text/);
   expect(r2.fixes.some(f => /^Fit 5–7 pt/.test(f))).toBe(true);
