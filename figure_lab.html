@@ -15712,6 +15712,7 @@ function _checkCompliance(asJ){
   { const cr=_chartDataComplianceRow(); if(cr) checks.push(cr); }
   { const mr=_measComplianceRow(); if(mr) checks.push(mr); }
   { const cf=_chartFitRow(); if(cf) checks.push(cf); }
+  { const sr=_chartSigRow(); if(sr) checks.push(sr); }
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
@@ -20921,6 +20922,18 @@ function _chartFitRow(){
   if(!bad.length) return null;
   return {label:'Chart room', ok:false, warn:true, note:bad.join(' · ')};
 }
+_GENERAL_ROWS.push('Brackets');
+// Compliance: a significance bracket that cannot be drawn — its group removed from the data,
+// or pooled with the other end under one name. It is not drawn and is a failed row: the
+// author typed that p value for those two groups (charts5-01).
+function _chartSigRow(){
+  const nm=el=>esc(_isDataPanel(el)?(_rtText(formatLabel(el.label))||'?'):(el.letter?_rtText(formatLabel(el.letter)):`“${el.label||'chart'}”`));
+  const bad=[];
+  _figureCharts().forEach(el=>{ if(!el||!el.chart) return; let st=null; try{ st=_chartStatsCached(el); }catch(e){ return; }
+    _chartSigResolve(el.chart, st).filter(r=>!r.ok).forEach(r=>bad.push(`${nm(el)}: bracket “${esc(_rtText(r.text))}” is not drawn — ${esc(r.why)}`)); });
+  if(!bad.length) return null;
+  return {label:'Brackets', ok:false, note:`${bad.join(' · ')} — double-click the chart › Significance brackets: pick its groups again, or remove it`};
+}
 // Compliance: every chart made from densitometry — linked and current, out of date, or
 // typed by hand (and whether its blot changed since). Only figures with one get the row.
 function _chartDataComplianceRow(){
@@ -22030,10 +22043,15 @@ async function exportSubmissionPackage(){
         else if(ss.state==='unlinked'||ss.state==='unlinkedChanged') head.push(`# ${ss.state==='unlinkedChanged'?'WARNING: ':''}Values entered by hand; ${ss.text}`); }
       // The groups a mark joins, by the names the chart shows (and the data's names), not
       // only their positions: two "p < 0.001" marks could not be told apart.
-      { let cats=null, keys=null; try{ const st=_chartStatsCached(el); cats=st.categories||null; keys=st.catKeys||null; }catch(e){}
-        const g=i=>{ const sh=cats&&cats[+i]!=null?_rtText(String(cats[+i])):'', k=keys&&keys[+i]!=null?String(keys[+i]):'';
-          return sh?`${sh}${k&&k!==sh?` (${k})`:''}`:`group ${(+i)+1}`; };
-        (el.chart.annos||[]).filter(a=>a.kind==='sig').forEach(a=>head.push(`# Significance mark "${a.text}" between ${g(a.a)} and ${g(a.b)} (groups ${(+a.a)+1} and ${(+a.b)+1}) — author-supplied from their own test, NOT computed by FigureLab`)); }
+      // By the groups (or bars) it joins now, which follow their groups when they are moved
+      // (charts5-01); one that cannot be drawn says so.
+      { let st=null; try{ st=_chartStatsCached(el); }catch(e){}
+        const keys=(st&&st.catKeys)||[], sk=(st&&st.seriesNames)||[];
+        const g=(E,nm)=>{ if(E.gone) return E.gone; const k=String(keys[E.ci]??''), s=E.si!=null&&sk[E.si]?String(sk[E.si].key):'';
+          const dn=s?`${k} · ${s}`:k; return `${nm}${dn&&dn!==nm?` (${dn})`:''}`; };
+        _chartSigResolve(el.chart, st).forEach(r=>head.push(r.ok
+          ? `# Significance mark "${r.text}" between ${g(r.A,r.nameA)} and ${g(r.B,r.nameB)} (groups ${r.A.ci+1} and ${r.B.ci+1}) — author-supplied from their own test, NOT computed by FigureLab`
+          : `# WARNING: significance mark "${r.text}" is NOT drawn: ${r.why} — author-supplied, NOT computed by FigureLab`)); }
       let csv=head.join('\n')+'\n'+D.columns.map(q).join(',')+'\n'+D.rows.map(r=>r.map(q).join(',')).join('\n')+'\n';
       // What is plotted, after averaging: one row per point or bar, with n and the error.
       try{ const P=_chartPlotted(el);
@@ -24588,12 +24606,10 @@ function _dataCaption(el){
       } else if(ch.kind==='survival') bits.push('Kaplan–Meier estimates.');
     }
     // Significance brackets are the author's own: said so, by the groups they join.
-    const sig=(ch.annos||[]).filter(a=>a&&a.kind==='sig');
-    if(sig.length){
-      const keys=st&&st.categories?st.categories:cats;
-      const g=i=>_rtText(String((keys||[])[+i]??`group ${+i+1}`));
-      bits.push(`Brackets: ${sig.map(a=>`${_rtText(String(a.text||''))} (${g(a.a)} vs ${g(a.b)})`).join('; ')}, from the author’s own statistical test.`);
-    }
+    // By the groups they join now (charts5-01); one that cannot be drawn is flagged, not captioned.
+    const sigR=_chartSigResolve(ch, st), sig=sigR.filter(r=>r.ok), sigBad=sigR.filter(r=>!r.ok);
+    if(sig.length) bits.push(`Brackets: ${sig.map(r=>`${_rtText(r.text)} (${r.nameA} vs ${r.nameB})`).join('; ')}, from the author’s own statistical test.`);
+    if(sigBad.length) bits.push(`[⚠ ${sigBad.map(r=>`Bracket “${_rtText(r.text)}” is not drawn: ${r.why}`).join('; ')} — pick its groups again in the Chart dialog, or remove it.]`);
     // Where the numbers come from, as they are now: a chart typed by hand, or one whose
     // blot has changed, is not captioned as that panel's densitometry.
     const ss=_chartSourceState(el), src=ch.data&&ch.data.sourceName;
@@ -25685,6 +25701,9 @@ function applySession(s,_opts){
       _ffRawPend.forEach(([el,k,rec])=>{ if(rec){ const r=_rawFromRecord(rec); if(r) el[k]=r; } });
       _rawLoadPool=null;
       measurements=Array.isArray(s.measurements)?s.measurements:[];
+      // Brackets saved by position join the groups at those positions in the saved order:
+      // bound to their names now, before anything can move a group (charts5-01).
+      _allCharts().forEach(el=>{ try{ _chartSigBind(el.chart); }catch(e){} });
       if(s.labelOffsets&&typeof s.labelOffsets==='object'){
         labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
       }
@@ -30284,18 +30303,28 @@ function _chartDraw(el, emit){
     // On screen only, over the chart's top edge (it takes no room, so the layout is the
     // export's): a chart typed by hand is flagged where you work, not in the export.
     else if(ss.state==='unlinked'&&_chartDrawScreen) screenNote=`⚠ typed values · not linked to ${ss.from}`; }
+  // Significance brackets, by the groups (or bars) they join: one whose group is no longer
+  // in the chart is not drawn, and the chart says so under its plot (charts5-01).
+  const sigR=stat.categories?_chartSigResolve(ch, stat):[];
+  sigR.filter(r=>!r.ok).forEach(r=>notes.push(`⚠ bracket “${_rtText(r.text)}” not drawn: ${r.why}`));
   const noteH=notes.length?notes.length*(T+1)+2*u:0;
-  // Significance brackets need room above the tallest group.
-  const cats0=stat.categories||[];
-  const sigs=stat.categories?(ch.annos||[]).filter(an=>an&&an.kind==='sig'&&Math.min(an.a,an.b)>=0&&Math.max(an.a,an.b)<cats0.length&&an.a!==an.b):[];
+  // Significance brackets need room above the tallest group. An end's place across the
+  // plot, in category widths: a category's centre, or one series' bar or box in it.
+  const sigs=sigR.filter(r=>r.ok);
+  { const gg=st.groupGap??0.35, nS0=Math.max(1,(stat.seriesNames||[]).length), nB0=stat.nSeries||1;
+    const pos=E=>E.si==null?E.ci+0.5:stat.groups?E.ci+0.5-(1-gg)/2+(1-gg)/nS0*(E.si+0.5):E.ci+0.5+(E.si-(nB0-1)/2)/nB0;
+    // what a bracket must clear: the whole of a category it joins, or the bar it joins
+    const reach=E=>E.si==null?[E.ci,E.ci+1]:[pos(E),pos(E)];
+    sigs.forEach(r=>{ const pa=pos(r.A), pb=pos(r.B); r.lo=Math.min(pa,pb); r.hi=Math.max(pa,pb);
+      r.r0=Math.min(reach(r.A)[0],reach(r.B)[0]); r.r1=Math.max(reach(r.A)[1],reach(r.B)[1]); }); }
   // Brackets that share a group or overlap are stacked, the narrower one lower: two drawn
   // at one height met at the shared bar and their labels ran together ("p < 0.00p < 0.001").
   const sigLv=new Map();
-  { const span=an=>[Math.min(an.a,an.b), Math.max(an.a,an.b)], byW=sigs.slice().sort((p,q)=>(span(p)[1]-span(p)[0])-(span(q)[1]-span(q)[0]));
-    const placed=[]; byW.forEach(an=>{ const [a,b]=span(an); let L=0;
-      while(placed.some(q=>q.L===L&&q.a<=b&&a<=q.b)) L++;
-      placed.push({a,b,L}); sigLv.set(an, L+(an.level||0)); }); }
-  const sigH=sigs.length?((14+Math.max(0,...sigs.map(an=>sigLv.get(an)))*19)*u+fs):0;
+  { const byW=sigs.slice().sort((p,q)=>(p.hi-p.lo)-(q.hi-q.lo));
+    const placed=[]; byW.forEach(r=>{ const a=r.lo, b=r.hi; let L=0;
+      while(placed.some(q=>q.L===L&&q.a<=b+1e-9&&a<=q.b+1e-9)) L++;
+      placed.push({a,b,L}); sigLv.set(r, L+(r.an.level||0)); }); }
+  const sigH=sigs.length?((14+Math.max(0,...sigs.map(r=>sigLv.get(r)))*19)*u+fs):0;
   // Decide up front whether category labels would collide horizontally and must be
   // rotated — bottom padding depends on it, so this has to happen before padB.
   // Reserve exactly enough width for the legend labels (was a fixed 96px that both
@@ -30311,7 +30340,7 @@ function _chartDraw(el, emit){
   const _sigLines=an=>{ const t=String(an.text||'*'), pwE=W-padL-padR; if(_rtText(t).length*fs*0.55<=pwE*0.98) return [t];
     const sp=[...t.matchAll(/ /g)].map(m=>m.index); if(!sp.length) return [t];
     const k=sp.reduce((b,i)=>Math.abs(i-t.length/2)<Math.abs(b-t.length/2)?i:b, sp[0]); return [t.slice(0,k), t.slice(k+1)]; };
-  const sigWrap=sigs.some(an=>_sigLines(an).length>1)?fs*1.1:0;
+  const sigWrap=sigs.some(r=>_sigLines(r.an).length>1)?fs*1.1:0;
   let padT=14*u+sigH+sigWrap;
   let rotateXLabels=false, _maxLabelChars=0;
   if(stat.categories && stat.categories.length){
@@ -30405,8 +30434,9 @@ function _chartDraw(el, emit){
     if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9*u, font(T), ink, 'right', 'middle', -40));
     else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14*u, font(T), ink, 'center', 'alphabetic'));
     // The top of what each category draws, for its significance bracket.
-    const top=new Array(nC).fill(py1);
-    const lift=(ci,y)=>{ if(isFinite(y)) top[ci]=Math.min(top[ci], Math.max(py0, y)); };
+    const top=new Array(nC).fill(py1), tops=[];
+    // x: where across the plot it is drawn (a bar's, a box's centre), for a bracket that joins one bar
+    const lift=(ci,y,x)=>{ if(isFinite(y)){ const yy=Math.max(py0, y); top[ci]=Math.min(top[ci], yy); tops.push({p:x==null?ci+0.5:(x-px0)/band, y:yy}); } };
 
     if(stat.kind==='violin'){
       const bw=bW*0.44, pr=Math.max(1.5,(st.pointSize||4)-2);
@@ -30418,9 +30448,9 @@ function _chartDraw(el, emit){
           const left=kde.map(p=>[cx-(p.d/maxD)*bw, cy(p.y)]);
           const right=kde.slice().reverse().map(p=>[cx+(p.d/maxD)*bw, cy(p.y)]);
           emit.poly(left.concat(right).concat([left[0]]), ink, b.color, 1);   // filled density
-          kde.forEach(p=>{ if(p.d/maxD>0.02) lift(ci, cy(p.y)); });
+          kde.forEach(p=>{ if(p.d/maxD>0.02) lift(ci, cy(p.y), cx); });
         }
-        lift(ci, yScale(b.max));
+        lift(ci, yScale(b.max), cx);
         emit.line(cx,yScale(b.q1),cx,yScale(b.q3),'#222222',3);       // IQR spine
         emit.circle(cx,yScale(b.med),2.4,'#ffffff',ink,0.6);         // median dot
         if(st.showPoints && b.raw) b.raw.forEach((v,k)=>{ if(inY(v)) emit.circle(cx+_jit(k)*bw*0.5, yScale(v), pr, 'rgba(20,20,20,0.5)', null, 0); });
@@ -30435,9 +30465,9 @@ function _chartDraw(el, emit){
           emit.line(cx,yScale(lo),cx,yScale(b.mean+e),'#222222',1.2);
           emit.line(cx-bw*0.3,yScale(b.mean+e),cx+bw*0.3,yScale(b.mean+e),'#222222',1.2);
           if(!(yLog&&b.mean-e<=0)) emit.line(cx-bw*0.3,yScale(b.mean-e),cx+bw*0.3,yScale(b.mean-e),'#222222',1.2);
-          lift(ci, yScale(b.mean+e)); }  // ± SD or SEM, as Error bars says
+          lift(ci, yScale(b.mean+e), cx); }  // ± SD or SEM, as Error bars says
         clipOff();
-        if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr); });
+        if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr, cx); });
       });
     } else if(stat.kind==='box'){
       const bw=bW*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
@@ -30449,7 +30479,7 @@ function _chartDraw(el, emit){
         emit.line(cx-bw*0.25,yScale(b.max),cx+bw*0.25,yScale(b.max),ink,1);
         emit.rect(x0,yScale(b.q3),bw,yScale(b.q1)-yScale(b.q3),b.color,ink,1);  // IQR box
         emit.line(x0,yScale(b.med),x0+bw,yScale(b.med),ink,1.5);     // median
-        lift(ci, yScale(b.max));
+        lift(ci, yScale(b.max), cx);
       });
       clipOff();
       // Overlay every raw value (jittered) — exposes n + spread the box summarises.
@@ -30477,17 +30507,17 @@ function _chartDraw(el, emit){
             if(b.missing){ dots.push({nd:true, x:bx+barW/2, y:base0-3}); return; }
             const by=yScale(b.value);
             emit.rect(bx,Math.min(by,base0),barW,Math.abs(base0-by),b.color,ink,0.5);
-            lift(ci, Math.min(by,base0));
+            lift(ci, Math.min(by,base0), bx+barW/2);
             if(b.err>0){ const ex=bx+barW/2;
               let hi=b.value+b.err, lo=b.value-b.err;
               if(!yLog){ if(b.value>=0) lo=Math.max(0,lo); else hi=Math.min(0,hi); }
               const capV=b.value>=0?hi:lo;
               emit.line(ex,yScale(hi),ex,(yLog&&lo<=0)?py1:yScale(lo),ink,1);
               emit.line(ex-barW*0.2,yScale(capV),ex+barW*0.2,yScale(capV),ink,1);
-              lift(ci, yScale(capV)); }
+              lift(ci, yScale(capV), ex); }
             // Overlay the replicate values (jittered) so the bar never hides its n/spread.
             if(st.showPoints && b.vals && b.vals.length>1){ const bcx=bx+barW/2;
-              b.vals.forEach((v,k)=>{ if(inY(v)){ dots.push({x:bcx+_jit(k)*barW*0.6, y:yScale(v), c:b.color}); lift(ci, yScale(v)); } }); }
+              b.vals.forEach((v,k)=>{ if(inY(v)){ dots.push({x:bcx+_jit(k)*barW*0.6, y:yScale(v), c:b.color}); lift(ci, yScale(v), bcx); } }); }
           });
         }
       });
@@ -30504,10 +30534,9 @@ function _chartDraw(el, emit){
     // violin, beeswarm dot, overlaid point), in the band reserved above the plot — not a
     // fixed ceiling. Still no computed p-value: an.text is the author's own symbol.
     const sigDone=[];
-    sigs.slice().sort((p,q)=>sigLv.get(p)-sigLv.get(q)).forEach(an=>{
-      const a=Math.min(an.a,an.b), b=Math.max(an.a,an.b);
-      const x1=xCenter(a), x2=xCenter(b);
-      let topY=Infinity; for(let ci=a;ci<=b;ci++) topY=Math.min(topY, top[ci]);
+    sigs.slice().sort((p,q)=>sigLv.get(p)-sigLv.get(q)).forEach(r=>{
+      const an=r.an, x1=px0+band*r.lo, x2=px0+band*r.hi;
+      let topY=py1; tops.forEach(t=>{ if(t.p>=r.r0-1e-6&&t.p<=r.r1+1e-6) topY=Math.min(topY, t.y); });
       const SL=_sigLines(an), drop=6*u;
       // Above every bracket already drawn that it overlaps, line or label.
       const lw0=Math.max(...SL.map(l=>_rtText(l).length*fs*0.55)), L0=Math.min(x1,(x1+x2)/2-lw0/2), R0=Math.max(x2,(x1+x2)/2+lw0/2);
@@ -31465,6 +31494,7 @@ function _chartModalOpen(){ const m=document.getElementById('chart-modal'); retu
 function _chartTarget(){ if(_chartDraft&&_chartModalOpen()) return _chartDraft; const el=_selectedChartEl(); return el?el.chart:null; }
 function openChartModal(){
   const el=_selectedChartEl(); if(!el){ toast('Select a chart first','warn'); return; }
+  try{ _chartSigBind(el.chart); }catch(e){}
   _chartDraft=JSON.parse(JSON.stringify(el.chart));
   const d=_chartDraft; d.mapping=d.mapping||{}; d.axes=d.axes||{}; d.axes.x=d.axes.x||{}; d.axes.y=d.axes.y||{}; d.style=d.style||{}; d.fit=d.fit||{};
   if(d.kind==='beeswarm'&&d.error==='none'&&!d.whiskerOff) d.error='sd';   // the menu says what is drawn
@@ -31849,6 +31879,7 @@ function _chartColourEdit(key,val){ if(!/^#[0-9a-f]{6}$/i.test(val)) return; _ch
 function _chartOrderMove(key,dir){
   const ch=_chartTarget(); if(!ch) return;
   let st=null; try{ st=_chartStats({chart:ch, w:300, h:200}); }catch(e){ return; }
+  _chartSigBind(ch, st);   // a bracket follows its groups, not the places they move out of
   const keys=(st.catKeys||[]).slice(), i=keys.indexOf(key), j=i+dir; if(i<0||j<0||j>=keys.length) return;
   [keys[i],keys[j]]=[keys[j],keys[i]]; ch.order=keys;
   if(_chartDraft===ch){ _chartRenderNames(); _chartRenderSigList(); _chartPreview(); }
@@ -31932,41 +31963,124 @@ function applyChartModal(){
   _chartDraftNames={};
 }
 // Significance annotations (user-entered marks — never computed).
-function _chartSigCats(){
-  const ch=_chartTarget(); if(!ch) return [];
-  try{ const st=_chartStats({chart:ch, w:300, h:200}); return st.categories||[]; }catch(e){ return []; }
+// A bracket joins two groups by their names in the data, not by their places: moving a
+// group with ↑↓ used to leave the bracket where it was, so p = 0.002 for PA14 vs ΔlasR
+// joined PA14 and ΔmexB, and the caption and source data said so (charts5-01). Each end is
+// a category's data name (ka, kb) and, on a chart with a series column, a series' data
+// name (sa, sb) for one bar or box of that category (charts5-07). A bracket saved before
+// (a, b: positions only) is bound to the groups at those positions when its chart is read
+// back — the order it was saved in — and when its dialog opens.
+function _chartSigBind(ch, stat){
+  if(!ch||!Array.isArray(ch.annos)||!ch.annos.some(an=>an&&an.kind==='sig'&&an.ka==null&&!an.unbound)) return;
+  if(!stat){ try{ stat=_chartStats({chart:ch, w:300, h:200}); }catch(e){ return; } }
+  if(!stat||!stat.catKeys) return;
+  const K=stat.catKeys;
+  ch.annos.forEach(an=>{ if(!an||an.kind!=='sig'||an.ka!=null||an.unbound) return;
+    const a=Math.max(0,parseInt(an.a)||0), b=an.b==null?1:Math.max(0,parseInt(an.b)||0);
+    if(K[a]!=null&&K[b]!=null){ an.ka=String(K[a]); an.kb=String(K[b]); }
+    else an.unbound=true; });   // a position past the last group: flagged, never re-attached
 }
+// Does this chart draw one bar or box per series inside a category (the ends a bracket can join)?
+function _chartSigMulti(stat){
+  if(!stat||!stat.categories) return false;
+  if(stat.groups) return stat.kind!=='stackedBar'&&(stat.seriesNames||[]).length>1;
+  return (stat.nSeries||1)>1;
+}
+// Every bracket of a chart, resolved against what the chart draws now:
+// [{an, i, ok, A:{ci,si}, B:{ci,si}, nameA, nameB, why}]. ok:false is a bracket that
+// cannot be drawn — a group or bar no longer in the chart, or both ends pooled into one
+// group — said on the chart, in the caption, the source data and the compliance check.
+function _chartSigResolve(ch, stat){
+  const out=[]; if(!ch||!Array.isArray(ch.annos)||!stat||!stat.categories) return out;
+  _chartSigBind(ch, stat);
+  const K=(stat.catKeys||[]).map(String), multi=_chartSigMulti(stat);
+  const SK=multi?(stat.seriesNames||[]).map(s=>String(s.key)):[];
+  let M=null; const pooled=k=>{ if(!M) M=_chartMerged(ch); const g=M.find(q=>q.members.map(String).includes(String(k))); return g?String(g.key):null; };
+  const idx=(L,k)=>{ let i=L.indexOf(String(k)); if(i<0){ const p=pooled(k); if(p!=null) i=L.indexOf(p); } return i; };
+  const disp=k=>_rtText(String(_chartDisp(ch,k)));
+  ch.annos.forEach((an,i)=>{ if(!an||an.kind!=='sig') return;
+    const end=(k,s,pos)=>{
+      if(k==null) return {gone:`group ${(parseInt(an[pos])||0)+1}`};
+      const ci=idx(K,k); if(ci<0) return {gone:disp(k)};
+      const cn=_rtText(String(stat.categories[ci]));
+      if(s==null||s==='') return {ci, si:null, name:cn};
+      if(!multi) return {gone:`${disp(k)} · ${disp(s)}`};
+      const si=idx(SK,s); if(si<0) return {gone:`${disp(k)} · ${disp(s)}`};
+      return {ci, si, name:`${cn} · ${_rtText(String(stat.seriesNames[si].name))}`}; };
+    const A=end(an.ka,an.sa,'a'), B=end(an.kb,an.sb,'b');
+    const gone=[A.gone,B.gone].filter(Boolean);
+    let why='';
+    if(gone.length) why=`${_listAnd([...new Set(gone)])} ${gone.length>1&&gone[0]!==gone[1]?'are':'is'} no longer in the chart`;
+    else if(A.ci===B.ci&&A.si===B.si) why=`both ends are now ${A.name}`;
+    if(!why){ an.a=A.ci; an.b=B.ci; }   // positions as drawn now, for older readers of the file
+    out.push({an, i, ok:!why, A, B, why,
+      nameA:A.name||A.gone||'', nameB:B.name||B.gone||'', text:String(an.text||'')});
+  });
+  return out;
+}
+// The ends a bracket can join, as the dialog's menus list them: each category, then (on
+// a chart with series) each bar or box of it.
+function _chartSigEnds(stat){
+  if(!stat||!stat.categories) return [];
+  const multi=_chartSigMulti(stat), out=[];
+  stat.categories.forEach((c,ci)=>{ out.push({v:'c:'+ci, ci, si:null, label:_rtText(String(c))});
+    if(multi) (stat.seriesNames||[]).forEach((s,si)=>out.push({v:`s:${ci}:${si}`, ci, si, label:`${_rtText(String(c))} · ${_rtText(String(s.name))}`})); });
+  return out;
+}
+function _chartSigStat(){
+  const ch=_chartTarget(); if(!ch) return null;
+  try{ return (_chartDraft===ch?_chartAsApplied:(f=>f()))(()=>_chartStats({chart:ch, w:300, h:200})); }catch(e){ return null; }
+}
+function _chartSigCats(){ const st=_chartSigStat(); return (st&&st.categories)||[]; }
 function _chartRenderSigList(){
   const ch=_chartTarget(); if(!ch) return;
   const wrap=document.getElementById('chart-sig-list'); if(!wrap) return;
   if(document.activeElement&&wrap.contains(document.activeElement)&&document.activeElement.type==='text') return;
-  const annos=ch.annos||[], cats=_chartSigCats();
+  const annos=ch.annos||[], stat=_chartSigStat(), ends=_chartSigEnds(stat);
   const isCat=_chartCategorical(ch.kind);
   wrap.innerHTML=!isCat?'<span style="font-size:10px;color:var(--muted)">Brackets compare groups: bar, box, violin and beeswarm charts draw them.</span>':annos.length?'':'<span style="font-size:10px;color:var(--muted)">No brackets yet</span>';
   if(!isCat) return;
-  const pick=(i,prop,v)=>`<select onchange="_chartSigEdit(${i},'${prop}',this.value)" style="font-size:11px;max-width:130px">${cats.map((c,ci)=>`<option value="${ci}"${ci===v?' selected':''}>${esc(_rtText(c))}</option>`).join('')}${v>=cats.length?`<option value="${v}" selected>group ${v+1} (none)</option>`:''}</select>`;
+  const R=new Map(_chartSigResolve(ch, stat).map(r=>[r.an,r]));
+  const pick=(i,prop,E,gone)=>`<select onchange="_chartSigEdit(${i},'${prop}',this.value)" style="font-size:11px;max-width:150px${gone?';color:var(--warn)':''}">${gone?`<option value="" selected>⚠ ${esc(gone)} — not in the chart</option>`:''}${ends.map(o=>`<option value="${o.v}"${!gone&&E&&o.ci===E.ci&&o.si===E.si?' selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
   annos.forEach((an,i)=>{
     if(an.kind!=='sig') return;
+    const r=R.get(an)||{A:{ci:0,si:null},B:{ci:1,si:null}};
     const row=document.createElement('div');
-    row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px';
-    row.innerHTML=`${pick(i,'a',+an.a||0)}<span>–</span>${pick(i,'b',an.b==null?1:+an.b||0)}
+    row.style.cssText='display:flex;gap:4px;align-items:center;margin-top:3px;font-size:11px;flex-wrap:wrap';
+    row.innerHTML=`${pick(i,'a',r.A,r.A&&r.A.gone)}<span>–</span>${pick(i,'b',r.B,r.B&&r.B.gone)}
       <input type="text" value="${esc(an.text||'*')}" maxlength="40" style="flex:1;min-width:130px" oninput="_chartSigEdit(${i},'text',this.value);this.nextElementSibling.textContent=this.value.length+'/40'" title="The symbol or p value from your own test (up to 40 characters: *, n.s., p = 0.0008, p = 7.6×10^{-4})"><span style="color:var(--muted);font-size:10px;min-width:30px" title="Characters used of the 40 a label can hold">${String(an.text||'*').length}/40</span>
-      <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>`;
+      <button class="icon-btn" title="Remove" onclick="_chartDelSig(${i})">×</button>${r.ok===false?`<div class="chart-sig-why" style="flex-basis:100%;color:var(--warn);font-size:10px">⚠ Not drawn: ${esc(r.why)} — pick its groups again, or remove it.</div>`:''}`;
     wrap.appendChild(row);
   });
 }
 function _chartAddSig(){
   const ch=_chartTarget(); if(!ch) return;
   ch.annos=ch.annos||[];
-  const lvl=ch.annos.filter(a=>a.kind==='sig').length;
-  ch.annos.push({kind:'sig', a:0, b:Math.min(1,(ch.data.rows.length-1)||1), text:'*', level:lvl});
-  logAction('chartSigAnno',{a:0,b:1,text:'*'});
+  const stat=_chartSigStat(); _chartSigBind(ch, stat);
+  const lvl=ch.annos.filter(a=>a.kind==='sig').length, K=(stat&&stat.catKeys)||[];
+  const an={kind:'sig', a:0, b:Math.min(1,(ch.data.rows.length-1)||1), text:'*', level:lvl};
+  if(K.length){ an.ka=String(K[0]); an.kb=String(K[Math.min(1,K.length-1)]); }
+  ch.annos.push(an);
+  logAction('chartSigAnno',{a:an.ka??0,b:an.kb??1,text:'*'});
   _chartRenderSigList(); if(_chartDraft===ch) _chartPreview();
 }
 function _chartSigEdit(i,prop,val){
   const ch=_chartTarget(); if(!ch||!ch.annos[i]) return;
-  ch.annos[i][prop]=(prop==='text')?String(val):Math.max(0,parseInt(val)||0);
-  if(prop==='text') logAction('chartSigAnno',{a:ch.annos[i].a,b:ch.annos[i].b,text:String(val)});
+  const an=ch.annos[i];
+  if(prop==='text'){ an.text=String(val); logAction('chartSigAnno',{a:an.ka??an.a,b:an.kb??an.b,text:String(val)}); }
+  else if(prop==='a'||prop==='b'){
+    // "c:2" a category, "s:2:1" one series' bar in it; a bare number (older callers) a category.
+    const stat=_chartSigStat(); if(!stat||!stat.catKeys) return;
+    const m=/^(?:c:)?(\d+)$/.exec(String(val))||/^s:(\d+):(\d+)$/.exec(String(val)); if(!m) return;
+    const ci=+m[1], si=m[2]!=null?+m[2]:null; if(stat.catKeys[ci]==null) return;
+    _chartSigBind(ch, stat);
+    an['k'+prop]=String(stat.catKeys[ci]);
+    if(si!=null&&stat.seriesNames&&stat.seriesNames[si]) an['s'+prop]=String(stat.seriesNames[si].key); else delete an['s'+prop];
+    an[prop]=ci; delete an.unbound;
+    if(an.ka==null||an.kb==null){ const o=prop==='a'?'b':'a', oi=Math.max(0,parseInt(an[o])||0); if(stat.catKeys[oi]!=null) an['k'+o]=String(stat.catKeys[oi]); }
+    _chartRenderSigList();
+  }
+  else an[prop]=Math.max(0,parseInt(val)||0);
   if(_chartDraft===ch) _chartPreview();
 }
 function _chartDelSig(i){
