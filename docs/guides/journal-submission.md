@@ -20,7 +20,7 @@ Do this after the layout is settled (columns, rows, spans), and after you name t
 
 1. Open **Export** and type the figure's name in **File name**, with its number: `Figure 2`.
 2. Open **Look** and choose your journal in **Target journal**. You can also press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, type the journal's name or abbreviation (`plos`, `mbio`, `j bacteriol`, `jbc`) and press <kbd>Enter</kbd> on **Journal: …**, or click one of the preset buttons under it (**Nature**, **PLOS**, **eLife**, **EMBO**, **ASM**, **JBC** …). A journal FigureLab has no preset for says so and changes nothing: `nat comms` finds "Journal: no preset for Nature Communications", and `scientific reports` finds "Journal: no preset for Scientific Reports".
-3. Read the toast. It lists what the preset set, for example `PLOS ONE preset applied — printed width kept at 173 mm (PLOS ONE allows up to 190.5 mm), Arial, LZW TIFF, named Fig2 — letters 10 pt, headings 9 pt, text 8 pt`.
+3. Read the toast. It lists what the preset set, for example `PLOS ONE preset applied — printed width 173 mm (PLOS ONE allows up to 190.5 mm), Arial, LZW TIFF, files named Fig2 (your name “Figure 2” is kept for when you change journal) — letters 10 pt, headings 9 pt, text 8 pt`. It says "kept" only for a width you had set before choosing the journal.
 
 What a preset sets, where the journal states it:
 
@@ -31,16 +31,16 @@ What a preset sets, where the journal states it:
 | Letters / headings / text | 7 / 7 / 7 pt | 10 / 9 / 8 pt | 8 / 8 / 7 pt (eLife states no size) |
 | TIFF | — | LZW, named `Fig2.tif` | — |
 
-A preset picks the widest width the journal allows that keeps the figure within its height limit, and its toast says so: on a 2 × 2 figure of square panels, "… 89 mm wide — the widest that keeps it within 170 mm tall".
+A preset picks the widest width the journal allows that keeps the figure within its height limit, and its toast says so: on a 2 × 2 figure of square panels, "… printed width 89 mm — the widest that keeps it within 170 mm tall".
 
-PLOS file names take the number from your File name: `Figure 2` becomes `Fig2`. If you rename the figure after choosing PLOS, the compliance report's **File name** row offers a **Name Fig3** button.
+PLOS file names take the number from your File name: `Figure 2` becomes `Fig2`, and the **File name** box reads `Fig2`. Your own name is kept: choose Nature afterwards and the box reads `Figure 2` again (the toast says "files named “Figure 2” again"). If you rename the figure after choosing PLOS, the compliance report's **File name** row offers a **Name Fig3** button.
 
 Science, Cell and PNAS are marked *unverified*: FigureLab could only read secondary sources for them, so their rows never fail.
 
 ## 2. Run the compliance check
 
 1. Open **Check** and click **✓ Check journal compliance**. To see how the figure fares under another journal, press ⌘K and type `check against` and its name (`check against nature`): the report's title ends "· report only", a line says "Report only — your target journal is still PLOS ONE, and nothing was changed", and a **Switch the target to Nature** link changes the target if you want it (one undo step).
-2. Read the title: `PLOS ONE compliance — 18/21 passed`.
+2. Read the title: `PLOS ONE compliance — 18/21 passed · 1 to do: export as TIFF`. The "to do" names what is left once the rules pass, here the export in the journal's format (§6).
 3. Read each row. Each journal row names its source.
 
 ![The PLOS ONE compliance report](img/journal-compliance.png)
@@ -65,12 +65,13 @@ Each button is one undo step, and the report refreshes after it.
 | Text contrast | **Auto contrast** | Darkens the chips behind the letters and picks black or white text, so every letter reads against its panel. See the note below. |
 | Printed height | **Set 89 mm** (the width that fits) | Narrows the figure until it fits the journal's height. |
 | Legend key on the figure | **Move to free space** | Puts a key that covers a panel, letter or heading back into free space. |
+| Blank margins (journal reports only) | **Balance margins** | The row appears when the blank strip on one side of the figure is wider than on the other (the default margins leave a wider strip on the left and top): ⚠ under a journal that asks for whitespace cropped (ASM), ℹ otherwise. The button trims the wider margins to match: "Margins balanced: left 60 → 16 px, top 40 → 7 px (Arrange › Margins) — a journal preset keeps them" in the [phage guide](phage-and-microbiology.md)'s test. |
 | Panel resolution | **Select panel** | Selects the first panel that prints below 300 ppi, so you can make it smaller. |
 | Alt text | **Alt text** | Opens the ALT TEXT box under the caption. |
 | File name (PLOS) | **Name Fig2** | Renames the export. |
 | Export format | **Save as …** in the journal's format (**Save as TIFF** under PLOS) | Opens the Save dialog again when nothing was exported since the figure last changed (see §6). |
 
-Rows for charts and blots have their own buttons, described in those guides: **Text to N pt** when chart superscripts print below the journal's minimum ([charts](charts.md)), **Lane tables to 7 pt** and **Widen A** for lane-table labels, and the **Charts from densitometry** row for a chart whose numbers were typed by hand ([western blot](western-blot.md)).
+Rows for charts, blots and measurements are described in those guides: **Text to N pt** when chart superscripts print below the journal's minimum, and **Chart room** when a chart's plot is squeezed or a legend name is cut off ([charts](charts.md)); **Lane tables to 7 pt** and **Widen A** for lane-table labels, and the **Charts from densitometry** row for a chart whose numbers were typed by hand ([western blot](western-blot.md)); **Measurements** when a count or ruler was made on a picture you have since replaced ([phage](phage-and-microbiology.md)); **Text over text** when a tag or heading sits on a panel letter, with the merge tags it fitted ([fluorescence](fluorescence.md)).
 
 **Text contrast.** The row measures each letter against the picture under its strokes. In the test, letter C on its chip over the white blot read 3.55:1 (⚠). The row's **Auto contrast** button fixed it with **Look › Panel Labels (A, B, C…) › Background** still ticked: the toast reads "Auto contrast on — the chips behind the letters are darker and the letters white — every text over a picture now reads at 4.5:1 or better", and the row passed. Scale-bar text is inked from the pixels under it, with a backing chip where neither black nor white reads, so text over a mid-grey TEM passes too ([phage guide](phage-and-microbiology.md)).
 
@@ -82,8 +83,8 @@ The key lists every channel colour, chart series and gene-map feature once, with
 
 1. Open **Export › Legend key**.
 2. Rename a channel under **Channel names** if the file name gave the wrong one (`GFP` → `GFP-LC3`). The key, its text and the placed key follow. Clear a name to go back to the tag or file name. Greyscale pictures (phase contrast, bright field) are listed there too, under the name their panels show: an uncalibrated `HeLa_DMSO_phase.tif` came in as **BF**, and typing `Phase contrast` in its field renamed every panel of that name ("Phase contrast (greyscale)" in the key text).
-3. Tick **Place the key on the figure**, or press <kbd>⌘K</kbd>, type `legend key` and press <kbd>Enter</kbd> on **Legend key: place it on the figure** ("Legend key placed on the figure, in free space — …"). It goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. When there is no room, a margin grows for it and a toast says so ("The legend key needed free space, so the bottom margin grew from 16 to 53 px — it sits there without covering anything"). The key moves itself when the layout, text size, printed width or journal changes, and when it moves, the margin grown for its old place is given back ("The key moved; the bottom margin back to 16 px").
-4. To choose the place yourself, use the **Where** menu beside the switch: **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. Or drag the key with **Annotate & Draw › ↖ Select**: a key you moved stays where you put it. If it then covers something, the compliance report's **Legend key on the figure** row warns ("the key you moved covers panel letter A, 1 panel") and its **Move to free space** button puts it back.
+3. Tick **Place the key on the figure**, or press <kbd>⌘K</kbd>, type `legend key` and press <kbd>Enter</kbd> on **Legend key: place it on the figure**. It goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. When there is no room, a margin grows for it and the toast says so: "Legend key placed on the figure. The legend key needed free space, so the bottom margin grew from 16 to 53 px — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it." The key moves itself when the layout, text size, printed width or journal changes, and when it moves, the margin grown for its old place is given back ("The key moved; the bottom margin back to 16 px").
+4. To choose the place yourself, use the menu beside the switch (it has no label on screen; the toasts call it **Where**): **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. Or drag the key with **Annotate & Draw › ↖ Select**: a key you moved stays where you put it. If it then covers something, the compliance report's **Legend key on the figure** row warns ("the key you moved covers panel letter A, 1 panel") and its **Move to free space** button puts it back.
 5. Click **⬇ Download key**. It is written in the format of your last export, shown on the button: **⬇ Download key (PNG)** before any export, **⬇ Download key (TIFF)** after a TIFF.
 6. Under **Figure caption helper**, the **Legend text starter** box holds the key as a sentence: `DAPI (blue); GFP-LC3 (green).` Click **Copy** and paste it into your figure legend.
 
@@ -100,11 +101,13 @@ An untouched caption follows the figure by itself, also in a reopened session: i
 
 Once you edit one of them, FigureLab keeps your words. If the figure changes afterwards (a caption note, a swap, a renamed sample, a replaced picture), a line under the box says so within a second and offers both ways:
 
-- caption: `⚠ The figure has changed since this caption was written. ✦ Regenerate (replaces your edits) · Keep mine`;
+- caption: `⚠ The figure has changed since this caption was written. ✦ Regenerate (replaces your edits; a sentence in a panel's ⚙ › Caption note, or a chart's, is kept) · Keep mine`;
 - Methods: `… since this paragraph was written. ✎ Rewrite (replaces your edits) · Keep mine`;
 - alt text: `⚠ The figure or its caption has changed since this alt text was written — exports embed it as it is. ✦ Redraft (replaces your edits) · Keep mine`.
 
 **Keep mine** keeps your text and hides the line until the figure changes again. Clicking **✦ Generate Caption** or **✎ Write Methods paragraph** on edited text asks first ("Replace your caption?"): **Replace** or **Keep mine**.
+
+A sentence you want in every new caption (the assay, n, the statistical test) goes in a caption note, not at the end of the caption: a panel's **⚙ › Caption note (not rendered)**, or for a chart the **Caption note** field in its Chart dialog. Caption notes are written into the caption each time; text typed into the caption box itself is replaced by **✦ Regenerate**.
 
 ## 5. Check for reused images
 
@@ -155,7 +158,7 @@ Caption and Methods in the package: an untouched box is regenerated for the figu
 ## 7. Save and reopen your work
 
 1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>, or **Export › Save / load your work › 💾 Save (bundled)**. You get `<name>-session.json` with the images inside, including the 16-bit samples: "Session saved (images bundled, with 2 MB of native 16-bit samples so levels and measurements reopen in camera counts)".
-2. To reopen: on a fresh page, click **📂 Load a session** on the welcome card, or **Export › 📂 Load**, and pick the file.
+2. To reopen: on a fresh page, click **📂 Load a session** on the welcome card, or **Export › 📂 Load**, and pick the file. If the browser kept a copy, a bar at the bottom comes first: after a Save session it reads "↺ Your figure was last saved with Save session (downloaded as Fig2-session.json) at …, with no changes after — open that file (📂 Load session) to get it back with everything, 16-bit values included." Click **Dismiss** and load the file; **Restore the browser copy** brings back the autosaved copy, which does not keep 16-bit samples.
 
 Verified: panels, letters, target journal, printed width (173 mm), File name, channel names in the key and caption notes all came back. Autosave cannot hold large images; keep the session file.
 
@@ -165,12 +168,12 @@ Reviewers ask for a panel swapped, a sample renamed, another journal or another 
 
 **Change the figure**
 
-1. **Replace a picture.** Right-click the panel on the canvas › **⇄ Replace image…** (also in the panel's **⚙** and in ⌘K). Letter, crop, settings and caption note are kept, and the toast says so: `Panel C: PhoA_blot.tif → PhoA_blot_rerun.tif — crop, label and settings kept; display range 0–53369 (native values) kept; caption note kept: “PhoA western blot; WT and ΔphoA, ± IPTG” — edit it in ⚙ if it no longer fits`. If the new picture shows something else, edit that caption note. When something cannot be kept (a display range an 8-bit file cannot hold, a calibration that may not fit), the toast reads "crop and label kept, but" and names it. Calibration comes from the new file. Freeform pictures are replaced the same way ([freeform](freeform.md)).
+1. **Replace a picture.** Right-click the panel on the canvas › **⇄ Replace image…** (also in the panel's **⚙** and in ⌘K). Letter, crop, settings and caption note are kept, and the toast says so: `Panel C: PhoA_blot.tif → PhoA_blot_rerun.tif — crop, label and settings kept; display range 0–53369 (native values) kept; caption note kept: “PhoA western blot; WT and ΔphoA, ± IPTG” — edit it in ⚙ if it no longer fits`. If the new picture shows something else, edit that caption note. When something cannot be kept (a display range an 8-bit file cannot hold, a calibration that may not fit), the toast reads "crop and label kept, but" and names it. A new file that carries its own calibration (an ImageJ TIFF) brings it. A file without one keeps the panel's µm/px only if it has the same pixel size; otherwise the calibration is cleared and the toast says so ("calibration cleared: the new file is 400×400 px and the old one 512×512, so 0.1083 µm/px may be wrong — calibrate it again"). Freeform pictures are replaced the same way ([freeform](freeform.md)).
 2. **Swap two panels.** Drag one panel onto the other on the canvas. The toast says `Panels swapped`, and the letters follow position.
 3. **Remove a panel.** Right-click it › **✕ Remove panel**. When the letters then skip one, the toast says so and offers to reletter: "Panel A removed — Ctrl+Z brings it back. The letters now skip A" with a **🔤 Relabel A, B, C…** button.
 4. **Rename a sample.** A channel: **Export › Legend key › Channel names** (in the test `GFP-LC3` → `LC3`; the key text and the untouched caption read "LC3 (green)" at once). A chart sample: its **shown as** box ([charts](charts.md)).
 5. **Change the journal.** ⌘K › **Journal: eLife** (or Look › Target journal). The toast lists what the preset set.
-6. **Change the printed width.** In **Export › Printed width**. A narrower width keeps text at its point size, so the toast warns that it grows against the pictures: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
+6. **Change the printed width.** In **Export › Printed width**. A narrower width keeps text at its point size, so the toast warns that it grows against the pictures: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge". With the key on the figure, the same toast goes on to say how its margin changed ("The legend key needed free space, so the bottom margin grew from 53 to 72 px …").
 
 **What FigureLab flags for you**
 
@@ -191,7 +194,7 @@ Reviewers ask for a panel swapped, a sample renamed, another journal or another 
 - Lay out the figure first, name it, then choose the journal. The preset sets sizes in points at the printed width, and PLOS takes the figure number from the name.
 - ⌘K › **Check against …** reports against any journal without changing your target.
 - Export the figure in the journal's format before the final check, so the **Export format** row has something to check.
-- Write caption notes in each panel's ⚙ rather than editing the caption: they survive regeneration and travel with the panel when you swap or replace it.
+- Write caption notes in each panel's ⚙ (or a chart's Chart dialog) rather than editing the caption: they survive ✦ Regenerate and travel with the panel when you swap or replace it.
 - Save the session (⌘S) before a revision round, and keep the package's `-session.json`: it reopens the figure as submitted.
 - More shortcuts: [tips and tricks](tips-and-tricks.md).
 
@@ -200,7 +203,7 @@ Reviewers ask for a panel swapped, a sample renamed, another journal or another 
 | Symptom | Fix |
 |---|---|
 | **Printed height** fails | You widened the figure after the preset: click **Set … mm** on the row, or use fewer rows. |
-| **Legend key on the figure** warns | A key you dragged covers something: click **Move to free space**, or pick a place under **Export › Legend key › Where**. |
+| **Legend key on the figure** warns | A key you dragged covers something: click **Move to free space**, or pick a place in the menu beside **Export › Legend key › Place the key on the figure**. |
 | The key lists only some panels | It keys colour: channels, chart series and gene-map features. A blot or an RGB photo has no key row. |
 | The caption shows ⚠ out of date | Click **✦ Regenerate** (replaces your edits) or **Keep mine**. |
 | **Export format** reads ℹ "not checked — the figure changed after it was last exported" | The file you saved shows an earlier version. Click the row's **Save as …** button (or the toolbar's format) and save again. |

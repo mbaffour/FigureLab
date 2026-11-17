@@ -159,7 +159,10 @@ async function card(T, i, { open = false } = {}) {
     R = await readReport(T);
     const h2 = row(R, 'Printed height');
     expect(h2.icon === '✓', 'after Set 89 mm: ' + h2.note);
-    return `preset: ${h0.icon} ${h0.note.split('Source')[0]} → at 183 mm: ${h1.icon} → Set 89 mm: ${h2.icon} (toast: ${t})`;
+    // ux4: the File name box went back to the name you typed, as the toast says
+    const nm = await p.locator('#export-name').inputValue();
+    expect(nm === 'Figure 2' && /files named “Figure 2” again/.test(t), 'File name ' + nm + ' | toast ' + t);
+    return `preset: ${h0.icon} ${h0.note.split('Source')[0]} → at 183 mm: ${h1.icon} → Set 89 mm: ${h2.icon} (toast: ${t}); File name box "${nm}"`;
   });
 
   await step(T, '1.3b Nature report: "Alt text" opens the ALT TEXT box; ✦ Draft from figure fills it and the row passes', async () => {
@@ -549,13 +552,21 @@ async function card(T, i, { open = false } = {}) {
     return `${path.basename(session)} ${kb.toFixed(0)} KB — ${await L.toasts(T)}`;
   });
 
-  await step(T, '7.2 A fresh page: welcome card › 📂 Load a session reopens panels, letters, journal, key names, notes', async () => {
+  await step(T, '7.2 A fresh page: the recovery bar points to the saved session file (Dismiss); welcome card › 📂 Load a session reopens panels, letters, journal, key names, notes', async () => {
     const p2 = await T.context.newPage();
     p2.on('download', async d => { const f = path.join(T.out, 'downloads', d.suggestedFilename()); await d.saveAs(f); T.downloads.push(f); });
     p2.on('pageerror', e => T.errors.push('pageerror (reopened): ' + e.message));
     p2.on('dialog', d => d.accept());
     await p2.goto(L.APP_URL);
     await p2.waitForFunction(() => typeof render === 'function');
+    // ux4: a session saved with Save session: the recovery bar offers the file first, Dismiss first
+    await p2.waitForTimeout(800);
+    const bar = p2.locator('div', { hasText: /^↺ / }).filter({ has: p2.locator('button') }).last();
+    const barText = (await bar.innerText({ timeout: 5000 }).catch(() => '')).replace(/\s+/g, ' ');
+    const barBtns = await bar.locator('button').allInnerTexts().catch(() => []);
+    expect(/^↺ Your figure was last saved with Save session \(downloaded as Fig2-session\.json\) at .*, with no changes after — open that file \(📂 Load session\) to get it back with everything/.test(barText) && barBtns[0] === 'Dismiss', 'recovery bar: ' + barText + ' | ' + barBtns.join(' / '));
+    await bar.getByRole('button', { name: 'Dismiss' }).click();
+    T._bar = barText.slice(0, 220) + ' [' + barBtns.join(' / ') + ']';
     const [fc] = await Promise.all([p2.waitForEvent('filechooser'), p2.getByRole('button', { name: '📂 Load a session' }).click()]);
     await fc.setFiles(session);
     await p2.waitForFunction(() => images.filter(Boolean).length === 4, null, { timeout: 20000 });
@@ -569,7 +580,7 @@ async function card(T, i, { open = false } = {}) {
     await p2.evaluate(() => { window.__toasts = []; const el = document.getElementById('toast');
       new MutationObserver(() => { const t = el.textContent.trim(); if (t) window.__toasts.push(t); }).observe(el, { childList: true, characterData: true, subtree: true }); });
     T._toastSeen = 0;
-    return JSON.stringify(st);
+    return JSON.stringify(st) + '; recovery bar first: "' + T._bar + '"';
   });
 
   await step(T, '7.3 In the reopened session, edit the Methods paragraph and the alt text (add a sentence to each)', async () => {
@@ -817,6 +828,35 @@ async function card(T, i, { open = false } = {}) {
     const kt2 = await q.locator('#key-text').inputValue();
     expect(/Phase contrast \(greyscale\)/.test(kt2), kt2);
     return `${sc.icon} ${sc.note.slice(0, 220)} → No scale needed → ${sc2.icon} ${sc2.note.slice(0, 100)} | Channel names: ${names.join(', ')} | key text: ${kt} → ${kt2}`;
+  });
+
+  // ux4 (newcomer4): what Replace does to a calibration
+  await step(T, '9.2 ⇄ Replace image on a calibrated panel: a file without calibration of the same pixel size keeps the panel\'s µm/px; one of another size clears it and the toast says so (Ctrl/⌘+Z each time)', async () => {
+    const q = T.page;
+    const same = I.fluorTiff(path.join(inp, 'HeLa_DMSO_GFP_nocal.tif'), 'GFP', { umPerPx: 0, seed: 31 });
+    const other = I.fluorTiff(path.join(inp, 'HeLa_DMSO_GFP_nocal_400.tif'), 'GFP', { umPerPx: 0, seed: 32, w: 400, h: 400 });
+    const idx = await q.evaluate(() => images.findIndex(im => im && im.umPerPx > 0 && !im.hidden));
+    const um0 = await q.evaluate(i => images[i].umPerPx, idx);
+    const replace = async (file) => {
+      await btn(T, '⟳ Render').click(); await q.waitForTimeout(300);
+      const cr = await q.locator('#fig-canvas').boundingBox();
+      const b = await q.evaluate(i => panelBounds.find(x => (x.idx ?? x.i) === i), idx);
+      await q.mouse.click(cr.x + b.x + b.w / 2, cr.y + b.y + b.h / 2, { button: 'right' });
+      await q.locator('#panel-ctx-menu').waitFor({ state: 'visible' });
+      await L.toasts(T);
+      await L.pickFiles(T, q.locator('#panel-ctx-menu').getByText('Replace image…'), [file]);
+      await q.waitForTimeout(800);
+      const t = (await L.toasts(T)).split(' | ').find(x => / → /.test(x)) || '';
+      const um = await q.evaluate(i => images[i].umPerPx || 0, idx);
+      await q.keyboard.press('ControlOrMeta+z'); await q.waitForTimeout(500);
+      return { t, um };
+    };
+    const a = await replace(same), b = await replace(other);
+    const back = await q.evaluate(i => images[i].umPerPx, idx);
+    expect(Math.abs(a.um - um0) < 1e-9 && !/calibration cleared/.test(a.t), 'same size: ' + JSON.stringify(a));
+    expect(!b.um && /calibration cleared: the new file is 400×400 px and the old one 512×512, so 0\.1083 µm\/px may be wrong — calibrate it again/.test(b.t), 'other size: ' + JSON.stringify(b));
+    expect(Math.abs(back - um0) < 1e-9, 'Ctrl+Z did not bring the calibration back: ' + back);
+    return `same size: ${a.um.toFixed(5)} µm/px kept, toast "${a.t.slice(0, 160)}"; 400 px: cleared, toast "${b.t.slice(0, 260)}"`;
   });
 
   await L.finish(T);
