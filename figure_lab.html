@@ -5563,8 +5563,10 @@ function _cmdpNoPreset(name){ _cmdpGoto('target-journal'); toast(`FigureLab has 
 // ⌘K "legend key": the key on the figure, in free space, or where it already is.
 function _cmdpKeyOnFigure(){
   if(_keyPlaced()){ _cmdpGoto('key-on-figure','The key is already on the figure — Where moves it; unticking removes it'); return; }
-  setKeyOnFigure(true);
-  if(_keyPlaced()) toast('Legend key placed on the figure, in free space — Export › Legend key › Where moves it; unticking “Place the key on the figure” removes it','ok');
+  // The margin it grew is said, as the guides quote; this toast used to replace that one.
+  const grew=setKeyOnFigure(true);
+  if(_keyPlaced()) toast(grew?'Legend key placed on the figure. '+grew
+    :'Legend key placed on the figure, in free space — Export › Legend key › Where moves it; unticking “Place the key on the figure” removes it','ok');
 }
 const _CMDP_FILLER=new Set(['add','remove','delete','change','make','set','put','get','turn','do','i','how','to','the','a','an','my','me','can','want','please','of','for','on','in','with','it','this','some','use','into','from','is','should','where','what','new','into','and',
   'switch','pick','choose','apply','go','show','find','open']);
@@ -6033,6 +6035,13 @@ function _refreshPreflight(){
   const _lowPpi=_panelPpiList(dpi).filter(p=>p.ppi<PANEL_MIN_PPI);
   if(_lowPpi.length) warns.push({t:'warn',
     m:`${_lowPpi.length} panel(s) print below ${PANEL_MIN_PPI} ppi (${_lowPpi.map(x=>`${esc(x.label)} ${Math.round(x.ppi)} ppi`).join(', ')}): they are enlarged beyond their source pixels, and a higher DPI does not add detail to them.`});
+  // A placed key that is cut at the edge or covers the figure, and words drawn over a panel
+  // letter: the compliance check found them, and this line — the last thing seen before the
+  // file is written — said "No integrity warnings" (freeform4-08, fluor4-01).
+  { const kr=_ckKeyRow(); if(kr&&kr.warn) warns.push({t:'warn',
+      m:`Legend key on the figure: ${kr.note.replace(/ — a key must sit[^]*$/,'')}.`+(kr.fix?` <button class="btn" style="padding:0 6px;font-size:10px" onclick="_ckKeyToFree();_refreshPreflight()">Move to free space</button>`:'')}); }
+  { const tr=(typeof _ckTextOverRow==='function')?_ckTextOverRow():null; if(tr&&!tr.ok) warns.push({t:'warn',
+      m:`Text over text: ${tr.note}`+(tr.fix?` <button class="btn" style="padding:0 6px;font-size:10px" onclick="${tr.fix.fn}();_refreshPreflight()">${esc(tr.fix.t)}</button>`:'')}); }
   const notDrawn=(typeof _scaleBarsNotDrawn==='function')?_scaleBarsNotDrawn():[];
   if(notDrawn.length) warns.push({t:'warn',
     m:`${notDrawn.length} scale bar(s) are switched on but NOT drawn — ${notDrawn.map(s=>`${esc(s.label)}: ${esc(s.why)}`).join('; ')}.`});
@@ -7935,29 +7944,62 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
   const font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`;
   ctx.font=font;
   const gap=ctx.measureText(' ').width*1.5;
-  const widths=parts.map(p=>_rtMeasure(ctx,p.str));
-  const total=widths.reduce((a,b)=>a+b,0)+gap*(parts.length-1);
+  let widths=parts.map(p=>_rtMeasure(ctx,p.str));
+  let total=widths.reduce((a,b)=>a+b,0)+gap*(parts.length-1);
   const pad=6;
-  let x=pos.endsWith('r') ? dx+dw-pad-total : dx+pad;
   const lblStep=clash ? Math.max(7,lblSz||12)+6 : 0;
-  const y=pos.startsWith('t') ? dy+pad+fs+lblStep : dy+dh-pad-lblStep;
+  const y0=pos.startsWith('t') ? dy+pad+fs+lblStep : dy+dh-pad-lblStep;
+  // The room the tag has: the panel's width, less the panel letter when it sits on the same
+  // edge. A merge's channel names ("DAPI mScarlet-Parkin mito-GFP") were drawn on one line
+  // wider than the panel at 180 mm, over the letters of this panel and the next (fluor4-01).
+  // Channel names that do not fit go one under another, each still in its colour; when even
+  // that does not fit, the merge is tagged "Merge" (its channels are in the key and caption).
+  let lo=dx+pad, hi=dx+dw-pad;
+  if(!clash){ const L=(figTextItems||[]).find(t=>t&&t.kind==='panel'&&t.idx===imgIdx&&t.bbox);
+    if(L&&L.bbox.y<y0+4&&L.bbox.y+L.bbox.h>y0-fs-2){
+      if(pos.endsWith('r')&&L.bbox.x<hi) lo=Math.max(lo, L.bbox.x+L.bbox.w+gap);
+      else if(!pos.endsWith('r')&&L.bbox.x+L.bbox.w>lo) hi=Math.min(hi, L.bbox.x-gap); } }
+  const avail=Math.max(0,hi-lo), custom=!!(im.tag||'').trim();
+  let lines=[parts.map((p,i)=>i)];
+  im._tagFit=null;
+  if(total>avail+0.5&&!custom&&parts.length>1){
+    const fitsAlone=widths.every(w=>w<=avail+0.5), maxLines=Math.max(1,Math.floor((dh*0.5)/(fs*1.25)));
+    if(fitsAlone){
+      lines=[]; let cur=[], cw=0;
+      widths.forEach((w,i)=>{ const add=cur.length?gap+w:w;
+        if(cur.length&&cw+add>avail+0.5){ lines.push(cur); cur=[i]; cw=w; } else { cur.push(i); cw+=add; } });
+      if(cur.length) lines.push(cur);
+    }
+    if(!fitsAlone||lines.length>maxLines){
+      ctx.font=font; const mw=_rtMeasure(ctx,'Merge');
+      if(mw<=avail+0.5){ parts=[{str:'Merge', color:lblClr}]; widths=[mw]; total=mw; lines=[[0]]; im._tagFit='merge'; }
+      else lines=[parts.map((p,i)=>i)];
+    } else if(lines.length>1) im._tagFit='wrapped';
+  }
+  const lh=fs*1.25;
   // Auto contrast applies to text in the label colour; a channel keeps its own colour.
   // A word that still reads under 4.5:1 on the picture under it — a channel name in its
   // colour on a bright cell, or label-colour text on a picture too mixed for black or
   // white — gets a backing chip, so the colour stays and the key still matches
   // (fluor3-04: magenta and blue channel names failed contrast in every journal).
-  const bgs=parts.map(()=>null);
+  // Each line from the tag's corner: lines stack down from a top corner, up from a bottom one.
+  const lineW=ln=>ln.reduce((a,i,j)=>a+widths[i]+(j?gap:0),0);
+  const place=lines.map((ln,li)=>{ const w=lineW(ln);
+    return {ln, w, x:pos.endsWith('r')?hi-w:lo, y:pos.startsWith('t')?y0+li*lh:y0-(lines.length-1-li)*lh}; });
+  const bgs=parts.map(()=>null), xs=parts.map(()=>0), ys=parts.map(()=>0);
+  place.forEach(P=>{ let xx=P.x; P.ln.forEach(i=>{ xs[i]=xx; ys[i]=P.y; xx+=widths[i]+gap; }); });
   if(autoS){
-    const a=_autoInkInfo(ctx,autoS,x-2,y-fs,total+4,fs+4), ink=a?a.ink:lblClr;
-    let xx=x;
-    parts=parts.map((p,i)=>{ const own=p.color===lblClr, c=own?ink:p.color, w=widths[i];
-      const r=own?(a?a.ratio:null):_inkRatioOn(ctx,autoS,xx-1,y-fs,w+2,fs+2,c);
+    const infos=place.map(P=>_autoInkInfo(ctx,autoS,P.x-2,P.y-fs,P.w+4,fs+4));
+    const lineOf=i=>place.findIndex(P=>P.ln.includes(i));
+    parts=parts.map((p,i)=>{ const a=infos[lineOf(i)], ink=a?a.ink:lblClr;
+      const own=p.color===lblClr, c=own?ink:p.color, w=widths[i];
+      const r=own?(a?a.ratio:null):_inkRatioOn(ctx,autoS,xs[i]-1,ys[i]-fs,w+2,fs+2,c);
       if(r!=null&&r<4.5){ const dark=(_relLum(own?'#ffffff':c)||0)>0.18;
         bgs[i]=(X,Y,W,H)=>({x:X-2, y:Y-1, w:W+4, h:H+Math.max(3,H*0.25), r:2, fill:dark?'rgba(0,0,0,.85)':'rgba(255,255,255,.85)'});
-        xx+=w+gap; return own?{...p,color:dark?'#ffffff':'#111111'}:p; }
-      xx+=w+gap; return own?{...p,color:ink}:p; });
+        return own?{...p,color:dark?'#ffffff':'#111111'}:p; }
+      return own?{...p,color:ink}:p; });
   }
-  parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,x,y,font,p.color,'left','alphabetic',0,bgs[i]); x+=widths[i]+gap; });
+  parts.forEach((p,i)=>{ emitText('tag',imgIdx,p.str,xs[i],ys[i],font,p.color,'left','alphabetic',0,bgs[i]); });
 }
 // The contrast a given ink reaches on the picture already painted under a rectangle
 // (logical units, context scaled by S): against the tenth of the pixels worst for it.
@@ -15331,6 +15373,7 @@ function _checkCompliance(asJ){
   { const mr=_measComplianceRow(); if(mr) checks.push(mr); }
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
+  { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
   // With a target journal the rows come from its own figure guide; without one the
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
@@ -15408,6 +15451,7 @@ function _auditFix(action){
     }
   }
   else if(action==='ckkeyfree'){ _ckKeyToFree(); }
+  else if(action==='cktextover'){ _ckTextOverFix(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='noscale'){
     // The pictures the row asked about need no scale: marked, one undo step, kept with the figure.
@@ -16284,9 +16328,30 @@ function _keyLayout(rows, fs, font){
   // A line, a ramp or a glyph needs a wider swatch than a colour square.
   const wide=rows.some(r=>r.line||r.marker==='gradient'||r.marker==='glyph');
   const pad=8, sh=fs*0.9, sw=wide?fs*2.2:sh, gap=6, lh=fs*1.45;
-  const textW=rows.length ? rows.reduce((m,r)=>Math.max(m,_rtMeasure(_keyMc,r.name)),0) : _keyMc.measureText('nothing to key').width;
-  const w=pad*2+(rows.length?sw+gap:0)+textW, h=pad*2+Math.max(1,rows.length)*lh-fs*0.45;
-  return {rows,fs,font,pad,sw,sh,gap,lh,w,h};
+  const tw=rows.map(r=>_rtMeasure(_keyMc,r.name));
+  const textW=rows.length ? Math.max(...tw) : _keyMc.measureText('nothing to key').width;
+  // A key placed Below runs across the figure, in as many columns as its width takes (row by
+  // row, as a sentence reads); one stacked in a single narrow column under the panels left
+  // most of the band it added empty (freeform4-11). The standalone file is laid out the same
+  // way, so the two keys stay identical.
+  const cg=fs*1.6, avail=_keyBelowAvail();
+  const colsW=c=>{ const ws=[]; tw.forEach((t,i)=>{ const k=i%c; ws[k]=Math.max(ws[k]||0, sw+gap+t); }); return ws; };
+  let cols=1;
+  if(avail>0&&rows.length>1){
+    for(let c=rows.length;c>1;c--){ const ws=colsW(c); if(pad*2+ws.reduce((a,b)=>a+b,0)+cg*(c-1)<=avail){ cols=c; break; } }
+    if(cols>1){ const nr=Math.ceil(rows.length/cols); cols=Math.ceil(rows.length/nr); }
+  }
+  const ws=cols>1?colsW(cols):[(rows.length?sw+gap:0)+textW];
+  const colX=[]; ws.reduce((x,w,i)=>{ colX[i]=x; return x+w+cg; }, 0);
+  const nr=Math.max(1,Math.ceil(rows.length/cols));
+  const w=pad*2+ws.reduce((a,b)=>a+b,0)+cg*(cols-1), h=pad*2+nr*lh-fs*0.45;
+  return {rows,fs,font,pad,sw,sh,gap,lh,w,h,cols,colX};
+}
+// The width a key placed Below may span (layout px), or 0 for a key in one column.
+function _keyBelowAvail(){
+  const k=(annotations||[]).find(a=>a&&a.type==='legend'&&!a.hidden);
+  if(!k||(k.where||'auto')!=='bottom') return 0;
+  return Math.max(0,(canvasLogicalW||0)-12);
 }
 // THE key renderer. `emit` is a canvas or SVG backend (the chart vocabulary plus chip,
 // gradient and text); `st` is {ink, bg, bgOpacity}: the placed key's chip and text
@@ -16295,10 +16360,11 @@ function _keyDraw(emit, x, y, L, st){
   L.bg=st.bg||st.paper||null;
   if(st.bg) emit.chip(x, y, L.w, L.h, st.bg, st.bgOpacity);
   if(!L.rows.length){ emit.text('nothing to key', x+L.pad, y+L.h/2, L.font, st.ink); return; }
+  const C=L.cols||1;
   L.rows.forEach((r,i)=>{
-    const cy=y+L.pad+i*L.lh+L.fs*0.55;
-    _keySwatch(emit, r, x+L.pad, cy, L);
-    emit.text(r.name, x+L.pad+L.sw+L.gap, cy, L.font, st.ink);
+    const cy=y+L.pad+Math.floor(i/C)*L.lh+L.fs*0.55, cx=x+L.pad+((L.colX&&L.colX[i%C])||0);
+    _keySwatch(emit, r, cx, cy, L);
+    emit.text(r.name, cx+L.sw+L.gap, cy, L.font, st.ink);
   });
 }
 function _keySwatch(emit, r, sx, cy, L){
@@ -16475,7 +16541,8 @@ function setKeyOnFigure(on){
   }
   logAction('keyOnFigure',{on:!!on});
   renderAnnotationList(); render();
-  if(on) _ckKeyMakeRoom(true);
+  if(on) return _ckKeyMakeRoom(true)||'';
+  return '';
 }
 // Export › Legend key › Where: every key the figure carries goes there (and is placed
 // automatically again, even one that was dragged). With no key on the figure yet, choosing
@@ -16585,6 +16652,8 @@ function _ckKeyAutoPlace(W, H){
   if(!keys.length||!_figureKey().length) return;
   const fs=_keyFs(), L=_keyLayout(_figureKey(), fs, _keyFont(fs));
   const busy=_ckKeyBusy(W,H);
+  // Where the objects and panels are (not the words, which re-flow): what a regrow reads.
+  const objSig=busy.filter(b=>b.what!=='text').map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
   keys.forEach(a=>{
     if(a.auto==null){
       const r={x:a.xf*W,y:a.yf*H,w:L.w,h:L.h};
@@ -16598,12 +16667,19 @@ function _ckKeyAutoPlace(W, H){
     const sig=[W,H,L.w.toFixed(1),L.h.toFixed(1),a.where||'auto',layoutMode].join(',')+'|'+busy.map(b=>[b.x,b.y,b.w,b.h].map(v=>Math.round(v)).join(',')).join(';');
     const p=(_ckKeyCache&&_ckKeyCache.sig===sig)?_ckKeyCache.p:_keyFreeSpot(L.w, L.h, a.where||'auto', W, H, busy);
     _ckKeyCache={sig, p};
-    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h;
+    a.xf=p.xf; a.yf=p.yf; a._w=L.w; a._h=L.h; a._busyNow=objSig;
     if(!p.free){
       // Room is made once for a key of this size in this place; a margin the author
       // narrowed again afterwards is left alone, and the check flags the key instead.
+      // A margin still at the size it was grown to is the key's own: when an object moves
+      // into the key's band afterwards it grows again, rather than leaving the key cut at the
+      // edge (freeform4-08 — the export went out without the last names).
       const sig=[Math.round(L.w),Math.round(L.h),a.where||'auto',p.need.side].join('|');
-      if(a._room!==sig) _ckKeyNeed={a, side:p.need.side, px:p.need.px, sig};
+      const fid=layoutMode==='freeform'?(p.need.side==='bottom'?'fm-canvas-h':'fm-canvas-w'):({right:'m-right',left:'m-left',bottom:'m-btm'}[p.need.side]);
+      // Only after the objects themselves moved since the last growth (never because the
+      // growth moved them), so a key that cannot be freed does not grow the figure forever.
+      const g=a._grown&&fid&&a._grown[fid], ours=!!g&&(parseInt(gv(fid))||0)===g.to;
+      if(a._room!==sig||(ours&&a._roomBusy!==objSig)) _ckKeyNeed={a, side:p.need.side, px:p.need.px, sig};
     }
   });
 }
@@ -16631,9 +16707,12 @@ function _ckKeyMakeRoom(now, quiet){
     render();
   }
   _ckKeyNeed=null;
+  if(last) last._roomBusy=last._busyNow;     // the layout the room was made for
   const ids=Object.keys(grown); if(!ids.length) return '';
   const nm={'m-right':'right margin','m-left':'left margin','m-btm':'bottom margin','fm-canvas-w':'canvas width','fm-canvas-h':'canvas height'};
   const msg=`The legend key needed free space, so the ${ids.map(id=>`${nm[id]} grew from ${before[id]} to ${grown[id]} px`).join(' and ')} — it sits there without covering anything. Choose another place in Export › Legend key › Where, or drag it.`;
+  // A message shown a moment ago (the printed-width warning that made the key need room) is
+  // kept, with this one after it: replacing it hid the width warning (newcomer4-14).
   if(!quiet) toast(msg,'ok');
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();
   return msg;
@@ -16668,10 +16747,11 @@ function _ckKeyRow(){
     if(pics) t.push(`${pics} ${layoutMode==='freeform'?'object':'panel'}${pics>1?'s':''}`);
     if(txt.length) t.push(`${txt.length} label${txt.length>1?'s':''} (${[...new Set(txt.map(b=>_TEXT_KIND[b.kind]||b.kind))].join(', ')})`);
     if(k.covers.some(b=>b.what==='annotation')) t.push('an annotation');
-    if(k.off) t.push('runs off the figure edge, so it is cut in the export');
-    return t.join(', '); };
+    const cov=t.length?'covers '+t.join(', '):'';
+    const off=k.off?'runs off the figure edge, so it is cut in the export':'';
+    return [cov,off].filter(Boolean).join(' and '); };
   return {label:'Legend key on the figure', ok:!bad.length, warn:bad.length>0,
-    note:bad.length ? bad.map(k=>`the ${k.pinned?'key placed on a panel':k.a.auto?'placed key':'key you moved'} covers ${what(k)}`).join('; ')
+    note:bad.length ? bad.map(k=>`the ${k.pinned?'key placed on a panel':k.a.auto?'placed key':'key you moved'} ${what(k)}`).join('; ')
         +' — a key must sit in free space (a margin, an empty cell); “Move to free space” puts it there and widens a margin if it has to'
       : `${K.length===1?'The placed key sits':`All ${K.length} placed keys sit`} in free space, inside the figure ✓`,
     fix:bad.some(k=>!k.pinned)?{a:'ckkeyfree',t:'Move to free space'}:null};
@@ -19060,9 +19140,14 @@ function _printedWidthChanged(sel){
   const was=+sel._wasMm||0; sel._wasMm=0;
   if(!(was>0)) return;
   render();
+  // The placed key's room is made here, so its message joins this one: made later on its own,
+  // it replaced the width warning before anyone could read it (newcomer4-14, freeform3-15).
+  let keyMsg='';
+  if(_ckKeyNeed){ clearTimeout(_ckRoomT); keyMsg=_ckKeyMakeRoom(true,true)||''; }
   const now=_physFacts().wMm, k=was/now;
   if(k>=1.15&&(images.some(Boolean)||freeformElements.length))
-    toast(`Printed width ${Math.round(was)} → ${Math.round(now)} mm: text keeps its point size, so it is ${k.toFixed(2)}× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge`,'warn');
+    toast(`Printed width ${Math.round(was)} → ${Math.round(now)} mm: text keeps its point size, so it is ${k.toFixed(2)}× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge${keyMsg?'. '+keyMsg:''}`,'warn');
+  else if(keyMsg) toast(keyMsg,'ok');
 }
 function getTargetWidthMm(){ return parseFloat(gv('export-width-mm'))||0; }
 
@@ -20204,6 +20289,48 @@ function _journalS1Name(){
 const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration','Scale bar drawn','Adjustment sanity',
   'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
 _GENERAL_ROWS.push('Legend key on the figure');
+_GENERAL_ROWS.push('Text over text');
+// Words drawn over other words — a merge's channel names over its panel letter or the next
+// panel's, a tag over a heading. Every other row passed such a figure (fluor4-01: "Panel labels
+// 10/10" while four letters were hidden). Read from the last render's text boxes; a chart's
+// and a gene map's own words are left to their layout. Only figures where something overlaps,
+// or a tag was fitted to clear a letter, get the row.
+function _ckTextOver(){
+  const name=t=>{ const im=(layoutMode==='freeform'?freeformElements:images)[t.idx]; const L=im?_rtText(formatLabel(im.label||im.letter||'')):'';
+    return L||(im?(_sourceName(im)||'an unlettered panel'):''); };
+  const T=(figTextItems||[]).filter(t=>t&&t.bbox&&t.kind!=='data'&&t.kind!=='key'&&String(t.str||'').trim()&&t.bbox.w>0&&t.bbox.h>0);
+  const out=[];
+  for(let i=0;i<T.length;i++) for(let j=i+1;j<T.length;j++){
+    const a=T[i], b=T[j];
+    if(!(a.kind==='panel'||b.kind==='panel'||a.kind==='tag'||b.kind==='tag')) continue;
+    if(a.kind===b.kind&&a.kind==='tag'&&a.idx===b.idx) continue;          // one tag's channel names
+    const ox=Math.min(a.bbox.x+a.bbox.w,b.bbox.x+b.bbox.w)-Math.max(a.bbox.x,b.bbox.x);
+    const oy=Math.min(a.bbox.y+a.bbox.h,b.bbox.y+b.bbox.h)-Math.max(a.bbox.y,b.bbox.y);
+    if(ox>1&&oy>1) out.push({a,b});
+  }
+  return {pairs:out, name};
+}
+function _ckTextOverRow(){
+  const {pairs, name}=_ckTextOver();
+  const fitted=(layoutMode==='freeform'?[]:_figurePanels()).filter(im=>im&&im._tagFit);
+  if(!pairs.length&&!fitted.length) return null;
+  const word=t=>t.kind==='panel'?`letter ${_rtText(String(t.str))}`:`${(_TEXT_KIND[t.kind]||t.kind).replace(/s$/,'')} “${_rtText(String(t.str)).trim().slice(0,30).trim()}”${t.idx!=null&&t.kind!=='panel'&&name(t)?` (${name(t)})`:''}`;
+  const seen=new Set(), list=[];
+  pairs.forEach(({a,b})=>{ const s=`${word(a)} and ${word(b)}`; if(!seen.has(s)){ seen.add(s); list.push(s); } });
+  const fitNote=fitted.length?`Tags fitted to clear their letters: ${fitted.map(im=>`${_rtText(formatLabel(im.label))||_sourceName(im)||'?'} ${im._tagFit==='merge'?'shown as “Merge” (its channels did not fit beside the letter; they are in the key and caption)':'wrapped to more lines'}`).join('; ')} — type a tag in ⚙ › Tag for your own wording.`:'';
+  const tagOver=pairs.some(({a,b})=>a.kind==='tag'||b.kind==='tag');
+  if(!pairs.length) return {label:'Text over text', ok:true, info:true, uncounted:true, note:fitNote};
+  return {label:'Text over text', ok:false, warn:true,
+    note:`${list.length} overlap${list.length>1?'s':''}: ${esc(list.slice(0,6).join('; '))}${list.length>6?` and ${list.length-6} more`:''} — one hides the other in the export${fitNote?'. '+esc(fitNote):''}`,
+    fix:tagOver?{a:'cktextover', t:'Move tags to the other edge', fn:'_ckTextOverFix'}:null};
+}
+// Tags over letters: the tags go to the panel's other edge (top ↔ bottom), one undo step.
+function _ckTextOverFix(){
+  const pos=gv('tag-pos')||'tr', np=(pos[0]==='t'?'b':'t')+pos[1];
+  pushUndo(); sv('tag-pos', np); render();
+  const left=_ckTextOver().pairs.filter(({a,b})=>a.kind==='tag'||b.kind==='tag').length;
+  toast(`Tags moved to the ${np[0]==='t'?'top':'bottom'} ${np[1]==='r'?'right':'left'} of each panel${left?` — ${left} still overlap${left>1?"":"s"}: shorten them in ⚙ › Tag`:''}`, left?'warn':'ok');
+}
 _GENERAL_ROWS.push('Charts from densitometry');
 _GENERAL_ROWS.push('Measurements');
 // Compliance: counts, ROIs, profiles and rulers made on a picture that ⇄ Replace image
@@ -20742,10 +20869,11 @@ async function _captureDownload(fn, label){
   const skip=why=>{ if(label) _captureSkips.push({label, why}); };
   window.dl=(url,name)=>{ cap={url,name}; };
   window.toast=()=>{};
+  let threw=false;
   try{ await fn(); }
-  catch(e){ skip(e&&e.message||String(e)); }
+  catch(e){ threw=true; skip(e&&e.message||String(e)); }
   finally{ window.dl=origDl; window.toast=origToast; }
-  if(!cap){ skip('the exporter finished without producing a file'); return null; }
+  if(!cap){ if(!threw) skip('the exporter finished without producing a file'); return null; }
   try{
     const data=new Uint8Array(await (await fetch(cap.url)).arrayBuffer());
     if(!data.length){ skip('the generated file was empty'); return null; }
@@ -21353,7 +21481,7 @@ async function exportSubmissionPackage(){
           <p style="margin-bottom:6px">${files.length} file(s) were zipped, but these could not be generated and are <b>not</b> in the package:</p>
           <ul style="margin:0 0 8px 16px">${skipped.map(s=>`<li><b>${esc(s.label)}</b> — ${esc(s.why)}</li>`).join('')}</ul>
           ${textChecks.length?_textCheckHtml(textChecks):''}
-          <p style="color:var(--muted)">A lower export DPI usually resolves size/memory failures. The same list is recorded in the package's README.txt.</p>
+          <p style="color:var(--muted)">${esc(_skipAdvice(skipped))} The same list is recorded in the package's README.txt.</p>
         </div>`);
     } else {
       toast(`Submission package ready — ${files.length} files zipped`,'ok');
@@ -21446,6 +21574,15 @@ function _zipEntryNames(files, reserved){
   }
   return files;
 }
+// What to do about an artefact the package could not make. A lower DPI helps only when the
+// file was too big for the browser; any other failure is FigureLab's, and saying "lower the
+// DPI" sent people changing a setting that had nothing to do with it.
+function _skipAdvice(skipped){
+  const big=/memory|too large|size|allocat|exceed|invalid array length|out of|quota|maximum/i;
+  if((skipped||[]).every(s=>big.test(String(s.why||''))))
+    return 'These look like size or memory failures: a lower export DPI usually resolves them.';
+  return 'These are faults in FigureLab, not in your settings — a lower DPI will not help. Export the missing file on its own from the Export menu to see its message, and please report it with the message above.';
+}
 function _packageManifest(name,dpi,files,provHash,skipped,textChecks){
   const list=files.map(f=>'  - '+f.name).join('\n');
   // A missing artefact is stated here as well as in the UI, because the ZIP outlives
@@ -21454,7 +21591,7 @@ function _packageManifest(name,dpi,files,provHash,skipped,textChecks){
   const missing=(skipped&&skipped.length)
     ? `\nNOT INCLUDED (could not be generated)\n------------------------------------\n`
       +skipped.map(s=>`  - ${s.label}: ${s.why}`).join('\n')
-      +`\n  A lower export DPI usually resolves size/memory failures.\n`
+      +`\n  ${_skipAdvice(skipped)}\n`
     : '';
   return `FigureLab submission package
 =============================
@@ -22985,6 +23122,9 @@ function _pdfTextOps(items, k, hPt){
     const bytes=it.runs?null:_pdfSegs(it.str);
     const runBytes=it.runs?it.runs.map(r=>_pdfSegs(r.t)):null;
     if(it.runs?runBytes.some(b=>!b):!bytes) continue;   // left in the raster by _pdfCanTypeset
+    // An empty label (a row heading cleared to hide it) sets nothing: there is no first glyph
+    // to pick a font for, and it used to stop the whole PDF.
+    if(it.runs?!runBytes.some(b=>b.length):!bytes.length) continue;
     // label chip behind the text
     if(it.bg){
       const c=_pdfColor(it.bg.fill);
@@ -23037,7 +23177,9 @@ function _pdfTextOps(items, k, hPt){
       // chart's −40° category labels).
       ops+=`${rotM(it)} ${X(it.x)} ${Y(it.y)} Tm `;
       // re-apply align/baseline along the rotated axes
-      const dx=(it.align==='center'?-w/2:0), dy=(it.baseline==='top'?ascent:it.baseline==='middle'?ascent/2:0);
+      // A right-aligned turned word (a chart's slanted group names) ends at its tick, as on
+      // the canvas; without the shift it started there and ran up across the bars.
+      const dx=(it.align==='center'?-w/2:(it.align==='right'||it.align==='end')?-w:0), dy=(it.baseline==='top'?ascent:it.baseline==='middle'?ascent/2:0);
       if(dx||dy) ops+=`${(dx*k).toFixed(3)} ${(-dy*k).toFixed(3)} Td `;
     } else {
       ops+=`1 0 0 1 ${X(ax)} ${Y(ay)} Tm `;
@@ -23822,7 +23964,7 @@ function _dataCaption(el){
     // Where the numbers come from, as they are now: a chart typed by hand, or one whose
     // blot has changed, is not captioned as that panel's densitometry.
     const ss=_chartSourceState(el), src=ch.data&&ch.data.sourceName;
-    let note=String(ch.caption||'').trim();
+    let note=_rtText(String(ch.caption||'').trim());   // OD_{600} → OD₆₀₀, as the axis titles are (freeform4-05)
     if(ss.state==='stale') bits.push(`[⚠ Out of date: the densitometry of ${ss.from} has changed since this chart was made — update it before submitting.]`);
     else if(ss.state==='unlinked'||ss.state==='unlinkedChanged'){
       bits.push(`Values entered by hand${ss.state==='unlinkedChanged'?'':` from the densitometry of ${ss.from}`}.`);
@@ -23850,7 +23992,7 @@ function _captionText(){
   const FP=items.map(it=>it.im), letterOf=new Map(items.map(it=>[it.im,it.letter]));
   const heads=_captionHeadings();
   const parts=FP.map(im=>{
-    const note=im.captionNote?.trim();
+    const note=_rtText(String(im.captionNote||'').trim());   // P_{lsrA} → P_lsrA, as headings and axis titles are (freeform4-05)
     // Build description: the caption note, else what the figure prints over the panel —
     // its column heading and its tag (a condition, a time point) — so "(B) GFP-LC3."
     // or "(B) 10 min." rather than "(B) Panel B."
@@ -24258,7 +24400,7 @@ function _buildStructuralAltText(){
     if(!(gv('caption-out')||'').trim()&&items.length){
       const one=it=>{ const im=it.im, L=it.letter?`(${it.letter}) `:'';
         if(_isDataPanel(im)) return L+_dataCaption(im).split('. ')[0].replace(/\.$/,'');
-        const n=String(im.captionNote||'').trim(); return L+(n||`picture${_sourceName(im)?` ${_sourceName(im)}`:''}`); };
+        const n=_rtText(String(im.captionNote||'').trim()); return L+(n||`picture${_sourceName(im)?` ${_sourceName(im)}`:''}`); };
       parts.push(items.map(one).join('; ')+'.');
     }
   }
