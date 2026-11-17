@@ -398,7 +398,8 @@ test('phage4-08 / phage4-17: a count reaches the caption, Methods and the packag
   expect(+col(2, 'Diameter mean')).toBeLessThan(1);
   const t = await page.evaluate(() => ({ cap: _captionText(), meth: generateMethodsParagraph() }));
   expect(t.cap).toMatch(/\(A\)[^(]*12 objects counted; equivalent diameter [\d.]+ ± [\d.]+ mm \(mean ± SD\)\./);
-  expect(t.cap).toMatch(/\(B\)[^(]*8 objects counted; equivalent diameter [\d.]+ ± [\d.]+ µm/);
+  // ux5 phage5-10: one unit for every count in the caption, as in the CSV (mm here, from A)
+  expect(t.cap).toMatch(/\(B\)[^(]*8 objects counted; equivalent diameter [\d.]+ ± [\d.]+ mm/);
   expect(t.meth).toMatch(/Objects in panel A were counted in FigureLab by an intensity threshold \(pixels darker than 128/);
   // the package carries the measurements file
   const names = await page.evaluate(async () => { const cap = await _captureDownload(() => exportSubmissionPackage());

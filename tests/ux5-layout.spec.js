@@ -290,3 +290,246 @@ test('freeform5-10: after ✕ New the Export format row says the new figure is n
   expect(row.text).not.toMatch(/changed after it was last exported/);
   expect(errors).toEqual([]);
 });
+
+// ── Gene maps: phage5-02 (one scale), phage5-06 (labels), phage5-07 (row height), phage5-09 (region) ──
+const fsx = require('fs'), pathx = require('path');
+const GB = (n) => fsx.readFileSync(pathx.join(__dirname, 'fixtures', 'ux5', n), 'utf8');
+// Pictures, then each GenBank file dropped as a gene-map panel (the drop path).
+async function mapGrid(page, files, { pics = 2, cols = 2, rows = 2, width = 183 } = {}) {
+  await page.evaluate(HELPERS);
+  if (pics) await seedPanels(page, pics);
+  for (const [name, txt] of files) {
+    await page.evaluate(async ([name, txt]) => { await addFiles([new File([txt], name, { type: 'text/plain' })]); }, [name, txt]);
+    await page.waitForFunction((n) => images.filter(p => p && p.type === 'genemap').length >= n, files.indexOf(files.find(f => f[0] === name)) + 1);
+    await page.evaluate(() => { if (typeof closeGenemapModal === 'function') closeGenemapModal(); });
+  }
+  await page.evaluate(([c, r, w]) => { sv('cols', String(c)); sv('rows', String(r)); onLayoutChange(); sv('export-width-mm', String(w)); render(); }, [cols, rows, width]);
+}
+// What a map draws, with positions: its words and its lines.
+const drawn = (page, idx) => page.evaluate((idx) => {
+  const gm = images.filter(p => p && p.type === 'genemap')[idx], words = [], lines = [];
+  _genemapDraw(gm, new Proxy({}, { get: (t, k) => k === 'text' ? ((str, x, y, font, ink, align, bl) => words.push({ str, x, y, font, align, bl }))
+    : k === 'line' ? ((x1, y1, x2, y2) => lines.push([x1, y1, x2, y2])) : () => {} }));
+  const mc = _rtMc();
+  const box = words.map(t => { mc.font = t.font; const w = mc.measureText(t.str).width, fs = +/([\d.]+)px/.exec(t.font)[1];
+    const x = t.align === 'center' ? t.x - w / 2 : t.align === 'right' ? t.x - w : t.x, y = t.bl === 'alphabetic' ? t.y - fs * 0.8 : t.y;
+    return { str: t.str, x, y, w, h: fs }; });
+  return { box, lines, w: gm.w, h: gm.h, names: (gm.map.features || []).map(f => f.name) };
+}, idx);
+const overlaps = (B, names) => { const L = B.filter(b => names.includes(b.str)), out = [];
+  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) { const a = L[i], c = L[j];
+    if (a.x < c.x + c.w - 0.5 && c.x < a.x + a.w - 0.5 && a.y < c.y + c.h * 0.9 && c.y < a.y + a.h * 0.9) out.push(`${a.str}/${c.str}`); }
+  return out; };
+
+test('phage5-06: a whole-genome map in one cell gives every label a row of its own; one with no room is named by the check', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')]]);
+  const d = await drawn(page, 0);
+  expect(d.box.length).toBeGreaterThan(20);
+  expect(overlaps(d.box, d.names)).toEqual([]);                     // was hc1/hc2/mtp and rec/ad1/rpo
+  expect(await page.evaluate(() => __row('Text over text'))).toBeNull();
+  // a panel too short for the rows its labels need: drawn as well as it can be, and said
+  await page.evaluate(() => { sv('panel-h', '90'); onLayoutChange(); render(); });
+  const row = await page.evaluate(() => __row('Text over text'));
+  expect(row && row.icon).toBe('⚠');
+  expect(row.text).toMatch(/gene map C: .* overprint other labels/);
+  expect(errors).toEqual([]);
+});
+
+test('phage5-02: "same scale as the other gene maps" draws two genomes at one bp per mm, and the caption says so', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')], ['Rw9_complete_genome.gb', GB('Rw9_complete_genome_features.gb')]], { pics: 0, cols: 1, rows: 2 });
+  // Gene map dialog › same scale, Apply
+  await page.evaluate(() => openDataPanelEditor(images.findIndex(p => p && p.type === 'genemap')));
+  await page.locator('#gm-samescale').check();
+  await page.locator('#genemap-modal').getByRole('button', { name: 'Apply' }).click();
+  await page.evaluate(() => render());
+  const r = await page.evaluate(() => images.filter(p => p && p.type === 'genemap').map(g => g.map.length));
+  const a = await drawn(page, 0), b = await drawn(page, 1);
+  const bb = d => { const l = d.lines[0]; return l[2] - l[0]; };                 // the backbone
+  // the same bp per pixel: backbone lengths in the ratio of the genome lengths
+  expect(bb(a) / bb(b)).toBeCloseTo(r[0] / r[1], 2);
+  expect(Math.max(bb(a), bb(b))).toBeGreaterThan(Math.min(a.w, b.w) * 0.6);      // the longer still fills its panel
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).toMatch(/Drawn to the same scale as \([AB]\)/);
+  expect(errors).toEqual([]);
+});
+
+test('phage5-09: a region From/To cuts a genome map inside FigureLab; the ruler counts in genome positions and the caption says which', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')]], { pics: 0, cols: 1, rows: 1 });
+  await page.evaluate(() => openDataPanelEditor(images.findIndex(p => p && p.type === 'genemap')));
+  await page.locator('#gm-from').fill('8088'); await page.locator('#gm-to').fill('21310');
+  await page.locator('#genemap-modal').getByRole('button', { name: 'Apply' }).click();
+  await page.evaluate(() => render());
+  const d = await drawn(page, 0);
+  const nums = d.box.map(b => b.str).filter(s => /^[\d.]+( kb)?$/.test(s)).map(s => parseFloat(s));
+  expect(Math.min(...nums)).toBeGreaterThanOrEqual(8);                            // ticks at 8 kb and up, not 0
+  expect(Math.max(...nums)).toBeLessThanOrEqual(21.31);
+  expect(d.box.map(b => b.str)).toContain('8,088–21,310 of 44,860 bp');
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).toMatch(/positions 8,088–21,310 of 44,860 bp/);
+  expect(cap).not.toMatch(/\(44,860 bp\)/);
+  expect(errors).toEqual([]);
+});
+
+test('phage5-07: with Rows hug their panels, a gene-map row takes the height its map needs, not the panel height', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_tail_region.gb', GB('Tq4_complete_genome_features.gb')]], { pics: 2, cols: 2, rows: 2 });
+  await page.evaluate(() => { const g = images.find(p => p && p.type === 'genemap'); g.colSpan = 2; sc('auto-row-h', true); render(); });
+  const r = await page.evaluate(() => { const b = panelBounds.find(b => images[b.idx] && images[b.idx].type === 'genemap'); return { h: b.h, ph: +gv('panel-h') }; });
+  expect(r.h).toBeLessThan(r.ph * 0.8);
+  const d = await drawn(page, 0);
+  expect(overlaps(d.box, d.names)).toEqual([]);
+  const yb = Math.max(...d.box.filter(b => d.names.includes(b.str)).map(b => b.y + b.h));
+  expect(yb).toBeLessThanOrEqual(d.h);
+  expect(errors).toEqual([]);
+});
+
+// ── phage5-08 / phage5-10 / phage5-11: plaque counts in the CSV and the caption ─────────
+async function countedPlates(page) {
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 2);
+  await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '1'); onLayoutChange();
+    images[0].captionNote = 'vB_EcoS_Tq4 plaques on Δtsx (10⁻⁴ dilution).';
+    const u = Math.sqrt(3086);   // µm per px
+    measurements.push({ type: 'cellCount', label: 'Count 1', pid: images[0].id, panel: 'A', count: 40, fgPx: 29026, area: 1970656,
+      areaUm: (29026 * 3086).toFixed(1), polarity: 'dark', roi: 'ellipse', threshold: 90, dia: { mean: 1.32, sd: 0.182, med: 1.3, unit: 'mm', values: [1.3, 1.4] } });
+    measurements.push({ type: 'cellCount', label: 'Count 2', pid: images[1].id, panel: 'B', count: 30, fgPx: 9000, area: 1500000,
+      areaUm: (9000 * 3086).toFixed(1), polarity: 'dark', roi: 'ellipse', threshold: 90, dia: { mean: 813, sd: 91.5, med: 800, unit: 'µm', values: [800, 826] } });
+    render();
+  });
+}
+test('phage5-08: in the Measurements CSV each area column is one quantity in one unit — the dish region and the plaques apart', async ({ page }) => {
+  const errors = await loadApp(page);
+  await countedPlates(page);
+  const rows = await page.evaluate(() => _measurementsCSV().csv.split('\n').filter(l => !l.startsWith('#')).map(l => (l.match(/("([^"]|"")*"|[^,]*)(,|$)/g) || []).map(c => c.replace(/,$/, '').replace(/^"|"$/g, ''))));
+  const H = rows[0], r = rows[1], col = n => r[H.indexOf(n)];
+  expect(+col('Area px²')).toBe(1970656);
+  expect(+col('Area µm²') / +col('Area px²')).toBeCloseTo(3086, 0);              // was 45 µm² per px
+  expect(+col('Objects area px²')).toBe(29026);
+  expect(+col('Objects area µm²') / +col('Objects area px²')).toBeCloseTo(3086, 0);
+  expect(errors).toEqual([]);
+});
+test('phage5-10 / phage5-11: one unit for every plate\'s diameters in the caption, and no double full stop after a note', async ({ page }) => {
+  const errors = await loadApp(page);
+  await countedPlates(page);
+  const cap = await page.evaluate(() => _captionText());
+  expect(cap).toMatch(/equivalent diameter 1\.32 ± 0\.182 mm/);
+  expect(cap).toMatch(/equivalent diameter 0\.813 ± 0\.0915 mm/);                // was 813 ± 91.5 µm
+  expect(cap).not.toMatch(/µm \(mean/);
+  expect(cap).toContain('(10⁻⁴ dilution).');
+  expect(cap).not.toContain('dilution)..');
+  expect(errors).toEqual([]);
+});
+
+// ── phage5-14: a second span change that pushes more panels out says so ────────────────
+test('phage5-14: Col span 2 then Row span 2 — the toast counts the three panels that lost their cell', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', '2'); sv('rows', '2'); onLayoutChange(); render(); images[0].colSpan = 2; render(); });
+  expect(await page.evaluate(() => __toast())).toMatch(/1 panel \(D\) has no cell/);
+  await page.evaluate(() => { images[0].rowSpan = 2; render(); });
+  const t = await page.evaluate(() => __toast());
+  expect(t).toMatch(/3 panels \(B, C, D\) have no cell in the 2 × 2 grid/);
+  expect(errors).toEqual([]);
+});
+
+// ── phage5-15: Text to 7.5 pt left the letters at 7 pt ─────────────────────────────────
+test('phage5-15: "Text to … pt" brings the panel letters up with the text', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 300, label: 'A' }]);
+  await page.evaluate(() => {
+    sv('fm-canvas-w', '700'); sv('fm-canvas-h', '360'); render();
+    addChartElement('bar'); closeChartModal();
+    const el = freeformElements[freeformElements.length - 1];
+    el.chart.data = { columns: ['strain', 'CFU'], rows: [['WT', 3], ['Δtsx', 5]], source: 'demo', sourceName: '' };
+    el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1]; el.chart.axes.y.title = 'CFU mL^{-1}';
+    el.x = 340; el.y = 20; el.w = 340; el.h = 300; el.letter = 'B'; el._chartKey = ''; el._chartStat = null;
+    sv('export-width-mm', '89'); sv('label-pt', '6'); sv('text-pt', '6'); render(); });
+  const raise = await page.evaluate(() => { const k = _physFacts().ptPerPx, sc = _ckScriptLow(k, TEXT_PT_FLOOR);
+    return sc && sc.raiseTo; });
+  expect(raise).toBeGreaterThan(6);
+  await page.evaluate(() => _journalFix('jscript'));
+  const r = await page.evaluate(() => ({ text: +gv('text-pt'), letters: +gv('label-pt'), toast: __toast() }));
+  expect(r.letters).toBeGreaterThanOrEqual(r.text - 0.05);
+  expect(r.toast).toMatch(/panel letters 6 → [\d.]+ pt with it/);
+  expect(errors).toEqual([]);
+});
+
+// ── freeform5-06: records with format marks; DisplayRange for a chart ─────────────────
+const PKG = `
+  window.__zip = async (bytes) => {
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), out = [];
+    let p = 0;
+    while (p + 30 <= bytes.length && dv.getUint32(p, true) === 0x04034b50) {
+      const size = dv.getUint32(p + 18, true), nl = dv.getUint16(p + 26, true), el = dv.getUint16(p + 28, true);
+      const name = new TextDecoder().decode(bytes.subarray(p + 30, p + 30 + nl)), at = p + 30 + nl + el, raw = bytes.subarray(at, at + size);
+      out.push({ name, data: (dv.getUint16(p + 8, true) === 8 ? new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()) : raw) });
+      p = at + size;
+    }
+    return out;
+  };
+  window.__pkg = async () => { const z = await _captureDownload(() => exportSubmissionPackage()); const files = {};
+    (await __zip(z.data)).forEach(e => { files[e.name] = new TextDecoder().decode(e.data); }); return files; };
+`;
+test('freeform5-06: metadata.csv writes caption notes as the caption prints them, and no 0–255 range for a gene map', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')]], { pics: 1, cols: 2, rows: 1 });
+  await page.evaluate(() => { images[0].captionNote = 'Microcosm 14 d after N_{2}O amendment, *nosZ* reporter'; render(); });
+  const csv = await page.evaluate(() => { let out = ''; const b = window.Blob; window.Blob = function (parts, o) { out += parts.join(''); return new b(parts, o); }; try { exportCSV(); } finally { window.Blob = b; } return out; });
+  const lines = csv.split('\n');
+  expect(lines[1]).toContain('N₂O amendment, nosZ reporter');
+  expect(lines[1]).not.toContain('_{2}');
+  const gm = lines.find(l => /Tq4_complete_genome\.gb/.test(l));
+  expect(gm).toBeTruthy();
+  expect(gm).not.toMatch(/0–255/);
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer5-11: the alt text quoting a stale caption is named in the README ──────────
+test('newcomer5-11: when the edited caption is out of date, the alt text that quotes it is listed under CHECK THESE TEXTS too', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS); await page.evaluate(PKG);
+  await seedPanels(page, 3);
+  const f = await page.evaluate(async () => {
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); sv('export-name', 'Fig2');
+    images[2].captionNote = 'Colony PCR'; images[1].captionNote = 'Swim plate'; render();
+    generateCaption(); const box = document.getElementById('caption-out'); box.value += ' Edited by hand.';
+    await generateAltText();
+    // panels C and B swap places: the edited caption now describes the figure as it was
+    const t = images[1]; images[1] = images[2]; images[2] = t; render();
+    const files = await __pkg(); document.querySelectorAll('#info-modal-bg').forEach(n => n.remove()); return files;
+  });
+  expect(f['README.txt']).toContain('CHECK THESE TEXTS');
+  expect(f['README.txt']).toContain('Fig2-caption.txt is your edited caption');
+  expect(f['README.txt']).toMatch(/Fig2-alt\.txt is your alt text/);
+  expect(f['Fig2-alt-generated.txt']).toContain('Caption: ' + f['Fig2-caption-generated.txt'].trim());
+  expect(f['Fig2-alt-generated.txt']).not.toContain('Edited by hand.');
+  expect(errors).toEqual([]);
+});
+
+// ── ISSUES (round 4): the key's place menu has a label on screen ───────────────────────
+test('ISSUES: Export › Legend key shows a "Where" label beside its place menu', async ({ page }) => {
+  const errors = await loadApp(page);
+  const t = await page.evaluate(() => { const s = document.getElementById('key-where'); return s.labels && s.labels.length ? s.labels[0].textContent.trim() : ''; });
+  expect(t).toBe('Where');
+  expect(errors).toEqual([]);
+});
+
+test('newcomer5-02 (follow-up): a panel removed under a placed key gives the key\'s room back without hiding the removal toast and its Relabel button', async ({ page }) => {
+  const errors = await loadApp(page);
+  await keyedGrid(page);
+  await page.evaluate(() => { setKeyOnFigure(true); });
+  await settle(page);
+  const a = await margins(page);
+  await page.evaluate(() => removePanelAt(0));
+  await settle(page, 300);
+  const b = await margins(page);
+  expect(b.btm + b.right).toBeLessThan(a.btm + a.right);              // the freed cell holds the key now
+  expect(await page.evaluate(() => __toast())).toMatch(/The letters now skip A/);
+  expect(errors).toEqual([]);
+});

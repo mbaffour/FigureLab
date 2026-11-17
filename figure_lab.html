@@ -1230,7 +1230,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
       <input type="checkbox" id="key-on-figure" onchange="setKeyOnFigure(this.checked)">
       <label for="key-on-figure" style="cursor:pointer;font-size:10px;color:var(--muted)" title="Draw the same key on the figure, on the figure's background colour, in free space: a margin, an empty cell or a free corner — never over a picture, chart, letter or heading. When there is none, a margin grows to make room, and the key moves itself when the layout, text size, printed width or journal changes. Drag it with the Select tool to put it somewhere yourself, or place one on a panel with ▤ Key. Unticking removes every placed key.">Place the key on the figure</label>
-      <select id="key-where" onchange="setKeyWhere(this.value)" style="width:auto;margin-left:auto;font-size:10px" aria-label="Where the key goes on the figure" title="Where the placed key goes. Free space: the emptiest corner, margin or empty cell. A corner or an edge: there, in a margin widened for it if the figure has no room.">
+      <label for="key-where" style="margin-left:auto;font-size:10px;color:var(--muted)">Where</label>
+      <select id="key-where" onchange="setKeyWhere(this.value)" style="width:auto;font-size:10px" aria-label="Where the key goes on the figure" title="Where the placed key goes. Free space: the emptiest corner, margin or empty cell. A corner or an edge: there, in a margin widened for it if the figure has no room.">
         <option value="auto" selected>Free space</option>
         <option value="tr">Top right</option>
         <option value="tl">Top left</option>
@@ -1930,6 +1931,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           </select></label>
         <label style="font-size:11px" title="In points at the printed size. Empty: the figure's text size (Look › Typography › Text size), which follows the figure when it changes.">Text size (pt)
           <input type="number" id="gm-fontsize" min="3" max="28" step="0.5" placeholder="figure" style="width:100%"></label>
+        <div style="display:flex;gap:6px;align-items:flex-end" title="Show part of the sequence: positions From–To of the file (1-based, inclusive). The ruler counts in these positions and the caption says which part is shown. Empty: the whole map. Linear maps only.">
+          <label style="font-size:11px;flex:1">Region from
+            <input type="number" id="gm-from" min="1" step="1" placeholder="1" style="width:100%"></label>
+          <label style="font-size:11px;flex:1">to (bp)
+            <input type="number" id="gm-to" min="1" step="1" placeholder="end" style="width:100%"></label>
+        </div>
+        <label style="font-size:11px" title="Every linear gene map in the figure is drawn at one bp per mm, so the same gene is the same length in each; the shorter map is drawn shorter. Off: each map fills its own panel."><input type="checkbox" id="gm-samescale"> same scale as the other gene maps</label>
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
           <label><input type="checkbox" id="gm-ruler"> ruler</label>
           <label><input type="checkbox" id="gm-labels"> labels</label>
@@ -4459,7 +4467,7 @@ function _replacePlan(im, d){
   // freeform picture has no ⚙: its notes are in the Props bar above the canvas.
   const ff=typeof freeformElements!=='undefined'&&freeformElements.includes(im);
   const short=t=>t.length>48?t.slice(0,46)+'…':t;
-  const cn=String(im.captionNote||'').trim();
+  const cn=_rtText(String(im.captionNote||'')).trim();
   if(cn&&cn!=='Merge') note(`caption note kept: “${short(cn)}” — edit it in ${ff?'the Props bar › Caption note':'⚙'} if it no longer fits`,'kept');
   const mn=String(im.metaNote||'').trim();
   if(mn&&!ff) note(`metadata note kept: “${short(mn)}” — edit it in ⚙ › Metadata note if it was about the old file`,'kept');
@@ -11945,11 +11953,14 @@ function exportCSV(){
       _csvCell(_fovText(im)||'',true),
       // Whatever acquisition time the file carried, as it was read — never inferred.
       _csvCell(im._metaDeltaT!=null?`+${+im._metaDeltaT.toFixed(3)} s`:(im._metaAcqTime!=null?new Date(im._metaAcqTime).toISOString():''),true),
-      _csvCell(im.captionNote||'',true),
+      // The note as the caption prints it (N_{2}O → N₂O, *nosZ* → nosZ), not with its format marks
+      // (freeform5-06).
+      _csvCell(_rtText(String(im.captionNote||'')),true),
       _csvCell(im.metaNote||'',true),
       // BlackPt/WhitePt are 8-bit display values; this says what they mean for the file
-      // (a 16-bit panel's window in its own values, linear).
-      _csvCell(_levelsDisclosure(im),true)].join(','));
+      // (a 16-bit panel's window in its own values, linear). A chart or gene map has no pixels
+      // to window: its cell is empty (it read "0–255").
+      _csvCell(_isDataPanel(im)?'':_levelsDisclosure(im),true)].join(','));
   });
   dl(blobUrl(lines.join('\n')), (gv('export-name')||'figurelab')+'-metadata.csv');
   toast('CSV exported','ok');
@@ -11994,6 +12005,7 @@ function rowOffset(r, ph, gV){ let o=0; for(let k=0;k<r;k++) o+=_rh(ph,k)+rGapBe
 // quarter turn (or any tilt) swaps which way the picture lies, so this measures
 // the TURNED extent, exactly as the draw loop does.
 function _panelOuterH(im, apw, aphMax){
+  if(im&&im.type==='genemap'&&im.map&&im.map.topology!=='circular'){ const n=_gmNaturalH(im, apw); if(n>0) return Math.min(aphMax, n); }
   let sw=0, sh=0;
   try{ const cd=_cropDraw(im); sw=cd.sw; sh=cd.sh; }catch(e){ return aphMax; }
   if(!(sw>0&&sh>0)) return aphMax;
@@ -12731,7 +12743,10 @@ function render(targetCanvas, exportScale, opts){
   const _plc=_gridPlacements(cols,rows), _drawn=_plc.filter(p=>p.im).length, _out=_plc.unplaced;
   // Said once, when panels first lose their cell — unless the change that did it has
   // just said so itself (a starter layout, an import past the last row).
-  if(_out>0&&!(_lastUnplaced>0)&&!(document.getElementById('toast').className.includes('show'))){
+  // A second change that pushes more panels out says so too: after Col span 2 and then Row
+  // span 2 the toast still named one panel while three were gone (phage5-14).
+  const _te=document.getElementById('toast'), _showing=_te.className.includes('show');
+  if(_out>0&&((!(_lastUnplaced>0)&&!_showing)||(_lastUnplaced>0&&_out>_lastUnplaced&&(!_showing||_te.textContent===_noCellToast)))){
     const placed=new Set(_plc.map(p=>p.imgIdx)), lost=_gridOrder().filter(i=>!placed.has(i)&&images[i]).map(i=>_rtText(formatLabel(images[i].label))||_sourceName(images[i])||'?');
     toast(`${_out} panel${_out>1?'s':''} (${lost.join(', ')}) ${_out>1?'have':'has'} no cell in the ${cols} × ${rows} grid and ${_out>1?'are':'is'} not drawn — add rows or columns, or press ⊞ Fit grid to panels`,'warn');
     _noCellToast=document.getElementById('toast').textContent;
@@ -16848,7 +16863,9 @@ function _ckKeyMakeRoom(now, quiet){
     down.length?`The legend key needs less room now, so the ${down.map(id=>`${nm[id]} went back from ${before[id]} to ${after[id]} px`).join(' and ')}.`:''].filter(Boolean).join(' ');
   // A message shown a moment ago (the printed-width warning that made the key need room) is
   // kept, with this one after it: replacing it hid the width warning (newcomer4-14).
-  if(!quiet) toast(msg,'ok');
+  // Room given back is news only when nothing else is being said: the change that freed it
+  // (a removed panel, with its Relabel button) keeps its own toast.
+  if(!quiet){ const te=document.getElementById('toast'); if(up.length||!(te&&te.className.includes('show'))) toast(msg,'ok'); }
   if(typeof _syncPhysReadout==='function') _syncPhysReadout();
   return msg;
 }
@@ -20517,9 +20534,22 @@ function _ckTextOver(){
   }
   return {pairs:out, name};
 }
+// Gene-map labels the map could not give a row of their own (its panel is too short for the
+// rows they need): they are drawn over each other (phage5-06).
+function _ckGmClash(){
+  const out=[];
+  ((layoutMode==='freeform'?freeformElements:_figurePanels())||[]).forEach(e=>{ if(!e||e.type!=='genemap'||e.hidden) return;
+    const c=_gmClash.get(e.id); if(!c||!c.length) return;
+    const nm=_rtText(formatLabel(_isDataPanel(e)?e.label:(e.letter||'')))||_rtText((e.map.style&&e.map.style.title)||'')||'gene map';
+    out.push(`gene map ${nm}: ${_listAnd(c.slice(0,4).map(x=>`“${x}”`))}${c.length>4?` and ${c.length-4} more`:''} overprint other labels`); });
+  return out;
+}
 function _ckTextOverRow(){
   const {pairs, name}=_ckTextOver();
   const fitted=(layoutMode==='freeform'?[]:_figurePanels()).filter(im=>im&&im._tagFit);
+  const gmc=_ckGmClash();
+  if(gmc.length&&!pairs.length) return {label:'Text over text', ok:false, warn:true,
+    note:`${esc(gmc.join('; '))} — the map has no room for another row of labels: make its panel taller (or Rows hug off), or set its Text size smaller in 🧬 Edit gene map`};
   if(!pairs.length&&!fitted.length) return null;
   const word=t=>t.kind==='panel'?`letter ${_rtText(String(t.str))}`:`${(_TEXT_KIND[t.kind]||t.kind).replace(/s$/,'')} “${_rtText(String(t.str)).trim().slice(0,30).trim()}”${t.idx!=null&&t.kind!=='panel'&&name(t)?` (${name(t)})`:''}`;
   const seen=new Set(), list=[];
@@ -20528,7 +20558,7 @@ function _ckTextOverRow(){
   const tagOver=pairs.some(({a,b})=>a.kind==='tag'||b.kind==='tag');
   if(!pairs.length) return {label:'Text over text', ok:true, info:true, uncounted:true, note:esc(fitNote)};
   return {label:'Text over text', ok:false, warn:true,
-    note:`${list.length} overlap${list.length>1?'s':''}: ${esc(list.slice(0,6).join('; '))}${list.length>6?` and ${list.length-6} more`:''} — one hides the other in the export${fitNote?'. '+esc(fitNote):''}`,
+    note:`${list.length} overlap${list.length>1?'s':''}: ${esc(list.slice(0,6).join('; '))}${list.length>6?` and ${list.length-6} more`:''} — one hides the other in the export${fitNote?'. '+esc(fitNote):''}${gmc.length?'. '+esc(gmc.join('; ')):''}`,
     fix:tagOver?{a:'cktextover', t:'Move tags to the other edge', fn:'_ckTextOverFix'}:null};
 }
 // Tags over letters: the tags go to the panel's other edge (top ↔ bottom), one undo step.
@@ -20854,7 +20884,13 @@ function _journalFix(action){
     // The text size that brings superscripts and subscripts to the minimum (the row's own figure).
     render(); const k=_physFacts().ptPerPx, J2=_targetJournal(), min=J2&&J2.ptMin!=null?J2.ptMin:TEXT_PT_FLOOR;
     const sc=_ckScriptLow(k, min, J2?J2.ptMax:null);
-    if(sc&&sc.raiseTo){ pushUndo(); sv('text-pt',String(sc.raiseTo)); render(); toast(`Text size ${_ckF1(sc.raiseTo)} pt — superscripts and subscripts now print at ${_ckF1(sc.raiseTo*_RT_SCRIPT)} pt; check the charts still fit their cells`,'ok'); }
+    if(sc&&sc.raiseTo){ pushUndo(); sv('text-pt',String(sc.raiseTo));
+      // The letters come up with the text, so no panel letter prints smaller than the words
+      // beside it (letters 7.0 pt under text at 7.5 pt: phage5-15) — within the journal's top size.
+      const lp=parseFloat(gv('label-pt'))||0, up=lp>0&&lp<sc.raiseTo-0.05&&!(J2&&J2.ptMax!=null&&sc.raiseTo>J2.ptMax);
+      if(up) sv('label-pt',String(sc.raiseTo));
+      render(); const mv=_ckTextEdgeMove(); if(mv.length) render();
+      toast(`Text size ${_ckF1(sc.raiseTo)} pt${up?`, panel letters ${_ckF1(lp)} → ${_ckF1(sc.raiseTo)} pt with it`:''} — superscripts and subscripts now print at ${_ckF1(sc.raiseTo*_RT_SCRIPT)} pt; check the charts still fit their cells${mv.length?`. ${_ckEdgeWords(mv)} to stay inside the figure`:''}`,'ok'); }
     return true;
   }
   if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
@@ -21649,6 +21685,15 @@ async function exportSubmissionPackage(){
       if(t.text){ files.push({name:name+'-alt.txt', data:t.text+'\n'});
         if(t.state==='stale'){ const gf={name:`${name}-alt-generated.txt`, data:freshAlt+'\n'}; files.push(gf);
           textChecks.push({kind:'alt', label:'alt text', state:'stale', _f:files[files.length-2], _g:gf}); } } }
+    // An alt text that quotes the caption box is as out of date as that caption: README named
+    // the caption and left Fig2-alt.txt (and the PNG, PDF and SVG that embed it) quoting
+    // "(C) Colony PCR…" after C became the swim plate (newcomer5-11). It is listed too, with the
+    // same text quoting FigureLab's caption for the figure as exported.
+    { const cc=textChecks.find(c=>c.kind==='caption'), capBox=String(gv('caption-out')||'').trim(), altBox=String(_genBox('alt')||'').trim();
+      const altF=files.find(f=>f.name===name+'-alt.txt');
+      if(cc&&altF&&capBox&&altBox.includes(capBox)&&!textChecks.some(c=>c.kind==='alt')){
+        const gf={name:`${name}-alt-generated.txt`, data:altBox.split(capBox).join(freshCap.trim())+'\n'}; files.push(gf);
+        textChecks.push({kind:'alt', label:'alt text', state:'stale', _f:altF, _g:gf}); } }
     // Attribution obligations ship with the figure, so a co-author assembling the
     // submission doesn't have to reconstruct which icons needed a credit line.
     const credits=(typeof _creditsText==='function')?_creditsText():'';
@@ -24294,14 +24339,19 @@ function _dataCaption(el){
     { const wt=_chartWellsText(ch); if(wt) bits.push(_ucFirst(wt)+'.'); }
     if(note) bits.push(note.replace(/\.?$/,'.'));
   } else if(el.type==='genemap'&&el.map){
-    const mp=el.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
+    const V=_gmView(el.map), mp=V.map, f=(mp.features||[]).map(x=>_rtText(String(x.name||''))).filter(Boolean);
     const t=_rtText((mp.style&&mp.style.title)||'');
     // The title may already give the length ("(1–17,400 bp)"); it is not said twice.
-    const un=mp.unit==='aa'?'aa':'bp';
-    const len=mp.length&&!/\bbp\b|\bkb\b|\baa\b/i.test(t)?` (${Math.round(mp.length).toLocaleString('en-US')} ${un})`:'';
+    const un=mp.unit==='aa'?'aa':'bp', fmt=v=>Math.round(v).toLocaleString('en-US');
+    const len=V.region?`, positions ${fmt(V.region.from)}–${fmt(V.region.to)} of ${fmt(V.full)} ${un}`
+      :(mp.length&&!/\bbp\b|\bkb\b|\baa\b/i.test(t)?` (${fmt(mp.length)} ${un})`:'');
     const fl=f.length<=12?_listAnd(f):`${f.slice(0,10).join(', ')} and ${f.length-10} other features`;
     bits.push(`${mp.topology==='circular'?'Circular':'Linear'} map${t?` of ${t}`:''}${len}${f.length?`, showing ${fl}`:''}.`);
     const src=mp.sourceName||mp.source; if(src&&typeof src==='string'&&/\.(gb|gbk|genbank|gff3?|fasta|fa|dna|txt)$/i.test(src)) bits.push(`Drawn from ${src}.`);
+    // Maps drawn to one scale say so, and which: a reader compares gene lengths across them.
+    const k=_gmSharedPxPerBp(el.map);
+    if(k>0){ const others=_gmScaleGroup().filter(e=>e!==el).map(e=>_rtText(formatLabel(_isDataPanel(e)?e.label:(e.letter||'')))).filter(Boolean);
+      bits.push(`Drawn to the same scale as ${others.length?_listAnd(others.map(x=>`(${x})`)):'the other gene maps'}.`); }
   }
   return bits.join(' ');
 }
@@ -24378,7 +24428,9 @@ function _captionText(){
     const lt=_isDataPanel(im)?'':_laneTableWords(im);
     if(lt) desc=desc?`${desc}. ${lt}`:lt;
     if(!desc) desc=insetSentence||`Panel ${shown}`;
-    let s=shown?`(${shown}) ${desc}.`:`${desc}.`;
+    // A note that already ends a sentence gets no second full stop ("(10⁻⁴ dilution).." — phage5-11).
+    const _stop=/[.!?…]$/.test(desc)?'':'.';
+    let s=shown?`(${shown}) ${desc}${_stop}`:`${desc}${_stop}`;
     if(parent&&desc!==insetSentence) s+=` ${insetSentence}.`;
     // Scale bar. FigureLab knows the sampling density (µm per pixel) and nothing about
     // the objective, so it reports exactly that. The old "(15×)" here was 1/(µm/px)
@@ -30405,7 +30457,7 @@ function _dataPanelRefresh(im, force){
   c.naturalWidth=c.width; c.naturalHeight=c.height;
   im._chartKey=''; im._chartStat=null;              // an edit made anywhere recomputes the stats
   const w0=im.w, h0=im.h;
-  const x=c.getContext('2d'); x.scale(2,2); _dataPanelDraw(x, im, 0, 0, w, h);
+  const x=c.getContext('2d'); x.scale(2,2); _gmProbe=true; try{ _dataPanelDraw(x, im, 0, 0, w, h); } finally{ _gmProbe=false; }
   if(w0>0){ im.w=w0; im.h=h0; }                     // keep the size it is drawn at in the figure
   im.img=c; im._dpKey=key;
   try{ im._thumb=c.toDataURL('image/png'); }catch(e){ im._thumb=''; }
@@ -31754,6 +31806,34 @@ function _gmTextPx(st){
   if(st.fontSize&&+st.fontSize!==12) return +st.fontSize;      // a px size from before points
   return _figTextPx();
 }
+// The part of the sequence a linear map shows. A map imported from a whole genome can be cut
+// to a region (Gene map › Region From/To, in the file's own coordinates) without cutting the
+// file outside FigureLab (phage5-09): its features are clipped to the region and its ruler
+// counts in genome positions. {map, off, L, full, region} — off is the bp before the region.
+function _gmView(map){
+  const L=Math.max(1,map.length|0), r=map.region;
+  if(map.topology==='circular'||!r||!(+r.from>=1)||!(+r.to>+r.from)||+r.to>L||(+r.from===1&&+r.to===L)) return {map, off:0, L, full:L, region:null};
+  const off=Math.round(+r.from)-1, to=Math.round(+r.to), len=to-off;
+  const features=(map.features||[]).map(f=>{ const a=Math.min(+f.start||0,+f.end||0), b=Math.max(+f.start||0,+f.end||0); return {f,a,b}; })
+    .filter(({a,b})=>b>off&&a<to)
+    .map(({f,a,b})=>({...f, start:Math.max(0,a-off), end:Math.min(len,b-off)}));
+  return {map:{...map, length:len, features}, off, L:len, full:L, region:{from:off+1, to}};
+}
+// Linear gene maps set to share one scale ("same bp per mm as the other gene maps"): each was
+// stretched to its own panel, so a 3.4 kb gene drew 470 px in a 13.2 kb map and 405 px in a
+// 15.4 kb one beside it (phage5-02). The shared scale is the one that lets the longest fit.
+function _gmScaleGroup(){
+  return ((layoutMode==='freeform'?freeformElements:images)||[]).filter(e=>e&&e.type==='genemap'&&e.map&&!e.hidden&&!e.excluded
+    &&e.map.topology!=='circular'&&e.map.style&&e.map.style.sameScale&&e.w>0);
+}
+function _gmPad(fs){ return Math.max(18, fs*1.6); }
+function _gmSharedPxPerBp(map){
+  if(!(map&&map.style&&map.style.sameScale&&map.topology!=='circular')) return 0;
+  const G=_gmScaleGroup(); if(G.length<2) return 0;
+  return Math.min(...G.map(e=>Math.max(10, e.w-2*_gmPad(_gmTextPx(e.map.style)))/_gmView(e.map).L));
+}
+// Labels that could not be given a row of their own, by map: the compliance check names them.
+var _gmClash=new Map(), _gmProbe=false;   // _gmProbe: a measuring or thumbnail draw, not the figure's
 // Draw a gene map into `emit`, in the element's LOCAL space (0,0..w,h).
 function _genemapDraw(el, emit){
   const map=el.map, W=el.w, H=el.h, st=map.style||{};
@@ -31762,15 +31842,16 @@ function _genemapDraw(el, emit){
   // other than the old 12 px default keeps that px size. No map text is smaller than fs.
   const fs=_gmTextPx(st);
   const fam=_objFontFamily(st), font=(sz,wt)=>`${wt?wt+' ':''}${+(+sz).toFixed(2)}px ${fam}`;
-  const ink='#222222', L=Math.max(1,map.length|0);
-  const feats=_gmFeatures(map);
+  const ink='#222222';
+  const V=_gmView(map), vel=V.region?{...el, map:V.map, _gmOff:V.off, _gmFull:V.full, _gmSrc:el}:el;
+  const feats=_gmFeatures(V.map);
   emit.rect(0,0,W,H,'#ffffff',null,0);
   // The title keeps clear of the panel letter in the top-left corner (room for it is kept on
   // both sides, so it stays centred) and fits the map's width: it shrinks a little, then
   // wraps. It used to run off both edges of a one-cell map and under the letter F.
   let titleH=0;
   if(st.title){
-    const tw=(str,f)=>{ const mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(str); return R?_rtLayout(mc,R,f).w:mc.measureText(String(str)).width; };
+    const tw=_gmTextW;
     const hasLetter=gc('show-labels')&&(_isDataPanel(el)?!!el.label:!!el.letter);
     const reserve=hasLetter?Math.max(7,gf('label-size'))*1.1+12:0, avail=Math.max(40, W-2*reserve-8);
     let tFs=fs*1.1; const tf=()=>font(tFs,'bold');
@@ -31785,7 +31866,7 @@ function _genemapDraw(el, emit){
     titleH=lines.length*(tFs+2)+8;
   }
   if(map.topology==='circular') _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH);
-  else                          _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH);
+  else                          _gmDrawLinear(emit,vel,feats,st,fs,font,ink,titleH);
 }
 
 function _gmTextW(str,f){ const mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(str); return R?_rtLayout(mc,R,f).w:mc.measureText(String(str)).width; }
@@ -31797,55 +31878,69 @@ function _gmTextW(str,f){ const mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(str);
 // onto the ruler ("rz" on its axis line, "Rz" over "10.8 kb") and past the panel's edge
 // ("AGC-kinase C-te", missing from the PDF's text) — ISSUES, phage4-09, blot4-06, freeform3-15.
 function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
-  const W=el.w, H=el.h, L=Math.max(1,el.map.length|0);
-  const pad=Math.max(18, fs*1.6);
-  const x0=pad, x1=Math.max(x0+10, W-pad);
+  const W=el.w, H=el.h, L=Math.max(1,el.map.length|0), off=el._gmOff||0;
+  const pad=_gmPad(fs);
+  const x0=pad, k=_gmSharedPxPerBp(el.map);
+  const x1=k>0?Math.min(Math.max(x0+10, W-pad), x0+L*k):Math.max(x0+10, W-pad);
   const bp2x=bp=>x0+(bp/L)*(x1-x0);
   // The ruler's ticks first: they decide whether the length needs a line of its own. When the
   // last tick is the map's end and already reads "12 kb", the bold "12 kb" under it said the
   // same thing twice (freeform4-02).
   let ticks=[], lab=null, kb=false, aa=el.map.unit==='aa';
   if(st.showRuler){
-    kb=!aa&&L>=10000; const tf=font(fs);
+    // A region counts in the sequence's own positions (ticks at genome coordinates).
+    kb=!aa&&off+L>=10000; const tf=font(fs);
     lab=t=>kb?String(+(t/1000).toFixed(3)):String(Math.round(t));
-    const fits=T=>{ const xs=T.map(bp2x), ws=T.map((t,i)=>_gmTextW(lab(t)+(kb&&i===T.length-1?' kb':''),tf));
+    const fits=T=>{ const xs=T.map(t=>bp2x(t-off)), ws=T.map((t,i)=>_gmTextW(lab(t)+(kb&&i===T.length-1?' kb':''),tf));
       return T.every((t,i)=>!i||xs[i]-xs[i-1]>=(ws[i]+ws[i-1])/2+fs*0.6); };
     // From 10 kb the ticks are written in kb (2, 4 … 12 kb); and there are only as many as
     // fit with a gap between their labels (phage3-04).
-    for(let tg=Math.max(2,Math.floor((x1-x0)/70)); tg>=1; tg--){ ticks=_niceTicks(0,L,tg).filter(t=>t>=0&&t<=L); if(fits(ticks)) break; }
+    for(let tg=Math.max(2,Math.floor((x1-x0)/70)); tg>=1; tg--){ ticks=_niceTicks(off,off+L,tg).filter(t=>t>=off&&t<=off+L); if(fits(ticks)) break; }
     if(!fits(ticks)&&ticks.length>2) ticks=[ticks[0], ticks[ticks.length-1]];
     if(!fits(ticks)) ticks=ticks.slice(0,1);
   }
-  const lenOnRuler=st.showRuler&&kb&&ticks.length>1&&ticks[ticks.length-1]===L;
+  const lenOnRuler=!off&&!el._gmFull&&st.showRuler&&kb&&ticks.length>1&&ticks[ticks.length-1]===L;
   // The length label has a line of its own under the ruler's numbers (or at the foot of the
   // map without a ruler): set at the ruler's right end it ran into the last feature labels.
   const rulerH=st.showRuler?(lenOnRuler?fs+12:2*fs+16):fs+6;
   const bodyTop=titleH, bodyBot=H-rulerH-4;
 
-  // Labels: measured, kept inside the panel, and given a row so none overprints another.
-  const rowEnds={up:[], down:[]};
-  const placeRow=(side,left,right)=>{
-    const rows=rowEnds[side];
-    for(let r=0;r<rows.length;r++) if(left>rows[r]+3){ rows[r]=right; return r; }
-    if(rows.length<3){ rows.push(right); return rows.length-1; }
-    rows[0]=Math.max(rows[0],right); return 0;   // give up gracefully past 3 rows
-  };
-  const lf=font(fs);
-  const placed=feats.map((f,i)=>{
-    const a=bp2x(f.start), b=Math.max(a+2,bp2x(f.end));
-    if(!(st.showLabels&&f.name)) return {f,i,a,b};
-    const above=!st.strandRows||f.strand>0;
-    const w=_gmTextW(f.name,lf), half=w/2;
-    // centred on its feature, but never past the panel's edges
-    const cx=Math.max(half+2, Math.min(W-half-2, (a+b)/2));
-    return {f,i,a,b,above,cx,row:placeRow(above?'up':'down', cx-half, cx+half)};
-  });
-  const nUp=rowEnds.up.length, nDown=rowEnds.down.length;
-  // Room the rows take above and below the backbone, for a glyph height g.
+  // Labels: measured, kept inside the panel, and given a row so none overprints another —
+  // as many rows as the panel's height holds. Three rows at most used to be the rule, and
+  // past them a label was drawn over another ("rec", "ad1", "ad2" read "reaad12": phage5-06).
+  // A label that still finds no row is named by the compliance check.
+  const lf=font(fs), lgap=Math.max(3, fs*0.35);
   const asc=fs*0.8, desc=fs*1.0;
-  const upExt=g=>nUp?g*1.15+2+(nUp-1)*(fs+2)+asc:g*1.05;
-  const downExt=g=>nDown?g*1.15+2+(nDown-1)*(fs+2)+desc:g*0.6;
   const band=Math.max(1,bodyBot-bodyTop-4);
+  const layout=max=>{
+    const rowEnds={up:[], down:[]}, clash=[];
+    const placeRow=(side,left,right,name)=>{
+      const rows=rowEnds[side];
+      for(let r=0;r<rows.length;r++) if(left>rows[r]+lgap){ rows[r]=right; return r; }
+      if(rows.length<max){ rows.push(right); return rows.length-1; }
+      // no row left: the one it overlaps least, and it is named
+      let best=0; for(let r=1;r<rows.length;r++) if(rows[r]<rows[best]) best=r;
+      rows[best]=Math.max(rows[best],right); clash.push(name); return best;
+    };
+    const placed=feats.map((f,i)=>{
+      const a=bp2x(f.start), b=Math.max(a+2,bp2x(f.end));
+      if(!(st.showLabels&&f.name)) return {f,i,a,b};
+      const above=!st.strandRows||f.strand>0;
+      const w=_gmTextW(f.name,lf), half=w/2;
+      // centred on its feature, but never past the panel's edges
+      const cx=Math.max(half+2, Math.min(W-half-2, (a+b)/2));
+      return {f,i,a,b,above,cx,row:placeRow(above?'up':'down', cx-half, cx+half, _rtText(String(f.name)))};
+    });
+    const nUp=rowEnds.up.length, nDown=rowEnds.down.length;
+    const upExt=g=>nUp?g*1.15+2+(nUp-1)*(fs+2)+asc:g*1.05;
+    const downExt=g=>nDown?g*1.15+2+(nDown-1)*(fs+2)+desc:g*0.6;
+    return {placed, nUp, nDown, upExt, downExt, clash};
+  };
+  let Lo=layout(Infinity);
+  for(let max=Math.max(Lo.nUp,Lo.nDown)-1; max>=1&&Lo.upExt(6)+Lo.downExt(6)>band; max--) Lo=layout(max);
+  const {placed, upExt, downExt}=Lo;
+  _gmLastLayout={titleH, upExt, downExt, rulerH, fs};
+  { const key=(el._gmSrc||el).id; if(key!=null&&!_gmProbe){ if(Lo.clash.length) _gmClash.set(key, Lo.clash); else _gmClash.delete(key); } }
   let gh=Math.max(8, Math.min(26, band*0.30));
   while(gh>6&&upExt(gh)+downExt(gh)>band) gh-=0.5;
   const spare=Math.max(0, band-upExt(gh)-downExt(gh));
@@ -31870,19 +31965,39 @@ function _gmDrawLinear(emit,el,feats,st,fs,font,ink,titleH){
     const ry=H-rulerH+4;
     emit.line(x0,ry,x1,ry,'#999999',1);
     ticks.forEach((t,i)=>{
-      const tx=bp2x(t);
+      const tx=bp2x(t-off);
       emit.line(tx,ry,tx,ry+4,'#999999',1);
       const str=lab(t)+(kb&&i===ticks.length-1?' kb':'');
       // the end ticks' numbers stay inside the panel too
       const hw=_gmTextW(str,lf)/2;
       emit.text(str, Math.max(hw+1, Math.min(W-hw-1, tx)), ry+5, lf, '#666666', 'center', 'top');
     });
-    if(!lenOnRuler) emit.text(_bpLabel(L, el.map.unit), x1, ry+5+fs+2, font(fs,'bold'), '#444444', 'right', 'top');
+    if(!lenOnRuler) emit.text(_gmLenLabel(el, L), x1, ry+5+fs+2, font(fs,'bold'), '#444444', 'right', 'top');
   } else {
-    emit.text(_bpLabel(L, el.map.unit), x1, H-4, font(fs,'bold'), '#444444', 'right', 'alphabetic');
+    emit.text(_gmLenLabel(el, L), x1, H-4, font(fs,'bold'), '#444444', 'right', 'alphabetic');
   }
 }
 
+// The length under a linear map; a region says where it sits in the sequence.
+function _gmLenLabel(el, L){
+  const off=el._gmOff||0, un=el.map.unit==='aa'?'aa':'bp';
+  if(!el._gmFull) return _bpLabel(L, el.map.unit);
+  const f=v=>Math.round(v).toLocaleString('en-US');
+  return `${f(off+1)}–${f(off+L)} of ${f(el._gmFull)} ${un}`;
+}
+// The height a linear map needs at width W: its title, its label rows, glyphs at a full
+// size and its ruler — what a row that hugs its panels takes for it. A map row kept the
+// panel height with ~45 % of it blank above the ruler (phage5-07, phage4-09).
+var _gmLastLayout=null;
+function _gmNaturalH(el, W){
+  if(!el||!el.map||el.map.topology==='circular'||!(W>0)) return 0;
+  const noop=new Proxy({}, {get:()=>()=>{}});
+  _gmLastLayout=null;
+  _gmProbe=true; try{ _genemapDraw({...el, w:W, h:4000}, noop); }catch(e){ return 0; } finally{ _gmProbe=false; }
+  const Lo=_gmLastLayout; _gmLastLayout=null; if(!Lo) return 0;
+  const g=Math.min(22, Math.max(12, Lo.fs*1.4));
+  return Math.ceil(Lo.titleH+2+Lo.upExt(g)+Lo.downExt(g)+8+Lo.rulerH+6);
+}
 function _gmDrawCircular(emit,el,feats,st,fs,font,ink,titleH){
   const W=el.w, H=el.h, L=Math.max(1,el.map.length|0);
   const cx=W/2, cy=titleH+(H-titleH)/2;
@@ -32246,6 +32361,8 @@ function _genemapModalSync(){
   chk('gm-ruler', st.showRuler!==false);
   chk('gm-labels', st.showLabels!==false);
   chk('gm-strandrows', st.strandRows!==false);
+  chk('gm-samescale', !!st.sameScale);
+  sv('gm-from', m.region&&m.region.from?m.region.from:''); sv('gm-to', m.region&&m.region.to?m.region.to:'');
   document.getElementById('gm-table').value=_featureTableToText(m);
   _genemapModalStat();
 }
@@ -32256,7 +32373,9 @@ function _genemapModalStat(){
   const scale=(el.map.topology==='circular')
     ? (L/(Math.PI*Math.max(1,Math.min(el.w,el.h)-40))).toFixed(1)+' bp per pixel of circumference'
     : (L/Math.max(1,el.w-36)).toFixed(1)+' bp per pixel';
-  box.textContent=`${_bpLabel(L, el.map.unit)} · ${n} feature${n===1?'':'s'} · ${el.map.unit==='aa'?scale.replace(/bp per/,'aa per'):scale}`;
+  const V=_gmView(el.map), k=_gmSharedPxPerBp(el.map);
+  const sc2=k>0?`${(1/k).toFixed(1)} bp per pixel, shared by ${_gmScaleGroup().length} gene maps`:scale;
+  box.textContent=`${_bpLabel(L, el.map.unit)}${V.region?` · showing ${V.region.from.toLocaleString('en-US')}–${V.region.to.toLocaleString('en-US')}`:''} · ${n} feature${n===1?'':'s'} · ${el.map.unit==='aa'?sc2.replace(/bp per/,'aa per'):sc2}`;
 }
 function applyGenemapModal(){
   const el=_selectedGenemapEl(); if(!el) return;
@@ -32276,6 +32395,18 @@ function applyGenemapModal(){
     fontPt:(parseFloat(gv('gm-fontsize'))>0?Math.max(3,parseFloat(gv('gm-fontsize'))):undefined), fontSize:undefined,
     showRuler:gc('gm-ruler'), showLabels:gc('gm-labels'), strandRows:gc('gm-strandrows'),
     titleAuto:!!((el.map.style||{}).titleAuto&&_t1===_t0)};
+  // Region: positions From–To of the sequence; empty or the whole length shows it all.
+  let _regNote='';
+  { const f=parseInt(gv('gm-from'),10), t=parseInt(gv('gm-to'),10);
+    if(!(f>0)&&!(t>0)) delete el.map.region;
+    else { const F=f>0?f:1, T=t>0?Math.min(t,len):len;
+      if(el.map.topology==='circular'){ delete el.map.region; _regNote='a region is shown on linear maps only — the circular map shows the whole sequence'; }
+      else if(T<=F){ _regNote=`Region not set: ${F.toLocaleString('en-US')}–${T.toLocaleString('en-US')} is empty — "to" must be after "from"`; }
+      else if(F===1&&T===len) delete el.map.region;
+      else { el.map.region={from:F, to:T}; if(t>len) _regNote=`Region ends at ${len.toLocaleString('en-US')}, the map's length`; } } }
+  // One scale for every linear gene map in the figure, or each to its own panel.
+  const _ss=gc('gm-samescale'), _maps=((layoutMode==='freeform'?freeformElements:images)||[]).filter(e=>e&&e.type==='genemap'&&e.map);
+  _maps.forEach(e=>{ if(!!(e.map.style&&e.map.style.sameScale)!==_ss){ e.map.style={...(e.map.style||{}), sameScale:_ss||undefined}; e._genemapCache=null; if(e!==el&&_isDataPanel(e)) e._dpKey=''; } });
   if(el.map.sourceName&&_featureTableToText(el.map)+'|'+el.map.length!==_tblBefore) el.map.sourceEdited=true;
   el._genemapCache=null;
   if(_isDataPanel(el)){ if(el.map.style.title) el.name=el.map.style.title; renderImgList(); }
@@ -32285,7 +32416,9 @@ function applyGenemapModal(){
   closeGenemapModal();    // applied: the map stays, and the dialog closes as the chart's Apply does
   if(parsed.bad.length) toast(`Skipped ${parsed.bad.length} unreadable row(s): ${parsed.bad.slice(0,5).join(', ')}`,'warn');
   if(over.length) toast(`${over.length} feature(s) extend past ${_bpLabel(len)} and were clipped to the backbone`,'warn');
-  else if(!parsed.bad.length) toast(`Gene map updated — ${parsed.features.length} features over ${_bpLabel(len, el.map.unit)}`,'ok');
+  else if(_regNote) toast(_regNote,'warn');
+  else if(!parsed.bad.length){ const R=el.map.region, nm=_maps.filter(e=>e.map.topology!=='circular').length;
+    toast(`Gene map updated — ${parsed.features.length} features over ${_bpLabel(len, el.map.unit)}${R?`, showing positions ${R.from.toLocaleString('en-US')}–${R.to.toLocaleString('en-US')}`:''}${_ss&&nm>1?`; the ${nm} linear gene maps are drawn to one scale`:''}`,'ok'); }
 }
 // Append a blank row to the feature table so a map can be built from scratch.
 function _gmAddRow(){
@@ -36686,7 +36819,11 @@ function _capMeasureClause(im){
   const out=[];
   const c=_measCurrent().filter(m=>m.type==='cellCount'&&_measIsOn(m, im)).pop();
   if(c){ const d=c.dia, cal=d&&/^(µm|mm)$/.test(d.unit);
-    out.push(`${c.count} object${c.count===1?'':'s'} counted${c.roi==='ellipse'?' inside the dish':''}${cal&&c.count?`; equivalent diameter ${d.mean}${c.count>1?` ± ${d.sd}`:''} ${d.unit}${c.count>1?' (mean ± SD)':''}`:''}.`); }
+    // One unit for every count in the caption, as in the Measurements CSV: B read "1.32 mm" and
+    // C "813 µm" in the same sentence pattern (phage5-10).
+    const U=_measCurrent().some(m=>m.type==='cellCount'&&m.dia&&m.dia.unit==='mm')?'mm':'µm';
+    const cv=v=>(!cal||d.unit===U||v==null||v==='')?v:+(d.unit==='mm'?v*1000:v/1000).toPrecision(3);
+    out.push(`${c.count} object${c.count===1?'':'s'} counted${c.roi==='ellipse'?' inside the dish':''}${cal&&c.count?`; equivalent diameter ${cv(d.mean)}${c.count>1?` ± ${cv(d.sd)}`:''} ${cal?U:d.unit}${c.count>1?' (mean ± SD)':''}`:''}.`); }
   if(typeof _rulerStats==='function'){
     const st=_rulerStats().filter(g=>g.im===im||(g.im&&g.im.fromPanel!=null&&g.im.fromPanel===im.id));
     if(st.length) out.push(_ucFirst(_listAnd(st.map(g=>`${g.name} ${g.meanText}${g.n>1?` ± ${g.sdText}`:''} ${g.unit} (${g.n>1?`mean ± SD, n = ${g.n}`:'n = 1'})`)))+'.');
@@ -36764,18 +36901,23 @@ function _measurementsCSV(){
   // any of them uses.
   const calU=cur.some(m=>m.type==='cellCount'&&m.dia&&m.dia.unit==='mm')?'mm':'µm';
   const conv=(v,u)=>{ if(v==null||v==='') return ''; if(u===calU||!/^(µm|mm)$/.test(u)) return v; return +(u==='mm'?v*1000:v/1000).toPrecision(3); };
+  // A count's "Area px²" is its region (the dish) and its "Area µm²" was the objects' area:
+  // side by side they implied 45 µm² per pixel where the calibration gives 3086 (phage5-08).
+  // Each area column now holds one quantity in one unit: the region in both, and the counted
+  // objects' area in both columns of their own.
   const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values',
-    'Panel','Objects','Region','Cut by the rim (not counted)','Dish wall (left out)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters','Source file']];
+    'Panel','Objects','Region','Cut by the rim (not counted)','Dish wall (left out)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters','Objects area px²','Objects area µm²','Source file']];
   cur.forEach(m=>{
     const v=k=>m[k]??'';
     const cnt=m.type==='cellCount', d=m.dia||null;
     rows.push([m.type,m.label,m.source||'8-bit display',v('x'),v('y'),v('w'),v('h'),
       v('meanGray'),v('minV'),v('maxV'),v('intDens'),
       v('rawMean'),v('rawMin'),v('rawMax'),v('rawSD'),v('rawIntDens'),
-      v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'',
+      v('area'),cnt?(m.areaUm!==''&&m.areaUm!=null&&m.fgPx>0&&m.area!=null&&m.area!==''?+(m.area*(+m.areaUm/m.fgPx)).toFixed(1):''):v('areaUm'),v('count'),v('threshold'),m.values||'',
       v('panel'), cnt?(m.polarity==='dark'?'dark (plaques)':m.polarity?'bright':''):'', cnt?(m.roi==='ellipse'?'ellipse (round, a dish)':m.roi?'box':''):'',
       cnt&&m.roi==='ellipse'?(m.edgeObjects??''):'', cnt&&m.roi==='ellipse'?(m.wallObjects??''):'',
       d?conv(d.mean,d.unit):'', d?conv(d.sd,d.unit):'', d?conv(d.med,d.unit):'', d?(/^(µm|mm)$/.test(d.unit)?calU:d.unit):'', d?d.values.map(v=>conv(v,d.unit)).join(' '):'',
+      cnt?(m.fgPx??''):'', cnt?(m.areaUm??''):'',
       m.file||'']);
   });
   const anyRaw=cur.some(m=>/^raw /.test(m.source||''));
