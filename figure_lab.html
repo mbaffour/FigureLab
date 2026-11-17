@@ -1819,7 +1819,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
           <select id="chart-seriescol" style="width:100%" title="Tidy data: one line (or bar colour) per value of this column — strain, MOI, treatment. Rows that share a series and an x are averaged."></select></label>
         <div style="font-size:11px"><span id="chart-ycols-lbl">Y columns</span>
           <div id="chart-ycols" style="margin-top:2px"></div></div>
-        <label id="chart-rep-wrap" style="font-size:11px;display:none" title="Columns named WT_r1, WT_r2 … or MOI_0_rep1 … are the replicates of one series: plot their mean at each x, with the error bars below"><input type="checkbox" id="chart-repcols"> Average replicate columns into one series each <span id="chart-rep-note" style="color:var(--muted)"></span></label>
+        <label id="chart-rep-wrap" style="font-size:11px;display:none" title="Columns named WT_r1, WT_r2 …, MOI_0_rep1 … or Rep1, Rep2 … are the replicates of one series: plot their mean at each x (or one bar per group), with the error bars below"><input type="checkbox" id="chart-repcols"> Average replicate columns into one series each <span id="chart-rep-note" style="color:var(--muted)"></span></label>
         <div id="chart-wells-wrap" style="font-size:11px;display:none;margin:2px 0" title="Plate-reader wells (A1, B2 …): average the replicate wells of a plate row or column into one series, and take the mean of the blank wells away from every other well at each time point. To group wells any other way, give them one name under Names &amp; colours.">
           <span id="chart-wells-lbl" style="color:var(--muted)">Plate wells</span>
           <label>replicates <select id="chart-wells-by" onchange="_chartWellsChange()"><option value="none">each well alone</option><option value="row">by plate row (A, B, C…)</option><option value="col">by plate column (1, 2, 3…)</option></select></label>
@@ -9274,8 +9274,17 @@ function _gelLoadingFrom(lcIdx,nLanes,mode){
   return out;
 }
 function _gelLoadMode(a){ return a&&a.loading&&a.loading.mode==='total'?'total':'bands'; }
+// Normalised to another target (a phospho/total ratio: pAKT ÷ total AKT) — measured as a
+// loading band is, but no loading control, and never called one (blot4-05).
+function _gelLoadTarget(a){ return !!(a&&a.loading&&a.loading.target); }
+// The other target by what it shows: "AKT-total (panel B)".
+function _gelTargetName(a){ const lc=images[_gelLoadingIdx(a)], L=_gelLoadingLabel(a);
+  const t=lc?_rtText(String(lc.tag||lc.captionNote||'').trim())||String(_sourceName(lc)||'').replace(/\.[a-z0-9]{2,4}$/i,''):'';
+  // A letter is "panel B"; a strip named by its tag, row or file is named by that.
+  if(/^[A-Za-z0-9]{1,3}$/.test(L)) return t?`${t} (panel ${L})`:`panel ${L}`;
+  return t||L; }
 // "the loading control in panel B" / "total protein in panel B, whole-lane signal"
-function _gelLoadingWhat(a){ return _gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`the loading control in panel ${_gelLoadingLabel(a)}`; }
+function _gelLoadingWhat(a){ return _gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:_gelLoadTarget(a)?`another target, ${_gelTargetName(a)}`:`the loading control in panel ${_gelLoadingLabel(a)}`; }
 function _gelLoadSatLanes(a){ return a&&a.loading?a.loading.lanes.map((l,i)=>l.saturated?i+1:0).filter(Boolean):[]; }
 // The total-protein background in words. A pairing saved before the lane-by-lane
 // background (no a.loading.gaps) was measured the old way, and is described as such.
@@ -9480,7 +9489,8 @@ function runGelAnalysis(idx,opts){
     // this panel, or no longer pairs lane for lane.
     if(prev.loading){ const li=_gelLoadingIdx(prev);
       const lc=(li>=0&&images[li]!==im)?_gelLoadingFrom(li,a.lanes.length,prev.loading.mode):{error:li<0?'its panel is no longer in the figure':'it is now this panel itself'};
-      if(lc.error){ dropped=`Loading control dropped: ${lc.error}`; a.loadingDropped={label:prev.loading.label||'', why:lc.error}; } else a.loading=lc; }
+      if(prev.loading.target&&!lc.error) lc.target=true;
+      if(lc.error){ dropped=`${prev.loading.target?'Normalisation to another target':'Loading control'} dropped: ${lc.error}`; a.loadingDropped={label:prev.loading.label||'', why:lc.error, ...(prev.loading.target?{target:true}:{})}; } else a.loading=lc; }
     else if(prev.loadingDropped) a.loadingDropped=prev.loadingDropped;
   }
   _gelApplyLadder(a);
@@ -9686,12 +9696,15 @@ function gelSetRefLane(idx,li){
 }
 // mode: 'bands' (the summed band volume of each lane — a housekeeping band) or 'total'
 // (total protein, whole-lane signal). Left out, the current mode is kept.
+// 'target': another target's bands (phospho/total), measured as loading band(s) are.
 function gelSetLoading(idx,lcIdx,mode){
   return _gelEdit(idx,a=>{
     if(lcIdx==null||lcIdx<0){ if(!a.loading&&!a.loadingDropped) return false; a.loading=null; delete a.loadingDropped; return; }
-    if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel as the loading control','warn'); return false; }
-    const lc=_gelLoadingFrom(lcIdx,a.lanes.length,mode||_gelLoadMode(a));
-    if(lc.error){ toast(`Loading control: ${lc.error}`,'warn'); return false; }
+    if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel to normalise to','warn'); return false; }
+    const target=mode==='target'||(mode==null&&_gelLoadTarget(a));
+    const lc=_gelLoadingFrom(lcIdx,a.lanes.length,target?'bands':(mode||_gelLoadMode(a)));
+    if(lc.error){ toast(`${target?'Normalise to':'Loading control'}: ${lc.error}`,'warn'); return false; }
+    if(target) lc.target=true;
     a.loading=lc; delete a.loadingDropped;
   });
 }
@@ -9754,7 +9767,7 @@ function gelCSV(idx){
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
     `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:_gelLoadMode(a)==='total'
       ?`total protein in panel ${lcLab}, whole-lane signal, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = Σ (signal − background) over every row and column of the lane, the background being ${_gelTpBgText(a)}${_gelTpNotes(a).length?'; '+_gelTpNotes(a).join('; '):''}${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the total-protein image have clipped samples (or samples outside the image) — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`
-      :`panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the loading control have a saturated, cut or overlapping band — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`}`,
+      :`${_gelLoadTarget(a)?`none — normalised to another target (phospho/total), ${_gelTargetName(a)}: `:''}panel ${lcLab}, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = summed band volume${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the loading control have a saturated, cut or overlapping band — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`}`,
     `# MW fit: ${fit?`log10(kDa) = ${fit.intercept.toFixed(5)} + ${fit.slope.toFixed(5)}·Rf over ${fit.n} markers in lane ${a.ladder.lane+1}, R² = ${fit.r2.toFixed(4)}; estimates outside the ladder's Rf range are marked extrapolated`:(a.ladder&&a.ladder.error)?`REFUSED — ${a.ladder.error}; no molecular weights are given`:'none'}`,
     `# Edited by hand: ${a.edits||0} edit(s)`,
   ];
@@ -9947,6 +9960,7 @@ function _gelMethodsSentences(P){
     // A loading control that changed or vanished after it was measured is not claimed.
     if(a.loading&&!_gelLoadingStale(a,im)) norm.push(_gelLoadMode(a)==='total'
       ?`normalised to total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal (each lane's signal summed over its full length above the membrane background ${_gelTpLocal(a)?'measured on either side of that lane and interpolated across it, row by row':'measured between the lanes'}${_gelTpUneven(a)?'; the stain\'s background was uneven and was corrected lane by lane':''}${_gelTpLocal(a)&&a.loading.oneSided&&a.loading.oneSided.length?`; lane${a.loading.oneSided.length>1?'s':''} ${_listAnd(a.loading.oneSided.map(String))}, with membrane on one side only, extrapolated along the trend of the other gaps`:''}), lanes paired by order${_gelLoadSatLanes(a).length?` (lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} not normalised: clipped in the total-protein image)`:''}`
+      :_gelLoadTarget(a)?`normalised to a second target, ${_gelTargetName(a)}, probed on its own blot (each band divided by the summed band volume of the paired lane: a phospho/total ratio), lanes paired by order`
       :`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
     s+=(norm.length?'; volumes were '+_listAnd(norm):'')+'.';
@@ -9992,7 +10006,7 @@ function _gelComplianceRow(shown){
     const a=im.gelAnalysis, nm=nm0, sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     if(!_gelFresh(im)){ warn=true; notes.push(`${nm}: ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} after the analysis — it is stale; re-detect before reporting${annotations.some(x=>x&&x.mw&&x.blotPanel===im.id)?' (its MW labels sit on the old ladder until then)':''}`); return; }
     if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
-    if(a.loadingDropped&&!a.loading){ warn=true; notes.push(`${nm}: its loading control was dropped at the re-analysis (${esc(a.loadingDropped.why)}) — no normalised values`); }
+    if(a.loadingDropped&&!a.loading){ warn=true; notes.push(`${nm}: its ${a.loadingDropped.target?'other target (phospho/total)':'loading control'} was dropped at the re-analysis (${esc(a.loadingDropped.why)}) — no normalised values`); }
     { const off=_gelMWOff(im); if(off){ warn=true; notes.push(`${nm}: ${esc(off)}`); } }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
     if(part){ warn=true; notes.push(`${nm}: ${part} band${part===1?'':'s'} partly outside the image — not quantified`); }
@@ -10007,7 +10021,7 @@ function _gelComplianceRow(shown){
     if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the loading control again`); }
     else if(a.loading){
       const bad=_gelLoadSatLanes(a);
-      notes.push(`${nm}: normalised to ${esc(_gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:`loading band(s) in panel ${_gelLoadingLabel(a)}`)}`);
+      notes.push(`${nm}: normalised to ${esc(_gelLoadMode(a)==='total'?`total protein in panel ${_gelLoadingLabel(a)}, whole-lane signal`:_gelLoadTarget(a)?`another target, ${_gelTargetName(a)} (phospho/total)`:`loading band(s) in panel ${_gelLoadingLabel(a)}`)}`);
       _gelTpNotes(a).forEach(s=>notes.push(`${nm}: ${esc(s)}`));
       if(_gelTpLocal(a)&&((a.loading.oneSided||[]).length||(a.loading.stainedGaps||[]).length)) warn=true;
       if(bad.length){ warn=true; notes.push(`${nm}: lane${bad.length>1?'s':''} ${bad.join(', ')} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${bad.length>1?'are':'is'} saturated or cut — not normalised`); }
@@ -10090,7 +10104,7 @@ function openGelAnalysis(idx){
           <label for="gel-lc" title="Another panel with the loading control (e.g. actin/GAPDH) — its lanes are detected and paired with these by order">Loading control</label>
           <span><select id="gel-lc" title="Divide each band by the paired lane of this loading-control panel (lanes paired by order)" onchange="gelSetLoading(_gelUI.idx,this.value===''?null:+this.value,document.getElementById('gel-lc-mode').value)"><option value="">none</option>${others}</select>
             <select id="gel-lc-mode" title="Loading band(s): each lane's summed band volume on that panel (a housekeeping band such as actin or GAPDH). Total protein (whole lane): each lane's whole signal over its length on a stain-free, Ponceau or Revert image of the same membrane, above the membrane between the lanes — what JBC/ASBMB ask for whenever possible."
-              onchange="{const v=document.getElementById('gel-lc').value; if(v!=='') gelSetLoading(_gelUI.idx,+v,this.value);}"><option value="bands">Loading band(s)</option><option value="total">Total protein (whole lane)</option></select></span>
+              onchange="{const v=document.getElementById('gel-lc').value; if(v!=='') gelSetLoading(_gelUI.idx,+v,this.value);}"><option value="bands">Loading band(s)</option><option value="total">Total protein (whole lane)</option><option value="target" title="Another target on its own blot, e.g. total AKT for pAKT: each lane divided by that blot's band(s) in the paired lane — a phospho/total ratio, not a loading control">Another target (phospho/total)</option></select></span>
           <label for="gel-ladder-lane" title="The lane holding the molecular-weight marker">Ladder lane</label>
           <span><select id="gel-ladder-lane" title="Pick the ladder lane; its bands are assigned the sizes below, top to bottom"></select>
             <input id="gel-ladder-sizes" type="text" value="${GEL_DEFAULT_LADDER}" style="width:150px" title="Marker sizes in kDa, top → bottom, comma-separated">
@@ -10344,10 +10358,11 @@ function _gelRenderModal(){
     ${_gelFlagCount(a,'overlap')?`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelFlagCount(a,'overlap')} band${_gelFlagCount(a,'overlap')===1?'':'s'} overlap${_gelFlagCount(a,'overlap')===1?'s':''} a neighbour — valley-to-valley under-measures them, so they are left out of every ratio. Use the rolling minimum for close bands.</div>`:''}
     ${_gelFlagCount(a,'slope')?`<div style="color:var(--muted);margin-top:2px">${_gelFlagCount(a,'slope')} band${_gelFlagCount(a,'slope')===1?' sits':'s sit'} on a sloping background — the background follows the slope (the rolling minimum is taken off each lane's straight-line trend).</div>`:''}
     ${fresh?'':`<div style="color:var(--warn);margin-top:3px">⚠ ${_gelStaleText(im)} — it is stale. Press ↻ Re-detect.</div>`}
-    ${!a.loading&&a.loadingDropped?`<div style="color:var(--warn);margin-top:3px">⚠ Loading control dropped at the re-analysis: ${esc(a.loadingDropped.why)}. No normalised values are shown — set the lane count to match, or pick the loading control again.</div>`:''}
+    ${!a.loading&&a.loadingDropped?`<div style="color:var(--warn);margin-top:3px">⚠ ${a.loadingDropped.target?'Normalisation to another target':'Loading control'} dropped at the re-analysis: ${esc(a.loadingDropped.why)}. No normalised values are shown — set the lane count to match, or pick the ${a.loadingDropped.target?'other target':'loading control'} again.</div>`:''}
     ${a.loading?(lcWhy?`<div style="color:var(--warn);margin-top:3px">⚠ Normalisation is stale: ${esc(lcWhy)}. No normalised values are shown — pick the loading control again.</div>`
       :_gelLoadMode(a)==='total'
         ?`<div style="margin-top:3px">Normalised to <b>total protein in panel ${esc(_gelLoadingLabel(a))}</b>, whole-lane signal above the membrane between the lanes${_gelTpLocal(a)?' (on either side of each lane, interpolated across it)':''}, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>${_gelTpNotes(a).map((s,k)=>`<div style="color:${k===0&&_gelTpUneven(a)?'var(--muted)':'var(--warn)'};margin-top:2px">${k===0&&_gelTpUneven(a)?'':'⚠ '}${esc(s.charAt(0).toUpperCase()+s.slice(1))}.</div>`).join('')}`
+        :_gelLoadTarget(a)?`<div style="margin-top:3px">Normalised to <b>another target, ${esc(_gelTargetName(a))}</b> (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane), lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each). It is no loading control: show one as well where the journal asks.</div>`
         :`<div style="margin-top:3px">Normalised to the loading control in <b>panel ${esc(_gelLoadingLabel(a))}</b>, lanes paired by order (${esc(a.loading.from)}, ${a.loading.lanes.length} lanes each).</div>`):''}
     ${a.loading&&!lcWhy&&_gelLoadSatLanes(a).length?`<div style="color:var(--warn);margin-top:3px">⚠ Lane${_gelLoadSatLanes(a).length>1?'s':''} ${esc(_listAnd(_gelLoadSatLanes(a).map(String)))} of the ${_gelLoadMode(a)==='total'?'total-protein image':'loading control'} ${_gelLoadSatLanes(a).length>1?'have':'has'} clipped samples (or reach past the image) — ${_gelLoadSatLanes(a).length>1?'their':'its'} bands are not normalised.</div>`:''}
     ${a.refLane!=null?`<div>Reference lane: <b>${a.refLane+1}</b>.</div>`:''}
@@ -10362,7 +10377,7 @@ function _gelRenderModal(){
     bs.value=bm; bp.style.display=bm==='rolling minimum'?'none':'';
     if(document.activeElement!==bp) bp.value=bm==='rolling minimum'?'':_gelBgParam(a);
     bu.textContent=bm==='valley-to-valley'?'-row mean':bm==='flat'?'th percentile':'(the window above)'; }
-  document.getElementById('gel-lc-mode').value=_gelLoadMode(a);
+  document.getElementById('gel-lc-mode').value=_gelLoadTarget(a)?'target':_gelLoadMode(a);
   { const pl=document.getElementById('gel-prof-lane'), li=Math.max(0,Math.min(a.lanes.length-1,_gelUI.sel?_gelUI.sel.li:_gelUI.lane|0));
     _gelUI.lane=li; pl.innerHTML=a.lanes.map((L,i)=>`<option value="${i}"${i===li?' selected':''}>lane ${i+1}</option>`).join(''); }
   _gelDrawProfile();
@@ -11029,7 +11044,7 @@ function importHouseStyles(obj){
 // says which factor was used.
 const _LAB_FONT={sans:'Arial,Helvetica,sans-serif', serif:"'Times New Roman',serif", mono:"'Courier New',monospace",
   'Arial':'Arial,Helvetica,sans-serif', 'Helvetica':"'Helvetica Neue',Arial,sans-serif", 'Times New Roman':"'Times New Roman',serif"};
-const _LAB_KEYS=['font_family','font_family_custom','font_size','title_size','axis_color','axis_line_width','sample_palette'];
+const _LAB_KEYS=['font_family','font_family_custom','font_size','title_size','axis_color','axis_line_width','sample_palette','sample_names'];
 // ggplot2 draws linewidth L at L × .pt (72.27/25.4) lwd, and R draws one lwd as 1/96 in = 0.75 pt.
 const _GG_LW_PT=72.27/25.4*0.75;
 // A CSS font-family list FigureLab will write into SVG, PowerPoint and the canvas: each
@@ -11068,6 +11083,7 @@ const _own=(m,k)=>k!=null&&Object.prototype.hasOwnProperty.call(m,String(k));
 function _sampleColourFor(key, disp){
   const R=_sampleColours(), P=_samplePins();
   if(_own(R,key)) return R[String(key)]; if(_own(R,disp)) return R[String(disp)];
+  { const G=_sampleGroupColours(), g=_sampleNorm(disp!=null?disp:key); if(g&&G.has(g)) return G.get(g); }
   if(_own(P,key)) return P[String(key)]; if(_own(P,disp)) return P[String(disp)];
   // One sample written two ways in two files ("MOI_0" and "MOI 0", "MOI 0 mean", Δ*fliC*
   // and ΔfliC) takes the palette colour the other spelling was given. (A colour set by
@@ -11075,6 +11091,29 @@ function _sampleColourFor(key, disp){
   const n=_sampleNorm(key), d=disp!=null?_sampleNorm(disp):n, M=_sampleNormMap('sample-pins');
   if(M.has(n)) return M.get(n); if(M.has(d)) return M.get(d);
   return null;
+}
+// The figure's shown-as name for a data name, or null: set under that name, or under one
+// written another way ("MOI_0" for "MOI 0" and "MOI 0 mean").
+function _sampleFigName(key){
+  if(key==null) return null; const F=_sampleNames(); if(_own(F,key)) return F[String(key)];
+  const M=_sampleNormMap('sample-names'), n=_sampleNorm(key); return M.has(n)?M.get(n):null;
+}
+// The colour each shown name already has: {normalised shown name → colour}, from the
+// sample colours set by hand on a renamed sample (first), then the palette pins in the
+// order they were made.
+// Samples shown under one name are one sample, drawn in one colour: a chart series
+// renamed to a name another chart already draws used to take a new palette colour, so
+// the key listed it twice in two colours (charts4-03).
+function _sampleGroupColours(){
+  const sig=(gv('sample-colours')||'')+'\u0001'+(gv('sample-pins')||'')+'\u0001'+(gv('sample-names')||''), C=_sampleGroupColours;
+  if(C._sig===sig) return C._m;
+  const m=new Map(), shown=k=>{ let d=_sampleFigName(k); if(d==null||String(d).trim()==='') return k;
+    const d2=_sampleFigName(d); return (d2!=null&&String(d2).trim()!==''&&_sampleNorm(d2)!==_sampleNorm(k))?d2:d; };
+  // (A colour set by hand or by a lab style counts here only for a data name shown under
+  // another name; under its own name it stays an exact-name match.)
+  [_sampleColours(), _samplePins()].forEach((o,pin)=>Object.keys(o).forEach(k=>{ const sh=shown(k); if(!pin&&sh===k) return;
+    const n=_sampleNorm(sh); if(n&&!m.has(n)) m.set(n, o[k]); }));
+  C._sig=sig; C._m=m; return m;
 }
 function _sampleNorm(s){ return _rtPlain(String(s??'')).replace(/[_\s]+/g,' ').replace(/ (mean|avg|average)$/i,'').trim().toLowerCase(); }
 function _sampleNormMap(id){
@@ -11090,10 +11129,14 @@ function _sampleNormMap(id){
 // free. Without this ΔfliC kept palette orange beside a lab ΔmotA in orange, and a strain
 // that came second in one panel took the colour another strain had in the next panel,
 // so the key listed both under one colour, or one strain twice.
-function _seriesColours(names, colours, alt){
+function _seriesColours(names, colours, alt, thin){
   // alt: the display names (a renamed group keeps the colour of its data name, and a
-  // colour set on the new name is found too).
+  // colour set on the new name is found too). thin: drawn as lines and points, where a
+  // palette colour that hardly shows on the background (Okabe–Ito yellow on white) is
+  // passed over while another is free (phage4-16).
   const n=colours.length, lc=c=>String(c).toLowerCase();
+  if(thin){ const bg=gv('bg-color')||'#ffffff', faint=c=>{ const r=_contrastRatio(c,bg); return r!=null&&r<1.5; };
+    if(colours.some(faint)&&colours.filter(c=>!faint(c)).length>=names.length) colours=colours.filter(c=>!faint(c)).concat(colours.filter(faint)); }
   const lab=names.map((nm,i)=>_sampleColourFor(nm, alt&&alt[i]!=null?alt[i]:null));
   const used=new Set(lab.filter(Boolean).map(lc));
   const held=new Set([...Object.values(_sampleColours()), ...Object.values(_samplePins())].map(lc));
@@ -11194,8 +11237,16 @@ function _labStylePlan(settings){
       if(bad.length) skipped.push(['sample_palette', bad.join(', '), 'not applied for these names: not #rrggbb colours']); }
     else skipped.push(['sample_palette', Array.isArray(sp)?'a list':(sp&&typeof sp==='object')?bad.join(', ')||'empty':String(JSON.stringify(sp)).slice(0,40),
       `not applied: no sample name → #rrggbb colour in it${Object.keys(_sampleColours()).length?', so the sample colours already loaded stay':''}`]); }
+  // sample_names: the "shown as" names FigureLab saved with the colours (dfliC → Δ*fliC*),
+  // so the next figure of the paper names each strain as this one did.
+  let names=null;
+  if('sample_names' in settings){ used.add('sample_names');
+    const sn=settings.sample_names, out={};
+    if(sn&&typeof sn==='object'&&!Array.isArray(sn)) Object.entries(sn).forEach(([a,b])=>{ if(a&&typeof b==='string'&&b.trim()&&b.length<=200) out[a]=b; });
+    if(Object.keys(out).length){ names=out; rows.push(['sample_names', `${Object.keys(out).length} name${Object.keys(out).length>1?'s':''}`, `shown as, in every chart, the legend and the key — ${Object.entries(out).map(([a,b])=>`${a} → ${_rtText(b)}`).join(', ')}`]); }
+    else skipped.push(['sample_names', String(JSON.stringify(sn)).slice(0,40), 'not applied: no data name → shown-as name in it']); }
   const ignored=Object.keys(settings).filter(x=>!used.has(x));
-  return {set, check, pal, rows, skipped, ignored, ptPerPx:k};
+  return {set, check, pal, names, rows, skipped, ignored, ptPerPx:k};
 }
 // obj: the parsed file. One undo step; nothing changes if the file holds nothing usable.
 function loadLabStyle(obj, fileName){
@@ -11208,6 +11259,7 @@ function loadLabStyle(obj, fileName){
   _typeSync();                          // the px fields follow the points now, not at the next frame
   Object.entries(P.check).forEach(([id,v])=>sc(id,v));
   if(P.pal) sv('sample-colours', JSON.stringify(P.pal));
+  if(P.names){ sv('sample-names', JSON.stringify(Object.assign({}, _sampleNames(), P.names))); _allCharts().forEach(el=>{ el._chartKey=''; el._chartStat=null; if(_isDataPanel(el)) _dataPanelRefresh(el, true); }); }
   // What this style put on the font and size controls: a journal chosen later may change
   // them, and the status line then says so instead of claiming the lab font.
   { const rec={}; ['label-font','axis-pt','text-pt','axis-color'].forEach(id=>{ if(id in P.set) rec[id]=P.set[id]; }); sv('lab-style-set', Object.keys(rec).length?JSON.stringify(rec):''); }
@@ -11338,10 +11390,13 @@ function saveSampleColoursStyle(){
   const m={}, L=_sampleColourNames(); let hand=0;
   L.forEach(o=>{ if(o.set) hand++; o.keys.forEach(k=>{ m[k]=String(o.color).toLowerCase(); }); });
   if(!Object.keys(m).length){ toast('No samples yet — add a chart or pick a colour first','warn'); return; }
-  const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:{sample_palette:m}};
+  // The shown-as names go with them (sample_names, read back by FigureLab; the other apps
+  // ignore it), so dfliC is Δ*fliC* in the next figure too.
+  const F=_sampleNames(), sn={}; Object.keys(F).forEach(k=>{ if(String(F[k]||'').trim()) sn[k]=String(F[k]); });
+  const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:Object.assign({sample_palette:m}, Object.keys(sn).length?{sample_names:sn}:{})};
   dl(URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:'application/json'})), 'paper_style.json');
   const n=L.length, keys=Object.keys(m).length;
-  toast(`paper_style.json saved with ${n} sample colour${n>1?'s':''} (${hand} set by hand, ${n-hand} from the palette${keys>n?`; under ${keys} data names, so each name a sample is written as gets its colour`:''}; sample_palette only)`,'ok');
+  toast(`paper_style.json saved with ${n} sample colour${n>1?'s':''} (${hand} set by hand, ${n-hand} from the palette${keys>n?`; under ${keys} data names, so each name a sample is written as gets its colour`:''}; sample_palette${Object.keys(sn).length?` and ${Object.keys(sn).length} shown-as name${Object.keys(sn).length>1?'s':''} (sample_names)`:' only'})`,'ok');
 }
 // Open the Look panel and bring one of its controls into view (command palette).
 function _openLookFor(id){
@@ -15383,6 +15438,7 @@ function _checkCompliance(asJ){
   { const gr=_gelComplianceRow(_shownPanels); if(gr) checks.push(gr); }
   { const cr=_chartDataComplianceRow(); if(cr) checks.push(cr); }
   { const mr=_measComplianceRow(); if(mr) checks.push(mr); }
+  { const cf=_chartFitRow(); if(cf) checks.push(cf); }
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
@@ -16298,11 +16354,14 @@ function _figureKey(){
   const rows=[], byKey=new Map();
   const add=r=>{
     const k=r.kind==='channel'&&r.lut ? 'c|'+r.lut+(r.lut==='grey'?'|'+r.name:'')
-      : r.kind==='series' ? 's|'+String(r.name)+'|'+String(r.color).toLowerCase()
+      // One sample written two ways (Δ*fliC* and ΔfliC, MOI_0 and MOI 0) in one colour is
+      // one row, as Look › Sample colours lists it (charts4-03).
+      : r.kind==='series' ? 's|'+_sampleNorm(r.name)+'|'+String(r.color).toLowerCase()
       : [r.kind,r.name,r.color,r.marker,r.fill,r.line,r.glyph,r.stroke].join('|');
     const o=byKey.get(k);
     if(!o){ const n={...r}; if(r.desc) n.descs=[r.desc]; byKey.set(k,n); rows.push(n); return; }
     if(r.kind==='channel'){ if(!String(o.name).split(' / ').includes(String(r.name))) o.name=o.name+' / '+r.name; o.merge=!!(o.merge&&r.merge); return; }
+    if(r.kind==='series'&&String(o.name)===_rtPlain(String(o.name))&&String(r.name)!==_rtPlain(String(r.name))) o.name=r.name;   // the formatted spelling
     if(r.desc&&!(o.descs||[]).includes(r.desc)){ o.descs=(o.descs||[]).concat(r.desc); o.desc=_listAnd(o.descs); }
     if(r.line&&!o.line){ o.line=r.line; o.lineW=r.lineW; }
     if((!o.marker||o.marker==='none')&&r.marker&&r.marker!=='none'){ o.marker=r.marker; o.fill=r.fill; o.stroke=r.stroke; o.strokeW=r.strokeW; o.markerR=r.markerR; }
@@ -20276,9 +20335,13 @@ function _blotRows(J, shown){
   if(splices) rows.push({label:'Splices', ok:true, info:true, src:bl.splice?src:'',
     note:`${splices} splice marker${splices===1?'':'s'} — say so in the figure legend too (the Methods paragraph already discloses ${splices===1?'it':'them'})${bl.splice?`; ${jn}: ${bl.splice}`:''}`});
   if(bl.loading){
-    const lc=B.filter(im=>im.gelAnalysis&&im.gelAnalysis.loading);
+    const lc=B.filter(im=>im.gelAnalysis&&im.gelAnalysis.loading&&!_gelLoadTarget(im.gelAnalysis));
+    const tg=B.filter(im=>im.gelAnalysis&&_gelLoadTarget(im.gelAnalysis));
     if(lc.length) rows.push({label:'Loading control', ok:true, info:true, src,
       note:`${lc.map(im=>`${nm(im)} is normalised to ${(()=>{ const w=_gelLoadingLabel(im.gelAnalysis)||'?'; return /^[A-Za-z0-9]{1,3}$/.test(w)?'panel '+esc(w):esc(w); })()}`).join('; ')} — ${jn} asks for ${bl.loading}; make sure it was`});
+    // A phospho/total ratio is no loading control: said as what it is (blot4-05).
+    if(tg.length) rows.push({label:'Loading control', ok:true, info:true, src,
+      note:`${tg.map(im=>`${nm(im)} is normalised to another target, ${esc(_gelTargetName(im.gelAnalysis))} (a phospho/total ratio), not to a loading control`).join('; ')} — ${jn} asks for ${bl.loading}: show one for ${tg.length>1?'these blots':'this blot'} as well`});
   }
   if(bl.uncropped){
     const s1=_s1Panels().filter(_s1Selected).length;
@@ -20423,6 +20486,25 @@ function _measComplianceRow(){
   const notes=ms.map(m=>`${esc(_measName(m))}${m.panel?` on panel ${esc(m.panel)}`:''} was made on ${esc(m.stale.was||'the old picture')}, since replaced by ${esc(m.stale.now||'another file')} — left out of the CSV; measure again or remove it (× in Measure)`);
   if(rs.length) notes.push(`${rs.length} ruler${rs.length>1?'s were':' was'} drawn on a picture since replaced — no length is printed until ${rs.length>1?'they are':'it is'} dragged onto the new one`);
   return {label:'Measurements', ok:false, warn:true, note:notes.join('; ')};
+}
+_GENERAL_ROWS.push('Chart room');
+// Compliance: a chart drawn too small for what it holds — its plot squeezed to a sliver by
+// stacked brackets or a short cell, or a legend name cut at the panel's edge. Both used to
+// pass every row (charts4-05, phage4-03). Only figures with such a chart get the row.
+function _chartFitRow(){
+  const nm=el=>esc(_isDataPanel(el)?(_rtText(formatLabel(el.label))||'?'):(el.letter?_rtText(formatLabel(el.letter)):`“${el.label||'chart'}”`));
+  const k=_physFacts().ptPerPx||0.75, bad=[];
+  _figureCharts().forEach(el=>{
+    if(!el.chart||!(el.w>0&&el.h>0)) return;
+    try{ _chartDraw(el, {rect(){}, line(){}, poly(){}, circle(){}, text(){}}); }catch(e){ return; }
+    const f=el._chartFit; if(!f) return;
+    const bits=[];
+    if(f.plotH<Math.max(3*f.T, 0.25*f.H)) bits.push(`its plot is ${(f.plotH*k/72*25.4).toFixed(1)} mm tall (${Math.round(100*f.plotH/f.H)}% of the panel)${(el.chart.annos||[]).some(a=>a&&a.kind==='sig')?' under its brackets':''} — give it more height (a taller row, Row span 2) or fewer stacked brackets`);
+    if(f.cut.length) bits.push(`legend name${f.cut.length>1?'s':''} ${f.cut.map(t=>`“${esc(t)}”`).join(', ')} cut at the panel edge — a shorter name, a wider panel, or the legend key instead`);
+    if(bits.length) bad.push(`${nm(el)}: ${bits.join('; ')}`);
+  });
+  if(!bad.length) return null;
+  return {label:'Chart room', ok:false, warn:true, note:bad.join(' · ')};
 }
 // Compliance: every chart made from densitometry — linked and current, out of date, or
 // typed by hand (and whether its blot changed since). Only figures with one get the row.
@@ -23940,7 +24022,9 @@ function _captionHeadings(){
   const on=id=>{ const e=document.getElementById(id); return !!(e&&e.checked); };
   const col=on('show-col-labels')?axisLabelValues('col'):[], row=on('show-row-labels')?axisLabelValues('row'):[];
   const real=(v,ph)=>{ const t=_rtText(String(v||'').trim()); return t&&t!==ph?t:''; };
-  _gridPlacements().forEach(p=>{ if(p.im) H.set(p.im, {r:p.r, c:p.c, row:real(row[p.r],`Row ${p.r+1}`), col:real(col[p.c],`Col ${p.c+1}`)}); });
+  // A panel spanning several rows sits under none of their headings (across:true).
+  _gridPlacements().forEach(p=>{ if(p.im) H.set(p.im, {r:p.r, c:p.c, row:p.rs>1?'':real(row[p.r],`Row ${p.r+1}`), col:real(col[p.c],`Col ${p.c+1}`),
+    across:p.rs>1&&[...Array(p.rs).keys()].some(k=>real(row[p.r+k],`Row ${p.r+k+1}`))}); });
   return H;
 }
 // A tag that only repeats a channel's stock name (the "RFP" a split gives a magenta
@@ -24198,14 +24282,18 @@ function _captionText(){
     if(parent){ if(adj.length) s+=` Displayed with the same settings as (${pl}).`; }
     else if(adj.length) s+=` (${adj[0][0].toUpperCase()+adj[0].slice(1)}${adj.length>1?'; '+adj.slice(1).join('; '):''};`
       +` applied uniformly across the whole panel.)`;
-    return {s, row:hd.row||'', r:hd.r};
+    return {s, row:hd.row||'', r:hd.r, across:!!hd.across};
   });
-  // Row headings group the panels: "DMSO: (A) DAPI. (B) GFP-LC3. … BafA1: (F) …".
+  // Row headings group the panels: "DMSO: (A) DAPI. (B) GFP-LC3. … BafA1: (F) …". A panel
+  // spanning several headed rows (a chart of every condition) comes after the groups,
+  // "Across rows: (J) …" — it was filed under the first row it starts in (fluor4-07).
   const grouped=[]; let lastRow=null;
   parts.forEach(p=>{
+    if(p.across) return;
     if(p.row&&p.r!==lastRow){ grouped.push(`${p.row}: ${p.s}`); lastRow=p.r; }
     else grouped.push(p.s);
   });
+  parts.filter(p=>p.across).forEach((p,k)=>grouped.push(k?p.s:`Across rows: ${p.s}`));
   // Detect if fluorescence figure. Only pictures count: "Grayscale images." was said of a
   // freeform figure with no grid panels at all (every() of nothing is true).
   const pics=FP.filter(im=>!_isDataPanel(im));
@@ -28966,8 +29054,12 @@ function _chartColName(cols, i){ return String((cols&&cols[i])!=null&&cols[i]!==
 // trailing number ("MOI_10") is never read as a replicate.
 const _CH_REP_SUF=/^(.+?)(?:[\s_.\-]*(?:replicate|rep)|[\s_.\-]+r)[\s_.\-]?(\d+)$/i;
 const _CH_REP_PRE=/^(?:replicate|rep|r)[\s_.\-]?(\d+)[\s_.\-]+(.+)$/i;
+// Bare replicate columns ("Rep1, Rep2, Rep3", "R1", "Replicate 2") are replicates of one
+// value with no name of its own: their base is "Mean".
+const _CH_REP_BARE=/^(?:replicate|rep|r|bio(?:logical)?[\s_.\-]*rep(?:licate)?)[\s_.\-#]?(\d+)$/i;
 function _chartRepBase(name){
-  const s=String(name??'').trim(); let m=_CH_REP_SUF.exec(s); if(m) return m[1];
+  const s=String(name??'').trim(); if(_CH_REP_BARE.test(s)) return 'Mean';
+  let m=_CH_REP_SUF.exec(s); if(m) return m[1];
   m=_CH_REP_PRE.exec(s); return m?m[2]:null;
 }
 // The value columns grouped by replicate base: [{key, cols:[...]}]. A base needs two
@@ -29023,8 +29115,14 @@ function _chartLogWhy(kind, axis){
 // The name a series or category is shown under: this chart's own (the " mean" of "MOI 0
 // mean" left off), else the figure's (one "shown as" per sample for every chart, set in
 // Names & colours or Look › Sample colours), else the data's.
-function _chartDisp(ch, key){ let d=ch.names&&ch.names[key]; if(d==null||String(d).trim()===''){ const F=_sampleNames(); d=_own(F,key)?F[String(key)]:null; }
-  return (d!=null&&String(d).trim()!=='')?String(d):String(key); }
+function _chartDisp(ch, key){ let d=ch.names&&ch.names[key]; if(d==null||String(d).trim()==='') d=_sampleFigName(key);
+  if(d==null||String(d).trim()==='') return String(key);
+  // A name that is itself another sample's data name is that sample, and takes the name
+  // it is shown under: a plate row shown as dacrB reads ΔacrB once dacrB is shown as Δ*acrB*
+  // in another chart. A rename used to stay in its own chart (charts4-02).
+  const d2=_sampleFigName(d);
+  if(d2!=null&&String(d2).trim()!==''&&_sampleNorm(d2)!==_sampleNorm(key)) d=d2;
+  return String(d); }
 function _chartOrdered(ch, keys){
   const ord=Array.isArray(ch.order)?ch.order.map(String):null; if(!ord||!ord.length) return keys;
   return keys.map((k,i)=>({k,i,o:ord.indexOf(String(k))})).sort((a,b)=>(a.o<0?1e9+a.i:a.o)-(b.o<0?1e9+b.i:b.o)).map(q=>q.k);
@@ -29211,7 +29309,33 @@ function _chartGuess(parsed){
   const tempLike=cols.map(c=>_CH_TEMP_RE.test(String(c)));
   const valueCols=x=>{ const v=numCols.filter(i=>i!==x&&!errLike[i]); const nt=v.filter(i=>!tempLike[i]); return nt.length?nt:v; };
   const repeats=(keyFn)=>{ const s=new Set(); for(const r of rows){ const k=keyFn(r); if(s.has(k)) return true; s.add(k); } return false; };
-  if(textCols.length){
+  // A plate reader's export (Gen5, SoftMax, Magellan): a time column and wells named A1 …
+  // H12 is a line of every well against time, with the Plate wells row offered (replicates
+  // by row or column, a blank), whatever the run's length. A flat blank well repeats a few
+  // readings, so once a run had about 30 time points it was taken for a series column and
+  // the export opened as one well against "A1 0.085", "A1 0.087" … (phage4-01, charts4-01).
+  const mostlyNum=i=>{ let n=0,t=0; rows.forEach(r=>{ const v=r[i]; if(v===''||v==null) return; if(typeof v==='number') n++; else t++; }); return n>0&&n>=t*4; };
+  const wellIdx=cols.map((c,i)=>i).filter(i=>_CH_WELL_RE.test(String(cols[i]??'').trim())&&mostlyNum(i));
+  // A tidy time course sorted by group (time_min 0…180 for MOI 0, then again for MOI 1 …):
+  // the first column runs upward within each value of a low-cardinality numeric column
+  // that comes before the last value column. It used to be guessed a bar of every column.
+  let sOrd=null;
+  const lowGroupOrd=()=>{ if(!/(^|[^a-z])(time|zeit|temps|tiempo|elapsed|t|hours?|hrs?|h|min|mins|minutes?|days?|d|sec|secs|seconds?|weeks?|dose|conc|concentration)([^a-z]|$)/i.test(String(cols[0]))||distinct(0)>=rows.length) return null;
+    const vals=numCols.filter(i=>i!==0&&!errLike[i]&&!tempLike[i]);
+    return vals.slice(0,-1).find(i=>{ const d=distinct(i); if(d<2||d>12) return false;
+      const last=new Map(); for(const r of rows){ const k=r[i]; if(last.has(k)&&!(r[0]>=last.get(k))) return false; last.set(k,r[0]); } return true; })??null; };
+  let plateX=null;
+  if(wellIdx.length>=3){
+    const durCols=new Set((parsed.durations||[]).map(d=>d.col));
+    const tRe=/time|zeit|temps|tiempo|elapsed|dauer|^t$|(^|[^a-z])(h|hrs?|hours?|min|mins|minutes?|s|sec|secs|seconds?)([^a-z]|$)/i;
+    const cand=cols.map((c,i)=>i).filter(i=>isNum[i]&&!wellIdx.includes(i)&&!tempLike[i]&&!idLike[i]);
+    plateX=cand.find(i=>durCols.has(cols[i]))??cand.find(i=>tRe.test(String(cols[i])))??cand.find(i=>i<wellIdx[0]&&nondecr(i))??null;
+  }
+  if(plateX!=null){
+    M.xCol=plateX; g.kind='line';
+    const v=valueCols(plateX), w=wellIdx.filter(i=>!v.includes(i));
+    M.yCols=v.concat(w).sort((a,b)=>a-b);
+  } else if(textCols.length){
     M.xCol=textCols[0];
     let vals=valueCols(M.xCol);
     // A column numbering the replicates 1, 2, 3 … inside every group (whatever its header
@@ -29226,18 +29350,22 @@ function _chartGuess(parsed){
     const byGroup=xi>=0&&(()=>{ const m=new Map(); rows.forEach(r=>{ const k=String(r[M.xCol]); if(!m.has(k)) m.set(k,new Set()); m.get(k).add(r[xi]); }); return [...m.values()].some(s=>s.size>1); })();
     if(byGroup){ M.seriesCol=M.xCol; M.xCol=xi; M.yCols=[vals[vals.length-1]]; g.kind='line'; }
     else { M.yCols=vals.length?vals:[cols.findIndex((_,i)=>i!==M.xCol)].filter(i=>i>=0); g.kind=M.yCols.length>1?'groupedBar':'bar';
+      // Replicate columns (Condition, Rep1, Rep2, Rep3; WT_r1 … KO_r1 …) are averaged into
+      // one bar per group, mean ± SD with the points — not one bar per replicate (fluor4-02).
+      if(_chartHasRepGroups(cols, M.yCols)){ M.repCols=true; if(_chartRepGroups(cols, M.yCols).length===1) g.kind='bar'; }
       // A second text column of groups (antibiotic × strain): its values are the series of
       // a grouped bar, as a tidy time course's strain column is a line's. It used to be left
       // out, every strain pooled into one mean ± SD per antibiotic with no word.
       if(M.yCols.length===1){ const s2=textCols.find(i=>i!==M.xCol&&!idLike[i]&&(()=>{ const d=distinct(i); return d>1&&d<rows.length&&d<=12; })()
           &&(()=>{ const by=new Map(); for(const r of rows){ const k=String(r[M.xCol]); if(!by.has(k)) by.set(k,new Set()); by.get(k).add(String(r[i])); } return [...by.values()].some(q=>q.size>1); })());
         if(s2!=null){ M.seriesCol=s2; g.kind='groupedBar'; } } }
-  } else if(nc>=2&&nondecr(0)){
+  } else if(nc>=2&&(nondecr(0)||(isNum[0]&&(sOrd=lowGroupOrd())!=null))){
     // All numbers, the first column running upward (time, dose): x = that column.
     M.xCol=0; g.kind='line';
     const vals=valueCols(0);
-    // A low-cardinality column before the last value column is a group (MOI 0, 0.1, 1 …).
-    const sIdx=vals.slice(0,-1).find(i=>{ const d=distinct(i); return d>=2&&d<=12&&d<=rows.length/3; });
+    // A low-cardinality column before the last value column is a group (MOI 0, 0.1, 1 …)
+    // — only when an x value repeats: a time course with one row per time has no groups.
+    const sIdx=sOrd!=null?sOrd:distinct(0)<rows.length?vals.slice(0,-1).find(i=>{ const d=distinct(i); return d>=2&&d<=12&&d<=rows.length/3; }):undefined;
     if(sIdx!=null){ M.seriesCol=sIdx; M.yCols=[vals[vals.length-1]]; }
     else M.yCols=vals;
   } else if(nc>=3||(nc===2&&!cols.some(c=>_CH_QTY_RE.test(String(c))))){
@@ -29274,7 +29402,7 @@ function _chartApplyGuess(ch, g, keepKind){
   ch.style=ch.style||{}; ch.style.showPoints=!!g.showPoints;
   ch.axes=ch.axes||{x:{},y:{}};
   if(g.xTitle&&!ch.axes.x.title) ch.axes.x.title=g.xTitle;
-  if(g.yTitle&&!ch.axes.y.title) ch.axes.y.title=g.yTitle;
+  if(!ch.axes.y.title){ ch.axes.y.title=g.yTitle||''; ch.axes.y.autoTitle=g.yTitle||''; }
   ch.names={}; ch.order=[];
   // "MOI 0 mean" beside "MOI 0 SD" is shown as MOI 0; the data keep their own name.
   const cols=(ch.data&&ch.data.columns)||[];
@@ -29333,7 +29461,7 @@ function _chartStats(el){
     // when error bars are asked for), with the error and n of each point kept.
     const aggOn=kind==='line'||(ch.error&&ch.error!=='none')||ch.agg==='mean';
     const byS=new Map(); S.skeys.forEach(k=>byS.set(k,[])); obs.forEach(o=>byS.get(o.s).push(o));
-    const keys=S.skeys, scol=_seriesColours(keys, colours, keys.map(disp));
+    const keys=S.skeys, scol=_seriesColours(keys, colours, keys.map(disp), true);
     const series=keys.map((k,si)=>{
       const list=byS.get(k)||[]; let points;
       if(aggOn){
@@ -29552,9 +29680,17 @@ function _chartAxisSpec(dom, a, opts){
     const eps=1e-9*(max-min), ticks=_niceTicks(min,max,tg).filter(t=>t>=min-eps&&t<=max+eps);
     return {log:false, min, max, ticks, minor:[], labels:_fmtTicks(ticks), user:true};
   }
-  const nice=_niceTicks(lo,hi,tg);
+  let nice=_niceTicks(lo,hi,tg);
   // The axis ends on a tick: one more step when the data run past the last one.
   if(nice.length>1&&nice[nice.length-1]<hi-1e-12*Math.abs(hi)){ const st=nice[1]-nice[0]; nice.push(+(nice[nice.length-1]+st).toFixed(10)); }
+  // An x axis ends near the last reading: 16 h of reads on a 0–20 h axis left a fifth of
+  // the plot empty; steps of 4 (or 2) fit it when 1/2/5 overshoot by more than a tenth.
+  if(opts.tight&&nice.length>2&&hi>lo){
+    const over=t=>(t[t.length-1]-hi)+(lo-t[0]), st=nice[1]-nice[0], mag=Math.pow(10,Math.floor(Math.log10(st)+1e-9));
+    if(over(nice)>0.1*(hi-lo)){ let best=nice;
+      [4,2,5,1,10].map(k=>k*mag).forEach(s2=>{ const t=[]; for(let v=Math.floor(lo/s2+1e-9)*s2; v<hi+s2-1e-9*s2; v+=s2) t.push(+v.toFixed(10));
+        if(t.length>=Math.max(3,tg-1)&&t.length<=tg+2&&t[t.length-1]>=hi-1e-12*Math.abs(hi)&&over(t)<over(best)-1e-12) best=t; });
+      nice=best; } }
   let min=Math.min(lo,nice[0]), max=Math.max(hi,nice[nice.length-1]);
   if(!(max>min)) max=min+1;
   return {log:false, min, max, ticks:nice, minor:[], labels:_fmtTicks(nice), user:false};
@@ -29633,7 +29769,7 @@ function _chartDraw(el, emit){
   let xA=null, xDataTicks=null;
   if(stat.series){
     const xLog=!!axX.log;
-    xA=_chartAxisSpec(stat.xDomain||[0,1], axX, {log:xLog});
+    xA=_chartAxisSpec(stat.xDomain||[0,1], axX, {log:xLog, tight:true});
     // A handful of x values (0, 4, 24 h): tick them, not 0, 5, 10 …
     const xs=[...new Set(stat.series.flatMap(s=>s.points.map(p=>p.x)))].sort((a,b)=>a-b);
     if(!xLog&&!xA.user&&xs.length>=2&&xs.length<=8) xDataTicks=xs;
@@ -29687,7 +29823,10 @@ function _chartDraw(el, emit){
   // Reserve exactly enough width for the legend labels (was a fixed 96px that both
   // wasted space with no legend and clipped long series names).
   const _legItems=st.showLegend ? (stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name})):(stat.boxes?stat.boxes.map(b=>({name:b.name})):[]))) : [];
-  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_rtText(it.name).length); _legW=Math.min(W*0.42, 26*u+mx*T*0.56); }
+  // Measured, not guessed from the character count: "MG1655 + vB_EcoM_Lr3" outran a
+  // count-based margin and was cut at the panel edge (phage4-03).
+  const _legTw=t=>{ const f=font(T), mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(String(t)); return R?_rtLayout(mc,R,f).w:mc.measureText(String(t)).width; };
+  let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_legTw(it.name)); _legW=Math.min(W*0.42, 26*u+mx+2*u); }
   let _yLabW=0; for(const l of yA.labels) _yLabW=Math.max(_yLabW,_rtText(l).length);
   const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0?_legW+8*u:16*u);
   // A bracket label wider than the plot is set on two lines (it ran over the y-axis labels).
@@ -29731,6 +29870,18 @@ function _chartDraw(el, emit){
   const padL2=padL+(yTitleLines.length>1?yTitleFs*1.1:0);
   const px0=padL2, py0=padT, pw=Math.max(10,W-padL2-padR);
   const px1=px0+pw, py1=py0+ph;
+  // What fits, for Check › compliance (_chartFitRow): the plot's height and the legend
+  // names cut at the panel's edge.
+  const fit={W, H, plotH:ph, T, cut:[]}; try{ Object.defineProperty(el,'_chartFit',{value:fit, writable:true, configurable:true, enumerable:false}); }catch(e){}
+  // The Y title is centred on the plot, but never runs up under the panel letter: a two-line
+  // title longer than the plot started above it, and its first words sat under "B" (blot4-07).
+  let yTitleCy=py0+ph/2;
+  if(yTitleLines.length){
+    const xL=12*u-yTitleFs*0.8, xR=12*u+(yTitleLines.length-1)*yTitleFs*1.1+yTitleFs*0.25;
+    const top=(LB&&LB.top&&LB.x1>xL&&LB.x0<xR)?LB.y1+2*u:2*u, bot=H-padB+Math.min(padB*0.5, 14*u);
+    const len=Math.max(...yTitleLines.map(l=>tw_(l,font(yTitleFs))));
+    yTitleCy=len<=bot-top?Math.max(top+len/2, Math.min(yTitleCy, bot-len/2)):top+len/2;
+  }
 
   // Background + frame.
   emit.rect(0,0,W,H,'#ffffff',null,0);
@@ -29749,7 +29900,7 @@ function _chartDraw(el, emit){
   });
   yA.minor.forEach(t=>{ const y=yScale(t); emit.line(px0-2,y,px0,y,ink,Math.max(0.5,axW*0.7)); });
   // Axis titles.
-  yTitleLines.forEach((ln,k)=>emit.text(ln, 12*u+k*yTitleFs*1.1, py0+ph/2, font(yTitleFs), ink, 'center', 'alphabetic', -90));
+  yTitleLines.forEach((ln,k)=>emit.text(ln, 12*u+k*yTitleFs*1.1, yTitleCy, font(yTitleFs), ink, 'center', 'alphabetic', -90));
   if(axX.title) emit.text(axX.title, px0+pw/2, H-6*u-noteH, font(fs), ink, 'center', 'alphabetic');
 
   // User reference / threshold lines — a DRAWN value the author supplies (LOD,
@@ -29965,7 +30116,13 @@ function _chartDraw(el, emit){
         else if(stat.kind==='scatter') emit.circle(px1+15*u,ly+5*u,Math.min(4.5,st.pointSize||4),it.color,'#ffffff',0.5);
         else if(stat.kind==='beeswarm') emit.circle(px1+15*u,ly+5*u,4,it.color,'#333333',0.5);
         else emit.rect(px1+10*u,ly,10*u,10*u,it.color,ink,0.5);
-        emit.text(it.name,px1+26*u,ly+9*u,font(T),ink,'left','alphabetic'); ly+=16*u; });
+        // A name longer than the room to the panel's edge goes on two lines; one that
+        // still does not fit is noted for the compliance check.
+        const room=W-(px1+26*u)-2*u, nm=String(it.name);
+        let L=[nm]; if(_legTw(nm)>room){ const sp=[...nm.matchAll(/ /g)].map(m=>m.index);
+          if(sp.length){ const k=sp.reduce((b,i)=>Math.abs(i-nm.length/2)<Math.abs(b-nm.length/2)?i:b, sp[0]); L=[nm.slice(0,k), nm.slice(k+1)]; } }
+        if(L.some(t=>_legTw(t)>room+0.5)) fit.cut.push(_rtText(nm));
+        L.forEach((t,k)=>emit.text(t,px1+26*u,ly+9*u+k*T*1.1,font(T),ink,'left','alphabetic')); ly+=16*u+(L.length-1)*T*1.1; });
     }
   }
 }
@@ -30316,7 +30473,7 @@ function _gelChartPanels(idx){
 }
 function _gelChartMetricLabel(k, P){
   const a=P[0]&&P[0].gelAnalysis, same=f=>P.every(im=>f(im.gelAnalysis)===f(a));
-  const lc=a&&a.loading?(same(x=>_gelLoadMode(x))?(_gelLoadMode(a)==='total'?'total protein':'the loading control'):'the loading control'):'';
+  const lc=a&&a.loading?(same(x=>_gelLoadMode(x)+_gelLoadTarget(x))?(_gelLoadMode(a)==='total'?'total protein':_gelLoadTarget(a)?(same(x=>_gelLoadingIdx(x))?_gelTargetName(a).replace(/ \(panel [^)]*\)$/,''):'the other target'):'the loading control'):P.some(im=>_gelLoadTarget(im.gelAnalysis))?'the normalising band':'the loading control'):'';
   const ref=a&&a.refLane!=null&&same(x=>x.refLane)?` lane ${a.refLane+1}`:' the reference lane';
   if(k==='normLCRef') return `Band volume ÷ ${lc}, relative to${ref}`;
   if(k==='normLC') return `Band volume ÷ ${lc}`;
@@ -30549,7 +30706,7 @@ function _chartLinkUpdateSelected(){
 }
 function _gelMetricWhyNot(im, metric){
   const a=im.gelAnalysis, lc=a.loading&&!_gelLoadingStale(a,im), ref=a.refLane!=null;
-  if(!a.loading&&a.loadingDropped&&/^normLC/.test(metric)) return `its loading control was dropped at the re-analysis (${a.loadingDropped.why})`;
+  if(!a.loading&&a.loadingDropped&&/^normLC/.test(metric)) return `its ${a.loadingDropped.target?'other target':'loading control'} was dropped at the re-analysis (${a.loadingDropped.why})`;
   if(metric==='normLCRef') return !lc&&!ref?'no loading control and no reference lane':!lc?(a.loading?'its loading control is out of date':'no loading control'):'no reference lane';
   if(metric==='normLC') return a.loading?'its loading control is out of date':'no loading control';
   if(metric==='relRef') return 'no reference lane';
@@ -30597,7 +30754,11 @@ function chartFromDensitometry(idx){
     if(!_gelFresh(im)){ left.push(`${_gelPanelName(im)} (${_gelStaleText(im).toLowerCase()})`); return false; }
     if(_gelBestMetric(im)!==metric){ left.push(`${_gelPanelName(im)} (${_gelMetricWhyNot(im, metric)})`); return false; }
     return true; }).map(i=>images[i].id);
-  const lcLeft=images.filter((p,i)=>p&&p.gelAnalysis&&i!==idx&&!cand.includes(i)).map(_gelPanelName);
+  // A panel others are normalised to as a second target (total AKT for pAKT) is said to be
+  // that, not a loading control.
+  const tgtOf=new Set(images.filter(p=>p&&p.gelAnalysis&&_gelLoadTarget(p.gelAnalysis)).map(p=>_gelLoadingIdx(p.gelAnalysis)));
+  const lcLeftI=images.map((p,i)=>i).filter(i=>images[i]&&images[i].gelAnalysis&&i!==idx&&!cand.includes(i));
+  const lcLeft=lcLeftI.filter(i=>!tgtOf.has(i)).map(i=>_gelPanelName(images[i])), tgLeft=lcLeftI.filter(i=>tgtOf.has(i)).map(i=>_gelPanelName(images[i]));
   const P=ids.map(id=>images.find(p=>p.id===id));
   // A chart already linked to this panel is updated, not added again.
   const old=_allCharts().find(el=>el.chart.link&&el.chart.link.kind==='gel'&&(el.chart.link.ids||[]).includes(me.id));
@@ -30615,6 +30776,7 @@ function chartFromDensitometry(idx){
   if(raw) notes.push(`raw volumes: ${_gelPanelName(me).replace(/^Panel /,'panel ')} has no reference lane or loading control`);
   if(left.length) notes.push(`left out ${left.join(', ')}`);
   if(lcLeft.length) notes.push(`${lcLeft.join(', ')} not charted (a loading control)`);
+  if(tgLeft.length) notes.push(`${tgLeft.join(', ')} not charted (the other target of a phospho/total ratio)`);
   const chosen=T.chosen.join('; ');
   if(typeof closeGelAnalysis==='function') closeGelAnalysis();
   pushUndo();
@@ -30717,7 +30879,7 @@ function _allCharts(){
           ...(typeof images!=='undefined'?images:[]).filter(im=>im&&im.type==='chart'&&im.chart)];
 }
 const _CHART_HINTS={
-  bar:'One row per replicate: a group column (strain) and a value column. Rows of the same group are averaged; error bars and points show the replicates. Or one column per group (Data layout › Columns).',
+  bar:'One row per replicate: a group column (strain) and a value column. Rows of the same group are averaged; error bars and points show the replicates. Replicate columns (Rep1, Rep2 … or WT_r1 …) average into one bar per group. Or one column per group (Data layout › Columns).',
   groupedBar:'A group column and one value column per series (or a series column for tidy data). Repeated rows are averaged.',
   stackedBar:'A group column and one value column per stacked segment.',
   line:'An x column (time, dose) and one column per series — or tidy rows with a series column. Rows sharing an x are averaged (mean ± SD/SEM); replicate columns WT_r1, WT_r2 … average into one series; WT and WT_SD pair as value and error.',
@@ -30790,7 +30952,7 @@ function _chartRenderErrCols(){
 function _chartReadControls(){
   const ch=_chartDraft; if(!ch) return;
   const m=ch.mapping, num=id=>{ const v=gv(id); return v===''||!isFinite(+v)?null:+v; };
-  const wasKind=ch.kind;
+  const wasKind=ch.kind, wasX=m.xCol??0, wasS=m.seriesCol;
   ch.kind=gv('chart-kind');
   m.xCol=+gv('chart-xcol')||0;
   const wasLayout=m.layout;
@@ -30805,6 +30967,15 @@ function _chartReadControls(){
     if(all.length) m.yCols=all;
     document.querySelectorAll('#chart-ycols input[type=checkbox]').forEach(c=>{ c.checked=m.yCols.includes(+c.value); });
   }
+  // The X and Series columns are no values: switched from a bar of every column to a line
+  // with a series, time_min and MOI stayed ticked and drew as nine series (charts4-04).
+  // (Only when the type, layout, X or Series has just changed: a Y box ticked by hand stays.)
+  const moved=wasKind!==ch.kind||wasLayout!==m.layout||wasX!==m.xCol||(wasS??null)!==(m.seriesCol??null);
+  if(moved&&!(m.layout==='columns'&&_chartCategorical(ch.kind))&&ch.kind!=='heatmap'&&ch.kind!=='survival'){
+    const cn=ch.data.columns||[], used=new Set([m.xCol, m.seriesCol].filter(v=>v!=null)), left=m.yCols.filter(i=>!used.has(i)&&!_CH_ID_RE.test(String(cn[i]??'').trim()));
+    if(left.length&&left.length<m.yCols.length){ m.yCols=left;
+      document.querySelectorAll('#chart-ycols input[type=checkbox]').forEach(c=>{ c.checked=m.yCols.includes(+c.value); }); }
+  }
   ch.error=gv('chart-err');
   // A beeswarm draws its mean with the whisker Error bars names; switched to from a chart
   // with none, it starts at SD, as it always drew.
@@ -30813,6 +30984,12 @@ function _chartReadControls(){
   if(ch.error==='column'){ const per={}; document.querySelectorAll('#chart-errcols select[data-yc]').forEach(s=>{ if(s.value!=='') per[s.dataset.yc]=+s.value; });
     if(document.querySelector('#chart-errcols select[data-yc]')){ m.errCols=per; m.errCol=null; } }
   ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
+  // A Y title the guess took from the one value column follows the value columns until
+  // it is typed over: "D3" stayed on a plate-reader chart of every well (charts4-07).
+  { const ay=ch.axes.y; if(ay.autoTitle!=null&&ay.title!==ay.autoTitle) delete ay.autoTitle;
+    else if(ay.autoTitle!=null){ const cols=ch.data.columns||[], one=m.yCols.length===1&&m.layout!=='columns';
+      const t=one?_chartColName(cols,m.yCols[0]):'';
+      if(t!==ay.title){ ay.title=t; ay.autoTitle=t; sv('chart-ytitle', t); } } }
   ch.axes.x.min=num('chart-xmin'); ch.axes.x.max=num('chart-xmax'); ch.axes.y.min=num('chart-ymin'); ch.axes.y.max=num('chart-ymax');
   // A log box the chart type greys out keeps the chart's choice: Stacked bar on the way
   // to Beeswarm used to drop log Y while the box still showed it ticked.
@@ -30842,6 +31019,9 @@ function _chartReparse(force){
     // A new table keeps the chart type the author chose; the rest is guessed afresh.
     _chartApplyGuess(ch, _chartGuess(parsed), true);
     _chartModalPickers();
+    // The axis titles the guess gave are in their boxes: the preview drew them, and Apply
+    // read the empty boxes and dropped them (fluor4-06).
+    sv('chart-xtitle', ch.axes.x.title||''); sv('chart-ytitle', ch.axes.y.title||'');
   }
   _chartModalRefresh();
 }
@@ -30858,7 +31038,7 @@ function _chartModalRefresh(){
   show('chart-series-wrap', numX||(cat&&!wide), 'block');
   show('chart-xlim-wrap', numX, 'inline-flex');
   document.getElementById('chart-ycols-lbl').textContent=wide?'Group columns (each is one group)':numX?'Y columns (series)':'Y columns';
-  const cols=ch.data.columns||[], hasRep=numX&&_chartHasRepGroups(cols, ch.mapping.yCols||[]);
+  const cols=ch.data.columns||[], hasRep=(numX||(cat&&!wide))&&_chartHasRepGroups(cols, ch.mapping.yCols||[]);
   show('chart-rep-wrap', hasRep, 'block');
   { const W=numX?_chartWellCols(cols, ch.mapping.yCols||[]):[]; show('chart-wells-wrap', W.length>0, 'flex');
     const ww=document.getElementById('chart-wells-wrap'); if(ww) ww.style.gap='8px', ww.style.flexWrap='wrap', ww.style.alignItems='center';
@@ -30878,7 +31058,8 @@ function _chartModalRefresh(){
     box.parentElement.style.opacity=r?'0.5':''; if(r&&box.checked) why.push(`log ${a.toUpperCase()}: ${r}`); });
   const lw=document.getElementById('chart-log-why'); lw.textContent=why.join(' · '); lw.style.display=why.length?'block':'none';
   _chartRenderErrCols();
-  document.getElementById('chart-kind-hint').textContent=_CHART_HINTS[k]||'';
+  // Under Data layout › Columns the help says how that layout is read, not the rows one (charts4-10).
+  document.getElementById('chart-kind-hint').textContent=wide?'One column per group: each column holds that group’s replicate values (Prism’s column table), averaged into one '+(k==='bar'||k==='groupedBar'||k==='stackedBar'?'bar':'group')+' with its error bar and points. A column of group names instead: Data layout › Rows.':(_CHART_HINTS[k]||'');
   // Status: what was read, and what the reading changed.
   const pn=ch._parseNote||{}, D=ch.data;
   const bits=[`${(D.columns||[]).length} columns · ${(D.rows||[]).length} rows`];
@@ -30936,18 +31117,33 @@ function _chartPreview(){
   const W=380, H=230, dpr=Math.max(1,window.devicePixelRatio||1);
   if(cv.width!==Math.round(W*dpr)){ cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr); }
   const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
-  const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
-  if(hid&&Object.keys(_chartDraftColours).length) hid.value=JSON.stringify(Object.assign({}, _sampleColours(), _chartDraftColours));
-  try{ _chartPrevEl={type:'chart', x:0, y:0, w:W, h:H, chart:ch}; _chartDraw(_chartPrevEl, _chartEmitCanvas(ctx)); }
-  catch(e){ ctx.fillStyle='#b00'; ctx.font='11px system-ui'; ctx.fillText('Cannot draw this mapping: '+e.message, 8, 20); }
-  finally{ if(hid) hid.value=keep; }
+  _chartAsApplied(()=>{
+    try{ _chartPrevEl={type:'chart', x:0, y:0, w:W, h:H, chart:ch}; _chartDraw(_chartPrevEl, _chartEmitCanvas(ctx)); }
+    catch(e){ ctx.fillStyle='#b00'; ctx.font='11px system-ui'; ctx.fillText('Cannot draw this mapping: '+e.message, 8, 20); } });
+}
+// Run fn with the figure's sample colours as Apply will leave them: the colours picked in
+// the dialog, and without the palette pins of names only the chart's old mapping drew
+// (Apply frees those). The preview drew MOI 0 pink and the applied chart yellow, the
+// colour a bogus "time_min" group had held (charts4-06).
+function _chartAsApplied(fn){
+  const ch=_chartDraft, hid=document.getElementById('sample-colours'), pins=document.getElementById('sample-pins');
+  const keep=hid?hid.value:'', keepP=pins?pins.value:'';
+  try{
+    if(hid&&Object.keys(_chartDraftColours).length) hid.value=JSON.stringify(Object.assign({}, _sampleColours(), _chartDraftColours));
+    if(pins&&keepP&&ch){ const el=_selectedChartEl(), on=new Set(), add=L=>L.forEach(d=>{ on.add(d.key); on.add(d.disp); });
+      _allCharts().forEach(o=>{ if(o!==el) add(_sampleDrawn(o)); });
+      add(_sampleDrawn({type:'chart', w:300, h:200, chart:ch}));
+      const P=_samplePins(), q={}; Object.keys(P).forEach(k=>{ if(on.has(k)) q[k]=P[k]; });
+      pins.value=Object.keys(q).length?JSON.stringify(q):''; }
+    return fn();
+  } finally { if(hid) hid.value=keep; if(pins) pins.value=keepP; }
 }
 // Names & colours: each series (or category) under its data name, with a display name,
 // its colour (the figure's sample colour) and, for categories, its place.
 function _chartRenderNames(){
   const ch=_chartDraft, w=document.getElementById('chart-names'); if(!ch||!w) return;
   if(document.activeElement&&w.contains(document.activeElement)&&document.activeElement.type==='text') return;   // typing a name: leave the row alone
-  let stat=null; try{ stat=_chartStats({chart:ch, w:300, h:200}); }catch(e){ stat=null; }
+  let stat=null; try{ stat=_chartAsApplied(()=>_chartStats({chart:ch, w:300, h:200})); }catch(e){ stat=null; }
   if(!stat||stat.kind==='heatmap'){ w.innerHTML='<span style="font-size:10px;color:var(--muted)">—</span>'; return; }
   const hid=document.getElementById('sample-colours'), keep=hid?hid.value:'';
   let items=stat.curves?stat.curves.map(c=>({key:c.name, color:c.color})):
@@ -30967,12 +31163,17 @@ function _chartRenderNames(){
     return `<div style="display:flex;gap:4px;align-items:center;margin-top:2px" data-key="${esc(it.key)}">
       <input type="color" value="${esc(_hex6(c))}" style="width:26px;height:20px;padding:0" title="${esc(it.key)}'s colour in every chart and the legend key" onchange="_chartColourEdit(this.closest('[data-key]').dataset.key,this.value)">
       <span style="min-width:90px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Name in the data">${esc(it.key)}</span>
-      <input type="text" value="${esc(disp)}" placeholder="shown as ${esc(it.key)}" style="flex:1;min-width:80px" title="Shown as … in every chart of the figure, their legends and the key (format marks work: *fliC* is italic)" oninput="_chartNameEdit(this.closest('[data-key]').dataset.key,this.value)">
+      <input type="text" value="${esc(disp)}" placeholder="shown as ${esc(it.key)}" style="flex:1;min-width:80px" title="Shown as … in every chart of the figure, their legends and the key (format marks work: *fliC* is italic)" oninput="_chartNameEdit(this.closest('[data-key]').dataset.key,this.value)">${(()=>{ const sh=_chartDisp(ch,it.key); return disp&&sh!==disp?`<span class="chart-name-via" style="color:var(--muted);font-size:10px;white-space:nowrap" title="${esc(_rtText(disp))} is a sample of the figure, shown as ${esc(_rtText(sh))} (its name in another chart)">→ ${esc(_rtText(sh))}</span>`:''; })()}
       ${it.cat?`<button class="icon-btn" title="Move left" ${i?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,-1)">↑</button><button class="icon-btn" title="Move right" ${i<arr.length-1?'':'disabled'} onclick="_chartOrderMove(this.closest('[data-key]').dataset.key,1)">↓</button>`:''}</div>`; };
   let html=items.map(row).join('');
   if(orderBtns&&stat.catKeys.length>1) html+=`<div style="margin-top:4px;color:var(--muted);font-size:10px">Category order:</div>`+stat.catKeys.map((k,i,arr)=>row({key:k, color:'#ffffff', cat:true},i,arr).replace(/<input type="color"[^>]*>/,'<span style="width:26px"></span>')).join('');
   if(hid) hid.value=keep;
-  w.innerHTML=html||'<span style="font-size:10px;color:var(--muted)">No series yet</span>';
+  html=html||'<span style="font-size:10px;color:var(--muted)">No series yet</span>';
+  // Unchanged rows are left alone: the Y title's change event (fired as a click moves
+  // focus into a name box) rebuilt the list under the click, and the first name typed
+  // went nowhere (phage4-04).
+  if(w._html===html&&w.innerHTML===w._out) return;
+  w.innerHTML=html; w._html=html; w._out=w.innerHTML;
 }
 function _chartNameEdit(key,val){
   const ch=_chartTarget(); if(!ch) return;
@@ -30987,7 +31188,14 @@ function _chartNameEdit(key,val){
     if(_chartMergeDefaults(ch, before)){ sv('chart-err', ch.error); sc('chart-points', !!ch.style.showPoints); _chartRenderErrCols(); }
     _chartMergeNote(); _chartPreview(); }
 }
-function _chartOwnKey(ch, key){ return !!((ch.link||ch.unlinked)&&/^Lane \d+$/.test(String(key))); }
+// So are a plate's wells and its rows and columns ("Row C", "Column 2", "B3"): Row C of
+// another plate is another sample. A name given to one (Row C shown as dacrB) still makes
+// it that sample in the figure — its colour, and a later rename of dacrB (_chartDisp).
+function _chartOwnKey(ch, key){
+  if((ch.link||ch.unlinked)&&/^Lane \d+$/.test(String(key))) return true;
+  const m=ch.mapping||{};
+  return !!(_chartNumericX(ch.kind)&&/^(Row [A-P]|Column \d{1,2}|[A-P]\d{1,2})$/.test(String(key))&&_chartWellCols((ch.data&&ch.data.columns)||[], m.yCols||[]).length);
+}
 // Under Names & colours: which samples one shown-as name pools, and how they are drawn.
 function _chartMergeNote(){
   const ch=_chartDraft, w=document.getElementById('chart-merge-note'); if(!ch||!w) return;
@@ -31002,7 +31210,10 @@ function _chartMergeNote(){
 function _setSampleNames(map, self){
   const F=Object.assign({}, _sampleNames()), keys=Object.keys(map);
   // The other charts that show one of these names, so the toast can say where it changed.
-  const also=_allCharts().filter(el=>el!==self&&_sampleDrawn(el).some(o=>keys.includes(o.key))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
+  // A chart shows one of them when it draws that data name (or one written another way),
+  // or a series shown under that name (a plate row shown as dacrB is dacrB).
+  const kn=new Set(keys.map(_sampleNorm));
+  const also=_allCharts().filter(el=>el!==self&&_sampleDrawn(el).some(o=>keys.includes(o.key)||kn.has(_sampleNorm(o.key))||kn.has(_sampleNorm(o.disp)))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
   const pooled=new Map(_allCharts().filter(el=>el!==self).map(el=>[el,_chartMerged(el.chart)]));
   Object.entries(map).forEach(([k,v])=>{ if(v==null||String(v).trim()===''||v===k) delete F[k]; else F[k]=String(v);
     _allCharts().forEach(el=>{ if(el.chart.names&&_own(el.chart.names,k)){ delete el.chart.names[k]; el._chartKey=''; el._chartStat=null; } }); });

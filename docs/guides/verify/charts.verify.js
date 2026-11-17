@@ -288,12 +288,13 @@ const TRUTH = {
     expect(/WT \(blue, filled bars\)/.test(key) && (key.match(/ΔfliC/g) || []).length === 1, key);
     return key.slice(0, 160) + '…';
   });
-  await step(T, 'N3 MOI_0 (panel B) and "MOI 0 mean" (panel D) share one colour; shown as "MOI 0" in B gives them one key row', async () => {
+  await step(T, 'N3 MOI_0 (panel B) and "MOI 0 mean" (panel D) share one colour and one key row; shown as "MOI 0" in B the row reads MOI 0', async () => {
     await L.openSection(T, 'Export');
     const keyText = () => p.evaluate(() => document.getElementById('key-text').value);
     const k0 = await keyText();
-    const c0 = (k0.match(/MOI_0 \(([^)]*)\)/) || [])[1], c1 = (k0.match(/MOI 0 \(([^)]*)\)/) || [])[1];
-    expect(c0 && c0 === c1, 'before: ' + k0);
+    // ux4: one sample written two ways in one colour is one key row already (charts4-03)
+    const c0 = (k0.match(/MOI_0 \(([^)]*)\)/) || [])[1], c1 = c0;
+    expect(c0 && !/MOI 0 \(/.test(k0), 'before: ' + k0);
     const pt = await panelPoint('B');
     await p.mouse.dblclick(pt.x, pt.y);
     await chart.waitFor({ state: 'visible' });
@@ -309,7 +310,7 @@ const TRUTH = {
     const dBox = await chart.locator('#chart-names input[placeholder="shown as MOI 0 mean"]').inputValue();
     await chart.getByRole('button', { name: 'Cancel' }).click(); await p.waitForTimeout(300);
     expect(dBox === 'MOI 0', 'panel D shown as: ' + dBox);
-    return `before: MOI_0 (${c0}) and MOI 0 (${c1}); after: ${(k1.match(/MOI 0 \([^)]*\)/) || [''])[0]} once; panel D's own box reads "${dBox}"`;
+    return `before: one row MOI_0 (${c0}); after: ${(k1.match(/MOI 0 \([^)]*\)/) || [''])[0]} once; panel D's own box reads "${dBox}"`;
   });
 
   // ---- Look › Sample colours, lab style -----------------------------------------------------
@@ -327,12 +328,12 @@ const TRUTH = {
     const js = JSON.parse(fs.readFileSync(styleFile, 'utf8'));
     const pal = js.settings.sample_palette;
     const t = await L.toasts(T);
-    expect(pal.WT.toLowerCase() === '#0072b2' && pal.dmotA && pal.dfliC && pal.Untreated && /paper_style\.json saved with \d+ sample colours \(1 set by hand, \d+ from the palette/.test(t), JSON.stringify(js) + ' | ' + t);
+    expect(pal.WT.toLowerCase() === '#0072b2' && pal.dmotA && pal.dfliC && pal.Untreated && /paper_style\.json saved with \d+ sample colours \(1 set by hand, \d+ from the palette[^)]*; sample_palette and \d+ shown-as names? \(sample_names\)\)/.test(t), JSON.stringify(js) + ' | ' + t);
     // ux3 (charts3-10): the counts are of samples, so they add up
     const [, n, hand, pl] = t.match(/saved with (\d+) sample colours \((\d+) set by hand, (\d+) from the palette/);
     expect(+n === +hand + +pl, 'counts do not add up: ' + t);
-    // the file holds colours by data name only: no shown-as names
-    expect(!/ΔfliC|Δ\*fliC\*/.test(fs.readFileSync(styleFile, 'utf8')), 'shown-as name in the file');
+    // ux4: the shown-as names go with the colours (sample_names), under their data names
+    expect(js.settings.sample_names && js.settings.sample_names.dfliC === 'Δ*fliC*', 'no shown-as names in the file: ' + JSON.stringify(js.settings));
     const h = p.locator('.sec-lbl', { hasText: /^Sample colours/i });
     await h.scrollIntoViewIfNeeded();
     const b1 = await h.boundingBox(), b2 = await btn(T, '⬇ Save as paper_style.json').boundingBox();
@@ -615,8 +616,8 @@ const TRUTH = {
     return (fix ? 'button offered; ' : 'no button; ') + row.slice(row.indexOf('Superscripts'), row.indexOf('Superscripts') + 420);
   });
 
-  // ISSUES "A shown-as name that equals another file's data name gives two colours": still open
-  await step(T, 'Troubleshooting: dfliC shown as Δ*fliC* (A) beside a file whose data say ΔfliC: still two colours, and the key lists ΔfliC twice', async () => {
+  // ISSUES "A shown-as name that equals another file's data name gives two colours": fixed in ux4
+  await step(T, 'Troubleshooting: dfliC shown as Δ*fliC* (A) beside a file whose data say ΔfliC: one colour, and the key lists ΔfliC once', async () => {
     fs.writeFileSync(path.join(inp, 'swim_delta.csv'), 'strain,replicate,swim_mm\nWT,1,30\nWT,2,32\nΔfliC,1,5\nΔfliC,2,6\n');
     await L.pickFiles(T, dropZone(), [path.join(inp, 'swim_delta.csv')]);
     await chart.waitFor({ state: 'visible', timeout: 8000 }); await p.waitForTimeout(400);
@@ -626,7 +627,7 @@ const TRUTH = {
     await L.openSection(T, 'Export');
     const key = await p.evaluate(() => document.getElementById('key-text').value);
     const twice = (key.match(/ΔfliC \(/g) || []).length;
-    expect(a.dfliC.color !== n['ΔfliC'].color && twice === 2, JSON.stringify({ a: a.dfliC, n: n['ΔfliC'], key }));
+    expect(a.dfliC.color === n['ΔfliC'].color && twice === 1, JSON.stringify({ a: a.dfliC, n: n['ΔfliC'], key }));
     return `A dfliC "${a.dfliC.name}" ${a.dfliC.color}; ${label} ΔfliC ${n['ΔfliC'].color}; key lists ΔfliC ${twice}×`;
   });
 
