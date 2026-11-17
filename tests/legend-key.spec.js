@@ -155,17 +155,17 @@ test('a freeform figure keys its images and gene map, and the key placed on it s
     return { images0, text0, rows, placed: placed.length, w: placed[0] && placed[0]._w, names: __svgKey(svg).names,
       text: document.getElementById('key-text').value };
   });
-  expect(r.images0).toEqual([['GFP', '#00ff00'], ['RFP', '#ff00ff']]);
-  expect(r.text0).toBe('GFP (green); RFP (magenta).');
+  expect(r.images0).toEqual([['GFP', '#00ff00'], ['mCherry', '#ff00ff']]);
+  expect(r.text0).toBe('GFP (green); mCherry (magenta).');
   expect(r.rows).toEqual([
-    ['GFP', 'square', null], ['RFP', 'square', null],
+    ['GFP', 'square', null], ['mCherry', 'square', null],
     ['Promoter', 'glyph', 'promoter'], ['RBS', 'glyph', 'rbs'], ['CDS / gene', 'glyph', 'cds'],
     ['Terminator', 'glyph', 'terminator'], ['Origin of replication', 'glyph', 'ori']]);
   expect(r.text).toContain('CDS / gene (blue, arrow)');
   expect(r.placed).toBe(1);
   expect(r.w).toBeGreaterThan(40);
   // the key placed on a freeform figure is written as vector text in its SVG
-  expect(r.names).toEqual(expect.arrayContaining(['GFP', 'RFP', 'Promoter', 'Origin of replication']));
+  expect(r.names).toEqual(expect.arrayContaining(['GFP', 'mCherry', 'Promoter', 'Origin of replication']));
   expect(errors).toEqual([]);
 });
 
@@ -194,12 +194,13 @@ test('the legend text follows a rename, a colour change, a hidden panel and a ch
   });
   expect(r.start).toBe('DAPI (blue); GFP (green); BF (greyscale).');
   expect(r.recoloured).toBe('DAPI (blue); GFP (magenta); BF (greyscale).');
-  expect(r.renamed).toBe('DAPI (blue); RFP (magenta); BF (greyscale).');
-  expect(r.hidden).toBe('RFP (magenta); BF (greyscale).');
+  // ux4 fluor4-09: a file named for mCherry keys as mCherry (its colour family was "RFP")
+  expect(r.renamed).toBe('DAPI (blue); mCherry (magenta); BF (greyscale).');
+  expect(r.hidden).toBe('mCherry (magenta); BF (greyscale).');
   // The chart is a panel of the same grid, so the key keys it after the image panels.
-  expect(r.chart).toBe('RFP (magenta); BF (greyscale); WT (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRenamed).toBe('RFP (magenta); BF (greyscale); Wild type (black, filled bars); KO (orange, filled bars).');
-  expect(r.chartRecoloured).toBe('RFP (magenta); BF (greyscale); Wild type (blue, filled bars); KO (red, filled bars).');
+  expect(r.chart).toBe('mCherry (magenta); BF (greyscale); WT (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRenamed).toBe('mCherry (magenta); BF (greyscale); Wild type (black, filled bars); KO (orange, filled bars).');
+  expect(r.chartRecoloured).toBe('mCherry (magenta); BF (greyscale); Wild type (blue, filled bars); KO (red, filled bars).');
   expect(errors).toEqual([]);
 });
 

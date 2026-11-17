@@ -180,7 +180,7 @@ test('blot3-01: editing a linked chart\'s data says it unlinks; once unlinked an
   expect((await toasts(page)).join(' ')).toMatch(/a chart typed by hand from its densitometry no longer matches it/);
   c = await chartNow(page);
   expect(c.state).toBe('unlinkedChanged');
-  expect(c.notes).toEqual(['⚠ typed values — the densitometry of panel A has changed since']);
+  expect(c.notes).toEqual(['⚠ typed values — out of date']);   // ux4 blot4-11: short enough for a one-column chart; the caption names the panel
   expect(c.caption).toMatch(/\[⚠ Not current: the densitometry of panel A has changed since/);
   expect(c.caption).not.toMatch(/Data from densitometry|Densitometry of panel A \(FigureLab/);
   // compliance: a failing row of its own, under a journal too
@@ -221,7 +221,7 @@ test('blot3-01: a chart unlinked by an older build (no record kept) is still cau
   await page.evaluate(async () => { await __replace(0, [40, 60, 38, 80, 84, 76, 120, 110, 125], 21); runGelAnalysis(0); render(); });
   c = await chartNow(page);
   expect(c.state).toBe('unlinkedChanged');
-  expect(c.notes.join(' ')).toMatch(/typed values — the densitometry of panel A has changed since/);
+  expect(c.notes.join(' ')).toMatch(/typed values — out of date/);
   // the author's own values: nothing claims panel A any more, nothing is flagged
   await openChart(page);
   await modal(page).locator('#chart-link-note').getByRole('button', { name: 'These are my own values' }).click();

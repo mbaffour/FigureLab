@@ -40,7 +40,7 @@ async function channelGrid(page, n = 4, cols = 2) {
   await page.evaluate(HELPERS);
   await page.evaluate(([cols]) => {
     const luts = ['blue', 'green', 'magenta', 'green', 'blue', 'magenta'];
-    images.forEach((im, i) => { im.lut = luts[i % luts.length]; im.name = ['dapi', 'gfp', 'mcherry', 'gfp2', 'dapi2', 'rfp2'][i] + '.tif'; });
+    images.forEach((im, i) => { im.lut = luts[i % luts.length]; im.name = ['dapi', 'gfp', 'rfp', 'gfp2', 'dapi2', 'rfp2'][i] + '.tif'; /* ux4: 'rfp', not 'mcherry' — a named fluorophore now keys under its own (wider) name, which changed where the key fits */ });
     sv('cols', String(cols)); sv('rows', String(Math.ceil(images.length / cols))); onLayoutChange(); render();
   }, [cols]);
 }

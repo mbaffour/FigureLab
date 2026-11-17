@@ -647,7 +647,8 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const t = await L.toasts(T);
     expect(/a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values/.test(t), t);
     const drawn = await p.evaluate(() => { const el = images.find(i => i && i.type === 'chart'); const T = []; el._chartKey = ''; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.filter(x => /⚠/.test(x)); });
-    expect(drawn.join('|') === '⚠ typed values — the densitometry of panel A has changed since', 'drawn: ' + drawn);
+    // ux4 blot4-11: short enough for a one-column chart; the caption and compliance row name panel A
+    expect(drawn.join('|') === '⚠ typed values — out of date', 'drawn: ' + drawn);
     await L.openSection(T, 'Export');
     await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(500);
     const cap = await p.locator('#caption-out').inputValue();

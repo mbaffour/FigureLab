@@ -275,7 +275,8 @@ test('newcomer3-08 / phage3-06: Methods and PANEL_HISTORY say a pixel size came 
   await page.evaluate(() => { const cbs = document.querySelectorAll('#img-list .panel-pick'); cbs[2].checked = true; copyCalibrationToTicked(1); render(); });
   let m = await page.evaluate(() => generateMethodsParagraph());
   expect(m).toContain('measured on the scale bar burned into the image (126 px = 10 µm) for panel B');
-  expect(m).toContain('copied from panel B (measured on the scale bar burned into the image (126 px = 10 µm)) for panel C');
+  // ux4 (newcomer4-07): the source's own account follows a dash, not a second pair of brackets
+  expect(m).toContain('copied from panel B — measured on the scale bar burned into the image (126 px = 10 µm) for panel C');
   expect(m).not.toContain('set by hand');
   // C dragged onto B: the letters follow the panels, and no panel copies from itself
   await page.evaluate(() => { swapImages(1, 2); render(); });

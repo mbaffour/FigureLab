@@ -198,7 +198,7 @@ test('a merge made here splits back into its row', async ({ page }) => {
   // Fails today: there is no mergeTickedPanels to build the merge being split.
   expect(r.n).toBe(7);                              // 3 hidden sources + 3 parts + merge
   expect(r.hidden).toBe(3);
-  expect(r.caps).toEqual(['DAPI', 'GFP', 'RFP', 'Merge']);
+  expect(r.caps).toEqual(['DAPI', 'GFP', 'mCherry', 'Merge']);   // ux4 fluor4-09: C3-mCherry.tif is mCherry, not "RFP"
   expect(r.luts).toEqual(['blue', 'green', 'magenta', 'blue']);
   expect(r.imgsBack).toBe(true);                    // each part is the file it came from
   // The visible row reads A–D, not D–G behind the hidden sources, and no letter repeats.
