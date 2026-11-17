@@ -428,7 +428,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
   });
 
   // ---------------------------------------------------------------- Task 9
-  await step(T, '11.1 Right-click strip A › ⇄ Replace image… → pick the re-run scan; crop, letter, lane table, MW labels and analysis kept', async () => {
+  await step(T, '11.1 Right-click strip A › ⇄ Replace image… → pick the re-run scan; crop, letter, lane table, MW labels and analysis kept; the toast says the MW labels sit on the old ladder until the re-analysis', async () => {
     await p.keyboard.press('Escape');
     const q = await panelPoint(0, 0.75, 0.5);
     await p.mouse.click(q.x, q.y, { button: 'right' }); await p.waitForTimeout(300);
@@ -442,6 +442,9 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(st.marks > 0, 'MW labels lost: ' + JSON.stringify(st));
     const rt = (await L.toasts(T)).split(' | ').find(x => /^Panel A: /.test(x)) || '';
     expect(/kept/.test(rt), 'replace toast: ' + rt);
+    expect(/MW labels sit where the old scan’s ladder bands were/.test(rt), 'replace toast does not mention the MW labels: ' + rt);
+    st.mwY = await p.evaluate(() => annotations.filter(a => a.mw && a.blotPanel === images[0].id).map(a => +a.yf.toFixed(4)));
+    globalThis.__mwBefore = st.mwY;
     return JSON.stringify(st) + '; toast "' + rt + '"';
   });
   await step(T, '11.2 The kept tilt is wrong for the new scan: right-click › ⚙ Open settings › ✂ Open Crop Editor › 📐 Level › ✓ Apply Crop', async () => {
@@ -456,7 +459,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     await m.locator('button', { hasText: '✓ Apply Crop' }).click(); await p.waitForTimeout(800);
     return 'kept tilt ' + before + '° → levelled ' + a + '° (true −2.0°)';
   });
-  await step(T, '11.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry re-analyses strip A and updates it; Apply keeps the link', async () => {
+  await step(T, '11.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry re-analyses strip A, updates it and moves the MW labels onto the new ladder; Apply keeps the link', async () => {
     const onFig = await p.evaluate(() => _chartLinkState(images.find(i => i.type === 'chart')).stale);
     expect(onFig, 'chart not marked stale after the re-crop');
     const q = await panelPoint(4); await p.mouse.dblclick(q.x, q.y);
@@ -469,6 +472,11 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const t = await L.toasts(T);
     const nt2 = (await note.innerText()).replace(/\s+/g, ' ');
     expect(/^Linked to the densitometry/.test(nt2), nt2);
+    expect(/^1 chart updated from the re-analysed densitometry; 3 MW labels of panel A moved onto the new ladder’s bands/.test(t), 'update toast: ' + t);
+    // each label now sits on its ladder band of the re-run scan (within a third of its height)
+    const off = await p.evaluate(() => { const M = _gelFigMapNow(0), T = _gelMWTargets(images[0].gelAnalysis, M);
+      return annotations.filter(a => a.mw && a.blotPanel === images[0].id).map(a => { const t = T.find(q => q.kda === +a.text); return t ? Math.round(Math.abs(_mwCy(a, M.H) - t.y)) : 99; }); });
+    expect(off.length === 3 && off.every(d => d <= 4), 'MW labels off their bands (px): ' + JSON.stringify(off));
     await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(500);
     const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); return { link: !!el.chart.link, stale: _chartLinkState(el).stale }; });
     expect(st.link && !st.stale, JSON.stringify(st));

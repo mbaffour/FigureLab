@@ -434,7 +434,11 @@ test('phage2-02/03 Count: clicking "round (a dish)" ticks it, and the CSV carrie
   expect(col('Objects')).toBe('dark (plaques)');
   expect(col('Region')).toBe('ellipse (round, a dish)');
   const rim = await page.locator('#roi-results').textContent();
-  expect(rim).toContain(`+${col('Cut by the rim (not counted)')} cut by the ellipse`);
+  // ux4 (phage4-10): the dark surround the ellipse runs through is the dish wall, said as
+  // such and kept out of the plaques "cut by the rim" (it was "+1 cut by the ellipse")
+  expect(col('Cut by the rim (not counted)')).toBe('0');
+  expect(+col('Dish wall (left out)')).toBeGreaterThan(0);
+  expect(rim).toContain("the dish wall along the ellipse's edge is left out");
   expect(col('Diameter unit')).toBe('mm');
   expect(+col('Diameter mean')).toBeGreaterThan(1.8);
   expect(+col('Diameter mean')).toBeLessThan(2.3);
