@@ -8,7 +8,7 @@ A grid with one row per condition, each row reading DAPI | GFP | membrane | merg
 
 ## You need
 
-- One 16-bit TIFF per channel per field, as Fiji's *Image › Color › Split Channels* saves them: `C1-HeLa_DMSO_60x_DAPI.tif`, `C2-HeLa_DMSO_60x_GFP.tif`, `C3-HeLa_DMSO_60x_CellMask.tif`, and the same for each condition. FigureLab reads the channel from the last word of the file name.
+- One 16-bit TIFF per channel per field, as Fiji's *Image › Color › Split Channels* saves them: `C1-HeLa_DMSO_60x_DAPI.tif`, `C2-HeLa_DMSO_60x_GFP.tif`, `C3-HeLa_DMSO_60x_CellMask.tif`, and the same for each condition. FigureLab reads the channel from the last word of the file name. Named fluorophores keep their own name: a file ending `_mScarlet.tif` gets the chip **mScarlet**.
 - Files saved by Fiji or ImageJ (or OME-TIFFs) carry their pixel size, so you do not need to calibrate. Files without it need **🔬 Calibrate from image** (see [phage-and-microbiology.md](phage-and-microbiology.md)).
 
 The steps below were followed on two conditions (DMSO, BafA1) of three channels each, and a second DMSO field for task 10.
@@ -16,7 +16,7 @@ The steps below were followed on two conditions (DMSO, BafA1) of three channels 
 ## 1. Import the channels
 
 1. In **Images**, click **Drop or click to add images** and pick all six files.
-2. Check each row in the image list. It shows the file name, a channel chip (**DAPI**, **GFP**, **CellMask**) and no orange **⚠ calibrate** badge. Each calibrated panel gets a scale bar of a round length, about a fifth of its field (10 µm on the test's 55.5 µm field).
+2. Check each row in the image list. It shows the file name, a channel chip (**DAPI**, **GFP**, **CellMask**) and no orange **⚠ calibrate** badge. Each calibrated panel gets a scale bar of a round length that fits its field (10 µm on the test's 55.5 µm field).
 3. A toast says "16-bit scaled to 8-bit for display; native samples kept for measurement". The 16-bit numbers are kept: everything below is set in the file's own counts.
 4. A file with a few pixels far above the rest opens with **White pt** set below them, so the cells are not left nearly black. Its **⚙** says so under **Adjustments**, for example "It opened with White at 2998: 21 pixels (the brightest 0.01 %) reach up to 62000, which would have left the rest nearly black — hot pixels or the brightest spots of real signal, which are saturated at this White; set White higher to show them unsaturated." Those pixels can be real signal (bright puncta), not only hot pixels: if you need them unsaturated, set **White pt** yourself as in task 3.
 
@@ -80,9 +80,10 @@ An inset follows its parent's adjustments, so its display range stays the parent
 The tags on the panels, the legend key and the legend text use one name per channel colour.
 
 - **For every panel at once:** open **Export**. Under **Legend key › Channel names** there is one field per colour. Type `Membrane` in the magenta field and press Enter. Every magenta tag, the merges' tags and the key change.
-- **For one panel:** click the channel chip in its row of the image list (or open **⚙** and use **Channel**). The cursor lands in that panel's **Channel** field, and a name typed there renames that panel only. Naming one panel differently from the others shows both names in the key ("DAPI (blue); GFP (green); Membrane / CellMask (magenta)."), and the **Channel names** field for that colour shows both too; typing one name there gives every panel of the colour that name.
+- **For one panel:** click the channel chip in its row of the image list (or open **⚙** and use **Channel**). The cursor lands in that panel's **Channel** field, and a name typed there renames that panel only. The key then shows both names ("DAPI (blue); GFP (green); Membrane / CellMask (magenta)."), and so does the **Channel names** field for that colour; typing one name there gives every panel of the colour that name. This holds after you named the colour under **Channel names** too, and the toast says so: "Panel C's channel is now CellMask — this panel only; the other magenta panels (…) keep Membrane. ≡ Sync by channel now treats it as its own channel. To rename every magenta panel, type the name under Export › Legend key › Channel names." To give that panel the others' name again, type it in the panel's own chip (`Membrane`): typing the name the colour already has under **Channel names** does not change it back (see [`verify/ISSUES.md`](verify/ISSUES.md)).
+- **Long names on merge tags.** A merge's tag lists its channels beside the panel letter. When long names (`mScarlet-Parkin`, `mito-GFP (OMP25)`) do not fit, the tag wraps onto more lines, or reads "Merge" if even that does not fit; the key and the caption still name every channel. The compliance report's **Text over text** row lists what was fitted ("Tags fitted to clear their letters: D wrapped to more lines; E wrapped to more lines; … — type a tag in ⚙ › Tag for your own wording."). For your own short tag, type it in the merge's **⚙ › Tag (shown on the panel)**.
 
-![Export › Legend key: Download key, the Place the key on the figure switch with its Where menu, and one Channel names field per colour](img/fluorescence-channel-names.png)
+![Export › Legend key: Download key, the Place the key on the figure switch with its place menu, and one Channel names field per colour](img/fluorescence-channel-names.png)
 
 ## 8. Check colours for colour-blind readers
 
@@ -95,11 +96,11 @@ The tags on the panels, the legend key and the legend text use one name per chan
 ## 9. Channel key and export
 
 1. In **Export**, tick **Place the key on the figure**. The key goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. This figure has none, so the right margin grows to make room and a toast says so: "The legend key needed free space, so the right margin grew from 16 to 162 px — it sits there without covering anything." (at eLife's 183 mm).
-2. To put it somewhere else, choose in the **Where** menu beside the switch: **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. You can also drag it. The compliance check's **Legend key on the figure** row says whether it covers anything.
+2. To put it somewhere else, choose a place in the menu beside the switch (it has no label on screen; the toasts call it **Where**): **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. You can also drag it. The compliance check's **Legend key on the figure** row says whether it covers anything.
 3. Click **⬇ Download key** for the standalone key file. It is written in the format of your last export (the button shows which, e.g. "⬇ Download key (PNG)").
 4. Under the caption helper, **Legend text starter** reads "DAPI (blue); GFP (green); Membrane (magenta)." Copy it into your legend. A channel shown in grey on its own panels and in colour in the merges is one entry: with both GFP panels set to **⚙ › Fluorescence LUT › Off**, it read "DAPI (blue); Membrane (magenta); GFP (greyscale; green in merges)."
 5. Click **✎ Write Methods paragraph**. It states the display ranges in native values, e.g. "GFP 400–12000 (panels B, D, E, G, I and J)". **✦ Generate Caption** gives the same ranges, grouped by channel: "Display ranges in the files’ own 16-bit values: DAPI 0–10000 (panels A, D, E, F, I and J); GFP 400–12000 …", and names each merge by its channels: "(D) Merge of DAPI (blue), GFP (green) and Membrane (magenta)."
-6. Export with **↓ PNG**, **↓ TIFF** or **↓ PDF lossless** in the toolbar and **Save** in the dialog. At eLife's width the test's PNG was 2161 px wide at 300 dpi (183.0 mm).
+6. Export in a format your journal takes: eLife takes TIFF or JPEG, so click **↓ TIFF** in the toolbar and **Save TIFF** in the dialog. At eLife's width the test's TIFF was 2161 px wide at 300 dpi (183.0 mm). The dialog warns when the format does not suit the journal: **↓ PNG** under eLife reads "⚠ eLife accepts TIFF or JPEG, not PNG."
 
 For journal presets, compliance, captions and the submission package, see [journal-submission.md](journal-submission.md).
 
@@ -129,7 +130,7 @@ Pick 16-bit files: an 8-bit file (a PNG, a JPEG) cannot hold a range in counts, 
 - **A panel took the wrong colour.** Auto-channels reads the last word of the file name. Rename the file, or set the colour under **⚙ › Fluorescence LUT**.
 - **≡ Sync by channel changed nothing on another panel.** That panel has a different channel name. Check the chips in the image list, or name both the same under **⚙ › Channel**.
 - **Some panels are outside the grid after a split.** Set **Arrange › Columns** to the number of panels in a row (4 here), as the split's toast says.
-- **The key is not where you want it.** Pick a place in **Export › Legend key › Where**, or drag it.
+- **The key is not where you want it.** Pick a place in the menu beside **Export › Legend key › Place the key on the figure**, or drag it.
 - **The key lists one colour as "Membrane / CellMask".** One panel's channel has another name. Type one name in **Export › Legend key › Channel names**.
 - **A merge still shows the old field after ⇄ Replace image.** Replace swaps its first channel only; swap the others with **⇄** in its **⚙ › Channels**.
 - **A replace toast says the display range "cannot be kept".** The new file is 8-bit. Undo and pick the 16-bit TIFF.

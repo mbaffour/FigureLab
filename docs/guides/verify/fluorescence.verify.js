@@ -264,13 +264,15 @@ const { step, expect, btn } = L;
     await rowByChip('CellMask').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
     const f = await p.evaluate(() => { const a = document.activeElement; return a.className + ' ph=' + a.placeholder; });
     expect(/f-chan ph=CellMask/.test(f), 'focused ' + f);
+    await L.toasts(T);
     await p.keyboard.type('Membrane'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    const t = (await L.toasts(T)).split(' | ').find(x => /this panel only/.test(x)) || '';
     await closeAllSettings();
     const chips = await p.locator('#img-list > .img-item').filter({ hasNotText: 'hidden' }).locator('button.f-chan-chip').allInnerTexts();
     const kt = await p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
     expect(chips.filter(c => c === 'Membrane').length === 1 && chips.includes('CellMask'), 'chips ' + chips);
     expect(/Membrane \/ CellMask \(magenta\)/.test(kt), 'key text: ' + kt);
-    return 'chips ' + chips.join(', ') + '; key text: ' + kt;
+    return (t ? 'toast "' + t + '"; ' : 'no toast; ') + 'chips ' + chips.join(', ') + '; key text: ' + kt;
   });
 
   await step(T, '11. Export › Legend key › Channel names: rename CellMask to Membrane on every panel', async () => {
@@ -284,6 +286,34 @@ const { step, expect, btn } = L;
     const dk = btn(T, '⬇ Download key');
     await L.shot(T, 'fluorescence-channel-names', await clipBetween(dk, p.locator('.key-name-in').last(), dk, 34), { doc: true });
     return names.join(', ') + ' → ' + kt;
+  });
+
+  // ux4 (fluor4-05): one panel named after the colour was named under Channel names
+  await step(T, '11b. After Channel names: a magenta panel\'s chip › "CellMask" renames that panel only and the toast says so; its chip back to Membrane unites them again', async () => {
+    await closeAllSettings();
+    await rowByChip('Membrane').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('CellMask'); await p.keyboard.press('Enter'); await p.waitForTimeout(600);
+    const t = (await L.toasts(T)).split(' | ').find(x => /this panel only/.test(x)) || '';
+    await closeAllSettings();
+    const keyText = () => p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
+    const k1 = await keyText();
+    const chips1 = await p.locator('#img-list > .img-item').filter({ hasNotText: 'hidden' }).locator('button.f-chan-chip').allInnerTexts();
+    expect(chips1.filter(c => c === 'CellMask').length === 1 && chips1.includes('Membrane'), 'chips ' + chips1);
+    expect(/^Panel \w+'s channel is now CellMask — this panel only; the other magenta panels \([^)]*\) keep Membrane\. ≡ Sync by channel now treats it as its own channel\. To rename every magenta panel, type the name under Export › Legend key › Channel names\./.test(t), 'toast: ' + t);
+    await L.openSection(T, 'Export');
+    const f = p.getByLabel('Name of the magenta channel');
+    const both = await f.inputValue();
+    // ISSUES (round 4): typing the name the other panels already have does not unite them
+    await f.fill('Membrane'); await f.press('Enter'); await p.waitForTimeout(500);
+    const kSame = await keyText();
+    // the chip back to Membrane does
+    await rowByChip('CellMask').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
+    await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('Membrane'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    await closeAllSettings();
+    const k2 = await keyText();
+    expect(k2 === 'DAPI (blue); GFP (green); Membrane (magenta).', 'key text after: ' + k2);
+    return `toast "${t}"; key "${k1}"; Channel names field "${both}"; Membrane typed there: "${kSame}"; chip back to Membrane: "${k2}"`;
   });
 
   await step(T, '12. Colour-blind view › Deuteranopia (screen only), then back to Normal vision', async () => {
@@ -432,12 +462,25 @@ const { step, expect, btn } = L;
     return kt + ' → ' + kt2;
   });
 
-  await step(T, '16. ↓ PNG › Save PNG', async () => {
-    const r = await L.exportVia(T, 'PNG', { name: 'Fig2_LC3' });
-    const info = L.pngInfo(fs.readFileSync(r.file));
-    expect(info.w > 1000, JSON.stringify(info));
+  // ux4 (fluor4): eLife takes TIFF or JPEG; the Save dialog warns on PNG
+  await step(T, '16. ↓ TIFF › Save TIFF (the ↓ PNG dialog warns that eLife does not take PNG)', async () => {
+    await btn(T, /^↓ PNG$/).click();
+    const m = p.locator('#preflight-modal'); await m.waitFor({ state: 'visible' });
+    const warn = ((await m.innerText()).match(/⚠ eLife accepts[^\n]*/) || [''])[0];
+    await m.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
+    expect(/^⚠ eLife accepts TIFF or JPEG, not PNG\./.test(warn), 'PNG dialog: ' + warn);
+    await btn(T, /^↓ TIFF$/).click();
+    await m.waitFor({ state: 'visible' }); await p.waitForTimeout(500);
+    await m.locator('#pf-name').fill('Fig2_LC3');
+    const dlg = (await m.innerText()).replace(/\s+/g, ' ');
+    expect(!/⚠ eLife accepts/.test(dlg), 'TIFF dialog: ' + dlg.slice(dlg.indexOf('Target journal'), dlg.indexOf('Target journal') + 400));
+    T._tiffDlg = dlg.slice(dlg.indexOf('Target journal'), dlg.indexOf('Save TIFF')).trim();
+    const file = await L.download(T, () => m.locator('button', { hasText: /^Save / }).first().click(), /./, 60000);
+    const r = { file };
+    const info = L.tiffInfo(fs.readFileSync(r.file));
+    expect(info.w > 1000 && Math.abs(info.xres - 300) < 1, JSON.stringify(info));
     await p.waitForTimeout(300);
-    return path.basename(r.file) + ' ' + info.w + '×' + info.h + ' px, ' + info.dpi + ' dpi (' + (info.w / info.dpi * 25.4).toFixed(1) + ' mm); toast "' + await toast() + '"';
+    return `PNG dialog "${warn}"; TIFF dialog "${T._tiffDlg}"; ${path.basename(r.file)} ${info.w}×${info.h} px, ${info.xres} dpi (${(info.w / info.xres * 25.4).toFixed(1)} mm); toast "${await toast()}"`;
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -568,6 +611,37 @@ const { step, expect, btn } = L;
     const n1 = await p.evaluate(() => images.filter(Boolean).length);
     expect(/It opened with White at/.test(note) && +w < 62000 && n1 === n0, JSON.stringify({ note, w, n1, n0 }));
     return 'White ' + w + ' — ' + note;
+  });
+
+  // ux4 (fluor4-01): long channel names — merge tags wrap beside their letter (or read Merge)
+  await step(T, '18. Long channel names: merge tags fit beside their letter (wrapped, or "Merge") and Text over text names them; names put back', async () => {
+    await L.openSection(T, 'Export');
+    const set = async (lab, v) => { const f = p.getByLabel(lab); await f.fill(v); await f.press('Enter'); await p.waitForTimeout(300); };
+    await set('Name of the magenta channel', 'mScarlet-Parkin'); await set('Name of the green channel', 'mito-GFP (OMP25)');
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(600);
+    const fit = await p.evaluate(() => images.filter(im => im && im._tagFit && !im.hidden).map(im => formatLabel(im.label) + ' ' + im._tagFit));
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const tot = ((await rep.innerText()).match(/\n([⚠✗✓ℹ])\nText over text\n([^\n]*)/) || []);
+    await p.keyboard.press('Escape');
+    await L.openSection(T, 'Export');
+    await set('Name of the magenta channel', 'Membrane'); await set('Name of the green channel', 'GFP');
+    expect(fit.length >= 1 && tot[1] !== '⚠' && tot[1] !== '✗' && /Tags fitted to clear their letters/.test(tot[2] || ''), 'fitted ' + JSON.stringify(fit) + ' | Text over text ' + JSON.stringify(tot.slice(1)));
+    return `fitted: ${fit.join(', ')}; Text over text ${tot[1]} "${(tot[2] || '').slice(0, 260)}"`;
+  });
+
+  // ux4 (fluor4-09): named fluorophores keep their names
+  await step(T, '19. A file ending _mScarlet.tif gets the chip mScarlet (its own name, not RFP)', async () => {
+    const f = I.fluorTiff(path.join(inp, 'C2-U2OS_DMSO_mScarlet.tif'), 'CellMask', { seed: 9 });
+    const n0 = await p.evaluate(() => images.filter(Boolean).length);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [f]);
+    await p.waitForFunction(n => images.filter(Boolean).length === n + 1, n0, { timeout: 10000 });
+    const r = p.locator('#img-list > .img-item').filter({ hasText: 'mScarlet' }).first();
+    const chip = await r.locator('button.f-chan-chip').innerText();
+    await r.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(400);
+    expect(chip === 'mScarlet', 'chip ' + chip);
+    return 'chip ' + chip;
   });
 
   await L.finish(T);
