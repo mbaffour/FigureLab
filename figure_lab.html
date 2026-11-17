@@ -4559,8 +4559,13 @@ async function replacePanelImage(pid, f){
   const extra=pm?[pm]:[];
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&(el.chart.link.ids||[]).includes(im.id))) extra.push('the chart linked to its densitometry is out of date until it is re-analysed (↻ Update from densitometry in the chart, or ⫼ Lanes & bands)');
   if(im.gelAnalysis&&typeof _allCharts==='function'&&_allCharts().some(el=>!el.chart.link&&el.chart.unlinked&&!el.chart.unlinked.own&&(el.chart.unlinked.ids||[]).includes(im.id))) extra.push('a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values');
+  // A panel others are normalised to (a phospho/total pair's total blot, a loading
+  // control): what reads it, and how it is paired again (blot5-07).
+  if(typeof _gelLoadingIdx==='function'){ const users=images.filter(p=>p&&p!==im&&p.gelAnalysis&&p.gelAnalysis.loading&&p.gelAnalysis.loading.id===im.id);
+    if(users.length){ const ch=typeof _allCharts==='function'&&_allCharts().some(el=>el.chart.link&&users.some(u=>(el.chart.link.ids||[]).includes(u.id)));
+      extra.push(`${_listAnd(users.map(u=>_chartPanelWho(u)))} ${users.length>1?'are':'is'} normalised to it — ${ch?'↻ Update from densitometry in the linked chart measures it again and pairs it again':'open ⫼ Lanes & bands on '+(users.length>1?'them':'it')+' and pick it again as '+(_gelLoadTarget(users[0].gelAnalysis)?'the other target':'the loading control')}`); } }
   if(im.gelAnalysis&&annotations.some(a=>a&&a.mw&&a.blotPanel===im.id)) extra.push('its MW labels sit where the old scan’s ladder bands were — the re-analysis moves them onto the new ladder, or ↕ Place MW labels again');
-  toast(`Panel ${_rtPlain(formatLabel(im.label)||'?')}: ${was} → ${d.name}${pg} — ${_replaceTail(plan,'crop, label and settings','crop and label',extra)}`, (plan.warn||pm)?'warn':'ok');
+  toast(`${_rtPlain(formatLabel(im.label))?'Panel '+_rtPlain(formatLabel(im.label)):_ucFirst(_panelWho(im))}: ${was} → ${d.name}${pg} — ${_replaceTail(plan,'crop, label and settings','crop and label',extra)}`, (plan.warn||pm)?'warn':'ok');
   return true;
 }
 // A freeform picture takes another file and keeps its place, width, crop, letter, caption
@@ -9028,6 +9033,109 @@ function _gelRequantLane(a,ctx,li){
   const m=_gelApplyBaseline(a,_gelLaneModel(a,ctx,L),L.bands);
   L.bands.forEach(b=>_gelQuantBand(a,ctx,m,b));
 }
+// ── Doublets (blot5-01) ────────────────────────────────────────
+// A partly resolved doublet (pERK1/2's p44/p42) has a shallow valley: where the signal is
+// strong it is split at the valley into two bands, where it is weaker it is read as one.
+// The same blot came back split in five lanes and one band in ten, a band position then
+// meant ERK2 alone in some lanes and both bands in others, and the 5-min peak charted 27%
+// low under "current". Within one panel a band position is now read the same way in every
+// lane: a doublet site is a touching pair split at the valley in two lanes or more, at the
+// same rows, where other lanes hold one band over both crowns. "auto" counts it as one
+// band (both summed) wherever the lanes disagree — always consistent, and what a whole-lane
+// divisor (a phospho/total pair's summed bands) measures; "one" sums every doublet, also
+// where every lane split; "two" cuts the lanes that read one band at the valley the split
+// lanes found. Lanes whose band count there still differs are named. Bands set by hand
+// (added, edges dragged) and lanes listed in skip are never touched.
+const GEL_DOUBLET_MODES={auto:'auto', one:'one', two:'two'};
+function _gelDoubletMode(a){ return a&&GEL_DOUBLET_MODES[a.doublets]?a.doublets:'auto'; }
+function _gelDoubletSites(a, skip){
+  const fr=a.frame, pairs=[], hand=b=>b.manual||b.resized;
+  a.lanes.forEach((L,li)=>{ if(skip&&skip.has(li)) return;
+    const B=L.bands.slice().sort((x,y)=>x.yc-y.yc);
+    for(let k=0;k+1<B.length;k++){ const p=B[k], q=B[k+1];
+      if(q.y0-p.y1<=1&&(p.split||q.split)&&!hand(p)&&!hand(q)) pairs.push({li, p, q, yv:(p.y1+q.y0)/2}); } });
+  pairs.sort((x,y)=>x.yv-y.yv);
+  const tol=Math.max(4, 0.03*fr.sh), groups=[];
+  pairs.forEach(pr=>{ const g=groups[groups.length-1];
+    if(g&&Math.abs(pr.yv-_gelMedian(g.map(x=>x.yv)))<=tol&&!g.some(x=>x.li===pr.li)) g.push(pr); else groups.push([pr]); });
+  return groups.filter(g=>g.length>=2).map(g=>{
+    const yv=_gelMedian(g.map(x=>x.yv)), c1=_gelMedian(g.map(x=>x.p.yc)), c2=_gelMedian(g.map(x=>x.q.yc)), d=Math.max(1,c2-c1);
+    const cen=_gelMedian(g.map(x=>{ const v=Math.max(0,x.p.volume)+Math.max(0,x.q.volume); return v>0?(x.p.yc*Math.max(0,x.p.volume)+x.q.yc*Math.max(0,x.q.volume))/v:(x.p.yc+x.q.yc)/2; }));
+    const one=[], odd=[];
+    a.lanes.forEach((L,li)=>{ if((skip&&skip.has(li))||g.some(x=>x.li===li)) return;
+      const b=L.bands.find(b=>b.y0<=c1+0.25*d&&b.y1>=c2-0.25*d);
+      if(b&&!hand(b)) one.push({li,b});
+      else if(!b) odd.push(li); });
+    return {yv, c1, c2, cen, pairs:g, one, odd};
+  });
+}
+// Apply the panel's doublet setting to its bands, re-quantify the lanes it changed, and
+// record what was found (a.doubletSites) for the dialog, the chart and compliance.
+function _gelDoubletsApply(a, ctx, skip){
+  const mode=_gelDoubletMode(a), fr=a.frame, sites=_gelDoubletSites(a, skip), out=[];
+  const dirty=new Set();
+  const rfOf=y=>(y-fr.sy)/fr.sh;
+  sites.forEach(s=>{
+    const mixed=s.one.length>0, act=mode==='two'?(mixed?'two':null):(mode==='one'||mixed)?'one':null;
+    const rec={rf:rfOf(s.yv), rf1:rfOf(s.c1), rf2:rfOf(s.c2), split:s.pairs.map(x=>x.li).sort((x,y)=>x-y), one:s.one.map(x=>x.li).sort((x,y)=>x-y),
+      odd:s.odd.slice(), applied:act, cut:[]};
+    // Bands read as one over both crowns are the doublet too ("merged?" said it might be two).
+    if(act==='one') s.one.forEach(({b})=>{ b.doublet=true; delete b.merged; });
+    if(act==='one') s.pairs.forEach(({li,p,q})=>{ const L=a.lanes[li];
+      const nb={y0:p.y0, y1:q.y1, doublet:true};
+      L.bands=L.bands.filter(b=>b!==p&&b!==q); L.bands.push(nb); dirty.add(li); });
+    if(act==='two'&&ctx) s.one.forEach(({li,b})=>{ const L=a.lanes[li], m=_gelLaneModel(a,ctx,L);
+      // The valley where the split lanes found it, moved with this band (a smile or tilt).
+      const sh=b.yc-s.cen, lo=Math.max(Math.round(s.c1+sh-fr.sy)+1, Math.round(b.y0-fr.sy)+1), hi=Math.min(Math.round(s.c2+sh-fr.sy)-1, Math.round(b.y1-fr.sy)-1);
+      let v=-1; for(let r=Math.max(1,lo);r<=Math.min(m.Ds.length-2,hi);r++) if(m.Ds[r]<=m.Ds[r-1]&&m.Ds[r]<=m.Ds[r+1]&&(v<0||m.Ds[r]<m.Ds[v])) v=r;
+      if(v<0) v=Math.round(s.yv+sh-fr.sy);
+      const y=fr.sy+v; if(!(y>b.y0+1&&y<b.y1-1)){ rec.odd.push(li); return; }
+      L.bands=L.bands.filter(o=>o!==b); L.bands.push({y0:b.y0, y1:y, split:true, cut:true}, {y0:y, y1:b.y1, split:true, cut:true});
+      rec.cut.push(li); dirty.add(li); });
+    rec.odd.sort((x,y)=>x-y);
+    out.push(rec);
+  });
+  if(ctx) dirty.forEach(li=>{ a.lanes[li].bands.sort((x,y)=>x.y0-y.y0); _gelRequantLane(a,ctx,li); a.lanes[li].bands.sort((x,y)=>x.yc-y.yc); });
+  if(out.length) a.doubletSites=out; else delete a.doubletSites;
+  return out;
+}
+// A site in words, by size when the ladder gives one: "the doublet at 42.6–44.1 kDa".
+function _gelDoubletWhere(a, s){
+  const fit=a.ladder&&a.ladder.fit, k=rf=>Math.pow(10,fit.intercept+fit.slope*rf);
+  return fit?`the doublet at ${_gelFmt(Math.min(k(s.rf1),k(s.rf2)),1)}–${_gelFmt(Math.max(k(s.rf1),k(s.rf2)),1)} kDa`:`the doublet at Rf ${_gelFmt(s.rf,2)}`;
+}
+// Lanes whose band count at a doublet differs from most lanes' (the ladder lane aside),
+// counted on the bands as they are now — after any hand edit.
+function _gelDoubletOdd(a, s){
+  const F=a.frame, y1=F.sy+s.rf1*F.sh, y2=F.sy+s.rf2*F.sh, d=Math.max(1,y2-y1);
+  const n=a.lanes.map((L,li)=>(a.ladder&&a.ladder.lane===li)?null:L.bands.filter(b=>b.yc>=y1-d&&b.yc<=y2+d&&b.y0<y2+d/2&&b.y1>y1-d/2).length);
+  const c=new Map(); n.forEach(k=>{ if(k!=null) c.set(k,(c.get(k)||0)+1); });
+  const mode=[...c.entries()].sort((p,q)=>q[1]-p[1]||q[0]-p[0])[0];
+  // A lane with no band there at all is n.d. on a chart, and said so; the lanes named here
+  // are those read with another number of bands (two where most have one, or one of two).
+  return mode?n.map((k,li)=>k&&k!==mode[0]?li:-1).filter(li=>li>=0):[];
+}
+// One line per site for the dialog: what detection found and what is measured.
+function _gelDoubletText(a, s){
+  const ls=xs=>_gelLaneList(xs.map(i=>i+1)), w=_gelDoubletWhere(a,s), odd=_gelDoubletOdd(a,s);
+  const found=s.one.length?`split into two bands in lane${s.split.length>1?'s':''} ${ls(s.split)} and read as one band in lane${s.one.length>1?'s':''} ${ls(s.one)}`:`split into two bands in every lane that holds it`;
+  const now=s.applied==='one'?'counted as one band (both summed) in every lane':s.applied==='two'?`counted as two bands in every lane (lane${s.cut.length>1?'s':''} ${ls(s.cut)} cut at the valley the others show)`:'two bands in every lane';
+  return `${_ucFirst(w)} was ${found} — ${now}${odd.length?`; lane${odd.length>1?'s':''} ${ls(odd)} hold${odd.length>1?'':'s'} a different number of bands there — check ${odd.length>1?'them':'it'} on the lane profile`:''}`;
+}
+// "2–4, 9 and 11–16"
+function _gelLaneList(ns){
+  const s=ns.slice().sort((x,y)=>x-y), runs=[];
+  s.forEach(n=>{ const r=runs[runs.length-1]; if(r&&n===r[1]+1) r[1]=n; else runs.push([n,n]); });
+  return _listAnd(runs.map(([x,y])=>x===y?String(x):y===x+1?`${x}, ${y}`:`${x}–${y}`));
+}
+// Change the doublet setting: the panel is detected again with it (hand edits carried
+// over as on any re-detection). One undo step.
+function gelSetDoublets(idx, mode){
+  idx=_gelPanelIdx(idx); const im=images[idx]; if(!im||!im.gelAnalysis) return false;
+  mode=GEL_DOUBLET_MODES[mode]?mode:'auto';
+  if(_gelDoubletMode(im.gelAnalysis)===mode) return false;
+  return runGelAnalysis(idx,{doublets:mode});
+}
 // The samples an edit re-quantifies on. An analysis made on native 16-bit samples
 // cannot be re-quantified on 8-bit pixels (a saved session does not keep im.raw), or
 // one table would mix two sources.
@@ -9063,7 +9171,7 @@ function _gelAnalyse(im,opts){
       rejected:li.rejected.map(q=>({x0:fr.sx+q.c0, x1:fr.sx+q.c1+1, why:q.why}))},
     baseline:_gelBaselineFrom(opts,win),
     lanes:lanes.map(L=>({x0:fr.sx+L.c0, x1:fr.sx+L.c1+1, inferred:!!L.inferred, end:L.end?true:undefined, bands:[]})),
-    refLane:null, loading:null, ladder:null, edits:0 };
+    refLane:null, loading:null, ladder:null, edits:0, ...(GEL_DOUBLET_MODES[opts.doublets]&&opts.doublets!=='auto'?{doublets:opts.doublets}:{}) };
   _gelDetectBands(a,{fr,S});
   // With no window given, a band that nearly fills the default one widens it to 2.5×
   // the tallest band, and detection runs again; the widening is recorded.
@@ -9077,6 +9185,9 @@ function _gelAnalyse(im,opts){
       _gelDetectBands(a,{fr,S});
     }
   }
+  // A doublet read one way in some lanes and the other way in others is read one way in
+  // all (blot5-01). runGelAnalysis does this itself, after the hand edits are carried over.
+  if(!opts.noDoublets) _gelDoubletsApply(a,{fr,S},null);
   return a;
 }
 
@@ -9288,8 +9399,11 @@ function _gelLoadMode(a){ return a&&a.loading&&a.loading.mode==='total'?'total':
 // loading band is, but no loading control, and never called one (blot4-05).
 function _gelLoadTarget(a){ return !!(a&&a.loading&&a.loading.target); }
 // The other target by what it shows: "AKT-total (panel B)".
+// Its tag or caption note, else its row heading ("ERK1/2"), else its file (blot5-11: the
+// caption and Methods named the total blot "2026-11-12_ERK-total_iBright_16bit").
 function _gelTargetName(a){ const lc=images[_gelLoadingIdx(a)], L=_gelLoadingLabel(a);
-  const t=lc?_rtText(String(lc.tag||lc.captionNote||'').trim())||String(_sourceName(lc)||'').replace(/\.[a-z0-9]{2,4}$/i,''):'';
+  const row=lc&&layoutMode!=='freeform'&&typeof _captionHeadings==='function'?((_captionHeadings().get(lc)||{}).row||''):'';
+  const t=lc?_rtText(String(lc.tag||lc.captionNote||'').trim())||_rtText(String(row).trim())||String(_sourceName(lc)||'').replace(/\.[a-z0-9]{2,4}$/i,''):'';
   // A letter is "panel B"; a strip named by its tag, row or file is named by that.
   if(/^[A-Za-z0-9]{1,3}$/.test(L)) return t?`${t} (panel ${L})`:`panel ${L}`;
   return t||L; }
@@ -9376,7 +9490,7 @@ function _gelRows(a,im){
       const r={lane:li+1, laneIdx:li, band:bi+1, bandIdx:bi, x0:L.x0, x1:L.x1, inferred:!!L.inferred,
         y0:b.y0, y1:b.y1, yc:b.yc, rf:_gelRf(a,b), volume:b.volume, saturated:!!b.saturated, clipped:b.clipped||0,
         partial:!!b.partial, edge:!!b.edge, overlap:!!b.overlap, slope:!!b.slope, merged:!!b.merged, split:!!b.split, nearNoise:!!b.nearNoise, se:b.se,
-        manual:!!b.manual, resized:!!b.resized, peak:b.peak, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null,
+        manual:!!b.manual, resized:!!b.resized, doublet:!!b.doublet, cut:!!b.cut, peak:b.peak, pctLane:null, relRef:null, normLC:null, normLCRef:null, kda:null, extrapolated:false, marker:null,
         // The paired loading lane could not be used (clipped or cut): no normalised value, and said so.
         lcFlag:(lcOK&&a.loading.lanes[li]&&a.loading.lanes[li].saturated)?(a.loading.lanes[li].partial?'PARTIAL':a.loading.lanes[li].overlap?'OVERLAP':'SATURATED'):''};
       // A saturated or cut band is an underestimate, and so is every share computed with it.
@@ -9397,6 +9511,20 @@ function _gelSatCount(a){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.s
 // "lanes 2 and 3 (top)": lanes with band-strength signal on the crop's edge rows that no band holds.
 function _gelEdgeLanes(a){ return a?a.lanes.map((L,i)=>L.edgeSignal?`${i+1} (${L.edgeSignal})`:null).filter(Boolean):[]; }
 function _gelFlagCount(a,k){ return a?a.lanes.reduce((s,L)=>s+L.bands.filter(b=>b[k]).length,0):0; }
+// Lanes much wider than the others: two faint neighbours run together into one, and every
+// later lane numbered one short — the reference lane and the pairing with another blot
+// moved with them, without a word (blot5-14). Auto-detected lanes only.
+function _gelWideLanes(a){
+  if(!a||a.laneMode==='forced'||(a.laneInfo&&a.laneInfo.whole)||a.lanes.length<4) return [];
+  const w=a.lanes.map(L=>L.x1-L.x0), med=_gelMedian(w);
+  const c=a.lanes.map(L=>(L.x0+L.x1)/2), pitch=(a.laneInfo&&a.laneInfo.pitch)||_gelMedian(c.slice(1).map((x,i)=>x-c[i]))||med;
+  return med>0?a.lanes.map((L,i)=>w[i]>1.5*med&&!L.manual?{lane:i+1, w:Math.round(w[i]), med:Math.round(med), n:Math.max(2,Math.round(w[i]/pitch))}:null).filter(Boolean):[];
+}
+function _gelWideText(a){
+  const W=_gelWideLanes(a); if(!W.length) return '';
+  const more=W.reduce((s,q)=>s+Math.max(1,q.n-1),0);
+  return `${W.map(q=>`lane ${q.lane} is ${q.w} px wide against ${q.med} px for most lanes`).join('; ')} — ${W.length>1?'they':'it'} may be two lanes run together (faint lanes side by side); if so, type ${a.lanes.length+more} in Lanes and ↻ Re-detect`;
+}
 // How the lanes were placed, in words: every inferred lane, and every feature set aside.
 function _gelLaneNote(a){
   const I=a.laneInfo||{}, parts=[], ls=xs=>`lane${xs.length>1?'s':''} ${_listAnd(xs.map(String))}`;
@@ -9405,6 +9533,7 @@ function _gelLaneNote(a){
   if(I.whole) parts.push('the whole crop width was measured as one lane');
   if(gap.length) parts.push(`${ls(gap)} inferred between detected lanes from the ${p}lane pitch (no signal)`);
   if(end.length) parts.push(`${ls(end)} inferred at the end of the gel from the ${p}lane pitch (no signal) — if that is margin rather than an empty lane, set the lane count`);
+  { const w=_gelWideText(a); if(w) parts.push(w); }
   (I.rejected||[]).forEach(q=>parts.push(`${q.why==='narrow'?'a feature too narrow for a lane (a scratch or streak?)':q.why==='edge'?'a rise into the crop edge':'a feature too faint for a lane'} at x ${Math.round(q.x0)}–${Math.round(q.x1)} was not counted as a lane`));
   return parts.join('; ');
 }
@@ -9482,6 +9611,9 @@ function runGelAnalysis(idx,opts){
   // dialog's Re-detect passes its Lanes field, and an empty field means auto-detect.
   const unnamed=opts.laneCount===undefined;
   if(prev&&unnamed&&prev.laneMode==='forced'&&+prev.laneCount>0) opts.laneCount=prev.laneCount;
+  // The doublet setting is the user's too (blot5-01); it is applied after the hand edits.
+  if(prev&&opts.doublets==null&&prev.doublets) opts.doublets=prev.doublets;
+  opts.noDoublets=true;
   const moved=prev?_gelStaleWhy(im):null;
   let a=_gelAnalyse(im,opts), laneKept=null;
   if(a.error){ toast(a.error,'warn'); return false; }
@@ -9504,7 +9636,10 @@ function runGelAnalysis(idx,opts){
     else if(prev.loadingDropped) a.loadingDropped=prev.loadingDropped;
   }
   _gelApplyLadder(a);
-  const kept=_gelReapplyEdits(a, prev);
+  const kept=_gelReapplyEdits(a, prev, im);
+  { const ctx=_gelCtx(im,a);
+    // Bands made by hand are never re-read (_gelDoubletSites leaves them alone).
+    if(!ctx.error) _gelDoubletsApply(a, ctx, new Set(a.ladder?[a.ladder.lane]:[])); }
   pushUndo();
   im.gelAnalysis=a;
   if(typeof logAction==='function') logAction('gelAnalysis',{label:im.label, lanes:a.lanes.length, source:a.source, ...(laneKept?{laneCountKept:laneKept.n, autoFound:laneKept.found}:{}), ...(dropped?{loadingDropped:a.loadingDropped.why}:{})});
@@ -9513,9 +9648,12 @@ function runGelAnalysis(idx,opts){
   // these at once with "1 chart updated" (one toast shows at a time).
   const said=[];
   if(laneKept) said.push(`${laneKept.n} lanes kept as before — auto-detection found ${laneKept.found} on the ${moved==='image'?'new image':'new crop'}; if it really has ${laneKept.found}, type ${laneKept.found} in Lanes and ↻ Re-detect`);
-  if(kept.deleted||kept.added||kept.lost||kept.bandLost) said.push([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
-    kept.lost||kept.bandLost?`${kept.lost?`${kept.lost} band${kept.lost>1?'s':''} you had deleted`:''}${kept.lost&&kept.bandLost?' and ':''}${kept.bandLost?'the band picked to chart':''} could not be found again (the crop or the lanes changed and no ladder gives sizes) — ${kept.lost&&kept.bandLost?'delete them and pick it again':kept.lost?'delete them again':'pick it again'}`:'',
-    kept.added?`${kept.added} band${kept.added>1?'s':''} you had added by hand ${kept.added>1?'were':'was'} not re-made — click ${kept.added>1?'them':'it'} in again`:''].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection');
+  const keptN=kept.carried.length, lostE=kept.lostWhat.length;
+  if(kept.deleted||keptN||kept.lost||kept.bandLost) said.push([kept.deleted?`${kept.deleted} band${kept.deleted>1?'s':''} you had deleted ${kept.deleted>1?'were':'was'} found again and deleted again (${kept.where.join(', ')})`:'',
+    keptN?`${keptN} band edit${keptN>1?'s':''} made by hand ${keptN>1?'were':'was'} made again (${kept.carried.join(', ')})`:'',
+    kept.lost||kept.bandLost?`${kept.lost?`${kept.lost} band${kept.lost>1?'s':''} you had deleted`:''}${kept.lost&&kept.bandLost?' and ':''}${kept.bandLost?'the band picked to chart':''} could not be found again (the crop or the lane count changed, and no ladder gives sizes to place them by) — ${kept.lost&&kept.bandLost?'delete them and pick it again':kept.lost?'delete them again':'pick it again'}`:'',
+    ].filter(Boolean).join('; ')+' — ↶ Undo goes back to before the re-detection');
+  if(lostE) said.push(`⚠ NOT carried over: ${kept.lostWhat.join('; ')} — those lanes are measured as detected, not as you edited them: redo the edits in ⫼ Lanes & bands`);
   if(!a.lanes.length) said.push(`No lanes found in panel ${_rtText(formatLabel(im.label))||idx+1} — if the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting`);
   else {
     if(dropped) said.push(dropped);
@@ -9528,7 +9666,7 @@ function runGelAnalysis(idx,opts){
   if(mw) said.push(mw);
   _gelRunNotes=said.slice();
   _gelRefresh();
-  if(_gelRunNotes&&_gelRunNotes.length) toast(_gelRunNotes.join('; '), (laneKept||dropped||!a.lanes.length||kept.deleted||kept.added||kept.lost||kept.bandLost||/not moved|stale/.test(mw||''))?'warn':'ok');
+  if(_gelRunNotes&&_gelRunNotes.length) toast(_gelRunNotes.join('; '), (laneKept||dropped||!a.lanes.length||kept.deleted||keptN||kept.lost||kept.bandLost||lostE||/not moved|stale/.test(mw||''))?'warn':'ok');
   _gelRunNotes=null;
   return true;
 }
@@ -9557,7 +9695,7 @@ function gelSetLane(idx,li,x0,x1){
     x0=fr.sx+Math.round(Math.max(lo,Math.min(+x0,+x1))-fr.sx); x1=fr.sx+Math.round(Math.min(hi,Math.max(+x0,+x1))-fr.sx);
     if(x1-x0<2) return false;
     if(x0===L.x0&&x1===L.x1) return false;
-    L.x0=x0; L.x1=x1; L.manual=true; a.edits=(a.edits||0)+1;
+    L.x0=x0; L.x1=x1; L.manual=true; a.edits=(a.edits||0)+1; _gelTouchLane(a,li);
     _gelRequantLane(a,ctx,li);
   });
 }
@@ -9566,31 +9704,87 @@ function gelDeleteBand(idx,li,bi){
     // Where it was, so a re-detection (a re-crop, a replaced scan) deletes it again.
     const rf=_gelRf(a,L.bands[bi]), fit=a.ladder&&a.ladder.fit;
     a.deleted=(a.deleted||[]).concat({lane:li, rf, kda:fit&&a.ladder.lane!==li?Math.pow(10,fit.intercept+fit.slope*rf):null, h:(L.bands[bi].y1-L.bands[bi].y0)/a.frame.sh, frame:_gelFrameKey(a)});
-    L.bands.splice(bi,1); a.edits=(a.edits||0)+1; });
+    L.bands.splice(bi,1); a.edits=(a.edits||0)+1; _gelTouchLane(a,li); });
 }
-// A re-detection finds every band again, those deleted by hand too. Each deletion is
+// A lane edited by hand after a re-detection could not carry its earlier edits over has
+// been looked at: it is no longer listed as "not carried over".
+function _gelTouchLane(a,li){ const E=a.editsLost; if(!E) return;
+  E.lanes=(E.lanes||[]).filter(x=>x!==li);
+  if(!E.lanes.length) delete a.editsLost; }
+// "✓ Checked": the lanes whose hand edits were not carried over have been checked.
+function gelEditsChecked(idx){ return _gelEdit(idx,a=>{ if(!a.editsLost) return false; delete a.editsLost; }); }
+// A re-detection finds every band again, those deleted by hand too. Each hand edit is
 // re-applied at its position (same lane; ±10% in kDa with a ladder, else within half a
-// band height in Rf) and said; bands added by hand are not re-made, and that is said.
+// band height in Rf) and said; one that cannot be placed is said, and stays said.
 // Where a band is: by size when a ladder is fitted, else by Rf and lane number, which
 // mean the same only on the same crop with the same lanes.
 function _gelFrameKey(a){ const f=a.frame; return [Math.round(f.sx),Math.round(f.sy),Math.round(f.sw),Math.round(f.sh),a.lanes.length].join('|'); }
-function _gelReapplyEdits(a, prev){
-  const out={deleted:0, where:[], added:0, lost:0, bandLost:false};
+function _gelReapplyEdits(a, prev, im){
+  const out={deleted:0, where:[], added:0, lost:0, bandLost:false, carried:[], lostWhat:[], lanes:new Set(), lostLanes:new Set()};
   if(!prev) return out;
-  const fit=a.ladder&&a.ladder.fit, same=_gelFrameKey(a)===_gelFrameKey(prev);
+  const fit=a.ladder&&a.ladder.fit, pfit=prev.ladder&&prev.ladder.fit, same=_gelFrameKey(a)===_gelFrameKey(prev);
   if(prev.chartBand){ if((prev.chartBand.kda>0&&fit)||same) a.chartBand=prev.chartBand; else out.bandLost=true; }
-  (prev.deleted||[]).forEach(d=>{ const L=a.lanes[d.lane];
-    if(!L||!((d.kda>0&&fit)||(d.frame?d.frame===_gelFrameKey(a):same))){ out.lost++; return; }
+  const F=a.frame, PF=prev.frame;
+  // Lanes are matched by number: with another lane count, lane 5 is another sample, and no
+  // edit is placed on it (a 15-lane analysis re-detected as 16 used to shift every one).
+  const sameLanes=a.lanes.length===prev.lanes.length;
+  const kdaAt=y=>pfit?Math.pow(10,pfit.intercept+pfit.slope*((y-PF.sy)/PF.sh)):null;
+  // Where a row of the old analysis is on the new one, or null.
+  const rowOf=y=>{ if(pfit&&fit){ const k=kdaAt(y), rf=(Math.log10(k)-fit.intercept)/fit.slope; return F.sy+rf*F.sh; } return same?y:null; };
+  const at=(li,y)=>{ const k=pfit&&!(prev.ladder&&prev.ladder.lane===li)?kdaAt(y):null; return k?`${_gelFmt(k,1)} kDa`:`Rf ${_gelFmt((y-PF.sy)/PF.sh,2)}`; };
+  const ctx=im?_gelCtx(im,a):{error:'no panel'}, dirty=new Set();
+  // Lane edges set by hand: only on the same image and crop (a new scan moves the lanes).
+  const sameImg=same&&prev.fp!=null&&prev.fp===a.fp;
+  prev.lanes.forEach((L,li)=>{ if(!L.manual) return;
+    const N=a.lanes[li];
+    if(sameImg&&N&&a.lanes.length===prev.lanes.length){ N.x0=L.x0; N.x1=L.x1; N.manual=true; dirty.add(li); out.lanes.add(li); out.carried.push(`lane ${li+1}'s edges`); }
+    else { out.lostWhat.push(`lane ${li+1}'s edges, set by hand`); out.lostLanes.add(li); } });
+  // Bands added or re-edged by hand.
+  const made=new Map();
+  prev.lanes.forEach((L,li)=>L.bands.forEach(b=>{ if(!b.manual&&!b.resized) return;
+    const what=`lane ${li+1}: the band ${b.manual?'added':'with edges set'} by hand at ${at(li,(b.y0+b.y1)/2)}`;
+    const N=sameLanes?a.lanes[li]:null, y0=rowOf(b.y0), y1=rowOf(b.y1);
+    if(!N||ctx.error||y0==null||y1==null){ out.lostWhat.push(what); out.lostLanes.add(li); return; }
+    const snap=v=>F.sy+Math.round(Math.max(0,Math.min(F.H,v-F.sy)));
+    const n0=snap(Math.min(y0,y1)), n1=snap(Math.max(y0,y1));
+    if(!(n1-n0>=1)){ out.lostWhat.push(what); out.lostLanes.add(li); return; }
+    const mine=made.get(li)||[];
+    if(mine.some(m=>m.y0<n1&&m.y1>n0)){ out.lostWhat.push(what); out.lostLanes.add(li); return; }
+    // Detected bands centred inside it are what it replaces; neighbours reaching into it give way.
+    N.bands=N.bands.filter(o=>mine.includes(o)||!(o.yc>=n0&&o.yc<n1));
+    N.bands.forEach(o=>{ if(mine.includes(o)) return; if(o.yc<n0&&o.y1>n0) o.y1=n0; if(o.yc>=n1&&o.y0<n1) o.y0=n1; });
+    N.bands=N.bands.filter(o=>o.y1>o.y0);
+    const nb={y0:n0, y1:n1, ...(b.manual?{manual:true}:{}), ...(b.resized?{resized:true}:{})};
+    N.bands.push(nb); mine.push(nb); made.set(li,mine); dirty.add(li); out.lanes.add(li);
+    out.carried.push(`lane ${li+1} ${b.manual?'band added':'edges'} at ${at(li,(b.y0+b.y1)/2)}`);
+    if(b.manual) out.added++; }));
+  (prev.deleted||[]).forEach(d=>{ const L=sameLanes?a.lanes[d.lane]:null;
+    if(!L||!((d.kda>0&&fit)||(d.frame?d.frame===_gelFrameKey(a):same))){ out.lost++; out.lostLanes.add(d.lane); return; }
+    const mine=made.get(d.lane)||[];
+    const yd=d.kda>0&&fit&&a.ladder.lane!==d.lane?F.sy+F.sh*(Math.log10(d.kda)-fit.intercept)/fit.slope:F.sy+F.sh*d.rf;
+    // Inside a band re-made by hand: part of that edit (ERK1 deleted, ERK2 widened over it).
+    if(mine.some(m=>yd>=m.y0&&yd<m.y1)){ out.deleted++; out.lanes.add(d.lane); out.where.push(`lane ${d.lane+1} at ${d.kda>0?_gelFmt(d.kda,1)+' kDa':'Rf '+_gelFmt(d.rf,2)}`); return; }
     let best=-1, bd=Infinity;
-    L.bands.forEach((b,bi)=>{ const rf=_gelRf(a,b);
+    L.bands.forEach((b,bi)=>{ if(mine.includes(b)) return; const rf=_gelRf(a,b);
+      // About the same height too: a deleted half of a doublet is not the whole doublet.
+      if(d.h>0){ const h=(b.y1-b.y0)/F.sh; if(h>2*d.h||h<0.5*d.h) return; }
       let dd;
       if(d.kda>0&&fit&&a.ladder.lane!==d.lane){ dd=Math.abs(Math.log(Math.pow(10,fit.intercept+fit.slope*rf)/d.kda)); if(dd>Math.log(1.1)) return; }
-      else { dd=Math.abs(rf-d.rf); if(dd>Math.max(0.03,(d.h||0)/2,(b.y1-b.y0)/2/a.frame.sh)) return; }
+      else { dd=Math.abs(rf-d.rf); if(dd>Math.max(0.03,(d.h||0)/2,(b.y1-b.y0)/2/F.sh)) return; }
       if(dd<bd){ bd=dd; best=bi; } });
-    if(best>=0){ L.bands.splice(best,1); out.deleted++; out.where.push(`lane ${d.lane+1} at ${d.kda>0?_gelFmt(d.kda,1)+' kDa':'Rf '+_gelFmt(d.rf,2)}`); }
+    if(best>=0){ L.bands.splice(best,1); out.deleted++; out.lanes.add(d.lane); dirty.add(d.lane); out.where.push(`lane ${d.lane+1} at ${d.kda>0?_gelFmt(d.kda,1)+' kDa':'Rf '+_gelFmt(d.rf,2)}`); }
   });
   if(prev.deleted&&prev.deleted.length&&!out.lost) a.deleted=prev.deleted.slice();
-  out.added=prev.lanes.reduce((s,L)=>s+L.bands.filter(b=>b.manual).length,0);
+  if(!ctx.error) dirty.forEach(li=>{ a.lanes[li].bands.sort((x,z)=>x.y0-z.y0); _gelRequantLane(a,ctx,li); a.lanes[li].bands.sort((x,z)=>x.yc-z.yc); });
+  if(out.carried.length||out.deleted) a.edits=Math.max(a.edits||0, prev.edits||1);
+  // What could not be carried over stays said until those lanes are looked at again.
+  const lostAll=out.lostWhat.slice();
+  if(out.lost) lostAll.push(`${out.lost} band${out.lost>1?'s':''} deleted by hand (lane${out.lostLanes.size>1?'s':''} ${_gelLaneList([...out.lostLanes].map(i=>i+1))})`);
+  // On a new crop when only the crop moved; on a new image when the picture changed.
+  const k0=String(prev.cropKey||'').split('|'), k1=String(a.cropKey||'').split('|');
+  const on=(k0[0]!==k1[0]||k0[1]!==k1[1])?'image':k0.slice(2).join('|')!==k1.slice(2).join('|')?'crop':'image';
+  if(lostAll.length) a.editsLost={what:lostAll, lanes:[...out.lostLanes].sort((x,y)=>x-y), on};
+  else if(prev.editsLost) a.editsLost=prev.editsLost;
   return out;
 }
 // A band the user points at: the nearest local peak above background, walked to 10%
@@ -9612,7 +9806,7 @@ function gelAddBand(idx,li,y){
     L.bands.forEach(b=>{ if(b.yc<=fr.sy+r+0.5&&b.y1>y0) y0=b.y1; if(b.yc>fr.sy+r+0.5&&b.y0<y1) y1=b.y0; });
     if(y1-y0<1) return false;
     const band=_gelQuantBand(a,ctx,m,{y0,y1,manual:true});
-    L.bands.push(band); L.bands.sort((x,z)=>x.yc-z.yc);
+    L.bands.push(band); L.bands.sort((x,z)=>x.yc-z.yc); _gelTouchLane(a,li);
     // A valley-to-valley background is anchored between bands, so a new band moves it
     // under its neighbours too.
     if(_gelBgMethod(a)!=='rolling minimum') _gelRequantLane(a,ctx,li);
@@ -9632,10 +9826,10 @@ function gelSetBandBounds(idx,li,bi,y0,y1){
     const n0=snap(Math.max(lo,Math.min(+y0,+y1))), n1=snap(Math.min(hi,Math.max(+y0,+y1)));
     if(!(n1-n0>=1)) return false;
     if(n0===b.y0&&n1===b.y1) return false;
-    b.y0=n0; b.y1=n1; b.resized=true;
+    b.y0=n0; b.y1=n1; b.resized=true; _gelTouchLane(a,li);
     // "split" said the band was divided from a touching neighbour at the valley; a
     // boundary set by hand is no longer that.
-    delete b.split;
+    delete b.split; delete b.cut;
     a.edits=(a.edits||0)+1;
     _gelRequantLane(a,ctx,li);
     L.bands.sort((x,z)=>x.yc-z.yc);
@@ -9773,7 +9967,9 @@ function gelCSV(idx){
     `# Bands cut by the crop edge: ${_gelFlagCount(a,'edge')}${_gelFlagCount(a,'edge')?' — they reach the crop\'s first or last row; their volumes are partial and are excluded from every ratio (cut_by_crop_edge)':''}${_gelEdgeLanes(a).length?`; lane${_gelEdgeLanes(a).length>1?'s':''} ${_listAnd(_gelEdgeLanes(a))} have band-strength signal on the crop's edge rows in no band — a band cut by the crop (or the strip above a well), not measured`:''}`,
     ...(_gelFlagCount(a,'overlap')?[`# Overlapping bands: ${_gelFlagCount(a,'overlap')} — the valley between touching bands sits above the lane's floor (over 5% of the smaller band's net peak), so valley-to-valley under-measures both; excluded from every ratio — use the rolling minimum (overlapping_tails)`]:[]),
     ...(_gelFlagCount(a,'slope')?[`# Sloping background: ${_gelFlagCount(a,'slope')} band(s) where the lane's background trend changes across the band by over 5% of its net peak; the background follows it (the rolling minimum is taken off each lane's straight-line trend) (sloping_background)`]:[]),
-    `# Band flags: merged? = a shoulder or a second crown inside one band (its volume is the total of what may be two bands); split = two touching bands divided at the valley between them; near noise = the volume is under 10 noise SEs (volume_noise_se)`,
+    `# Band flags: merged? = a shoulder or a second crown inside one band (its volume is the total of what may be two bands); split = two touching bands divided at the valley between them; doublet = both bands of a partly resolved doublet measured as one; cut = one band over a doublet cut at the valley the other lanes show; near noise = the volume is under 10 noise SEs (volume_noise_se)`,
+    ...(a.doubletSites||[]).map(st=>`# Doublet: ${_gelDoubletText(a,st)}`),
+    ...(a.editsLost?[`# WARNING — hand edits not carried over to the ${a.editsLost.on==='image'?'new image':'new crop'}: ${a.editsLost.what.join('; ')}`]:[]),
     `# Reference lane: ${a.refLane!=null?a.refLane+1:'none'}`,
     `# Loading control: ${!a.loading?'none':lcStale?`STALE — ${lcStale}`:_gelLoadMode(a)==='total'
       ?`total protein in panel ${lcLab}, whole-lane signal, lanes paired by order (${a.loading.from}; ${a.loading.sourceLabel}; ${a.loading.lanes.length} lanes each); lane value = Σ (signal − background) over every row and column of the lane, the background being ${_gelTpBgText(a)}${_gelTpNotes(a).length?'; '+_gelTpNotes(a).join('; '):''}${_gelLoadSatLanes(a).length?`; lane${_gelLoadSatLanes(a).length>1?'s':''} ${_listAnd(_gelLoadSatLanes(a).map(String))} of the total-protein image have clipped samples (or samples outside the image) — no normalised values are given for ${_gelLoadSatLanes(a).length>1?'them':'it'} (loading_lane_flag)`:''}`
@@ -9785,7 +9981,7 @@ function gelCSV(idx){
   const cols=['lane','band','lane_x0','lane_x1','lane_inferred','y0','y1','centre_y','Rf','volume','pct_of_lane','rel_ref_lane','norm_loading','norm_loading_rel_ref','marker_kDa','est_kDa','extrapolated','saturated','clipped_samples','added_by_hand','partly_outside','merged','split_at_valley','near_noise','volume_noise_se','net_peak','boundaries_by_hand','cut_by_crop_edge','overlapping_tails','sloping_background','loading_lane_flag'];
   const body=rows.map(r=>[r.lane,r.band,r.x0,r.x1,r.inferred?'yes':'',r.y0,r.y1,r.yc,r.rf,r.volume,r.pctLane,r.relRef,r.normLC,r.normLCRef,
     r.marker,r.kda,r.kda!=null?(r.extrapolated?'yes':'no'):'',r.saturated?'SATURATED':'',r.clipped,r.manual?'yes':'',
-    r.partial?'PARTIAL':'',r.merged?'merged?':'',r.split?'yes':'',r.nearNoise?'yes':'',r.se,r.peak,r.resized?'yes':'',
+    r.partial?'PARTIAL':'',r.merged?'merged?':r.doublet?'doublet':'',r.split?(r.cut?'cut':'yes'):'',r.nearNoise?'yes':'',r.se,r.peak,r.resized?'yes':'',
     r.edge?'CUT':'',r.overlap?'OVERLAP':'',r.slope?'yes':'',r.lcFlag].map(q).join(','));
   // Lanes with no bands still get a row, or an empty lane would vanish from the table.
   a.lanes.forEach((L,li)=>{ if(!L.bands.length){ const v=new Array(cols.length).fill('');
@@ -9961,7 +10157,8 @@ function _gelMethodsSentences(P){
     const lanes=a.laneInfo&&a.laneInfo.whole?'the whole crop width was measured as one lane (the lane count set by hand)'
       :a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the background-flattened column intensity profile (the lane count set by hand)`
       :'lanes were detected from the column intensity profile';
-    let s=`Band densitometry of panel ${nm} was performed in FigureLab on the ${a.sourceLabel} inside the panel's crop, read before any display adjustment`
+    // "of panel B", but "of the ERK1/2 strip", not "of panel the ERK1/2 strip" (blot2-09).
+    let s=`Band densitometry of ${/^[A-Za-z0-9]{1,3}$/.test(nm)?'panel '+nm:nm} was performed in FigureLab on the ${a.sourceLabel} inside the panel's crop, read before any display adjustment`
       +(a.frame.angle?` (the tilted crop was read by nearest neighbour, without interpolation)`:'')
       +`: ${lanes}`
       +(inf.length?`, ${inf.length===1?'lane':'lanes'} ${_listAnd(inf)} being inferred from the lane pitch as ${inf.length===1?'it carries':'they carry'} no detectable signal`:'')
@@ -9974,6 +10171,9 @@ function _gelMethodsSentences(P){
       :`normalised to the loading control in panel ${_gelLoadingLabel(a)}, lanes paired by order`);
     if(a.refLane!=null) norm.push(`expressed relative to lane ${a.refLane+1}`);
     s+=(norm.length?'; volumes were '+_listAnd(norm):'')+'.';
+    (a.doubletSites||[]).forEach(st=>{ const w=_gelDoubletWhere(a,st), ls=xs=>_gelLaneList(xs.map(i=>i+1));
+      if(st.applied==='one') s+=` At ${w}, a partly resolved doublet, both bands were measured together as one band in every lane${st.one.length?` (detection divided it at the valley in lane${st.split.length>1?'s':''} ${ls(st.split)} only)`:''}.`;
+      else if(st.applied==='two') s+=` At ${w}, a partly resolved doublet, each band was measured separately in every lane${st.cut.length?`, lane${st.cut.length>1?'s':''} ${ls(st.cut)} being divided at the valley the other lanes show`:''}.`; });
     const fit=a.ladder&&a.ladder.fit;
     if(fit) s+=` Molecular weights were estimated from a log-linear fit of the ladder in lane ${a.ladder.lane+1} (${fit.n} markers, R² = ${fit.r2.toFixed(3)}).`;
     s+=sat?` ${sat} band${sat===1?' was':'s were'} saturated (clipped at the ${a.polarity==='dark'?'floor':'ceiling'} of the data) and could not be quantified.`
@@ -9995,13 +10195,27 @@ function _gelImportKind(im){
   if(/\.(png|tiff?|bmp|gif)$/i.test(n)) return 'lossless';
   return 'unknown';
 }
+// The panel letter as drawn last over the ladder's marker bands: on a blot strip the chip
+// sat on the 75 and 50 kDa markers the MW labels point at, and every check passed
+// (blot5-05). Returns what it covers, or ''.
+function _gelLetterOnLadder(im){
+  const a=im&&im.gelAnalysis, idx=images.indexOf(im); if(!a||!a.ladder||!a.lanes[a.ladder.lane]||idx<0) return '';
+  const L=(figTextItems||[]).find(t=>t&&t.kind==='panel'&&t.idx===idx&&t.bbox), pb=(panelBounds||[]).find(p=>p.idx===idx);
+  const map=pb&&_panelSourceMap(pb,im); if(!L||!map) return '';
+  const lane=a.lanes[a.ladder.lane], x0=map.dx+(lane.x0-map.sx)/map.kx, x1=map.dx+(lane.x1-map.sx)/map.kx, b=L.bbox;
+  const sizes=_gelParseSizes(a.ladder.sizes)||[], marks=lane.bands.slice().sort((p,q)=>p.yc-q.yc).slice(0,sizes.length);
+  const hit=marks.map((m,k)=>{ const y0=map.dy+(m.y0-map.sy)/map.ky, y1=map.dy+(m.y1-map.sy)/map.ky;
+    return (b.x<Math.max(x0,x1)&&b.x+b.w>Math.min(x0,x1)&&b.y<Math.max(y0,y1)&&b.y+b.h>Math.min(y0,y1))?sizes[k]:null; }).filter(v=>v!=null);
+  return hit.length?`its letter “${_rtText(String(L.str))}” covers the ladder's ${_listAnd(hit.map(String))} kDa marker band${hit.length>1?'s':''} — drag the letter off ${hit.length>1?'them':'it'}, or put it in another corner (Look › Position)`:'';
+}
 function _gelComplianceRow(shown){
   // Lane tables are checked on every shown panel that has one, analysed or not.
   const P=shown.filter(im=>im&&(im.gelAnalysis||(im.laneTable&&_ltHasContent(im.laneTable))));
   if(!P.length) return null;
   const notes=[]; let warn=false;
   P.forEach(im=>{
-    const nm0=esc(_rtText(formatLabel(im.label))||'?');
+    // An unlettered strip by its row heading or file, never "?" (blot2-09, blot5-11).
+    const nm0=esc(_panelWho(im));
     if(im.laneTable&&_ltHasContent(im.laneTable)){
       const o=_ltOrient(im), L=im.id!=null&&_ltLast.get(im.id), f=L&&L.R&&L.R.fit, cut=(im.id!=null&&_ltCut.get(im.id))||[];
       if(layoutMode==='freeform'){ warn=true; notes.push(`${nm0}: its lane table is not drawn in freeform layout — switch Layout to Grid to show it`); }
@@ -10018,14 +10232,20 @@ function _gelComplianceRow(shown){
     if(!a.lanes.length){ warn=true; notes.push(`${nm}: no lanes were found — nothing was measured`); return; }
     if(a.loadingDropped&&!a.loading){ warn=true; notes.push(`${nm}: its ${a.loadingDropped.target?'other target (phospho/total)':'loading control'} was dropped at the re-analysis (${esc(a.loadingDropped.why)}) — no normalised values`); }
     { const off=_gelMWOff(im); if(off){ warn=true; notes.push(`${nm}: ${esc(off)}`); } }
+    { const cov=_gelLetterOnLadder(im); if(cov){ warn=true; notes.push(`${nm}: ${esc(cov)}`); } }
     if(sat){ warn=true; notes.push(`${nm}: ${sat} saturated band${sat===1?'':'s'} — clipped, cannot be quantified; re-image at a shorter exposure`); }
     if(part){ warn=true; notes.push(`${nm}: ${part} band${part===1?'':'s'} partly outside the image — not quantified`); }
     { const cut=_gelFlagCount(a,'edge'), ov=_gelFlagCount(a,'overlap'), el=_gelEdgeLanes(a);
       if(cut){ warn=true; notes.push(`${nm}: ${cut} band${cut===1?'':'s'} cut by the crop edge — not quantified; widen the crop`); }
       if(el.length){ warn=true; notes.push(`${nm}: lane${el.length>1?'s':''} ${esc(_listAnd(el))} — signal on the crop's edge rows in no band (a band the crop cuts?)`); }
       if(ov){ warn=true; notes.push(`${nm}: ${ov} overlapping band${ov===1?'':'s'} under-measured by valley-to-valley — left out of ratios; use the rolling minimum`); } }
+    if(a.editsLost){ warn=true; notes.push(`${nm}: hand edits were not carried over to the ${a.editsLost.on==='image'?'new image':'new crop'} (${esc(a.editsLost.what.join('; '))}) — those lanes are measured as detected; redo the edits in ⫼ Lanes & bands, or ✓ Checked there`); }
+    (a.doubletSites||[]).forEach(st=>{ const odd=_gelDoubletOdd(a,st), w=esc(_gelDoubletWhere(a,st));
+      if(odd.length){ warn=true; notes.push(`${nm}: lane${odd.length>1?'s':''} ${esc(_gelLaneList(odd.map(i=>i+1)))} hold${odd.length>1?'':'s'} a different number of bands at ${w} than the other lanes — check ${odd.length>1?'them':'it'} on the lane profile`); }
+      else if(st.applied) notes.push(`${nm}: ${w} is ${st.applied==='one'?'counted as one band (both summed)':'counted as two bands'} in every lane ✓`); });
     if(_gelWindowShort(a)){ warn=true; notes.push(`${nm}: the background window (${a.baseline.window} px) is barely taller than the bands — volumes are underestimated; widen it`); }
     if(a.polarityUncertain&&a.polaritySetBy!=='user'){ warn=true; notes.push(`${nm}: the band polarity was guessed with low confidence — check the Bands setting`); }
+    if(_gelWideLanes(a).length){ warn=true; notes.push(`${nm}: ${esc(_gelWideText(a))}`); }
     if(a.lanes.some(L=>L.inferred&&L.end)){ warn=true; notes.push(`${nm}: end lane${a.lanes.filter(L=>L.inferred&&L.end).length>1?'s':''} inferred from the lane pitch — check the lane numbering`); }
     const lcWhy=_gelLoadingStale(a,im);
     if(lcWhy){ warn=true; notes.push(`${nm}: ${esc(lcWhy)} — set the ${_gelLoadTarget(a)?'other target':'loading control'} again`); }
@@ -10074,7 +10294,7 @@ function openGelAnalysis(idx){
   const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">${(()=>{ const L=_rtText(formatLabel(p.label)); return L?'panel '+esc(L):esc(_panelWho(p)); })()}</option>`:'').join('');
   m.innerHTML=`<div class="modal" style="max-width:1000px;width:96vw">
     <button class="modal-close" onclick="closeGelAnalysis()" aria-label="Close" title="Close (Esc)">×</button>
-    <h3>⫼ Lanes &amp; bands — panel ${esc(lab)}</h3>
+    <h3>⫼ Lanes &amp; bands — ${esc(_rtText(formatLabel(im.label))?'panel '+lab:_panelWho(im))}</h3>
     <p style="font-size:11px;color:var(--muted);margin-bottom:6px">Measured on the original pixels inside the crop — display adjustments do not change a number.
       Drag a lane edge to move it · click an empty part of a lane to add a band · click a band, then Delete, to remove it · on the lane profile, drag a band's edge or click an unshaded stretch to add one. Each edit is one undo step.</p>
     <div id="gel-banner" style="font-size:11px;margin-bottom:6px"></div>
@@ -10102,7 +10322,7 @@ function openGelAnalysis(idx){
           <span><input id="gel-nlanes" type="number" min="1" max="60" placeholder="auto" style="width:56px" title="Empty = auto-detect; a number forces that many evenly pitched lanes (best fit)">
             <label for="gel-win" title="Height of the rolling-minimum background window, in source pixels. It must be taller than a band.">background window</label>
             <input id="gel-win" type="number" min="3" max="4001" style="width:60px" title="Rolling-minimum background window (source px) — taller than any band">
-            <button class="btn" style="padding:1px 8px;font-size:10px" title="Detect lanes and bands again with these settings (replaces hand edits; one undo step)" onclick="runGelAnalysis(_gelUI.idx,{laneCount:document.getElementById('gel-nlanes').value,window:document.getElementById('gel-win').value,polarity:document.getElementById('gel-pol').value})">↻ Re-detect</button></span>
+            <button class="btn" style="padding:1px 8px;font-size:10px" title="Detect lanes and bands again with these settings — bands you deleted, added or re-edged by hand are carried over where they are found again, and any that cannot be are listed (one undo step)" onclick="runGelAnalysis(_gelUI.idx,{laneCount:document.getElementById('gel-nlanes').value,window:document.getElementById('gel-win').value,polarity:document.getElementById('gel-pol').value})">↻ Re-detect</button></span>
           <label for="gel-bg" title="What every band's volume is measured above. Drawn on the lane profile; named in the CSV and the Methods sentence.">Background</label>
           <span><select id="gel-bg" title="Rolling minimum: a morphological opening (rolling-ball-like) with the window above. Valley-to-valley: straight lines joining the profile's lowest points between bands (LI-COR's Lane background) — for well-separated bands; it follows a slope, but where two bands' tails overlap the valley sits above the floor and both come out low (those bands are flagged and left out of ratios: use the rolling minimum for close bands). None / flat: one low percentile of each lane. Changing it re-measures the bands; it does not re-detect them (one undo step)."
               onchange="gelSetBaseline(_gelUI.idx,this.value,'')">
@@ -10359,7 +10579,10 @@ function _gelRenderModal(){
     · <b>background:</b> ${esc(_gelBgShort(a))} · <b>${a.lanes.length}</b> lane(s)
     ${a.lanes.length?`<div style="color:var(--muted);margin-top:2px" title="Lane spans in source pixels — dashed on the preview where inferred">Lanes at x: ${a.lanes.map((L,i)=>`<b>${i+1}</b> ${Math.round(L.x0)}–${Math.round(L.x1)}${L.inferred?' <i>inferred</i>':''}`).join(' · ')}</div>`
       :'<div style="color:var(--warn);margin-top:3px">⚠ No lanes found — nothing is measured. If the crop holds one lane, type 1 in Lanes and re-detect; otherwise check the Bands setting.</div>'}
-    ${note?`<div style="color:${a.lanes.some(L=>L.inferred&&L.end)||(a.laneInfo&&a.laneInfo.rejected.length)?'var(--warn)':'var(--muted)'};margin-top:2px">${a.lanes.some(L=>L.inferred&&L.end)?'⚠ ':''}${esc(note.charAt(0).toUpperCase()+note.slice(1))}.</div>`:''}
+    ${note?`<div style="color:${a.lanes.some(L=>L.inferred&&L.end)||(a.laneInfo&&a.laneInfo.rejected.length)||_gelWideLanes(a).length?'var(--warn)':'var(--muted)'};margin-top:2px">${a.lanes.some(L=>L.inferred&&L.end)||_gelWideLanes(a).length?'⚠ ':''}${esc(note.charAt(0).toUpperCase()+note.slice(1))}.</div>`:''}
+    ${a.editsLost?`<div style="color:var(--warn);margin-top:3px">⚠ Hand edits NOT carried over to the ${a.editsLost.on==='image'?'new image':'new crop'}: ${esc(a.editsLost.what.join('; '))}. ${a.editsLost.lanes.length?`Lane${a.editsLost.lanes.length>1?'s':''} ${esc(_gelLaneList(a.editsLost.lanes.map(i=>i+1)))} ${a.editsLost.lanes.length>1?'are':'is'} measured as detected — redo the edits (an edit in a lane clears it here), or`:''} <button class="btn" style="padding:0 6px;font-size:10px" title="The lanes are right as detected: stop flagging them here, in the chart and in compliance (one undo step)" onclick="gelEditsChecked(_gelUI.idx)">✓ Checked</button></div>`:''}
+    ${(a.doubletSites||[]).map((s,k)=>{ const odd=_gelDoubletOdd(a,s), on=s.applied==='one';
+      return `<div style="color:${odd.length?'var(--warn)':'var(--muted)'};margin-top:3px">${odd.length?'⚠ ':''}${esc(_gelDoubletText(a,s))}. <label title="A partly resolved doublet is split at its shallow valley in some lanes and read as one band in others. Ticked: both bands are summed in every lane (what a whole-lane divisor, such as a phospho/total pair's summed bands, measures). Unticked: every lane is cut at the valley into two bands. Re-detects the panel; hand edits are carried over (one undo step)." style="white-space:nowrap;color:var(--text)"><input type="checkbox" class="gel-doublet-one"${on?' checked':''} onchange="gelSetDoublets(_gelUI.idx,this.checked?'one':'two')"> Count the doublet as one band</label></div>`; }).join('')}
     ${a.polarityUncertain&&a.polaritySetBy!=='user'?'<div style="color:var(--warn);margin-top:2px">⚠ The band polarity is a low-confidence guess (the crop border and the image median disagree) — check the Bands setting.</div>':''}
     ${_gelWindowShort(a)?'<div style="color:var(--warn);margin-top:3px">⚠ The background window is barely taller than the tallest band — the background rides up the bands and volumes come out low. Widen it and re-detect.</div>':''}
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
@@ -10424,7 +10647,8 @@ function _gelRenderModal(){
       if(r.overlap) fl.push('<span style="color:var(--warn)" title="The valley between this band and its neighbour sits well above the lane\'s floor: their tails overlap, and a valley-to-valley line cuts the overlap off both. The volume is an underestimate and is excluded from every ratio — use the rolling minimum for close bands.">overlapping — valley-to-valley under-measures; use rolling minimum</span>');
       if(r.slope) fl.push('<span title="The lane\'s background slopes across this band by a twentieth of its net peak or more. The background follows it (the rolling minimum is taken off the lane\'s straight-line trend), so the volume stands — but the background did real work here.">on a sloping background</span>');
       if(r.merged) fl.push('<span style="color:var(--warn)" title="A shoulder or a second crown inside this band: it may be two bands, and its volume is their total">merged?</span>');
-      if(r.split) fl.push('<span title="Touches its neighbour: the two were divided at the valley between them">split</span>');
+      if(r.split) fl.push(r.cut?'<span title="One band over a doublet, cut at the valley the other lanes show (the doublet is counted as two bands)">cut at the doublet\'s valley</span>':'<span title="Touches its neighbour: the two were divided at the valley between them">split</span>');
+      if(r.doublet) fl.push('<span title="Both bands of a partly resolved doublet, measured together (Count the doublet as one band)">doublet, both bands</span>');
       if(r.nearNoise) fl.push(`<span style="color:var(--warn)" title="The volume is under 10 noise SEs (SE ${_gelFmt(r.se,0)})">near noise</span>`);
       if(r.manual) fl.push('<span title="Added by hand">hand</span>');
       if(r.resized) fl.push('<span title="Its boundaries were set by hand on the lane profile">edges set</span>');
@@ -10655,6 +10879,7 @@ function _ltEdit(idx,fn){
   if(next?JSON.stringify(next)===before:!im.laneTable) return false;
   pushUndo();
   im.laneTable=next;
+  if(typeof _chartLaneNamesSync==='function') _chartLaneNamesSync(im);
   if(typeof logAction==='function') logAction('laneTable',{label:im.label, rows:next?next.rows.length:0, lanes:next?next.lanes:0});
   scheduleRender(0); _ltRefresh();
   return true;
@@ -20675,6 +20900,7 @@ function _chartDataComplianceRow(){
   const notes=L.map(({el,ss})=>{
     if(ss.state==='linked') return `${nm(el)}: ${esc(ss.text)} ✓`;
     if(ss.state==='stale'){ fail=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Update from densitometry`; }
+    if(ss.state==='check'){ fail=true; return `${nm(el)}: ${esc(ss.text)}`; }
     if(ss.state==='unlinkedChanged'){ fail=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Link again, or check the typed values`; }
     warn=true; return `${nm(el)}: ${esc(ss.text)} — double-click it › ↻ Link again, or These are my own values`;
   });
@@ -21769,6 +21995,7 @@ async function exportSubmissionPackage(){
       { const ss=_chartSourceState(el);
         if(ss.state==='linked') head.push(`# Linked to the densitometry of ${ss.from} (source-data/panel_…-densitometry.csv); current with it`);
         else if(ss.state==='stale') head.push(`# WARNING: out of date with the densitometry of ${ss.from} — it changed after this chart was made`);
+        else if(ss.state==='check') head.push(`# WARNING: linked to the densitometry of ${ss.from}, but ${ss.why}`);
         else if(ss.state==='unlinked'||ss.state==='unlinkedChanged') head.push(`# ${ss.state==='unlinkedChanged'?'WARNING: ':''}Values entered by hand; ${ss.text}`); }
       // The groups a mark joins, by the names the chart shows (and the data's names), not
       // only their positions: two "p < 0.001" marks could not be told apart.
@@ -24253,9 +24480,13 @@ function _laneTableWords(im){
   // Columns are stored in the file's lane order; a mirrored panel shows them reversed, and
   // a turned one (not re-mapped) has no left-to-right order to state.
   const turned=o.turned&&!_ltTurnOK(im);
+  // The analysis's ladder lane, left blank in the table, is the marker lane — not "blank"
+  // (blot5-11); said in the first row only.
+  const a=im.gelAnalysis, mk=a&&a.ladder&&a.lanes&&a.lanes.length===n?a.ladder.lane:-1; let mkSaid=false;
   const rows=(t.rows||[]).map(r=>{
     let cells=(r.cells||[]).slice(0,n).map(v=>_rtText(_ltNorm(v)));
     while(cells.length<n) cells.push('');
+    if(mk>=0&&!mkSaid&&cells.some(Boolean)&&!cells[mk]){ cells[mk]='M (marker)'; mkSaid=true; }
     if(o.mirror) cells=cells.reverse();
     const name=_rtText(String(r.name||'').trim());
     if(!cells.some(Boolean)) return '';
@@ -24337,6 +24568,7 @@ function _dataCaption(el){
     const ss=_chartSourceState(el), src=ch.data&&ch.data.sourceName;
     let note=_rtText(String(ch.caption||'').trim());   // OD_{600} → OD₆₀₀, as the axis titles are (freeform4-05)
     if(ss.state==='stale') bits.push(`[⚠ Out of date: the densitometry of ${ss.from} has changed since this chart was made — update it before submitting.]`);
+    else if(ss.state==='check') bits.push(`[⚠ Check before submitting: ${ss.why}.]`);
     else if(ss.state==='unlinked'||ss.state==='unlinkedChanged'){
       bits.push(`Values entered by hand${ss.state==='unlinkedChanged'?'':` from the densitometry of ${ss.from}`}.`);
       if(ss.state==='unlinkedChanged') bits.push(`[⚠ Not current: the densitometry of ${ss.from} has changed since these values were entered — check them before submitting.]`);
@@ -29322,6 +29554,17 @@ function _chartOrdered(ch, keys){
   const ord=Array.isArray(ch.order)?ch.order.map(String):null; if(!ord||!ord.length) return keys;
   return keys.map((k,i)=>({k,i,o:ord.indexOf(String(k))})).sort((a,b)=>(a.o<0?1e9+a.i:a.o)-(b.o<0?1e9+b.i:b.o)).map(q=>q.k);
 }
+const _CHART_TIME_UNITS={s:1/60, sec:1/60, min:1, mins:1, h:60, hr:60, hrs:60, d:1440, day:1440, days:1440};
+function _chartLaneNumX(ch, keys){
+  const P=[...new Set(keys)].map(k=>{ const t=_chartDisp(ch,k).match(/^\s*([-+]?(?:\d+\.?\d*|\.\d+))\s*([A-Za-zµμ%°]*)\s*$/); return t?{k, v:+t[1], u:t[2]||''}:null; });
+  if(!P.length||P.some(p=>!p)) return null;
+  const us=[...new Set(P.map(p=>p.u))];
+  if(us.length===1){ const m=new Map(); P.forEach(p=>m.set(p.k,p.v)); m.unit=us[0]; return m; }
+  if(!us.every(u=>_CHART_TIME_UNITS[u.toLowerCase()])) return null;
+  const cnt=new Map(); P.forEach(p=>cnt.set(p.u,(cnt.get(p.u)||0)+1));
+  const to=[...cnt.entries()].sort((a,b)=>b[1]-a[1])[0][0], f=_CHART_TIME_UNITS[to.toLowerCase()];
+  const m=new Map(); P.forEach(p=>m.set(p.k, p.v*_CHART_TIME_UNITS[p.u.toLowerCase()]/f)); m.unit=to; return m;
+}
 function _chartShape(ch, warn){
   const D=ch.data||{}, cols=D.columns||[], rows=D.rows||[], m=ch.mapping||{}, kind=ch.kind;
   const num=v=>typeof v==='number'&&isFinite(v)?v:NaN;
@@ -29343,10 +29586,15 @@ function _chartShape(ch, warn){
   const addCat=c=>{ if(!catSeen.has(c)){ catSeen.add(c); cats.push(c); } };
   const sLabel=(r,sd)=>{ if(sc==null) return sd.key; const v=r[sc]; const g=typeof v==='number'?`${_chartColName(cols,sc)} ${v}`:String(v??''); return sdefs.length>1?`${g} · ${sd.key}`:g; };
   if(wide) yCols.forEach(yc=>addCat(_chartColName(cols,yc)));
+  // A chart linked to densitometry has lanes for x ("Lane 5"); shown as times or doses from
+  // the lane table ("5 min", "1 h"), a line or scatter takes those numbers — times in one
+  // unit, the commonest (blot5-03). Any lane not shown as a number: none are.
+  const lnx=numericX&&ch.link?_chartLaneNumX(ch, rows.map(r=>r[xc]).filter(v=>typeof v==='string'&&v)):null;
   rows.forEach(r=>{
     if(wide){ yCols.forEach(yc=>{ const y=num(r[yc]); if(!isFinite(y)) return; if(yLog&&y<=0){ warn.dropped++; return; }
       obs.push({cat:_chartColName(cols,yc), s:'', x:NaN, y, e:NaN}); }); return; }
-    const cat=String(r[xc]??''), xv=num(r[xc]);
+    const cat=String(r[xc]??''); let xv=num(r[xc]);
+    if(numericX&&!isFinite(xv)&&lnx&&lnx.has(cat)) xv=lnx.get(cat);
     // A row whose x is not a number is not drawn on a numeric axis: counted, with an
     // example, so the chart can say why it is empty instead of drawing an empty plot.
     if(numericX&&!isFinite(xv)){ if(String(r[xc]??'').trim()!==''){ warn.nonNumX=(warn.nonNumX||0)+1; if(warn.xExample==null) warn.xExample=String(r[xc]); } return; }
@@ -29996,7 +30244,8 @@ function _chartDraw(el, emit){
   if(cut) notes.push(`${cut} error bar${cut>1?'s':''} cut at the axis limit`);
   let screenNote='';
   if(!_chartGesturing()&&el!==_chartPrevEl){ const ss=_chartSourceState(el);
-    if(ss.state==='stale') notes.push('⚠ out of date')   // short, so it fits a one-column chart (blot3-14); the Chart dialog says what changed;
+    if(ss.state==='check') notes.push('⚠ check the densitometry')   // the Chart dialog, caption and compliance say what
+    else if(ss.state==='stale') notes.push('⚠ out of date')   // short, so it fits a one-column chart (blot3-14); the Chart dialog says what changed;
     // As short as "⚠ out of date": the long form was cut at a one-column chart's edge ("⚠ typed
     // values — the densitometry of", blot4-11); the caption, the compliance row and the
     // Chart dialog say which densitometry changed.
@@ -30037,7 +30286,9 @@ function _chartDraw(el, emit){
   if(stat.categories && stat.categories.length){
     const nC=stat.categories.length, bandApprox=(W-padL-padR)/nC;
     for(const c of stat.categories) _maxLabelChars=Math.max(_maxLabelChars, _rtText(c).length);   // as drawn: H_{2}O is 3 characters
-    rotateXLabels = _maxLabelChars*T*0.55 > bandApprox*0.98;   // est. label width vs band
+    // est. label width vs band — and the widest label as measured, with half an em between
+    // neighbours: "15 min" and "30 min" ran together 1 px apart at 6 pt (blot5-12).
+    rotateXLabels = _maxLabelChars*T*0.55 > bandApprox*0.98 || Math.max(...stat.categories.map(c=>_legTw(_rtText(String(c)))))+0.5*T > bandApprox;
   }
   // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
   const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*T*0.55*0.7+10*u) : 0;
@@ -30688,7 +30939,7 @@ function _gelChartTarget(a, im){
   const ref=a.refLane!=null?R.filter(r=>r.laneIdx===a.refLane&&!_gelUnq(r)):[];
   const pool=ref.length?ref:R.filter(r=>!_gelUnq(r)), top=pool.slice().sort((x,y)=>y.volume-x.volume)[0];
   if(!top) return null;
-  return {rf:top.rf, kda:top.kda, how:ref.length?`the largest band in reference lane ${a.refLane+1}`:'the largest band on the blot'};
+  return {rf:top.rf, kda:top.kda, how:(ref.length?`the largest band in reference lane ${a.refLane+1}`:'the largest band on the blot')+(top.doublet?', a doublet: both bands summed in every lane':'')};
 }
 // The row of lane li at the target: within ±10% in kDa when a ladder is fitted, else
 // within half a band height (at least 3% of the crop) in Rf. The nearest one, or null.
@@ -30738,13 +30989,95 @@ function _chartLinkNames(L, ch){
   if(c&&c.length===ids.length+1){ const o={}; ids.forEach((id,i)=>{ o[id]=String(c[i+1]); }); return o; }
   return null;
 }
+// ── What "current" must not hide (blot5-01, -02, -07, -13) ──────
+// A linked chart can match its analyses and still not show what the user meant: hand edits
+// a re-detection could not carry over, lanes holding another number of bands at the doublet
+// it is charted at, a normalisation that can no longer be used (and what to pick), a Y title
+// typed for another normalisation. Each was reported as current by the toast, the chart's
+// dialog, the caption and compliance. One list, read by all of them.
+function _chartPanelWho(im){ const w=_panelWho(im); return /^[A-Za-z0-9]{1,3}$/.test(w)?`panel ${w}`:w; }
+// The panel's normalising panel by what the reader sees ("the ERK1/2 strip"), and what it is.
+function _gelLoadingWho(a){ const lc=images[_gelLoadingIdx(a)]; return {who:lc?_chartPanelWho(lc):`panel ${a.loading.label}`, what:_gelLoadTarget(a)?'the other target':'the loading control'}; }
+function _chartLinkCaveats(ch){
+  const L=ch&&ch.link; if(!L) return [];
+  const out=[];
+  (L.ids||[]).forEach(id=>{ const im=images.find(p=>p&&p.id===id); if(!im||!im.gelAnalysis||!_gelFresh(im)) return;
+    const a=im.gelAnalysis, P=_chartPanelWho(im);
+    if(a.editsLost) out.push(`${P}: hand edits were not carried over to the ${a.editsLost.on==='image'?'new image':'new crop'} (${a.editsLost.what.join('; ')}) — ${a.editsLost.lanes.length?`lane${a.editsLost.lanes.length>1?'s':''} ${_gelLaneList(a.editsLost.lanes.map(i=>i+1))} ${a.editsLost.lanes.length>1?'are':'is'} measured as detected; `:''}redo the edits in its ⫼ Lanes & bands, or ✓ Checked there`);
+    const T=_gelChartTarget(a,im);
+    if(T) (a.doubletSites||[]).forEach(st=>{ const odd=_gelDoubletOdd(a,st), lo=Math.min(st.rf1,st.rf2), hi=Math.max(st.rf1,st.rf2), pad=Math.max(0.01,(hi-lo)*0.75);
+      if(odd.length&&T.rf>=lo-pad&&T.rf<=hi+pad) out.push(`${P}: lane${odd.length>1?'s':''} ${_gelLaneList(odd.map(i=>i+1))} hold${odd.length>1?'':'s'} a different number of bands at ${_gelDoubletWhere(a,st)} it is charted at — check ${odd.length>1?'them':'it'} on the lane profile`); });
+    if(/^normLC/.test(L.metric)){
+      if(a.loading){ const why=_gelLoadingStale(a,im), w=_gelLoadingWho(a);
+        if(why) out.push(`${P}: ${why} — ↻ Update from densitometry measures ${w.who} again and pairs it again; if it cannot, pick ${w.who} again as ${w.what} in ${P}'s ⫼ Lanes & bands › Loading control`); }
+      else if(a.loadingDropped) out.push(`${P}: its ${a.loadingDropped.target?'other target':'loading control'} was dropped (${a.loadingDropped.why}) — pick it again in ${P}'s ⫼ Lanes & bands › Loading control`);
+    }
+  });
+  const now=_chartLinkMetricNow(ch), key=_gelNormKey(L.ids, L.metric), ty=String((ch.axes&&ch.axes.y&&ch.axes.y.title)||'').trim();
+  if(now&&ty&&L.titleKey&&key&&L.titleKey!==key&&ty!==now) out.push(`the Y title “${_rtText(ty)}” was typed for “${L.titleFor}”, and the values are now “${now}” — edit the Y title, or ✓ Y title is right in the chart's dialog`);
+  return out;
+}
+// What the link's values are now ("Band volume ÷ GAPDH, relative to lane 2"), or null.
+function _chartLinkMetricNow(ch){
+  const L=ch&&ch.link; if(!L) return null;
+  const P=(L.ids||[]).map(id=>images.find(p=>p&&p.id===id));
+  if(!P.length||P.some(p=>!p||!p.gelAnalysis)) return null;
+  return _gelChartMetricLabel(L.metric, P);
+}
+// What the values are divided by, as an identity rather than a name: the metric and, per
+// panel, the normalising panel, its mode and the reference lane. A strip given a row
+// label renames the normalisation; it does not change it.
+function _gelNormKey(ids, metric){
+  const P=(ids||[]).map(id=>images.find(p=>p&&p.id===id));
+  if(!P.length||P.some(p=>!p||!p.gelAnalysis)) return null;
+  return JSON.stringify([metric, ...P.map(p=>{ const a=p.gelAnalysis; return [a.loading?a.loading.id:null, a.loading?_gelLoadMode(a)+(_gelLoadTarget(a)?'/target':''):null, a.refLane]; })]);
+}
+// The normalisation changed (÷ total ERK → ÷ GAPDH): a Y title FigureLab wrote follows it;
+// one the user typed stays, and _chartLinkCaveats says it no longer matches (titleKey: the
+// normalisation the title was written for). Returns a clause for the toast, or ''.
+function _chartLinkLabelSync(ch){
+  const L=ch&&ch.link, now=_chartLinkMetricNow(ch), key=_gelNormKey(L&&L.ids, L&&L.metric); if(!L||!now) return '';
+  if(now===L.metricLabel&&(!key||key===L.normKey)) return '';
+  const y=ch.axes&&ch.axes.y, was=L.metricLabel, wasKey=L.normKey;
+  L.metricLabel=now; if(key) L.normKey=key;
+  if(y&&(!String(y.title||'').trim()||y.title===was)){ const t=y.title!==now; y.title=now; L.titleFor=now; L.titleKey=key; return t?`its Y title now reads “${now}”`:''; }
+  // A link from before the key was kept: its typed title is taken to be for the values as
+  // they are now (a rename of the strip is no reason to flag it).
+  if(!wasKey&&!L.titleKey){ L.titleKey=key; L.titleFor=now; return ''; }
+  if(!L.titleKey){ L.titleKey=wasKey; L.titleFor=L.titleFor||was; }
+  return key&&L.titleKey!==key?`⚠ its Y title “${_rtText(String(y.title))}” was typed for “${L.titleFor||was}” — the values are now “${now}”; edit the title, or ✓ Y title is right in the chart's dialog`:'';
+}
+// "✓ Y title is right": the typed title stands for the values as they are now.
+function _chartTitleRightDraft(){ const ch=_chartDraft; if(!ch||!ch.link) return; const now=_chartLinkMetricNow(ch); if(now){ ch.link.titleFor=now; ch.link.titleKey=_gelNormKey(ch.link.ids, ch.link.metric); } _chartModalRefresh(); }
+// A normalising panel that changed under a charted panel (⇄ Replace, a re-crop, an edit)
+// is measured again and paired again, by panel id, as when it was picked — the pairing
+// used to be dropped silently and every bar went n.d. (blot5-07). Returns what it did.
+function _gelRepairLoading(idx){
+  const im=images[idx], a=im&&im.gelAnalysis; if(!a||!a.loading||!_gelFresh(im)) return null;
+  const why=_gelLoadingStale(a,im); if(!why) return null;
+  const li=_gelLoadingIdx(a); if(li<0||images[li]===im) return null;
+  const lc=images[li], w=_gelLoadingWho(a), P=_chartPanelWho(im);
+  // Its own analysis, if it has one, is brought up to date first (hand edits carried over).
+  if(lc.gelAnalysis&&!_gelFresh(lc)) runGelAnalysis(li);
+  const mode=a.loading.mode, target=_gelLoadTarget(a);
+  const nl=_gelLoadingFrom(li,a.lanes.length,mode);
+  if(nl.error) return {ok:false, text:`⚠ ${w.who}, ${w.what} ${P} is divided by, could not be paired again (${nl.error}) — pick it again in ${P}'s ⫼ Lanes & bands › Loading control`};
+  if(target) nl.target=true;
+  pushUndo();
+  im.gelAnalysis=Object.assign(JSON.parse(JSON.stringify(a)), {loading:nl});
+  return {ok:true, text:`${w.who}, ${w.what} ${P} is divided by, was measured again on its ${_gelFingerprint(lc)!==a.loading.fp?'new image':'new crop'} and paired again`};
+}
 function _chartLinkTable(ch){ const L=ch.link; return _gelChartTable(L.ids||[], L.metric, _chartLinkNames(L, ch)); }
 function _chartLinkState(el){
   const ch=el&&el.chart, L=ch&&ch.link; if(!L) return {stale:false};
   const T=_chartLinkTable(ch);
   if(T.error) return {stale:true, why:T.error, stalePanels:T.stalePanels||null};
   const same=JSON.stringify(T.columns)===JSON.stringify(ch.data.columns)&&JSON.stringify(T.rows)===JSON.stringify(ch.data.rows);
-  return same?{stale:false, table:T}:{stale:true, why:'the analysis has changed since the chart was made', table:T};
+  if(same) return {stale:false, table:T};
+  // A normalising panel that changed is named, with what to do (blot5-07).
+  const lw=(L.ids||[]).map(id=>images.find(p=>p&&p.id===id)).filter(im=>im&&im.gelAnalysis&&im.gelAnalysis.loading&&_gelLoadingStale(im.gelAnalysis,im))
+    .map(im=>(L.ids||[]).length>1?`${_chartPanelWho(im)}: ${_gelLoadingStale(im.gelAnalysis,im)}`:_gelLoadingStale(im.gelAnalysis,im));
+  return {stale:true, why:lw.length?`${lw.join('; ')} — ↻ Update from densitometry measures it again and pairs it again`:'the analysis has changed since the chart was made', table:T};
 }
 // Where a chart's numbers come from and whether they still match it — one answer for the
 // Chart dialog, the figure, the ⚙ row, the caption, compliance and the source data:
@@ -30760,8 +31093,11 @@ function _chartLinkState(el){
 function _chartSourceState(el){
   const ch=el&&el.chart; if(!ch) return {state:'none'};
   if(ch.link){ const st=_chartLinkState(el), from=ch.link.panelNames||'its panels';
-    return st.stale?{state:'stale', from, why:st.why, text:`out of date with the densitometry of ${from}: ${st.why}`}
-      :{state:'linked', from, text:`linked to the densitometry of ${from} and current with it`}; }
+    if(st.stale) return {state:'stale', from, why:st.why, text:`out of date with the densitometry of ${from}: ${st.why}`};
+    // Read from the analyses, but not what the user meant: never called current.
+    const cv=_chartLinkCaveats(ch);
+    if(cv.length) return {state:'check', from, why:cv.join('; '), caveats:cv, text:`linked to the densitometry of ${from} and read from it, but ${cv.join('; ')}`};
+    return {state:'linked', from, text:`linked to the densitometry of ${from} and current with it`}; }
   const U=ch.unlinked;
   if(U&&U.own) return {state:'own'};
   let from=null, changed=null;
@@ -30836,9 +31172,12 @@ function _chartLinkCaptionSync(ch, T){
 }
 // Re-read every linked chart from its analyses (called whenever an analysis changes).
 function _chartLinksSync(){
-  let n=0; const lost=[];
+  let n=0; const lost=[], said=[], warnT=[];
   _allCharts().forEach(el=>{
     if(!el.chart.link) return;
+    // The normalisation's name follows the analyses even when no number moved.
+    // A typed title it no longer matches is said with the chart's caveats below.
+    { const t=_chartLinkLabelSync(el.chart); if(t){ if(/^⚠/.test(t)) warnT.push(t); else said.push(t); el._chartKey=''; if(_isDataPanel(el)) _dataPanelRefresh(el, true); } }
     const st=_chartLinkState(el); if(!st.stale||!st.table) return;
     const gone=_chartSeriesEmptied(el.chart, st.table);
     if(gone.length) lost.push(...gone);
@@ -30847,12 +31186,18 @@ function _chartLinksSync(){
     el._chartKey=''; el._chartStat=null; n++;
     if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   });
-  const pre=_gelRunNotes||[]; if(n) _gelRunNotes=null;     // said here, with the update
+  let pre=_gelRunNotes||[]; if(n) _gelRunNotes=null;     // said here, with the update
+  if(n) _chartSyncNotes=pre.slice();
   if(n){ logAction('chartLinkUpdate',{charts:n, ...(lost.length?{emptied:lost.join('; ')}:{})});
-    // A series that had values and has none now is not an update to report as done.
+    // A series that had values and has none now is not an update to report as done; nor
+    // is a chart whose numbers are read but not what was meant (_chartLinkCaveats).
+    const cv=[...new Set(_allCharts().filter(el=>el.chart.link).flatMap(el=>_chartLinkCaveats(el.chart)))];
+    if(cv.some(t=>/not carried over/.test(t))) pre=pre.filter(t=>!/^⚠ NOT carried over/.test(t));
     const head=lost.length?`${n} chart${n>1?'s':''} re-read from the re-analysed densitometry, but ${_listAnd(lost)} — the bars are gone`
+      :cv.length?`${n} chart${n>1?'s':''} re-read from the re-analysed densitometry — ⚠ check before submitting: ${cv.join('; ')}`
       :`${n} chart${n>1?'s':''} updated from the re-analysed densitometry`;
-    toast(head+(pre.length?'; '+pre.join('; '):''), lost.length||pre.length?'warn':'ok'); scheduleRender(0); }
+    toast(head+(said.length?'; '+said.join('; '):'')+(pre.length?'; '+pre.join('; '):''), lost.length||pre.length||cv.length||warnT.length?'warn':'ok'); scheduleRender(0); }
+  else if(said.length||warnT.length){ toast(`Linked chart: ${said.concat(warnT).join('; ')}`, warnT.length?'warn':'ok'); scheduleRender(0); }
   return n;
 }
 // The series of a linked chart that had numbers and would have none after an update
@@ -30874,33 +31219,55 @@ function _chartSeriesEmptied(ch, T){
 // An analysis the chart cannot read any more (its panel re-cropped or its image
 // replaced) is re-run — with its ladder, reference lane, loading control and charted
 // band kept — before the chart is updated from it.
+// What the last re-analysis said, kept for the Chart dialog's own toast (one toast shows
+// at a time, and the dialog's replaced the re-analysis's: "band edits made again" was lost).
+var _chartSyncNotes=null;
+// Its normalising panel, when that changed (replaced, re-cropped, edited), is measured
+// again and paired again (blot5-07). Returns what was said about that.
 function _chartLinkReanalyse(ids){
   (ids||[]).forEach(id=>{ const i=images.findIndex(p=>p&&p.id===id); if(i>=0&&!_gelFresh(images[i])) runGelAnalysis(i); });
+  const said=[];
+  (ids||[]).forEach(id=>{ const i=images.findIndex(p=>p&&p.id===id); if(i<0) return; const r=_gelRepairLoading(i); if(r) said.push(r); });
+  return said;
 }
 function _chartLinkUpdateDraft(){
   const ch=_chartDraft; if(!ch||!ch.link) return;
   let st=_chartLinkState({chart:ch});
-  if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState({chart:ch}); }
+  _chartSyncNotes=null;
+  const rep=_chartLinkReanalyse((st.stalePanels&&st.stalePanels.length)?st.stalePanels.concat(ch.link.ids||[]):(ch.link.ids||[])); st=_chartLinkState({chart:ch});
+  const pre=(_chartSyncNotes||[]).filter(Boolean); _chartSyncNotes=null;
   if(!st.table){ toast(st.why?`Cannot update: ${st.why} — open ⫼ Lanes & bands on it`:'Already up to date','warn'); return; }
   const gone=_chartSeriesEmptied(ch, st.table);
   ch.data=Object.assign({}, ch.data, {columns:st.table.columns, rows:st.table.rows});
+  const lab=_chartLinkLabelSync(ch); if(lab){ const yt=document.getElementById('chart-ytitle'); if(yt&&ch.axes&&ch.axes.y) yt.value=ch.axes.y.title||''; }
   { const c0=ch.caption; _chartLinkCaptionSync(ch, st.table); if(ch.caption!==c0) sv('chart-caption', ch.caption); }
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
   _chartModalPickers(); _chartModalRefresh();
-  if(gone.length) toast(`Read from the densitometry, but ${_listAnd(gone)} — the bars are gone`,'warn');
+  const cv=_chartLinkCaveats(ch);
+  const bits=(cv.some(t=>/not carried over/.test(t))?pre.filter(t=>!/^⚠ NOT carried over/.test(t)):pre).concat(rep.map(r=>r.text), lab&&!cv.length?[lab]:[]);
+  // The re-analysis's own toast ("1 chart updated …; 3 MW labels moved …", with any caveat)
+  // stands unless this has more to say: bars gone, a normalising panel paired again, a title.
+  if(gone.length) toast(`Read from the densitometry, but ${_listAnd(gone)} — the bars are gone${bits.length?'; '+bits.join('; '):''}`,'warn');
+  else if(!rep.length&&!lab) return;
+  else if(cv.length) toast(`Read from the densitometry — ⚠ check before submitting: ${cv.join('; ')}${bits.length?'; '+bits.join('; '):''}`,'warn');
+  else if(bits.length) toast(`Read from the densitometry: ${bits.join('; ')}`, pre.length||rep.some(r=>!r.ok)||/^⚠/.test(lab)?'warn':'ok');
 }
 function _chartLinkUpdateSelected(){
   const el=_selectedChartEl(); if(!el) return;
   let st=_chartLinkState(el);
-  if(st.stalePanels&&st.stalePanels.length){ _chartLinkReanalyse(st.stalePanels); st=_chartLinkState(el); if(!st.stale){ updateElemPropsBar(); scheduleRender(0); return; } }
+  const rep=_chartLinkReanalyse((st.stalePanels||[]).concat(el.chart.link.ids||[]));
+  if(rep.length||(st.stalePanels&&st.stalePanels.length)){ st=_chartLinkState(el); if(!st.stale){ updateElemPropsBar(); scheduleRender(0); return; } }
   if(!st.table){ toast(st.stale?`Cannot update: ${st.why} — re-analyse it (⫼ Analyse lanes & bands)`:'Already up to date', st.stale?'warn':'ok'); return; }
   if(!st.stale){ toast('Already up to date','ok'); return; }
   const gone=_chartSeriesEmptied(el.chart, st.table);
   pushUndo(); el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows}); el._chartKey=''; el._chartStat=null;
+  const lab=_chartLinkLabelSync(el.chart);
   _chartLinkCaptionSync(el.chart, st.table);
   if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0);
-  toast(gone.length?`Chart re-read from the densitometry, but ${_listAnd(gone)} — the bars are gone`:'Chart updated from the densitometry', gone.length?'warn':'ok');
+  const cv=_chartLinkCaveats(el.chart), bits=rep.map(r=>r.text).concat(lab?[lab]:[]), tail=bits.length?'; '+bits.join('; '):'';
+  toast(gone.length?`Chart re-read from the densitometry, but ${_listAnd(gone)} — the bars are gone${tail}`
+    :cv.length?`Chart re-read from the densitometry — ⚠ check before submitting: ${cv.join('; ')}${tail}`:`Chart updated from the densitometry${tail}`, gone.length||cv.length||rep.some(r=>!r.ok)?'warn':'ok');
 }
 function _gelMetricWhyNot(im, metric){
   const a=im.gelAnalysis, lc=a.loading&&!_gelLoadingStale(a,im), ref=a.refLane!=null;
@@ -30932,10 +31299,26 @@ function _gelLaneTableNames(im){
 }
 // Lane names from the lane table onto a chart: only where neither the chart nor the
 // figure names that lane yet. Returns the lanes named.
+// A name the lane table set (ch.ltNames records which) follows a later rename in the
+// table, unless it was changed in the chart since: "1 h" typed over "60 min" in the lane
+// table stayed "60 min" on the axis and in the key (blot5-08).
 function _chartSeedLaneNames(ch, im){
   const N=_gelLaneTableNames(im); if(!N) return 0;
   const F=_sampleNames(); ch.names=ch.names||{}; let n=0;
-  Object.entries(N).forEach(([k,v])=>{ if((ch.data.rows||[]).some(r=>r[0]===k)&&!_own(ch.names,k)&&!_own(F,k)){ ch.names[k]=v; n++; } });
+  const lt=ch.ltNames=Object.assign({}, ch.ltNames||{});
+  Object.entries(N).forEach(([k,v])=>{ if(!(ch.data.rows||[]).some(r=>r[0]===k)) return;
+    if(!_own(ch.names,k)&&!_own(F,k)){ ch.names[k]=v; lt[k]=v; n++; }
+    else if(_own(ch.names,k)&&_own(lt,k)&&ch.names[k]===lt[k]&&v!==lt[k]){ ch.names[k]=v; lt[k]=v; n++; } });
+  return n;
+}
+// After a lane-table edit: the charts linked to that panel follow it (same undo step).
+function _chartLaneNamesSync(im){
+  if(!im||!im.gelAnalysis||typeof _allCharts!=='function') return 0;
+  let n=0;
+  _allCharts().forEach(el=>{ const ch=el.chart, L=ch&&ch.link;
+    if(!L||!(L.ids||[]).includes(im.id)||!ch.ltNames) return;
+    const before=_chartMerged(ch);
+    if(_chartSeedLaneNames(ch, im)){ _chartMergeDefaults(ch, before); el._chartKey=''; el._chartStat=null; if(_isDataPanel(el)) _dataPanelRefresh(el, true); n++; } });
   return n;
 }
 // One click from the lanes & bands dialog: chart the analysed panels' values, or update
@@ -30969,7 +31352,8 @@ function chartFromDensitometry(idx){
   const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
   const raw=metric==='volume';
   const caption=_gelChartCaption(P, T, metric);
-  const link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`, names};
+  const nk=_gelNormKey(ids, metric);
+  const link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`, names, titleFor:label, titleKey:nk, normKey:nk};
   const notes=[];
   if(raw) notes.push(`raw volumes: ${_gelPanelName(me).replace(/^Panel /,'panel ')} has no reference lane or loading control`);
   if(left.length) notes.push(`left out ${left.join(', ')}`);
@@ -30981,14 +31365,17 @@ function chartFromDensitometry(idx){
   if(old){
     const ch=old.chart, L0=ch.link;
     // Text the app wrote is rewritten; text the user typed stays.
+    // titleFor: the normalisation the Y title was written for (blot5-13).
     if(!ch.axes.y.title||ch.axes.y.title===L0.metricLabel) ch.axes.y.title=label;
+    else { link.titleFor=L0.titleFor||L0.metricLabel; link.titleKey=L0.titleKey||L0.normKey||(label===L0.metricLabel?link.normKey:'(before)'); }
     if(!ch.caption||/^Densitometry of panel/.test(ch.caption)) ch.caption=caption;
     ch.data=Object.assign({}, ch.data, {columns:T.columns, rows:T.rows});
     ch.mapping=Object.assign({}, ch.mapping, {xCol:0, yCols:T.names.map((_,i)=>i+1), seriesCol:null, layout:'xcol'});
     if(T.names.length>1&&ch.kind==='bar') ch.kind='groupedBar';
     ch.style.showLegend=T.names.length>1;
     ch.link=link; delete ch.unlinked;
-    { const before=_chartMerged(ch); if(_chartSeedLaneNames(ch, me)) _chartMergeDefaults(ch, before); }
+    { const before=_chartMerged(ch), nn=_chartSeedLaneNames(ch, me); if(nn){ _chartMergeDefaults(ch, before); const mt=_chartMergedText(ch);
+      notes.push(`lanes named from the lane table${mt?` — ${mt} pooled as one sample each (mean ± SD with the points)`:''}`); } }
     old._chartKey=''; old._chartStat=null; if(_isDataPanel(old)) _dataPanelRefresh(old, true);
     _samplePinSync();
     logAction('chartFromDensitometry',{panels:ids.length, metric, updated:true});
@@ -31023,7 +31410,7 @@ function chartFromDensitometry(idx){
   _samplePinSync();
   logAction('chartFromDensitometry',{panels:ids.length, metric});
   scheduleRender(0);
-  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}; a lane with no band there is n.d.${notes.length?' — '+notes.join('; ')+'.':''} Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
+  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}${T.nd?'; a lane with no band there is n.d.':''}${notes.length?' — '+notes.join('; ')+'.':''} Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
   return true;
 }
 
@@ -31181,7 +31568,9 @@ function _chartReadControls(){
   if(ch.kind==='beeswarm'){ if(ch.error==='none') ch.whiskerOff=true; else delete ch.whiskerOff; }
   if(ch.error==='column'){ const per={}; document.querySelectorAll('#chart-errcols select[data-yc]').forEach(s=>{ if(s.value!=='') per[s.dataset.yc]=+s.value; });
     if(document.querySelector('#chart-errcols select[data-yc]')){ m.errCols=per; m.errCol=null; } }
-  ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
+  { const y0=ch.axes.y.title; ch.axes.x.title=gv('chart-xtitle'); ch.axes.y.title=gv('chart-ytitle');
+    // A Y title typed now is typed for the values as they are now (blot5-13).
+    if(ch.link&&ch.axes.y.title!==y0){ const now=_chartLinkMetricNow(ch); if(now){ ch.link.titleFor=now; ch.link.titleKey=_gelNormKey(ch.link.ids, ch.link.metric); } } }
   // A Y title the guess took from the one value column follows the value columns until
   // it is typed over: "D3" stayed on a plate-reader chart of every well (charts4-07).
   { const ay=ch.axes.y; if(ay.autoTitle!=null&&ay.title!==ay.autoTitle) delete ay.autoTitle;
@@ -31290,9 +31679,13 @@ function _chartLinkNoteHtml(ch){
     const from=esc(L.panelNames||'its panels'), T=_chartLinkTable(ch);
     if(T.error) return warn(`⚠ Linked to the densitometry of ${from}, which has changed since: ${esc(T.error)}.`)+btn('_chartLinkUpdateDraft','↻ Update from densitometry');
     const same=(a,b)=>JSON.stringify(a.columns)===JSON.stringify(b.columns)&&JSON.stringify(a.rows)===JSON.stringify(b.rows);
+    if(same(T, ch.data)){ const cv=_chartLinkCaveats(ch);
+      if(cv.length) return warn(`⚠ Linked to the densitometry of ${from} and read from it, but: ${esc(cv.join('; '))}.`)
+        +(cv.some(t=>/Y title/.test(t))?btn('_chartTitleRightDraft','✓ Y title is right','The typed Y title is right for the values as they are now: stop flagging it'):'')
+        +(cv.some(t=>/measures .* again and pairs it again/.test(t))?btn('_chartLinkUpdateDraft','↻ Update from densitometry'):''); }
     if(same(T, ch.data)) return `Linked to the densitometry of ${from} (${esc(L.metricLabel||'')}) — a re-analysis updates this chart. To pool replicate lanes, give them one name under Names & colours (it stays linked); editing the numbers here unlinks it.`;
     const el=_selectedChartEl(), C=el&&el.chart&&el.chart.data;
-    if(C&&same(C, ch.data)) return warn(`⚠ Linked to the densitometry of ${from}, which has changed since: the analysis has changed since the chart was made.`)+btn('_chartLinkUpdateDraft','↻ Update from densitometry');
+    if(C&&same(C, ch.data)) return warn(`⚠ Linked to the densitometry of ${from}, which has changed since: ${esc(_chartLinkState({chart:ch}).why||'the analysis has changed since the chart was made')}.`)+btn('_chartLinkUpdateDraft','↻ Update from densitometry');
     return warn(`⚠ You edited the data: Apply unlinks this chart from the densitometry of ${from} — a re-analysis will no longer update it, and the chart, caption and compliance check will say it is typed by hand.`)+btn('_chartRevertDataDraft','Undo my edit','Put back the linked values');
   }
   const ss=_chartSourceState({chart:ch});
@@ -37633,7 +38026,8 @@ function updateElemPropsBar(){
     if(ss&&(ss.state==='unlinked'||ss.state==='unlinkedChanged')){ lk.style.display='inline';
       lk.innerHTML=`<span style="color:var(--warn)" title="${esc(ss.text)}">⚠ typed by hand${ss.state==='unlinkedChanged'?' — its blot changed since':''} · not linked</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="openChartModal()">Chart…</button>`; }
     else if(lk){ const L=el.chart.link, st=L?_chartLinkState(el):null; lk.style.display=L?'inline':'none';
-      if(L) lk.innerHTML=st.stale?`<span style="color:var(--warn)" title="${esc(st.why)}">⚠ out of date with the densitometry</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="_chartLinkUpdateSelected()">↻ Update</button>`:`<span style="color:var(--muted)" title="Made from ${esc(L.panelNames||'')} (${esc(L.metricLabel||'')}); a re-analysis updates it">🔗 densitometry</span>`; } }
+      if(L) lk.innerHTML=st.stale?`<span style="color:var(--warn)" title="${esc(st.why)}">⚠ out of date with the densitometry</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="_chartLinkUpdateSelected()">↻ Update</button>`:(()=>{ const cv=_chartLinkCaveats(el.chart); return cv.length?`<span style="color:var(--warn)" title="${esc(cv.join('; '))}">⚠ check the densitometry</span> <button class="btn" style="padding:1px 6px;font-size:10px" onclick="openChartModal()">Chart…</button>`
+        :`<span style="color:var(--muted)" title="Made from ${esc(L.panelNames||'')} (${esc(L.metricLabel||'')}); a re-analysis updates it">🔗 densitometry</span>`; })(); } }
   // A chart's colours are its series' sample colours (Edit chart › Names & colours), not one object colour.
   { const cw=document.getElementById('ep-color'); if(cw&&cw.parentElement) cw.parentElement.style.display=isChart?'none':''; }
   const gmPane=document.getElementById('ep-genemap-props'); if(gmPane) gmPane.style.display=isGenemap?'flex':'none';
