@@ -6497,7 +6497,8 @@ function _derivedPanel(im){ return !!(im&&(im.insetOf!=null||(im.channels&&im.ch
 function _mergeChannelsOf(im){
   const out=[]; if(!im||!im.img) return out;
   const nm=String(im.name||''), page=im.srcPage||0;
-  (images||[]).forEach(p=>{ if(!p||p===im) return;
+  // A linked inset shows its parent's channels and goes by its parent: not listed.
+  (images||[]).forEach(p=>{ if(!p||p===im||p.insetOf!=null) return;
     (p.channels||[]).forEach(ch=>{ if(!ch) return;
       if(ch.img===im.img||(nm&&ch.name===nm&&!(page>1)&&!(ch.srcPage>1))) out.push({panel:p, ch}); });
     // the merge's base is the first channel's file

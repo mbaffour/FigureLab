@@ -300,16 +300,21 @@ const { step, expect, btn } = L;
     const k1 = await keyText();
     const chips1 = await p.locator('#img-list > .img-item').filter({ hasNotText: 'hidden' }).locator('button.f-chan-chip').allInnerTexts();
     expect(chips1.filter(c => c === 'CellMask').length === 1 && chips1.includes('Membrane'), 'chips ' + chips1);
-    expect(/^Panel \w+'s channel is now CellMask — this panel only; the other magenta panels \([^)]*\) keep Membrane\. ≡ Sync by channel now treats it as its own channel\. To rename every magenta panel, type the name under Export › Legend key › Channel names\./.test(t), 'toast: ' + t);
+    // fluor5-02: the merge showing the same file takes the name too, and the toast says so
+    expect(/^Panel \w+'s channel is now CellMask — this panel only(; merge \w+ takes it for the same file’s channel)?; the other magenta panels \([^)]*\) keep Membrane\. ≡ Sync by channel now treats it as its own channel\. To rename every magenta panel, type the name under Export › Legend key › Channel names\./.test(t), 'toast: ' + t);
     await L.openSection(T, 'Export');
     const f = p.getByLabel('Name of the magenta channel');
     const both = await f.inputValue();
-    // ISSUES (round 4): typing the name the other panels already have does not unite them
+    // ISSUES (round 4), fixed in round 5: typing the name the other panels already have
+    // unites them again (every magenta panel takes the name typed there)
     await f.fill('Membrane'); await f.press('Enter'); await p.waitForTimeout(500);
     const kSame = await keyText();
-    // the chip back to Membrane does
-    await rowByChip('CellMask').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
-    await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('Membrane'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    expect(kSame === 'DAPI (blue); GFP (green); Membrane (magenta).', 'Membrane typed under Channel names: ' + kSame);
+    // the chip back to Membrane does too (nothing left to do when the field already did)
+    if (await rowByChip('CellMask').count()) {
+      await rowByChip('CellMask').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
+      await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('Membrane'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    }
     await closeAllSettings();
     const k2 = await keyText();
     expect(k2 === 'DAPI (blue); GFP (green); Membrane (magenta).', 'key text after: ' + k2);
