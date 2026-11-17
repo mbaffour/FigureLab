@@ -6,6 +6,30 @@
 const { test, expect } = require('@playwright/test');
 const { loadApp, seedPanels } = require('./helpers');
 
+// A 16-bit greyscale TIFF (uncompressed, little-endian) with an ImageJ pixel size.
+function tiff16(px, w, h, umPerPx) {
+  const desc = Buffer.from('ImageJ=1.54f\nunit=micron\n\0', 'utf8');
+  const tags = [[256, 3, 1, w], [257, 3, 1, h], [258, 3, 1, 16], [259, 3, 1, 1], [262, 3, 1, 1], [270, 2, desc.length, 'DESC'],
+    [273, 4, 1, 'DATA'], [277, 3, 1, 1], [278, 3, 1, h], [279, 4, 1, w * h * 2], [282, 5, 1, 'RES'], [283, 5, 1, 'RES'], [296, 3, 1, 1]];
+  const ifd = 8, descOff = ifd + 2 + tags.length * 12 + 4, resOff = descOff + desc.length + (desc.length & 1), dataOff = resOff + 8;
+  const buf = Buffer.alloc(dataOff + w * h * 2);
+  buf.write('II', 0, 'latin1'); buf.writeUInt16LE(42, 2); buf.writeUInt32LE(ifd, 4); buf.writeUInt16LE(tags.length, ifd);
+  tags.forEach(([t, ty, c, v], k) => { const o = ifd + 2 + k * 12; buf.writeUInt16LE(t, o); buf.writeUInt16LE(ty, o + 2); buf.writeUInt32LE(c, o + 4);
+    const val = v === 'DESC' ? descOff : v === 'DATA' ? dataOff : v === 'RES' ? resOff : v; if (ty === 3) buf.writeUInt16LE(val, o + 8); else buf.writeUInt32LE(val, o + 8); });
+  desc.copy(buf, descOff); buf.writeUInt32LE(Math.round(1e6 / umPerPx), resOff); buf.writeUInt32LE(1e6, resOff + 4);
+  for (let i = 0; i < px.length; i++) buf.writeUInt16LE(px[i], dataOff + i * 2);
+  return buf.toString('base64');
+}
+function field(w, h, bg, block, hot, at) { const a = new Uint16Array(w * h).fill(bg); const o = at || 8;
+  for (let y = o; y < o + 16; y++) for (let x = o; x < o + 16; x++) a[y * w + x] = block; a[(h - 2) * w + (w - 2)] = hot; return a; }
+async function dropTiffs(page, files) {
+  const n0 = await page.evaluate(() => images.filter(Boolean).length);
+  await page.evaluate(async (fs) => { await addFiles(fs.map(([b64, name]) => { const b = atob(b64), u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new File([u], name, { type: 'image/tiff' }); })); }, files);
+  await page.waitForFunction((n) => images.filter(Boolean).length === n && images.filter(Boolean).every(im => !im.img || (im.img.complete && im.img.naturalWidth > 0)), n0 + files.length);
+}
+const tifFile = (b64, name) => ({ name, mimeType: 'image/tiff', buffer: Buffer.from(b64, 'base64') });
+
 // A plate photo: a light lawn with `n` dark plaques of radius r, as a PNG made in the page.
 async function platePng(page, n, r, seed) {
   const b64 = await page.evaluate(([n, r, seed]) => {
@@ -226,5 +250,103 @@ test('blot4-04: MW labels follow the new ladder after ⇄ Replace and a re-analy
   // a label dragged off its band is caught
   await page.evaluate(() => { const i = annotations.findIndex(a => a.mw && a.text === '55'); pushUndo(); annotations[i] = { ...annotations[i], yf: annotations[i].yf - 12 / annCanvas.height }; render(); });
   expect(await mwRow(page)).toMatch(/MW label 55 \(\d+ px above its band\)/);
+  expect(errors).toEqual([]);
+});
+
+// A 16-bit merge D (DAPI + GFP) with a linked inset of it, as the fluorescence figure has.
+async function mergeWithInset(page) {
+  await dropTiffs(page, [[tiff16(field(64, 64, 200, 6000, 30000), 64, 64, 0.108), 'CCCP_63x_f1_DAPI.tif'],
+    [tiff16(field(64, 64, 150, 9000, 40000), 64, 64, 0.108), 'CCCP_63x_f1_GFP.tif']]);
+  await page.evaluate(() => { renderImgList();
+    document.querySelectorAll('#img-list .panel-pick').forEach(c => { c.checked = true; });
+    mergeTickedPanels();
+    const m = images.findIndex(im => (im.channels || []).length);
+    _setLevelNative(images[m], 'black', 100); _setLevelNative(images[m], 'white', 16000);
+    selectedPanel = m; addLinkedInset(0.1, 0.1, 0.4, 0.4); render(); });
+  return page.evaluate(() => images.findIndex(im => (im.channels || []).length));
+}
+
+test('fluor4-03: after ⇄ Replace on a merge and ⇄ on its channel, the inset names the new field and PANEL_HISTORY / metadata say its 16-bit samples were kept', async ({ page }) => {
+  const errors = await loadApp(page);
+  const m = await mergeWithInset(page);
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate((i) => openReplaceImage(i), m)]);
+  await fc.setFiles(tifFile(tiff16(field(64, 64, 210, 7000, 31000, 20), 64, 64, 0.108), 'CCCP_63x_f3_DAPI.tif'));
+  await page.waitForFunction((i) => images[i].name === 'CCCP_63x_f3_DAPI.tif', m);
+  // the GFP channel's file, through the page
+  await page.evaluate(([b64, i]) => { window.__gfp3 = b64; }, [tiff16(field(64, 64, 160, 9500, 41000, 20), 64, 64, 0.108), m]);
+  await page.evaluate(async (i) => { await replaceChannelFile(images[i].id, 0,
+    new File([Uint8Array.from(atob(window.__gfp3), c => c.charCodeAt(0))], 'CCCP_63x_f3_GFP.tif', { type: 'image/tiff' })); render(); }, m);
+  const r = await page.evaluate(() => { render(); const ins = images.find(im => im.insetOf != null);
+    const hist = _panelHistoryText(); const E = _rtText(formatLabel(ins.label)) || '(unlettered)';
+    const blockOf = (L) => { const i = hist.indexOf(`── ${L} ──`); const j = hist.indexOf('\n── ', i + 5); return hist.slice(i, j < 0 ? undefined : j); };
+    const D = _rtText(formatLabel(images.find(im => (im.channels || []).length && im.insetOf == null).label));
+    return { name: ins.name, E: blockOf(E), D: blockOf(D), row: document.getElementById('img-list').textContent };
+  });
+  expect(r.name).toBe('CCCP_63x_f3_DAPI.tif');                        // was: f1
+  expect(r.E).toMatch(/\(source: CCCP_63x_f3_DAPI\.tif\)/);
+  expect(r.E).toMatch(/parentReplaced: from=CCCP_63x_f1_DAPI\.tif, to=CCCP_63x_f3_DAPI\.tif/);
+  expect(r.E).not.toMatch(/not retained/);                            // was: "16-bit file scaled 0…its maximum"
+  expect(r.D).toMatch(/replaceImage: .*nativeSamples=retained \(16-bit\)/);
+  expect(r.D).toMatch(/replaceChannel: channel=\S+, from=CCCP_63x_f1_GFP\.tif, to=CCCP_63x_f3_GFP\.tif.*nativeSamples=retained \(16-bit\)/);
+  expect(r.D).not.toMatch(/not retained/);
+  expect(errors).toEqual([]);
+});
+
+test('fluor4-04: Restore my figure after a tutorial does not claim a 16-bit merge lost its samples', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mergeWithInset(page);
+  page.once('dialog', d => d.accept());
+  await page.evaluate(async () => { await startTutorial('channels'); });
+  await page.waitForSelector('#tour-ov');
+  await page.keyboard.press('Escape');
+  await page.locator('#cm-ok').click();                       // Restore my figure
+  await page.waitForFunction(() => images.some(im => (im.channels || []).length && im.dispRaw));
+  const t = await shownToast(page);
+  expect(t).toMatch(/Your figure is back, as it was before the tutorial/);      // was: "D lost its 16-bit samples"
+  expect(t).not.toMatch(/lost/);
+  expect(errors).toEqual([]);
+});
+
+test('phage4-11: after Save session, a reload offers the saved file first, not "Recover unsaved session" with a degraded copy', async ({ page }) => {
+  const errors = await loadApp(page);
+  await dropTiffs(page, [[tiff16(field(64, 64, 200, 6000, 30000), 64, 64, 0.5), 'Lr3_UA_0117.tif']]);
+  await page.evaluate(() => { sv('export-name', 'Fig5'); _captureDownload(() => saveJSON(true)); });
+  await page.waitForFunction(() => { try { return !!JSON.parse(localStorage.getItem('fl-autosave-v2')).saved; } catch (e) { return false; } });
+  await page.reload();
+  await page.waitForFunction(() => typeof render === 'function');
+  const bar = page.locator('div', { hasText: /saved as/ }).filter({ has: page.locator('button') }).last();
+  await expect(bar).toContainText('Fig5-session.json');
+  await expect(bar).toContainText('with no changes after');
+  await expect(bar).not.toContainText('Recover unsaved session');
+  expect(await bar.locator('.btn-primary').textContent()).toBe('Dismiss');
+  // a change after the save: the ordinary recovery bar again
+  await bar.locator('.btn-primary').click();
+  await dropTiffs(page, [[tiff16(field(64, 64, 200, 6000, 30000), 64, 64, 0.5), 'Lr3_UA_0118.tif']]);
+  await page.evaluate(() => autosaveNow());
+  await page.reload();
+  await page.waitForFunction(() => typeof render === 'function');
+  await expect(page.locator('div', { hasText: /Recover unsaved session/ }).last()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('freeform4-07: a freeform figure saved and reopened keeps its 16-bit picture in native values — same Methods, same caption display range', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { document.getElementById('layout-mode').value = 'freeform'; setLayoutMode('freeform'); });
+  await page.evaluate(async (b64) => { const b = atob(b64), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    await addFiles([new File([u], 'lsrA-mNeonGreen_B.tif', { type: 'image/tiff' })]); }, tiff16(field(64, 64, 300, 15000, 19871), 64, 64, 0.1));
+  await page.waitForFunction(() => freeformElements.some(e => e.type === 'image' && e.raw && e._imgEl && e._imgEl.complete));
+  await page.evaluate(() => { const e = freeformElements.find(x => x.type === 'image'); e.label = 'B'; render(); });
+  const before = await page.evaluate(() => ({ m: generateMethodsParagraph(), c: _captionText() }));
+  expect(before.m).not.toMatch(/native samples were not available/);
+  const saved = await page.evaluate(() => JSON.stringify(_withRawSave(() => serializeSession(true))));
+  await page.reload();
+  await page.waitForFunction(() => typeof render === 'function' && typeof _commitImage === 'function');
+  await page.evaluate((t) => _loadSessionText(t, 'Fig3-session.json'), saved);
+  await page.waitForFunction(() => freeformElements.some(e => e.type === 'image' && e.img && e.img.complete && e.img.naturalWidth > 0));
+  const after = await page.evaluate(() => { const e = freeformElements.find(x => x.type === 'image'); e._imgEl = e._imgEl || e.img; render();
+    return { raw: !!_rawOf(e), m: generateMethodsParagraph(), c: _captionText() }; });
+  expect(after.raw).toBe(true);                                      // was: the 8-bit PNG only
+  expect(after.m).toBe(before.m);                                     // was: "native samples were not available"
+  expect(after.c).toBe(before.c);
   expect(errors).toEqual([]);
 });

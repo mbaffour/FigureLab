@@ -9389,7 +9389,7 @@ function runGelAnalysis(idx,opts){
 }
 // What runGelAnalysis has to say, while it refreshes the charts linked to it (read and
 // cleared by _chartLinksSync, which says it with its own line).
-let _gelRunNotes=null;
+var _gelRunNotes=null;
 function _gelEdit(idx,fn){
   const im=images[idx]; if(!im||!im.gelAnalysis){ toast('Analyse the panel first','warn'); return false; }
   if(!_gelFresh(im)){ toast(_gelStaleText(im)+' — press ↻ Re-detect','warn'); return false; }
@@ -9763,6 +9763,7 @@ function _gelMWOff(im){
   if(!mine.length) return null;
   const st=mine.filter(x=>x.mwStale).map(x=>String(x.text||'').trim());
   if(st.length) return `MW label${st.length>1?'s':''} ${_listAnd(st)} ${st.length>1?'were':'was'} placed on the old scan’s ladder and could not be moved onto the new one — ↕ Place MW labels again`;
+  if(!im.gelAnalysis) return null;                       // labels typed or placed by ↕ MW ladder, no analysis to compare
   if(!_gelFresh(im)) return `the MW labels were placed on the ladder of the analysis before ${_gelStaleWhy(im)==='image'?'the image was replaced':'the crop changed'} — re-analyse (⫼ Lanes & bands): the labels then move onto the new ladder`;
   const M=_gelFigMapNow(images.indexOf(im)), T=_gelMWTargets(im.gelAnalysis, M); if(!T) return null;
   const off=mine.map(x=>{ const v=parseFloat(String(x.text||'')), t=T.find(q=>Math.abs(q.kda-v)<1e-9); if(!t) return null;
@@ -11296,7 +11297,7 @@ function _tutOfferRestore(saved){
     'The tutorial put the figure you had open aside. Restore it now, as it was when the tutorial started? (One undo step — Ctrl+Z goes back to the tutorial’s figure.)',
     ()=>{ applySession(saved,{origin:'file'});
       // Never "as it was" when a >8-bit panel came back without its samples.
-      const lost=(saved.images||[]).filter(d=>d&&d.src&&+d.srcBits>8&&!d.rawRec).map(d=>d.label?_rtText(formatLabel(d.label)):(d.name||'?'));
+      const lost=(saved.images||[]).filter(_recLostNative).map(d=>d.label?_rtText(formatLabel(d.label)):(d.name||'?'));
       toast(lost.length?`Your figure is back, but ${_listAnd(lost)} lost ${lost.length>1?'their':'its'} 16-bit samples (levels are 8-bit display values now) — reopen your saved session to get the camera values back`
         :'Your figure is back, as it was before the tutorial', lost.length?'warn':'ok'); },
     {ok:'Restore my figure', cancel:'Keep the tutorial figure', primary:true});
@@ -20877,6 +20878,11 @@ function _syncInsetFromParent(inset){
   const newPic=inset.img!==p.img;
   inset.img=p.img; inset.src=p.src; inset.raw=p.raw; inset.dispRaw=p.dispRaw;
   inset.channels=(p.channels||[]).map(c=>({...c}));
+  // The file it shows is the parent's: after ⇄ Replace image on the parent the inset drew
+  // the new field while its Images row, metadata.csv and PANEL_HISTORY named the old one,
+  // and said its 16-bit samples were "not retained" (fluor4-03).
+  inset.name=p.name; inset.srcBits=p.srcBits;
+  if(p.srcPage){ inset.srcPage=p.srcPage; inset.srcPages=p.srcPages; } else { delete inset.srcPage; delete inset.srcPages; }
   if(newPic){ inset._adjCache=undefined; inset._adjKey=undefined; inset._compCache=undefined; inset._compKey=undefined;
     inset._cropCache=undefined; inset._cropKey=undefined; }
   return true;
@@ -20925,16 +20931,26 @@ function _panelHistory(im, letter){
   }
   const src=im.img||im._imgEl;
   const dims=src?`${src.naturalWidth||src.width}×${src.naturalHeight||src.height}px`:'unknown';
-  const native=im.raw?`retained (${_rawDepth?_rawDepth(im.raw):'raw'})`:(im.srcBits>8?`not retained — ${im.srcBits}-bit file scaled 0…its maximum to 8 bits for display`:'not retained (8-bit display)');
+  // A merge keeps its base file's samples as dispRaw (its .raw stays empty so nothing
+  // measures one channel alone): those are retained too (fluor4-03).
+  const nr=im.raw||im.dispRaw;
+  const native=nr&&nr.data?`retained (${_rawDepth?_rawDepth(nr):'raw'})`:(im.srcBits>8?`not retained — ${im.srcBits}-bit file scaled 0…its maximum to 8 bits for display`:'not retained (8-bit display)');
   // A panel whose file was swapped: the file it was imported with first, then each
   // replacement — step 1 used to name the new file as the import.
-  const R=im._replaced||[];
-  const first=R.length?R[0]:null;
+  // A merge's channel swaps (⇄ beside a channel) are listed with the channel they changed
+  // and that channel's own native samples — they are not the panel's base file.
+  const R=im._replaced||[], RB=R.filter(r=>!r.channel);
+  const first=RB.length?RB[0]:null;
   ops.push(first
     ? {op:'import', file:first.from||'(unnamed)', ...(first.fromPixels?{pixels:first.fromPixels}:{}), ...(first.fromNotes&&first.fromNotes.length?{converted:first.fromNotes.join('; ')}:{})}
     : {op:'import', file:_sourceName(im)||'(unnamed)', pixels:dims, nativeSamples:native, ...(im._importNotes&&im._importNotes.length?{converted:im._importNotes.join('; ')}:{})});
   // Every setting below was kept from the file before it.
-  R.forEach((r,i)=>{ const last=i===R.length-1;
+  R.forEach(r=>{
+    if(r.channel){ const c=(im.channels||[]).find(x=>x&&x.name===r.to), lastC=R.filter(q=>q.channel===r.channel).pop()===r;
+      ops.push({op:'replaceChannel', channel:r.channel, from:r.from, to:r.to, at:r.at,
+        ...(lastC&&c?{nativeSamples:c.raw&&c.raw.data?`retained (${_rawDepth(c.raw)})`:c.srcBits>8?`not retained — ${c.srcBits}-bit file scaled 0…its maximum`:'not retained (8-bit display)'}:{}),
+        note:`${r.channel} channel replaced: ${r.from} → ${r.to}; its colour and display range were kept`}); return; }
+    const last=r===RB[RB.length-1];
     ops.push({op:'replaceImage', from:r.from, to:r.to, at:r.at,
       ...(last?{pixels:dims, nativeSamples:native}:r.toPixels?{pixels:r.toPixels}:{}),
       ...(last&&im._importNotes&&im._importNotes.length?{converted:im._importNotes.join('; ')}:{}),
@@ -20964,7 +20980,8 @@ function _panelHistory(im, letter){
     note:'Non-destructive display adjustment; source pixels unchanged.'});
   if(im.lut&&im.lut!=='none') ops.push({op:'lut', lut:im.lut});
   if(im.channels&&im.channels.length) ops.push({op:'composite',
-    channels:im.channels.map(c=>({file:c.name||'(channel)', lut:c.lut||'green'})),
+    channels:im.channels.map(c=>({file:c.name||'(channel)', lut:c.lut||'green',
+      ...(c.raw&&c.raw.data?{nativeSamples:`retained (${_rawDepth(c.raw)})`}:c.srcBits>8?{nativeSamples:`not retained — ${c.srcBits}-bit file scaled 0…its maximum`}:{})})),
     blend:'screen', note:'Each channel cropped by the same percentages as the base.'});
   if(im._projection) ops.push({op:'projection', mode:im._projection.mode, sourcePanels:im._projection.n,
     note:'Computed on 8-bit display values; the source panels are kept.'});
@@ -20976,6 +20993,9 @@ function _panelHistory(im, letter){
     ops.push({op:'linkedInset', parentPanel:p?(p.label||'(unlabelled)'):'(parent deleted)',
       magnification:_insetMag(im)+'×',
       note:'Re-derived from the parent panel’s source on every render; display settings are the parent’s.'});
+    // The parent's file swaps are the inset's too: it shows what the parent shows.
+    (p&&p._replaced||[]).forEach(r=>ops.push({op:'parentReplaced', from:r.from, to:r.to, at:r.at, ...(r.channel?{channel:r.channel}:{}),
+      note:`the parent's ${r.channel?r.channel+' channel':'image'} was replaced (${r.from} → ${r.to}); this inset shows the new one`}));
   }
   return {panel:L||'(unlettered)', source:_sourceName(im)||'(unnamed)', operations:ops};
 }
@@ -24578,8 +24598,13 @@ function serializeSession(bundleImages, mode){
     freeformElements: freeformElements.map(el=>{
       // `raw` (native TIFF samples) is a live typed array — too large to serialize and
       // re-derivable only by re-importing the file, so it never enters a saved session.
-      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,raw,
+      const {img,_imgEl,_paintCanvas,_paintDirty,_adjCache,_adjKey,_chartStat,_chartKey,_chartCache,raw,dispRaw,
              _genemapStat,_genemapKey,_genemapCache,...rest}=el;
+      // A bundled save (Save session, the library) keeps a picture's native samples as a
+      // record, as it does for a grid panel: a reopened freeform figure came back with its
+      // 16-bit picture in 8-bit display values, so its Methods and caption changed for a
+      // panel nobody had touched (freeform4-07). An autosave or a settings file does not.
+      if(_bundle&&(el.type==='image')){ const rr=_rawRecord(raw), dr=_rawRecord(dispRaw); if(rr) rest.rawRec=rr; if(dr) rest.dispRawRec=dr; }
       if(el.type==='paint' && (_paintCanvas instanceof HTMLCanvasElement) && (_paintDirty||!rest.paintData)) rest.paintData=_paintCanvas.toDataURL();
       // Lightweight = no pixel/paint data — EXCEPT AI-generated images. A user's photo
       // can be re-dropped from disk; an AI generation cannot be reproduced, so dropping
@@ -24600,7 +24625,8 @@ function saveJSON(bundleImages){
   dl(blobUrl(JSON.stringify(state,null,2)), (gv('export-name')||'figurelab')+suffix);
   // The native 16-bit samples make a bundled session larger (about 2.7 bytes a sample):
   // say how much, so a 150 MB file is not a surprise.
-  let rawMB=0; if(_bundle) (state.images||[]).forEach(d=>{ if(!d) return; [d.rawRec,d.dispRawRec,...(d.channels||[]).map(c=>c&&c.rawRec)].forEach(r=>{ if(r&&r.b64) rawMB+=r.b64.length/1048576; }); });
+  let rawMB=0; if(_bundle) (state.images||[]).concat(state.freeformElements||[]).forEach(d=>{ if(!d) return; [d.rawRec,d.dispRawRec,...(d.channels||[]).map(c=>c&&c.rawRec)].forEach(r=>{ if(r&&r.b64) rawMB+=r.b64.length/1048576; }); });
+  if(_bundle&&typeof autosaveNow==='function'){ clearTimeout(_autosaveDebounce); _savedMark={name:(gv('export-name')||'figurelab')+suffix, t:Date.now(), raw:rawMB>0}; autosaveNow(); }
   toast(_bundle ? `Session saved (images bundled${rawMB>=1?`, with ${Math.round(rawMB)} MB of native 16-bit samples so levels and measurements reopen in camera counts`:''})` : 'Settings saved (lightweight — re-drop images on load)','ok');
 }
 
@@ -24671,21 +24697,28 @@ function applySession(s,_opts){
         document.getElementById('layout-mode').value=s.layoutMode;
         setLayoutMode(s.layoutMode);
       }
+      // A picture's native samples, when the file kept them. A record may point (ref) at
+      // a grid panel's samples, written first: those are resolved once the grid is read.
+      _rawLoadPool=new Map(); const _ffRawPend=[];
       if(Array.isArray(s.freeformElements)){
         freeformElements=s.freeformElements.map(el=>{
+          const rr=el&&el.rawRec, dr=el&&el.dispRawRec;
+          if(rr||dr){ el={...el}; delete el.rawRec; delete el.dispRawRec; }
+          let out=el;
           // aiicon is an image in every other code path; excluding it here merely made
           // its first render depend on the lazy buildImgEl fallback.
           if((el.type==='image'||el.type==='aiicon')&&el.src){
-            const img=new Image(); img.src=el.src; return {...el,img};
+            const img=new Image(); if(rr||dr) img.onload=()=>{ scheduleRender(); _rawRestoredSoon(); }; img.src=el.src; out={...el,img};
           }
-          return el;
+          if(rr) _ffRawPend.push([out,'raw',rr]); if(dr) _ffRawPend.push([out,'dispRaw',dr]);
+          _ffRawPend.forEach(q=>{ if(q[0]===out&&q[2].ref==null){ const r=_rawFromRecord(q[2]); if(r) out[q[1]]=r; q[2]=null; } });
+          return out;
         });
         _normalizeElemIds(freeformElements);   // legacy numeric ids → strings, refs remapped
       }
       if(Array.isArray(s.images)){
         const recs=_splitSharedIds(s.images);
         const byId=new Map(); recs.forEach(d=>{ if(d&&d.id!=null) byId.set(d.id,d); });
-        _rawLoadPool=new Map();
         images=recs.map((d,i)=>{
           if(!d) return null;                          // a blank cell keeps its place
           const im=_panelFromRecord(d);
@@ -24711,7 +24744,6 @@ function applySession(s,_opts){
           _pendingPanels.push({slot:i, rec:d, inset:!!parent});
           return null;
         });
-        _rawLoadPool=null;
         syncLinkedInsets();
         renderImgList();
         const waiting=_pendingPanels.filter(p=>!p.inset);
@@ -24725,6 +24757,9 @@ function applySession(s,_opts){
              <ul style="font-size:11px;margin-left:16px">${waiting.map(p=>`<li>${esc(p.rec.name||'(unnamed)')}${p.rec.label?` — panel ${esc(p.rec.label)}`:''}</li>`).join('')}</ul>`);
         }
       }
+      // freeform pictures whose samples are the grid panel's they were popped out of
+      _ffRawPend.forEach(([el,k,rec])=>{ if(rec){ const r=_rawFromRecord(rec); if(r) el[k]=r; } });
+      _rawLoadPool=null;
       measurements=Array.isArray(s.measurements)?s.measurements:[];
       if(s.labelOffsets&&typeof s.labelOffsets==='object'){
         labelOffsets={ title:s.labelOffsets.title||{dx:0,dy:0}, col:s.labelOffsets.col||{}, row:s.labelOffsets.row||{}, group:s.labelOffsets.group||{} };
@@ -35865,6 +35900,19 @@ function setAutosaveEnabled(on){
 // given once per change rather than every 30 s.
 let _autosaveUnstored='';
 const _recPixels=d=>d?((d.src||'').length+(d.svgSource||'').length+(d.channels||[]).reduce((n,c)=>n+((c&&c.src)||'').length,0)):0;
+// A saved panel record that comes back without the 16-bit samples its file had. A merge
+// keeps its base file's samples as dispRawRec and each channel's on the channel: "Restore
+// my figure" said merges D, I and N lost theirs when every value was still there (fluor4-04).
+function _recLostNative(d){
+  if(!d||!d.src) return false;
+  if(+d.srcBits>8&&!d.rawRec&&!d.dispRawRec) return true;
+  return (d.channels||[]).some(c=>c&&c.src&&+c.srcBits>8&&!c.rawRec);
+}
+// The session last written with Save session (Ctrl+S), while nothing has changed since:
+// the recovery bar then says the saved file is the complete copy (phage4-11 — it offered
+// to "recover" a figure saved a moment before, and its copy would have lost the 16-bit
+// values the saved file keeps).
+var _savedMark=null;
 function autosaveNow(){
   if(!autosaveEnabled()) return;
   if(!images.length && !(typeof freeformElements!=='undefined' && freeformElements.length)) return;
@@ -35884,7 +35932,7 @@ function autosaveNow(){
     for(const [i,sz] of recs){ if(total<=_AUTOSAVE_PIXEL_BUDGET) break;
       const d=s.images[i]; delete d.src; delete d.svgSource; (d.channels||[]).forEach(c=>{ delete c.src; });
       unstored.push(d.name||'(unnamed)'); total-=sz; } }
-  try{ put((waiting.length||unstored.length)?{t, bundle:'partial', unstored, waiting, s}:{t, bundle:true, s}); }
+  try{ put(Object.assign((waiting.length||unstored.length)?{t, bundle:'partial', unstored, waiting, s}:{t, bundle:true, s}, _savedMark?{saved:_savedMark}:{})); }
   catch(e){
     // Storage is full. Keep every panel's record and drop pixels, largest first, until
     // it fits. It used to fall back to settings-only for every image, and recovery then
@@ -35914,6 +35962,7 @@ function autosaveNow(){
   if(el) el.textContent='Autosaved '+new Date(t).toLocaleTimeString()+(unstored.length?` (${unstored.length} image${unstored.length>1?'s':''} not stored)`:'');
 }
 function scheduleAutosave(){
+  _savedMark=null;                                   // changed since the last Save session
   if(!autosaveEnabled()) return;
   clearTimeout(_autosaveDebounce);
   _autosaveDebounce=setTimeout(autosaveNow, 2500);   // 2.5s after the last change
@@ -35948,8 +35997,23 @@ function checkAutosave(){
   // Autosave keeps each picture but not a 16-bit file's native samples (browser storage
   // would overflow): those panels come back in 8-bit display values, which used to be
   // said only inside each panel's ⚙. Name them, and the way back, before and after.
-  const deep=(Array.isArray(s.images)?s.images:[]).filter(d=>d&&d.src&&+d.srcBits>8&&!d.rawRec).map(d=>d.label?`${_rtText(formatLabel(d.label))} (${d.name||''})`:(d.name||'(unnamed)'));
+  const deep=(Array.isArray(s.images)?s.images:[]).filter(_recLostNative).map(d=>d.label?`${_rtText(formatLabel(d.label))} (${d.name||''})`:(d.name||'(unnamed)'));
   if(deep.length) bar.querySelector('span').insertAdjacentHTML('beforeend', ` <span style="color:var(--warn)">${deep.length} ${deep.length>1?'panels come':'panel comes'} back without ${deep.length>1?'their':'its'} 16-bit values.</span>`);
+  // Saved with Save session and not changed since: the file is the complete copy, so
+  // that is what the bar offers first; the browser copy stays available.
+  const sv0=data.saved;
+  if(sv0&&sv0.name){
+    bar.querySelector('span').innerHTML=`↺ Your figure was saved as <b>${esc(sv0.name)}</b> at ${esc(new Date(sv0.t).toLocaleString())}, with no changes after — open that file (📂 Load session) to get it back with everything${sv0.raw?', 16-bit values included':''}.${deep.length?` <span style="color:var(--warn)">The browser copy has ${deep.length} panel${deep.length>1?'s':''} without ${deep.length>1?'their':'its'} 16-bit values.</span>`:''}`;
+    const [rb, db]=[bar.querySelector('.btn-primary'), bar.querySelector('.btn:not(.btn-primary)')];
+    rb.textContent='Restore the browser copy'; rb.classList.remove('btn-primary'); db.classList.add('btn-primary');
+    db.parentNode.insertBefore(db, rb);
+    rb.addEventListener('click',()=>{ try{ applySession(s,{silent:true, origin:'autosave'});
+      toast(deep.length?`Browser copy restored: ${deep.join(', ')} ${deep.length>1?'are':'is'} in 8-bit display values — ${sv0.name} keeps the 16-bit values`:'Browser copy restored', deep.length?'warn':'ok'); }catch(e){ toast('Could not recover session','err'); }
+      bar.remove(); });
+    db.addEventListener('click',()=>bar.remove());
+    document.body.appendChild(bar);
+    return;
+  }
   bar.querySelector('.btn-primary').addEventListener('click',()=>{
     try{ applySession(s,{silent:true, origin:'autosave'});
       if(deep.length) toast(`Session recovered. Autosave does not keep 16-bit samples: ${deep.join(', ')} ${deep.length>1?'are':'is'} in 8-bit display values now (levels, Methods and measurements too). To get the camera values back, use ⇄ Replace image… with the same file on ${deep.length>1?'each':'it'} — or open the session you saved with Ctrl+S, which keeps them.`,'warn');
