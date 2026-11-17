@@ -24,10 +24,10 @@ Everything here stays a grid panel: charts and gene maps get letters, spans, the
 ## 2. Calibrate the TEM from its burned-in bar
 
 1. Open panel A's ⚙ (in its row in the image list). Right-clicking the panel on the canvas › **📏 Scale bar / calibrate…**, or ⌘K `add scale bar`, leads to the same place.
-2. Click **🔍 Auto-detect scale bar**. It finds the burned-in bar and opens a dialog with its length in pixels (400 px here). Under the lengths, leave **Also draw FigureLab's bar — in a corner clear of this one, so the two do not overlap** chosen (this bar sits in the info strip that task 3 crops off), then pick the length printed on the bar (**200 nm**). The toast reads *Scale set: 0.5 nm/px (400 px = 200 nm) · FigureLab's 100 nm bar is drawn bottom right (⚙ › Scale bar › Corner moves it)*: the bar drawn on the panel is a round length that fits the field, and need not equal the burned-in one.
+2. Click **🔍 Auto-detect scale bar**. It finds the burned-in bar and opens a dialog with its length in pixels (400 px here). Under the lengths, leave **Also draw FigureLab's bar — in a corner clear of this one, so the two do not overlap** chosen (this bar sits in the info strip that task 3 crops off), then pick the length printed on the bar (**200 nm**). The toast reads *Scale set: 0.5 nm/px (400 px = 200 nm) · FigureLab's 200 nm bar is drawn bottom right (⚙ › Scale bar › Corner moves it)*: FigureLab's bar takes the length you picked.
 3. If it says *No scale bar found in the bottom third of the image*, click **🔬 Calibrate from image** instead.
-4. In the Scale Calibration dialog, click near the left end of the bar, then near the right end. The clicks snap to the bar's real ends: the dialog reads *Distance: 400.0 px (original image) — snapped to the ends of the bar*.
-5. Type the bar's length in **Known length** (200), set the unit to **nm**, and click **Apply**. The calibration is the same 0.5 nm/px, and a 100 nm bar is switched on.
+4. In the Scale Calibration dialog, click near the left end of the bar, then near the right end. Clicks a little inside the ends snap to the bar's real ends, and the dialog says so: *Distance: 400.0 px (original image) — snapped to the ends of the bar (your clicks were 391.2 px apart; type that under Pixel distance to use them)*.
+5. Type the bar's length in **Known length** (200), set the unit to **nm**, and click **Apply**. The calibration is the same 0.5 nm/px, and a 200 nm bar is switched on.
 6. To use another length, type it in ⚙ › Scale bar › **Bar length** and pick the unit beside it, or click **Auto**.
 
 ![The calibration dialog after the clicks snapped to the bar ends](img/phage-calibrate.png)
@@ -64,12 +64,15 @@ On the test micrograph (0.5 nm/px) three capsids read 70.1 ± 0.4 nm against a t
 1. Measure › **🔢 Count**.
 2. Set the menu to **dark objects (plaques)** and tick **round (a dish)** (the box or its words).
 3. Drag a box around the dish on the canvas, from one side of the rim to the other. The count is made inside the ellipse that box draws.
-4. Read the result under the tools: *Objects detected* (here *Objects detected: 45*; plaques cut by the rim are not in that number, and the line adds how many there were, for example *(+1 cut by the ellipse's edge — the rim — not counted)*), the equivalent diameter (mean ± SD, in the panel's units) and the foreground area. Each counted object is marked on the panel so you can check it.
-5. **⬇ Export Measurements CSV** saves the result: one row per count, with the objects counted (dark or bright), the region (ellipse or box), how many plaques the rim cut and left out, and the equivalent diameters (mean, SD, median, unit, and each object's). Click **🔢 Count** again to turn the tool off.
+4. Read the result under the tools: *Objects detected* (here *Objects detected: 45*), the equivalent diameter (mean ± SD, in the panel's units) and the foreground area. Plaques cut by the ellipse are not in that number; when there are some, the line adds how many, as *(+N cut by the ellipse's edge — the rim — not counted)*. The dark dish wall along the ellipse's edge is not counted as plaques: when the ellipse runs along it, the line says *(the dish wall along the ellipse's edge is left out)*. Each counted object is marked on the panel so you can check it.
+5. **⬇ Export Measurements CSV** saves the result: one row per count, with the objects counted (dark or bright), the region (ellipse or box), how many plaques the rim cut (**Cut by the rim (not counted)**), **Dish wall (left out)**, the equivalent diameters (mean, SD, median, unit, and each object's) and the **Source file** the count was made on. Click **🔢 Count** again to turn the tool off.
+6. The count goes into the caption by itself (*45 objects counted inside the dish; equivalent diameter 861 ± 115 µm (mean ± SD).* for plate B), and **✎ Write Methods paragraph** says how it was made (*Objects in panel B were counted in FigureLab by an intensity threshold … inside an ellipse drawn around the dish, objects cut by its edge being left out …*).
 
 ![Count result beside the plate it counted](img/phage-count.png)
 
 On test plates with 45 and 30 plaques, Count found 45 and 30 (equivalent diameter 861 ± 115 µm on plate B). It is a single intensity threshold: touching plaques count as one, so move **Threshold** and count again if the marks show merged plaques.
+
+**After ⇄ Replace image on a counted plate**, the old count belongs to the old photo. FigureLab marks it out of date: the replace toast says so (*Panel C: IMG_4415_BW25113.jpg → IMG_4431_BW25113_repeat.jpg — crop and label kept, but Count 2 (30 objects) was made on the old picture — marked out of date and left out of the Measurements CSV, the caption and Methods; count again…*), Measure lists it as *Count 2 · 30 objects · ⚠ out of date: made on IMG_4415_BW25113.jpg*, and the compliance report's **Measurements** row warns (*Count 2 (30 objects) on panel C was made on IMG_4415_BW25113.jpg, since replaced by IMG_4431_BW25113_repeat.jpg — left out of the CSV; measure again or remove it (× in Measure)*). Count the new photo (steps 1–3 again); the new count goes into the CSV with the new **Source file**, and the old one is left out. In the test, the new plate (38 plaques) counted 36.
 
 ## 7. Spot assay with a dilution row
 
@@ -83,7 +86,7 @@ Separate the cells with commas or tabs (cells copied from a spreadsheet work too
 
 ## 8. Lysis or growth curves from a CSV
 
-1. Images › **Drop or click to add images** and pick the CSV. The **📊 Chart** dialog opens and a chart panel is added to the grid (*Imported 9 rows from lysis_OD600.csv — chart panel E in the grid*).
+1. Images › **Drop or click to add images** and pick the CSV. The **📊 Chart** dialog opens and a chart panel is added to the grid (*Imported 9 rows from lysis_OD600.csv — chart panel E in the grid*). A plate reader's export works too: see [below](#a-plate-readers-export).
 2. With replicate columns (`MOI_0_rep1`, `MOI_0_rep2`, `MOI_0_rep3` …), check that **Average replicate columns into one series each** is ticked (it says how many it found per series) and that **Error bars** reads **SD (n−1)** or **SEM (SD/√n)**. A time column gives **Line** as the chart type.
 3. Type **X title** (`Time (min)`) and **Y title** (`OD_{600}`; `_{…}` is a subscript). Tick **points**.
 4. Under **Names & colours**, type a display name for each series in its *shown as* box (`Uninfected`, `MOI 1`). The data keep their column names; the chart, legend and key show yours.
@@ -93,14 +96,22 @@ To edit the chart later: its ⚙ › **📊 Edit chart data and style…**. For 
 
 ### A plate reader's export
 
-Add the export as the reader wrote it: the time as h:mm:ss, a temperature column, one column per well (`A1`, `A2` …). You do not need to convert the time, subtract the blank or rename columns first.
+This is instead of the replicate CSV above (use one or the other for the figure's chart). Add the export as the reader wrote it: a time column, a temperature column, one column per well (`A1`, `A2` …). You do not need to convert the time, subtract the blank or rename columns first.
 
-1. Images › **Drop or click to add images** and pick the export. The **📊 Chart** dialog opens on a **Line** chart against **Time**, with the X title *Time (min)*. The line under the data box says what it did: *Time read as h:mm:ss time, in minutes · T° 600 (temperature) not plotted — tick it under Y columns to plot it*.
+The time can be written any of these ways:
+
+| Time column | Read as | X title |
+|---|---|---|
+| h:mm:ss (`0:15:00`, `1:30:00`), any header | time, in minutes for a run under 3 hours and in hours for 3 hours or longer; the line under the data box says which (*Time read as h:mm:ss time, in minutes*) | *Time (min)* or *Time (h)* |
+| h:mm (`1:30`) under a header that says time (`Time`) | the same (*Time read as h:mm time, in hours*) | *Time (min)* or *Time (h)* |
+| plain numbers, minutes or decimal hours (`Time (min)`: 0, 10, 20 …; `Time (h)`: 0, 0.25, 0.5 …) | numbers, as they are | the column's name |
+
+1. Images › **Drop or click to add images** and pick the export. The **📊 Chart** dialog opens on a **Line** chart of every well against the time column. The line under the data box says what it did, for example *Time read as h:mm:ss time, in minutes · T° 600 (temperature) not plotted — tick it under Y columns to plot it*.
 2. A **Plate wells** row appears, naming the wells it found (*Plate wells (12: A1–D3)*). Set **replicates** to **by plate row (A, B, C…)** (or **by plate column (1, 2, 3…)** if your replicates run down a column).
-3. Set **blank** to the wells that hold medium only, here **subtract Row A**. The mean of the blank wells at each time point is taken away from every other well, and each row's wells become one series: their mean, with **SD (n−1)** error bars.
-4. Under **Names & colours**, type a name for each row in its *shown as* box (`Row B` → `BW25113`, `Row C` → `BW25113 + Kz7` …), type the **Y title**, and click **Apply**.
+3. If one row holds medium only, set **blank** to it, here **subtract Row A**. The mean of the blank wells at each time point is taken away from every other well, and each row's wells become one series: their mean, with **SD (n−1)** error bars. With no blank row, leave **blank** at **none**.
+4. Under **Names & colours**, type a name for each row in its *shown as* box (`Row B` → `BW25113`, `Row C` → `BW25113 + Kz7` …), type the **Y title**, and click **Apply**. The order does not matter.
 
-On a test export with three cultures in triplicate (rows B–D), a blank row A and 11 time points, every plotted point equalled the mean of its three wells minus the mean of A1–A3, with n = 3, and the caption said *blank-subtracted: the mean of A1, A2, A3 at each time point*.
+On a test export with three cultures in triplicate (rows B–D), a blank row A and 11 time points, every plotted point equalled the mean of its three wells minus the mean of A1–A3, with n = 3, and the caption said *blank-subtracted: the mean of A1, A2, A3 at each time point*. An 8-hour run read every 10 minutes (49 rows, wells A1–E3, row A blank) opened the same way, in hours (*Time (h)*, *Plate wells (15: A1–E3)*), and all 196 points matched. h:mm times, minutes, decimal hours and an export with no blank row (*Plate wells (9: B1–D3)*) each opened with the Plate wells row.
 
 A chart that cannot draw anything says why under the data box. A line chart against a column of words, for example, reads *⚠ nothing drawn: the x column “timepoint” holds no numbers (“day one”) — a line needs a numeric x; pick another X column, or a bar chart*.
 
@@ -118,18 +129,19 @@ The map shows only what the file declares (the LOCUS length and the FEATURES tab
 ## 10. One grid for pictures, chart and map
 
 1. Give the wide panels more width, each in its ⚙ › **Panel span (grid mode)** › **Col span**: the spot assay 2 (at journal type size its eight dilution labels need two columns), the chart 2, the gene map 3.
-2. Arrange › **⊞ Fit grid to panels**. It gives 5 × 2: the TEM, the plates and the spot assay in the top row, the chart and the map below.
+2. Arrange › **⊞ Fit grid to panels**. It gives 5 × 2 (the toast reads *5 × 2 for 6 panels*): the TEM, the plates and the spot assay in the top row, the chart and the map below.
 
 ## 11. Journal, check, export
 
 1. **⌘K** › type `asm` › **Enter** on *Journal: ASM (mBio, J Bacteriol, J Virol…)*: 177.8 mm wide, Arial, type sizes in points. Lane tables, such as the dilution row, take the journal's type size too.
-2. Put the key on the figure: Export › Legend key › **Where** › **Below**. With no key yet, choosing a place puts it there and ticks **Place the key on the figure**. This grid has no free space, so the bottom margin grows to hold the key and the toast says so (*The legend key needed free space, so the bottom margin grew from 16 to 199 px …*). **Free space**, the default when you tick the switch, would widen the right margin instead and shrink the panels of a wide figure; choose the place before you tick.
-3. Check › **✓ Check journal compliance**. See [journal-submission.md](journal-submission.md) for what each row means. The test figure read 19/20, with **Text contrast** ⚠ for the white letters over the chart and the gene map (3.35:1) and the TEM's scale-bar text (4.06:1).
-4. Click **Auto contrast** on the **Text contrast** row. Letters keep their chips, now darker, and turn white; scale-bar text takes black or white from the pixels under it, with a backing chip where neither reads. The toast reads *Auto contrast on — the chips behind the letters are darker and the letters white — every text over a picture now reads at 4.5:1 or better*, and the test figure passed 20/20. You do not need to darken a mid-grey micrograph for its bar text.
-5. Export › **✎ Write Methods paragraph** states each 16-bit display range in the file's own counts (*display ranges in native values: 0–62000 (panel A)*) and where each pixel size came from (*measured on the image (400 px = 200 nm) for panel A*; *copied from panel B* for plate C).
-6. Export › **File name**, then **↓ TIFF** › **Save TIFF** (ASM asks for TIFF). The test figure saved as 2100 × 1109 px at 300 dpi, 177.8 mm wide.
-7. **↓ SVG** › **Save SVG** gives a layered file in which the chart, the gene map (its ruler too), the dilution row and the scale-bar labels are real text. **↓ PDF lossless** writes the same words as selectable text in the PDF's standard fonts (named, not embedded).
-8. Export › Legend key › **⬇ Download key** saves the key on its own, in the format you exported last (the button reads **⬇ Download key (PDF)** after the PDF). The legend text starter under the caption helper reads *Uninfected (black, solid line with filled circles); MOI 1 (orange, …); Promoter (green, bent arrow); CDS / gene (blue, arrow); …*.
+2. Put the key on the figure: in Export › Legend key, choose **Below** in the menu beside **Place the key on the figure** (the menu has no label; it lists Free space, Top right … Below). With no key yet, choosing a place puts it there and ticks **Place the key on the figure**. This grid has no free space, so the bottom margin grows to hold the key and the toast says so (*The legend key needed free space, so the bottom margin grew from 16 to 52 px …*). **Free space**, the default when you tick the switch, would widen the right margin instead and shrink the panels of a wide figure; choose the place before you tick.
+3. Check › **✓ Check journal compliance**. See [journal-submission.md](journal-submission.md) for what each row means. The test figure read 19/21, with **Text contrast** ⚠ for the white letters over the chart and the gene map (3.35:1) and the TEM's scale-bar text (4.06:1), and **Blank margins** ⚠ (*blank strip on the left 6.7 mm against 1.8 mm on the right, and at the top 4.4 mm against 0.7 mm at the bottom — the panels print off-centre and smaller than they could; ASM … asks for whitespace cropped*).
+4. Click **Auto contrast** on the **Text contrast** row. Letters keep their chips, now darker, and turn white; scale-bar text takes black or white from the pixels under it, with a backing chip where neither reads. The toast reads *Auto contrast on — the chips behind the letters are darker and the letters white — every text over a picture now reads at 4.5:1 or better*, and the row passes (20/21). You do not need to darken a mid-grey micrograph for its bar text.
+5. Click **Balance margins** on the **Blank margins** row. It trims the wider margins to match (*Margins balanced: left 60 → 16 px, top 40 → 7 px (Arrange › Margins) — a journal preset keeps them*), the row goes, and the test figure passed 20/20.
+6. Export › **✎ Write Methods paragraph** states each 16-bit display range in the file's own counts (*display ranges in native values: 0–62000 (panel A)*) and where each pixel size came from (*measured on the image (400 px = 200 nm) for panel A*; *copied from panel B* for plate C).
+7. Export › **File name**, then **↓ TIFF** › **Save TIFF** (ASM asks for TIFF). The test figure saved as 2100 × 897 px at 300 dpi, 177.8 mm wide.
+8. **↓ SVG** › **Save SVG** gives a layered file in which the chart, the gene map (its ruler too), the dilution row and the scale-bar labels are real text. **↓ PDF lossless** writes the same words as selectable text in the PDF's standard fonts (named, not embedded).
+9. Export › Legend key › **⬇ Download key** saves the key on its own, in the format you exported last (the button reads **⬇ Download key (PDF)** after the PDF). The legend text starter under the caption helper reads *Uninfected (black, solid line with filled circles); MOI 1 (orange, …); Promoter (green, bent arrow); CDS / gene (blue, arrow); …*.
 
 ## Tips
 
@@ -139,7 +151,8 @@ The map shows only what the file declares (the LOCUS length and the FEATURES tab
 - Name rulers as you go; the per-name mean ± SD updates at once and goes into the CSV.
 - Rulers drawn on a panel stay on what they measure when you change the panel's span.
 - `^{…}` superscript, `_{…}` subscript and `*…*` italic work in chart titles, the lane table, gene-map titles and headings.
-- A chart in a single grid cell at journal type size can run its tick labels together; give it a column span of 2. A lane table follows the journal's type size, so a long row (a dilution series) needs a panel wide enough for its labels: in one cell under ASM the test's dilution labels shrank to 2.8 pt and **Text size** failed.
+- A chart in a single grid cell at journal type size can run its tick labels together or cut a legend name; the compliance report's **Chart room** row warns (*E: legend name “Uninfected” cut at the panel edge — a shorter name, a wider panel, or the legend key instead* in the test). Give it a column span of 2. A lane table follows the journal's type size, so a long row (a dilution series) needs a panel wide enough for its labels: in one cell under ASM the test's dilution labels shrank to 2.8 pt and **Text size** failed.
+- Replaced a counted plate? Count it again: the old count is marked out of date and left out of the CSV, caption and Methods (§6).
 - Save your work with **Ctrl+S** (a session file with the images inside). More in [tips-and-tricks.md](tips-and-tricks.md).
 
 ## If something looks wrong
@@ -151,10 +164,11 @@ The map shows only what the file declares (the LOCUS length and the FEATURES tab
 - **The dilution labels are tiny, and Text size fails on them.** At journal type size they do not fit their columns, so they are drawn smaller, and the row offers a **Widen** button for that panel (*Widen D* in the test). Give the spot assay a wider panel (⚙ › **Col span** 2) or shorter labels.
 - **The TEM bar is too short or too long.** Type your own **Bar length** and unit in ⚙ › Scale bar, or click **Auto**.
 - **Count merged two plaques or picked up the rim.** Move **Threshold** and drag again; draw the box just inside the rim.
+- **The compliance report's Measurements row warns.** A count was made on a picture you have since replaced. Count the new picture, or remove the old count (× in Measure).
 - **Dilution labels are not over their spots.** Crop the panel so the spot columns fill it evenly (step 7.1) and check the preview in the lane table dialog.
 - **The whole dilution row went into one cell.** Separate the cells with commas, not spaces.
-- **The key went into the right margin and the panels shrank.** Choose **Where** › **Below**: the key moves under the panels and the right margin is given back (from 247 to 16 px in the test).
+- **The key went into the right margin and the panels shrank.** Choose **Below** in the menu beside **Place the key on the figure**: the key moves under the panels and the right margin is given back (from 247 to 16 px in the test).
 - **A plate-reader chart is empty, or the time is not on the x axis.** Read the line under the data box: it says how the time was read and why nothing is drawn. Check that **X / category column** is the time column.
 - More in [troubleshooting.md](troubleshooting.md).
 
-*Every step above was followed on this build by [verify/phage-and-microbiology.verify.js](verify/phage-and-microbiology.verify.js) on synthetic inputs (a 0.5 nm/px TEM with a 200 nm bar, plates with 45 and 30 plaques, a 4 × 8 spot assay, a triplicate lysis CSV, a plate-reader export with a blank row, a phase-contrast photo with a burned-in 10 µm bar, a 10.8 kb GenBank file listing each gene as gene + CDS).*
+*Every step above was followed on this build by [verify/phage-and-microbiology.verify.js](verify/phage-and-microbiology.verify.js) on synthetic inputs (a 0.5 nm/px TEM with a 200 nm bar, plates with 45 and 30 plaques and a replacement plate with 38, a 4 × 8 spot assay, a triplicate lysis CSV, plate-reader exports of 11 to 49 time points in four time formats, with and without a blank row, a phase-contrast photo with a burned-in 10 µm bar, a 10.8 kb GenBank file listing each gene as gene + CDS).*

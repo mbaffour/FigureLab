@@ -24,6 +24,7 @@ const { step, expect, btn } = L;
   const plateB = await I.platePhoto(T, path.join(inp, 'IMG_4412_MG1655.jpg'), { n: 45, seed: 21 });
   const plateC = await I.platePhoto(T, path.join(inp, 'IMG_4415_BW25113.jpg'), { n: 30, seed: 22 });
   const spot = await I.spotAssay(T, path.join(inp, 'spot_assay.jpg'));
+  const plateC2 = await I.platePhoto(T, path.join(inp, 'IMG_4431_BW25113_repeat.jpg'), { n: 38, seed: 23 });   // §6: a replaced plate, re-counted
   // NCBI files list most genes twice, as a gene and its CDS: write the file that way.
   const gb = I.phageGenBank(path.join(inp, 'phiGuide_late.gb'));
   fs.writeFileSync(gb, fs.readFileSync(gb, 'utf8').replace(/^     CDS             (\S+)\n(                     \/gene="[^"]+")$/gm,
@@ -334,7 +335,7 @@ const { step, expect, btn } = L;
         const f = await L.download(T, () => sec.locator('button', { hasText: '⬇ Export Measurements CSV' }).click(), /\.csv$/);
         const lines = fs.readFileSync(f, 'utf8').split('\n').filter(l => !l.startsWith('#'));
         const head = lines[0];
-        const want = ['Objects', 'Region', 'Cut by the rim (not counted)', 'Diameter mean', 'Diameter SD', 'Diameter median', 'Diameter unit', 'Object diameters'];
+        const want = ['Objects', 'Region', 'Cut by the rim (not counted)', 'Dish wall (left out)', 'Diameter mean', 'Diameter SD', 'Diameter median', 'Diameter unit', 'Object diameters', 'Source file'];
         expect(want.every(w => head.includes(w)) && /ellipse \(round, a dish\)/.test(lines[1]), 'CSV: ' + head + ' | ' + lines[1]);
         csvNote = '; ' + path.basename(f) + ' has ' + want.join(', ');
       }
@@ -520,7 +521,7 @@ const { step, expect, btn } = L;
   // contrast button picks black or white per panel and darkens the chips. ux3 (phage3-01):
   // bar text takes its ink from the pixels under the text, with a backing chip where neither
   // black nor white reads, so the TEM's bar text passes too.
-  await step(T, 'Check › ✓ Check journal compliance: Text contrast ⚠ on E and F; the row\'s Auto contrast button passes every text', async () => {
+  await step(T, 'Check › ✓ Check journal compliance: Text contrast ⚠ on E and F, Blank margins ⚠; Auto contrast passes every text and Balance margins the margins', async () => {
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const r0 = await readReport();
@@ -530,9 +531,19 @@ const { step, expect, btn } = L;
     await b.click(); await p.waitForTimeout(600);
     const t = await p.locator('#toast').textContent();
     const r1 = await readReport();
-    await p.keyboard.press('Escape');
     expect(/^Auto contrast on/.test(t) && /every text over a picture now reads at 4\.5:1 or better/.test(t) && /✓/.test(r1.tc), 'toast: ' + t + ' | ' + r1.tc);
-    return `${r0.title} (${r0.open.join(', ')}: ${r0.tc.slice(0, 260)}) → Auto contrast → ${r1.title}, "${r1.tc.slice(0, 80)}"; toast "${t}"`;
+    // ux4: ASM asks for whitespace cropped; the default margins leave a wider strip on the left
+    const bm = p.locator('#info-modal-bg .compliance-row', { hasText: 'Blank margins' });
+    const bmNote = (await bm.innerText()).replace(/\s+/g, ' ');
+    expect(/^⚠/.test(bmNote) && /ASM.* asks for whitespace cropped/.test(bmNote), 'Blank margins: ' + bmNote);
+    await L.toasts(T);
+    await bm.getByRole('button', { name: 'Balance margins' }).click(); await p.waitForTimeout(800);
+    const bt = await L.toasts(T);
+    const r2 = await readReport();
+    await p.keyboard.press('Escape');
+    expect(!r2.open.some(o => /Blank margins/.test(o)) && !r2.open.length, 'after Balance margins: ' + JSON.stringify(r2.open) + ' | ' + bt);
+    const mg = await p.evaluate(() => ['m-top', 'm-left', 'm-btm', 'm-right'].map(id => document.getElementById(id).value));
+    return `${r0.title} (${r0.open.join(', ')}: ${r0.tc.slice(0, 200)}) → Auto contrast → ${r1.title}; Blank margins "${bmNote.slice(0, 160)}" → Balance margins: toast "${bt}", margins T/L/B/R ${mg.join('/')} → ${r2.title}`;
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -601,7 +612,63 @@ const { step, expect, btn } = L;
     expect(/\d+–\d+ \(panel A\)/.test(m), 'display range missing: ' + m.slice(0, 300));
     expect(/copied from panel B/.test(m), 'calibration source missing');
     expect(/measured on the image \(400 px = 200 nm\) for panel A/.test(m), 'TEM pixel-size source missing');
-    return (m.match(/display ranges? in native values:[^.]*/) || m.match(/[^.]*\(panel A\)[^.]*/) || [''])[0] + ' | ' + (m.match(/measured on the image \(400 px = 200 nm\) for panel A[^,]*/) || [''])[0] + ' | ' + (m.match(/copied from panel B[^)]*\)/) || [''])[0];
+    // ux4: the plaque counts reach the caption and Methods
+    const cnt = (m.match(/Objects in panel B were counted[^.]*\./) || [''])[0];
+    expect(/inside an ellipse drawn around the dish, objects cut by its edge being left out/.test(cnt) && /Objects in panel C were counted/.test(m), 'no count in Methods: ' + m);
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(400);
+    const rp = p.locator('.modal-bg.open').filter({ hasText: 'Replace your caption?' });
+    if (await rp.count()) await rp.locator('button', { hasText: 'Replace' }).first().click();
+    const cap = await p.locator('#caption-out').inputValue();
+    expect(/45 objects counted inside the dish; equivalent diameter 861 ± 115 µm \(mean ± SD\)\./.test(cap) && /30 objects counted inside the dish/.test(cap), 'caption: ' + cap);
+    T._countCap = (cap.match(/45 objects counted[^.]*\./) || [''])[0]; T._countMeth = cnt.trim();
+    return 'Methods "' + T._countMeth.slice(0, 200) + '"; caption "' + T._countCap + '" | ' + (m.match(/display ranges? in native values:[^.]*/) || m.match(/[^.]*\(panel A\)[^.]*/) || [''])[0] + ' | ' + (m.match(/measured on the image \(400 px = 200 nm\) for panel A[^,]*/) || [''])[0] + ' | ' + (m.match(/copied from panel B[^)]*\)/) || [''])[0];
+  });
+
+  // ---- §6, revision: a counted plate replaced (round 4) -----------------------------------
+  await step(T, 'Revision: right-click plate C › ⇄ Replace image… → its count is marked out of date (toast, Measure, Measurements row) and left out of the CSV; 🔢 Count again counts the new photo', async () => {
+    await p.keyboard.press('Escape');
+    await L.toasts(T);
+    await render();
+    const q = await p.evaluate(() => { const cv = document.getElementById('fig-canvas'), c = cv.getBoundingClientRect(), k = c.width / (cv.width / (window.devicePixelRatio || 1));
+      const b = panelBounds.find(x => x.idx === 2); return { x: c.x + (b.x + b.w / 2) * k, y: c.y + (b.y + b.h / 2) * k, name: images[2].name }; });
+    expect(/IMG_4415/.test(q.name), 'panel 3 is ' + q.name);
+    await p.mouse.click(q.x, q.y);
+    await p.mouse.click(q.x, q.y, { button: 'right' });
+    const menu = p.locator('#panel-ctx-menu'); await menu.waitFor({ state: 'visible' });
+    await L.pickFiles(T, menu.getByText('⇄ Replace image…'), [plateC2]);
+    await p.waitForTimeout(800);
+    await p.waitForTimeout(800);
+    const all = await L.toasts(T);
+    const rt = all.split(' | ').find(x => /IMG_4415_BW25113\.jpg → /.test(x)) || ('(none of: ' + all + ')');
+    expect(/IMG_4415_BW25113\.jpg → IMG_4431_BW25113_repeat\.jpg/.test(rt) && /out of date and left out of the Measurements CSV, the caption and Methods/.test(rt), 'replace toast: ' + rt);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const mr = ((await rep.innerText()).match(/\n([⚠✗✓ℹ])\nMeasurements\n([^\n]*)/) || []);
+    await p.keyboard.press('Escape');
+    expect(mr[1] === '⚠' && /was made on IMG_4415_BW25113\.jpg, since replaced by IMG_4431_BW25113_repeat\.jpg — left out of the CSV; measure again or remove it \(× in Measure\)/.test(mr[2]), 'Measurements row: ' + JSON.stringify(mr.slice(1)));
+    // count the new photo
+    await L.openSection(T, 'Measure');
+    if (!(await p.locator('#count-polarity').isVisible())) await btn(T, '🔢 Count').click();
+    await p.locator('#count-polarity').selectOption({ label: 'dark objects (plaques)' });
+    if (!(await p.locator('#count-ellipse').isChecked())) await p.locator('label', { hasText: 'round (a dish)' }).click();
+    // the figure is shown scaled to the window now: aim by the drawn size (as the eye does)
+    const atK = (fx, fy) => p.evaluate(([fx, fy]) => { const cv = document.getElementById('fig-canvas'), c = cv.getBoundingClientRect(), k = c.width / (cv.width / (window.devicePixelRatio || 1));
+      const b = panelBounds.find(x => x.idx === 2); return { x: c.x + (b.ix + b.iw * fx) * k, y: c.y + (b.iy + b.ih * fy) * k }; }, [fx, fy]);
+    await drag(await atK(0.08, 0.08), await atK(0.92, 0.92));
+    await p.waitForTimeout(800);
+    const sec = p.locator('details:has(> summary:text-matches("Measure"))');
+    const txt = await sec.innerText();
+    const got = +((txt.match(/Objects detected: (\d+)/g) || []).pop() || '').replace(/\D/g, '');
+    expect(Math.abs(got - 38) <= 3, `counted ${got}, made 38: ` + (txt.match(/Objects detected: [^\n]*/g) || []).pop());
+    const stale = (txt.match(/[^\n]*out of date[^\n]*/) || [''])[0];
+    const f = await L.download(T, () => sec.locator('button', { hasText: '⬇ Export Measurements CSV' }).click(), /\.csv$/);
+    const lines = fs.readFileSync(f, 'utf8').split('\n').filter(l => l && !l.startsWith('#'));
+    const head = lines[0].split(','); const src = head.indexOf('Source file'), obj = head.indexOf('Objects');
+    const rowsC = lines.slice(1).filter(l => /IMG_44(15|31)/.test(l));
+    expect(rowsC.length === 1 && /IMG_4431_BW25113_repeat\.jpg/.test(rowsC[0]) && !lines.some(l => /IMG_4415/.test(l)), 'CSV rows for plate C: ' + JSON.stringify(rowsC) + ' | ' + lines.join(' / ').slice(0, 600));
+    if (await p.locator('#count-polarity').isVisible()) await btn(T, '🔢 Count').click();   // turn the tool off
+    return `toast "${rt.slice(0, 330)}…"; Measurements ⚠ "${mr[2].slice(0, 200)}"; Measure lists "${stale.slice(0, 150)}"; new count ${got} (made 38); CSV: one plate-C row, Source file IMG_4431_BW25113_repeat.jpg`;
   });
 
   await step(T, '⌘K finds the measuring tools by plain words', async () => {
@@ -669,14 +736,22 @@ const { step, expect, btn } = L;
   // "A chart in one grid cell runs its tick labels together at journal size": the lysis
   // chart at Col span 1 under ASM. Evidence only (shots/phage-chart-1cell-figure.png); the
   // guide keeps the chart at Col span 2.
-  await step(T, 'ISSUES (evidence): the lysis chart in one grid cell under ASM, screenshot; then back to Col span 2', async () => {
+  await step(T, 'ISSUES (evidence): the lysis chart in one grid cell under ASM, screenshot; Chart room ⚠ flags it; then back to Col span 2', async () => {
     await setField((await settings(4)).locator('input.f-colspan'), 1);
     await render(); await p.waitForTimeout(600); await render();
     await L.shot(T, 'phage-chart-1cell-figure', p.locator('#canvas-container'));
     const b = await p.evaluate(() => panelBounds.find(q => q.idx === 4));
+    // ux4: the compliance check's Chart room row flags the squeezed chart
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const cr = ((await rep.innerText()).match(/\n([⚠✗✓ℹ])\nChart room\n([^\n]*)/) || []);
+    const title = await p.locator('#im-title').innerText();
+    await p.keyboard.press('Escape');
+    expect(cr[1] === '⚠', 'Chart room row: ' + JSON.stringify(cr.slice(1)));
     await setField((await settings(4)).locator('input.f-colspan'), 2);
     await render();
-    return `chart panel ${Math.round(b.w)} × ${Math.round(b.h)} px at Col span 1 — see shots/phage-chart-1cell-figure.png`;
+    return `chart panel ${Math.round(b.w)} × ${Math.round(b.h)} px at Col span 1 — see shots/phage-chart-1cell-figure.png; ${title}; Chart room ⚠ "${cr[2].slice(0, 220)}"`;
   });
 
   // ---- Keep the bar in the image (Auto-detect's second choice) --------------------------
@@ -753,6 +828,71 @@ const { step, expect, btn } = L;
     const bl = (cap.match(/[^.;(]*blank-subtracted[^.;]*/) || [''])[0];
     expect(/blank-subtracted: the mean of A1, A2, A3 at each time point/.test(cap), 'caption: ' + cap.slice(-400));
     return `blank menu: ${blanks.join(' / ')}; Error bars ${err}; chart ${st.label}: ${npts} points = row means minus the blank (n = 3, worst error ${worst.toExponential(1)}); caption "${bl.trim()}"`;
+  });
+
+  // ---- Plate readers, round 4: any run length, every time format, with or without a blank row
+  // A plate export as written: `rowsL` plate rows of three wells, `n` reads `every` minutes apart,
+  // the time written by `fmt`. Row A (when present) is medium only. Returns the file and the truth:
+  // { minutes: [mean of each culture row minus the blank mean] }.
+  const plateExport = (name, { rowsL, n, every, fmt, header = 'Time', temp = true, seed = 91 }) => {
+    const rr = L.rng(seed), wl = rowsL.flatMap(R => [1, 2, 3].map(c => R + c)), truth = {};
+    let out = [header, ...(temp ? ['T° 600'] : []), ...wl].join(',') + '\n';
+    for (let k = 0; k < n; k++) {
+      const t = k * every, v = {};
+      for (const w of wl) v[w] = +(0.085 + (w[0] === 'A' ? 0 : 0.6 / (1 + Math.exp(-(t - 120 * 'ABCDE'.indexOf(w[0])) / 40))) + (rr() - 0.5) * 0.004).toFixed(4);
+      out += [fmt(t), ...(temp ? ['37.0'] : []), ...wl.map(w => v[w].toFixed(4))].join(',') + '\n';
+      const blank = rowsL.includes('A') ? (v.A1 + v.A2 + v.A3) / 3 : 0;
+      truth[t] = rowsL.filter(R => R !== 'A').map(R => [1, 2, 3].reduce((sum, c) => sum + v[R + c] - blank, 0) / 3);
+    }
+    const f = path.join(inp, name); fs.writeFileSync(f, out); return { f, truth };
+  };
+  const hms = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}:00`;
+  const chartState = () => p.locator('#chart-modal').evaluate(e => ({ kind: e.querySelector('#chart-kind').selectedOptions[0].text, x: e.querySelector('#chart-xcol').selectedOptions[0].text,
+    xt: e.querySelector('#chart-xtitle').value, wells: e.querySelector('#chart-wells-wrap').offsetParent !== null, lbl: e.querySelector('#chart-wells-lbl').textContent,
+    info: e.querySelector('#chart-delim-info').innerText.replace(/\s+/g, ' ') }));
+
+  await step(T, 'Plate reader: an 8-hour run read every 10 min (49 rows, h:mm:ss, wells A1–E3, row A blank) opens as plates: Time in hours, a Plate wells row; Y title typed before the row names keeps every name', async () => {
+    const { f, truth } = plateExport('Gen5_8h_every10min.csv', { rowsL: ['A', 'B', 'C', 'D', 'E'], n: 49, every: 10, fmt: hms });
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [f]);
+    const m = p.locator('#chart-modal'); await m.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+    const st = await chartState();
+    expect(st.kind === 'Line' && st.x === 'Time' && st.xt === 'Time (h)' && st.wells && st.lbl === 'Plate wells (15: A1–E3)' && /Time read as h:mm:ss time, in hours/.test(st.info), JSON.stringify(st));
+    await m.locator('#chart-wells-by').selectOption({ label: 'by plate row (A, B, C…)' }); await p.waitForTimeout(200);
+    await m.locator('#chart-wells-blank').selectOption({ label: 'subtract Row A' }); await p.waitForTimeout(200);
+    // the Y title first, then the names (round-4 testers lost the first name in this order)
+    await m.locator('#chart-ytitle').fill('OD_{600}');
+    const names = { 'Row B': 'MG1655', 'Row C': 'MG1655 + Lr3', 'Row D': 'ΔfhuA', 'Row E': 'ΔfhuA + Lr3' };
+    for (const [k, v] of Object.entries(names)) await setField(m.locator(`#chart-names [data-key="${k}"] input[type=text]`), v);
+    await m.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(600);
+    const s2 = await p.evaluate(() => { const el = images.filter(i => i && i.type === 'chart').pop(); el._chartStat = null; el._chartKey = ''; const S = _chartStatsCached(el); return { names: S.series.map(x => x.name), pts: S.series.map(x => x.points.map(q => [q.x, q.y, q.n])) }; });
+    expect(s2.names.join('|') === Object.values(names).join('|'), 'names: ' + s2.names.join('|'));
+    let worst = 0, npts = 0;
+    s2.pts.forEach((sr, k) => sr.forEach(([x, y, nn]) => { npts++; const t = truth[Math.round(x * 60)][k]; worst = Math.max(worst, Math.abs(y - t)); if (nn !== 3) worst = 1; }));
+    expect(npts === 4 * 49 && worst < 1e-9, `${npts} points, worst ${worst}`);
+    return `${st.kind}, X title "${st.xt}", "${st.lbl}"; status "${st.info.split(' · ').slice(2).join(' · ')}"; names kept: ${s2.names.join(', ')}; ${npts} points = row means minus the blank (worst ${worst.toExponential(1)})`;
+  });
+
+  await step(T, 'Plate reader: h:mm under a Time header, minutes, decimal hours, and an export with no blank row each open as a line chart with a Plate wells row', async () => {
+    const cases = [
+      ['h:mm', 'Gen5_hmm.csv', { rowsL: ['A', 'B', 'C'], n: 25, every: 10, fmt: t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}` }, st => st.xt === 'Time (h)' && /Time read as h:mm time, in hours/.test(st.info)],
+      ['minutes', 'SoftMax_min.csv', { rowsL: ['A', 'B', 'C'], n: 25, every: 10, fmt: t => String(t), header: 'Time (min)' }, st => st.x === 'Time (min)'],
+      ['decimal hours', 'export_hours.csv', { rowsL: ['A', 'B', 'C'], n: 33, every: 15, fmt: t => String(+(t / 60).toFixed(4)), header: 'Time (h)' }, st => st.x === 'Time (h)'],
+      ['no blank row', 'Gen5_noblank.csv', { rowsL: ['B', 'C', 'D'], n: 25, every: 10, fmt: hms }, st => st.lbl === 'Plate wells (9: B1–D3)'],
+    ];
+    const out = [];
+    const m = p.locator('#chart-modal');
+    for (const [label, name, o, ok] of cases) {
+      const { f } = plateExport(name, o);
+      await L.pickFiles(T, p.getByText('Drop or click to add images'), [f]);
+      await m.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+      const st = await chartState();
+      await m.locator('#chart-wells-by').selectOption({ label: 'by plate row (A, B, C…)' }); await p.waitForTimeout(200);
+      const series = await m.evaluate(e => [...e.querySelectorAll('#chart-names [data-key]')].map(r => r.dataset.key));
+      await m.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
+      expect(st.kind === 'Line' && st.wells && ok(st) && series.length === o.rowsL.length, label + ': ' + JSON.stringify(st) + ' series ' + series);
+      out.push(`${label}: X "${st.x}", X title "${st.xt}", "${st.lbl}", ${series.length} rows`);
+    }
+    return out.join('; ');
   });
 
   await step(T, 'A line chart that can draw nothing says why (x column of words), and Cancel takes it away', async () => {
