@@ -109,6 +109,17 @@ test('blot4-03: in the PDF a slanted group name ends at its tick, below the axis
     expect(t.oy).toBeLessThan(t.ay);
   }
   expect(r.filter(t => t.found).length).toBeGreaterThanOrEqual(3);
+  // the SVG ends each word at its tick too, and PowerPoint keeps the slanted words in the
+  // chart's picture (it sets level and quarter-turned text only), drawn as on the canvas
+  const o = await page.evaluate(async () => {
+    const svg = new TextDecoder().decode((await _captureDownload(() => exportSVG('f', 96, document.getElementById('fig-canvas')))).data);
+    const z = await _captureDownload(() => exportPPTX()); const files = await __zip(z.data);
+    const slide = new TextDecoder().decode(files.find(f => /slides\/slide1\.xml$/.test(f.name)).data);
+    return { svg: (svg.match(/<text[^>]*>Vehicle<\/text>/) || [''])[0], pptxText: />Vehicle</.test(slide) };
+  });
+  expect(o.svg).toMatch(/text-anchor="end"/);
+  expect(o.svg).toMatch(/transform="rotate\(-40 /);
+  expect(o.pptxText).toBe(false);
   expect(errors).toEqual([]);
 });
 
@@ -164,6 +175,31 @@ test('freeform4-08: a key placed Below follows an object moved into its band, an
   r.svgYs.forEach(y => expect(y).toBeLessThan(r.vb));
   expect(r.sameSize).toBe(true);
   expect(r.sameNames).toContain('ΔlsrR');
+  expect(errors).toEqual([]);
+});
+
+test('freeform4-08: after the figure is saved and opened again, the placed key still follows a move', async ({ page }) => {
+  const errors = await loadApp(page);
+  await ffKeyFigure(page, 678);
+  await page.evaluate(() => { sv('key-where', 'bottom'); setKeyOnFigure(true); });
+  await page.waitForTimeout(50);
+  const a = await keyState(page);
+  expect(a.H).toBeGreaterThan(700);                                 // grown at placement
+  await page.evaluate(async () => {
+    window.prompt = () => 'Fig3 v2'; await saveToLibrary();
+    const rec = (await new Promise(r => { _tx('readonly').then(st => { const q = st.getAll(); q.onsuccess = () => r(q.result); }); })).find(x => x.name === 'Fig3 v2');
+    confirmNewFigure(); document.getElementById('cm-ok').click();
+    await loadFromLibrary(rec.id); render();
+  });
+  await page.waitForFunction(() => layoutMode === 'freeform' && freeformElements.filter(e => e.type === 'image').every(e => e._imgEl && e._imgEl.complete));
+  await page.waitForTimeout(200);
+  const b0 = await keyState(page);
+  await page.evaluate(() => { freeformElements.find(e => e.type === 'image').y = 80; render(); });
+  await page.waitForTimeout(150);
+  const b = await keyState(page);
+  expect(b.H).toBeGreaterThan(b0.H);                                // the opened figure's key made room again
+  expect(b.bottom).toBeLessThanOrEqual(b.H + 0.5);
+  expect(await page.evaluate(() => __row('Legend key on the figure').icon)).toBe('✓');
   expect(errors).toEqual([]);
 });
 

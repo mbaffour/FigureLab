@@ -7933,6 +7933,7 @@ function _panelTagParts(im, lblClr){
   return parts;
 }
 function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText, autoS){
+  im._tagFit=null;            // set below when this render had to fit the tag
   const show=document.getElementById('show-tags'); if(show&&!show.checked) return;
   let parts=_panelTagParts(im, lblClr); if(!parts.length) return;
   const pos=gv('tag-pos')||'tr';
@@ -7961,7 +7962,6 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
       else if(!pos.endsWith('r')&&L.bbox.x+L.bbox.w>lo) hi=Math.min(hi, L.bbox.x-gap); } }
   const avail=Math.max(0,hi-lo), custom=!!(im.tag||'').trim();
   let lines=[parts.map((p,i)=>i)];
-  im._tagFit=null;
   if(total>avail+0.5&&!custom&&parts.length>1){
     const fitsAlone=widths.every(w=>w<=avail+0.5), maxLines=Math.max(1,Math.floor((dh*0.5)/(fs*1.25)));
     if(fitsAlone){
@@ -19605,7 +19605,8 @@ function _onTargetJournal(v){
   _undoHeld++;
   try{
     if(v&&JOURNALS[v]) applyPreset(v);
-    else { _lastPresetName=''; _restoreNameAfterJournal(); _syncWidthOptions(); scheduleRender(); }
+    else { _lastPresetName=''; const back=[]; _restoreNameAfterJournal(back); _syncWidthOptions(); scheduleRender();
+      if(back.length) toast(`No target journal — ${back.join(', ')}`,'ok'); }
   } finally { _undoHeld--; }
 }
 // ⌘K "Check against …": a report against that journal, and nothing else. It used to make
@@ -20399,7 +20400,7 @@ function _ckTextOverRow(){
   pairs.forEach(({a,b})=>{ const s=`${word(a)} and ${word(b)}`; if(!seen.has(s)){ seen.add(s); list.push(s); } });
   const fitNote=fitted.length?`Tags fitted to clear their letters: ${fitted.map(im=>`${_rtText(formatLabel(im.label))||_sourceName(im)||'?'} ${im._tagFit==='merge'?'shown as “Merge” (its channels did not fit beside the letter; they are in the key and caption)':'wrapped to more lines'}`).join('; ')} — type a tag in ⚙ › Tag for your own wording.`:'';
   const tagOver=pairs.some(({a,b})=>a.kind==='tag'||b.kind==='tag');
-  if(!pairs.length) return {label:'Text over text', ok:true, info:true, uncounted:true, note:fitNote};
+  if(!pairs.length) return {label:'Text over text', ok:true, info:true, uncounted:true, note:esc(fitNote)};
   return {label:'Text over text', ok:false, warn:true,
     note:`${list.length} overlap${list.length>1?'s':''}: ${esc(list.slice(0,6).join('; '))}${list.length>6?` and ${list.length-6} more`:''} — one hides the other in the export${fitNote?'. '+esc(fitNote):''}`,
     fix:tagOver?{a:'cktextover', t:'Move tags to the other edge', fn:'_ckTextOverFix'}:null};
@@ -21674,7 +21675,7 @@ function _zipEntryNames(files, reserved){
 // file was too big for the browser; any other failure is FigureLab's, and saying "lower the
 // DPI" sent people changing a setting that had nothing to do with it.
 function _skipAdvice(skipped){
-  const big=/memory|too large|size|allocat|exceed|invalid array length|out of|quota|maximum/i;
+  const big=/out of memory|memory|too large|allocation|invalid array length|quota|canvas (?:area|size) exceed/i;
   if((skipped||[]).every(s=>big.test(String(s.why||''))))
     return 'These look like size or memory failures: a lower export DPI usually resolves them.';
   return 'These are faults in FigureLab, not in your settings — a lower DPI will not help. Export the missing file on its own from the Export menu to see its message, and please report it with the message above.';
@@ -24887,6 +24888,7 @@ function _fillPendingPanel(newImg){
 // none, the old measurements and notes.
 function _resetFigureState(opts){
   opts=opts||{};
+  _nameBeforeJournal=null;            // the name a journal replaced belongs to the figure that had it
   _applyFigControls(null);
   if(!opts.keepImages) images=[];
   annotations=[]; measurements=[]; freeformElements=[]; figGroups=[];
