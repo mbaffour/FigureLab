@@ -543,7 +543,16 @@ const { step, expect, btn } = L;
     await p.keyboard.press('Escape');
     expect(!r2.open.some(o => /Blank margins/.test(o)) && !r2.open.length, 'after Balance margins: ' + JSON.stringify(r2.open) + ' | ' + bt);
     const mg = await p.evaluate(() => ['m-top', 'm-left', 'm-btm', 'm-right'].map(id => document.getElementById(id).value));
-    return `${r0.title} (${r0.open.join(', ')}: ${r0.tc.slice(0, 200)}) → Auto contrast → ${r1.title}; Blank margins "${bmNote.slice(0, 160)}" → Balance margins: toast "${bt}", margins T/L/B/R ${mg.join('/')} → ${r2.title}`;
+    // the dilution row's printed size against the journal's text size (a round-4 tester measured 9.3 pt against 8 pt)
+    const sz = await p.evaluate(() => { const k = _physFacts().wMm / 25.4 * 72 / canvasLogicalW, pt = it => +(it.fs * k).toFixed(1);
+      const lane = figTextItems.filter(it => /^10\^\{|^Dilution$/.test(String(it.str).trim())).map(pt);
+      const chart = figTextItems.filter(it => it.kind && /chart/i.test(it.kind)).map(pt);
+      return { lane: [...new Set(lane)], head: +(document.getElementById('axis-pt') || {}).value, text: +(document.getElementById('text-pt') || {}).value }; });
+    // lane tables are resized with the headings (the preset's toast says "lane table with the
+    // headings"), by the headings' factor: they land between the text and heading sizes (ISSUES)
+    expect(sz.lane.length >= 1 && sz.lane.every(v => v > sz.text + 0.3 && v < sz.head), 'dilution row vs text and headings: ' + JSON.stringify(sz));
+    T._laneSz = sz;
+    return `${r0.title} (${r0.open.join(', ')}: ${r0.tc.slice(0, 200)}) → Auto contrast → ${r1.title}; Blank margins "${bmNote.slice(0, 160)}" → Balance margins: toast "${bt}", margins T/L/B/R ${mg.join('/')} → ${r2.title}; dilution row ${T._laneSz.lane.join('/')} pt (headings ${T._laneSz.head} pt, text ${T._laneSz.text} pt); Text size "${r2.ts.slice(0, 160)}"`;
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -668,7 +677,9 @@ const { step, expect, btn } = L;
     const rowsC = lines.slice(1).filter(l => /IMG_44(15|31)/.test(l));
     expect(rowsC.length === 1 && /IMG_4431_BW25113_repeat\.jpg/.test(rowsC[0]) && !lines.some(l => /IMG_4415/.test(l)), 'CSV rows for plate C: ' + JSON.stringify(rowsC) + ' | ' + lines.join(' / ').slice(0, 600));
     if (await p.locator('#count-polarity').isVisible()) await btn(T, '🔢 Count').click();   // turn the tool off
-    return `toast "${rt.slice(0, 330)}…"; Measurements ⚠ "${mr[2].slice(0, 200)}"; Measure lists "${stale.slice(0, 150)}"; new count ${got} (made 38); CSV: one plate-C row, Source file IMG_4431_BW25113_repeat.jpg`;
+    const objLine = (txt.match(/Objects detected: [^\n]*/g) || ['']).pop();
+    expect(/\(the dish wall along the ellipse's edge is left out\)/.test(objLine), 'count line: ' + objLine);
+    return `"${objLine}"; toast "${rt.slice(0, 330)}…"; Measurements ⚠ "${mr[2].slice(0, 200)}"; Measure lists "${stale.slice(0, 150)}"; new count ${got} (made 38); CSV: one plate-C row, Source file IMG_4431_BW25113_repeat.jpg`;
   });
 
   await step(T, '⌘K finds the measuring tools by plain words', async () => {

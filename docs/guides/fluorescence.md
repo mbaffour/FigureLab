@@ -131,7 +131,7 @@ Pick 16-bit files: an 8-bit file (a PNG, a JPEG) cannot hold a range in counts, 
 - **≡ Sync by channel changed nothing on another panel.** That panel has a different channel name. Check the chips in the image list, or name both the same under **⚙ › Channel**.
 - **Some panels are outside the grid after a split.** Set **Arrange › Columns** to the number of panels in a row (4 here), as the split's toast says.
 - **The key is not where you want it.** Pick a place in the menu beside **Export › Legend key › Place the key on the figure**, or drag it.
-- **The key lists one colour as "Membrane / CellMask".** One panel's channel has another name. Type one name in **Export › Legend key › Channel names**.
+- **The key lists one colour as "Membrane / CellMask".** One panel's channel has another name. Type one new name in **Export › Legend key › Channel names**, or type the other panels' name in that panel's own chip: typing the name the colour already has under Channel names does not change that panel (see [`verify/ISSUES.md`](verify/ISSUES.md)).
 - **A merge still shows the old field after ⇄ Replace image.** Replace swaps its first channel only; swap the others with **⇄** in its **⚙ › Channels**.
 - **A replace toast says the display range "cannot be kept".** The new file is 8-bit. Undo and pick the 16-bit TIFF.
 - **A channel tag fails Text contrast.** Click the row's **Auto contrast**: the tag gets a dark chip and keeps its colour.

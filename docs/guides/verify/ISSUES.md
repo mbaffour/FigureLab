@@ -4,7 +4,7 @@ Each guide in `docs/guides/` was followed step by step on this build by its scri
 
 Severity: **blocker** (the task cannot be done), **hard** (it can, but most people would not find the way), **annoying** (works with a workaround the guide states), **polish** (cosmetic or wording).
 
-**Round 4 (17 November 2026).** After the four round-4 fixer groups merged, every script was run again and each of the 18 issues still open after round 3 was re-checked: **9 fixed, 9 still open** (2 of those partly fixed). Each entry now starts with a round-4 status and its evidence. Verifying the round-4 guides found **2 new issues**, listed first under [New in round 4](#new-in-round-4). The guides no longer give workarounds for the fixed ones.
+**Round 4 (17 November 2026).** After the four round-4 fixer groups merged, every script was run again and each of the 18 issues still open after round 3 was re-checked: **9 fixed, 9 still open** (2 of those partly fixed). Each entry now starts with a round-4 status and its evidence. Verifying the round-4 guides found **3 new issues**, listed first under [New in round 4](#new-in-round-4). The guides no longer give workarounds for the fixed ones.
 
 Open issues by severity after round 4 (still open + new):
 
@@ -13,7 +13,7 @@ Open issues by severity after round 4 (still open + new):
 | blocker | 0 | 0 | 0 |
 | hard | 0 | 0 | 0 |
 | annoying | 4 | 1 | 5 |
-| polish | 5 | 1 | 6 |
+| polish | 5 | 2 | 7 |
 
 **Round 3 (16 November 2026).** After the five round-3 fixer groups merged, every script was run again and each of the 20 issues still open after round 2 was re-checked: **11 fixed, 9 still open**. Each of those entries now starts with a round-3 status and its evidence. Verifying the round-3 guides found **9 new issues**, listed first under [New in round 3](#new-in-round-3). The guides no longer give workarounds for the fixed ones.
 
@@ -47,6 +47,12 @@ Found while re-verifying the guides after the round-4 fixes.
 - **What happened:** the menu shows only its choice (Free space, Top right … Below); its name, "Where the key goes on the figure", is for screen readers only. The toasts say "Choose another place in Export › Legend key › Where". A round-4 tester looked for a "Where" label and did not find one.
 - **Severity:** polish
 - **Suggestion:** show a short "Where" label before the menu.
+
+### A journal preset leaves a lane table between the text and heading sizes
+- **What I tried:** the spot assay's dilution row (Col span 2) under ⌘K `asm`, then measured on the drawn figure (`phage-and-microbiology`, compliance step).
+- **What happened:** the dilution row prints at 8.9 pt, while ASM's text is 8 pt and its headings 9.75 pt: the preset scales the lane table by the headings' factor (13 → 30.9 px) instead of giving it a size of the journal's. A round-4 tester measured 9.3 pt and 9.7 pt in another layout. Nothing fails, but the row does not match either size, and the guide used to say it took the journal's type size.
+- **Severity:** polish
+- **Suggestion:** set lane tables to the journal's text (or heading) size in points, as other text is, and say which in the toast.
 
 ## New in round 3
 

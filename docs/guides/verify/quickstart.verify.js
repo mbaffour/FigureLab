@@ -238,6 +238,8 @@ const { step, expect, btn } = L;
     await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(400);
     const after = await p.evaluate(() => ({ fmt: document.getElementById('label-format').selectedOptions[0].text, cols: document.getElementById('cols').value }));
     T._lf = { row: row.slice(1), after, cols0 };
+    // still open: the label-format change is not counted (the row stays ✓); fixed: one undo takes back only it
+    expect(row[1] === '✓' && /since the figure last changed/.test(row[2] || '') && after.fmt === 'A B C' && after.cols === cols0, JSON.stringify(T._lf));
     return JSON.stringify(T._lf);
   });
 

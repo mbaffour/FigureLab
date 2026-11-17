@@ -413,6 +413,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     // ISSUES (round 3) "MW labels keep their own size under a journal preset": evidence, in pt
     const mwPt = await p.evaluate(() => { const k = _physFacts().wMm / 25.4 * 72 / canvasLogicalW;
       return annotations.filter(a => a && a.mw && a.blotPanel === images[0].id).map(a => +(a.fontSize * k).toFixed(1)); });
+    expect(mwPt.length === 3 && mwPt.every(v => v > 8), 'MW labels (pt): ' + mwPt);   // ISSUES: still larger than the 7 pt text
     return `MW labels print at ${[...new Set(mwPt)].join(', ')} pt (text 7 pt); MW markers row "${rowOf(R, 'MW markers').note.slice(0, 160)}"; before: Text size ✗ "${(ts0.note.match(/smallest text: [^(]*/) || [''])[0]}"; after "Lane tables to 7 pt": ${R.title}; Text size "${rowOf(R, 'Text size').note.slice(0, 80)}"; Printed height ${rowOf(R, 'Printed height').note}; Panel resolution ${pr.icon} ${pr.note.slice(0, 50)}; MW markers "${rowOf(R, 'MW markers').note.slice(0, 50)}…"; Charts from densitometry "${rowOf(R, 'Charts from densitometry').note.slice(0, 200)}"; Panel labels "${rowOf(R, 'Panel labels').note}"; still open: ${open.join(', ')}`;
   });
 
@@ -674,6 +675,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     await crow.locator('button', { hasText: '⚙' }).first().click(); await p.waitForTimeout(300);
     const setTxt = (await crow.innerText()).replace(/\s+/g, ' ');
     await crow.locator('button', { hasText: '⚙' }).first().click(); await p.waitForTimeout(200);
+    expect(!/typed/i.test(rowTxt) && !/typed/i.test(setTxt), 'the Images row or ⚙ now says typed: ' + setTxt.slice(0, 300));   // ISSUES: still open
     T._typedRow = `Images row ${/typed/i.test(rowTxt) ? 'says' : 'does not say'} "typed"; its ⚙ ${/typed/i.test(setTxt) ? 'says' : 'does not say'} "typed"` + (/typed/i.test(setTxt) ? ` ("${(setTxt.match(/[^.]*typed[^.]*/i) || [''])[0].trim().slice(0, 140)}")` : '');
     return `${T._typedRow}; toast "…${t.slice(t.indexOf('a chart typed'))}"; on the chart "${drawn[0]}"; caption "…${cap.slice(cap.indexOf('Values entered'), cap.indexOf('Values entered') + 150)}"; compliance ✗ "${cr.note.slice(0, 60)}…"; ${csvName}: "${head.slice(0, 80)}…"`;
   });

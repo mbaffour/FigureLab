@@ -615,9 +615,15 @@ const { step, expect, btn } = L;
     await L.openSection(T, 'Export');
     await lib.locator('.sess-row', { hasText: 'Fig2 v1' }).locator('button', { hasText: 'Open' }).click(); await p.waitForTimeout(800);
     const y3 = (await byName(/phase_rods/)).y;
+    // a 16-bit picture after Open: what Methods says about its samples (tester freeform4-07)
+    await btn(T, '✎ Write Methods paragraph').click(); await p.waitForTimeout(500);
+    const rp = p.locator('.modal-bg.open').filter({ hasText: /Replace your Methods/ });
+    if (await rp.count()) await rp.locator('button', { hasText: 'Replace' }).first().click();
+    const meth = await p.evaluate(() => document.getElementById('methods-out').value);
+    T._k2meth = (meth.match(/[^.]*16-bit[^.]*\./g) || []).join(' ').slice(0, 300);
     const rows = (await lib.locator('.sess-row').allInnerTexts()).map(r => r.split('\n')[0]);
     expect(y1 === 20 && y2 === 60 && y3 === 20 && /Saved "Fig2 v1" to your sessions/.test(t1) && /Opened "Fig2 v1"/.test(t2), JSON.stringify({ y1, y2, y3, t1, t2, rows }));
-    return `library: ${rows.join(', ')}; toasts "${t1}", "${t2}"; B at Y ${y1} after Open v1, ${y2} after Ctrl+Z`;
+    return `library: ${rows.join(', ')}; toasts "${t1}", "${t2}"; B at Y ${y1} after Open v1, ${y2} after Ctrl+Z; Methods after Open: "${T._k2meth}"`;
   });
 
   await step(T, 'K3 ✕ New, then Export › 📂 Load the Ctrl/⌘+S file: every object comes back in place with its letter and caption note', async () => {
