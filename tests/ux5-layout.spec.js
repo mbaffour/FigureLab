@@ -533,3 +533,70 @@ test('newcomer5-02 (follow-up): a panel removed under a placed key gives the key
   expect(await page.evaluate(() => __toast())).toMatch(/The letters now skip A/);
   expect(errors).toEqual([]);
 });
+
+test('phage5-02 (follow-up): a third map added later opens with "same scale" ticked, and its Apply keeps the first two sharing', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')], ['Rw9_complete_genome.gb', GB('Rw9_complete_genome_features.gb')]], { pics: 0, cols: 1, rows: 3 });
+  await page.evaluate(() => openDataPanelEditor(images.findIndex(p => p && p.type === 'genemap')));
+  await page.locator('#gm-samescale').check();
+  await page.locator('#genemap-modal').getByRole('button', { name: 'Apply' }).click();
+  await page.evaluate(async (t) => { await addFiles([new File([t], 'Tq4_again.gb', { type: 'text/plain' })]); }, GB('Tq4_complete_genome_features.gb'));
+  await page.waitForFunction(() => images.filter(p => p && p.type === 'genemap').length === 3);
+  await page.evaluate(() => { if (typeof closeGenemapModal === 'function') closeGenemapModal(); render();
+    const G = images.map((p, i) => [p, i]).filter(([p]) => p && p.type === 'genemap'); openDataPanelEditor(G[2][1]); });
+  await expect(page.locator('#gm-samescale')).toBeChecked();
+  await page.locator('#genemap-modal').getByRole('button', { name: 'Apply' }).click();
+  await page.evaluate(() => render());
+  const r = await page.evaluate(() => images.filter(p => p && p.type === 'genemap').map(g => g.map.length));
+  const a = await drawn(page, 0), b = await drawn(page, 1);
+  const bb = d => { const l = d.lines[0]; return l[2] - l[0]; };
+  expect(bb(a) / bb(b)).toBeCloseTo(r[0] / r[1], 2);
+  expect(errors).toEqual([]);
+});
+
+test('phage5-09 (follow-up): the legend key of a map cut to a region keys only what the region shows', async ({ page }) => {
+  const errors = await loadApp(page);
+  await mapGrid(page, [['Tq4_complete_genome.gb', GB('Tq4_complete_genome_features.gb')]], { pics: 0, cols: 1, rows: 1 });
+  const r = await page.evaluate(() => {
+    const g = images.find(p => p && p.type === 'genemap');
+    g.map.features.push({ name: 'pEarly', type: 'promoter', start: 100, end: 160, strand: 1 }); render();
+    const before = _figureKey().map(k => k.name);
+    g.map.region = { from: 8088, to: 21310 }; g._genemapCache = null; render();
+    return { before, after: _figureKey().map(k => k.name) };
+  });
+  expect(r.before.some(n => /promoter/i.test(n))).toBe(true);
+  expect(r.after.some(n => /promoter/i.test(n))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('freeform4-08 (follow-up): a canvas the key grew is never given back under an object moved into that band', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 450, h: 678, label: 'A', iw: 300, ih: 200 },
+    { type: 'image', x: 500, y: 20, w: 680, h: 678, label: 'B', iw: 300, ih: 200, fill: '#cc6633' }]);
+  await page.evaluate(() => { sv('fm-canvas-w', '1200'); sv('fm-canvas-h', '700'); render();
+    images.length = 0; freeformElements.forEach(e => { e.lut = 'green'; }); freeformElements[1].lut = 'magenta'; render();
+    setKeyOnFigure(true); });
+  await settle(page);
+  const g = await page.evaluate(() => ({ w: +gv('fm-canvas-w'), grown: annotations.find(a => a.type === 'legend')._grown }));
+  expect(g.w).toBeGreaterThan(1200);                                  // the key took a strip on the right
+  // picture B moves right into that strip, then A shrinks so a free corner opens on the old canvas
+  await page.evaluate((w) => { freeformElements[1].x = w - 690; render(); freeformElements[0].h = 300; render(); }, g.w);
+  await settle(page, 300);
+  const r = await page.evaluate(() => ({ W: +gv('fm-canvas-w'), right: freeformElements[1].x + freeformElements[1].w }));
+  expect(r.W).toBeGreaterThanOrEqual(r.right);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer4-04 (under the panels): a key in the strip grown under a full column starts at panel A\'s left edge', async ({ page }) => {
+  const errors = await loadApp(page);
+  await keyedGrid(page);
+  await page.evaluate(() => { sv('cols', '1'); sv('rows', '4'); sv('m-left', '60'); onLayoutChange(); render(); setKeyOnFigure(true); });
+  await settle(page);
+  const r = await page.evaluate(() => { const k = annotations.find(a => a.type === 'legend');
+    const P = panelBounds.filter(b => images[b.idx]);
+    return { kx: k.xf * canvasLogicalW, ky: k.yf * canvasLogicalH, px: Math.min(...P.map(b => b.x)), pb: Math.max(...P.map(b => b.y + b.h)) }; });
+  expect(r.ky).toBeGreaterThanOrEqual(r.pb - 1);                         // under the panels
+  expect(Math.abs(r.kx - r.px)).toBeLessThan(1);                         // was the canvas edge, 54 px to its left
+  expect(errors).toEqual([]);
+});

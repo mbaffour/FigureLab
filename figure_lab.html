@@ -16353,7 +16353,8 @@ var _KEY_GLYPH_WORDS={promoter:'bent arrow', rbs:'half-circle', cds:'arrow', ter
   ncrna:'bar', tag:'box', domain:'box', site:'lollipop', misc:'box', 'arc-arrow':'arc arrow', 'arc-band':'arc band'};
 function _keyGenemapRows(el, add){
   const map=el.map, st=map.style||{}, circ=map.topology==='circular', byType=new Map();
-  _gmFeatures(map).forEach((f,i)=>{ const c=_gmFeatColor(f,st,i); if(!byType.has(f.type)) byType.set(f.type,[]); byType.get(f.type).push({f,c}); });
+  // the features drawn: a map cut to a region keys only what the region shows, in its colours
+  _gmFeatures(_gmView(map).map).forEach((f,i)=>{ const c=_gmFeatColor(f,st,i); if(!byType.has(f.type)) byType.set(f.type,[]); byType.get(f.type).push({f,c}); });
   byType.forEach((list,type)=>{
     const label=(SBOL_TYPES[type]||SBOL_TYPES.misc).label;
     const glyph=circ ? (_GM_DIRECTIONAL.has(type)?'arc-arrow':'arc-band') : type;
@@ -16816,6 +16817,12 @@ function _ckKeyAutoPlace(W, H){
       _ckKeyBaseCache={sig:ksig, p:pb};
       const want={}; own.forEach(([id,g])=>{ want[id]=g.from; });
       if(!pb.free){ const fid=_ckKeyFid(pb.need.side); if(fid) want[fid]=(want[fid]!=null?want[fid]:cur(fid))+pb.need.px; }
+      // A freeform canvas given back never ends inside what is drawn on it: an object moved into
+      // the band the key grew keeps its room.
+      if(layoutMode==='freeform'){ const O=busy.filter(b=>b.what!=='text');
+        if(O.length){ const r=Math.ceil(Math.max(...O.map(b=>b.x+b.w))), bt=Math.ceil(Math.max(...O.map(b=>b.y+b.h)));
+          if(want['fm-canvas-w']!=null) want['fm-canvas-w']=Math.max(want['fm-canvas-w'], Math.min(cur('fm-canvas-w'), r));
+          if(want['fm-canvas-h']!=null) want['fm-canvas-h']=Math.max(want['fm-canvas-h'], Math.min(cur('fm-canvas-h'), bt)); } }
       if(Object.entries(want).some(([id,v])=>v!==cur(id)))
         _ckKeyNeed={a, set:want, sig:[Math.round(L.w),Math.round(L.h),where,pb.free?'free':pb.need.side].join('|')};
       return;
@@ -32361,7 +32368,9 @@ function _genemapModalSync(){
   chk('gm-ruler', st.showRuler!==false);
   chk('gm-labels', st.showLabels!==false);
   chk('gm-strandrows', st.strandRows!==false);
-  chk('gm-samescale', !!st.sameScale);
+  // The figure's setting, not this map's own: a map added after two that share a scale opened
+  // unticked, and its Apply turned sharing off for the other two.
+  chk('gm-samescale', ((layoutMode==='freeform'?freeformElements:images)||[]).some(e=>e&&e.type==='genemap'&&e.map&&e.map.topology!=='circular'&&e.map.style&&e.map.style.sameScale));
   sv('gm-from', m.region&&m.region.from?m.region.from:''); sv('gm-to', m.region&&m.region.to?m.region.to:'');
   document.getElementById('gm-table').value=_featureTableToText(m);
   _genemapModalStat();
