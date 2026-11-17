@@ -8,7 +8,7 @@
 - One CSV (or TSV, or cells copied from Excel) per chart. Any of the layouts in Task 1 works.
 - Optional: a `paper_style.json` from CFU Plot Studio or another FigureLab figure, to share sample colours across the paper.
 
-Every step below was followed through the app's own buttons by [`verify/charts.verify.js`](verify/charts.verify.js), on eleven generated CSVs whose true means and SDs are known. The plotted values in the source data matched them, and so did a source-data file dropped back in.
+Every step below was followed through the app's own buttons by [`verify/charts.verify.js`](verify/charts.verify.js), on fourteen generated CSVs whose true means and SDs are known. The plotted values in the source data matched them, and so did a source-data file dropped back in.
 
 ---
 
@@ -29,13 +29,15 @@ Every step below was followed through the app's own buttons by [`verify/charts.v
 | Your table | What to set | Checked on |
 |---|---|---|
 | **Tidy, one value column**: `strain, replicate, cfu_per_ml`, one row per replicate | Chart type **Bar**, X / category column `strain`, Y columns only `cfu_per_ml`. Rows of the same group are averaged. | guessed this way on import |
-| **Tidy with a series column**: `time_min, MOI, replicate, OD600` | Chart type **Line**, X `time_min`, **Series (group) column** `MOI`, Y `OD600`. One averaged line per MOI. | guessed this way on import |
+| **Tidy with a series column**: `time_min, MOI, replicate, OD600` | Chart type **Line**, X `time_min`, **Series (group) column** `MOI`, Y `OD600`. One averaged line per MOI. | guessed this way on import, with two MOIs and with three (0, 1, 10) |
 | **Tidy with two text columns**: `antibiotic, strain, replicate, MIC_ug_per_ml` | Chart type **Grouped bar**, X `antibiotic`, **Series (group) column** `strain`: one bar per strain within each antibiotic. With Series **— none —** the strains would be averaged together, and the line under the data box says so. | guessed this way on import |
 | **Replicate columns**: `time_min, MOI_0_r1, MOI_0_r2, MOI_0_r3, MOI_1_r1…` | Chart type **Line**, tick **Average replicate columns into one series each**. It shows what it grouped: `(MOI_0: 3, MOI_1: 3)`. | guessed and ticked on import |
+| **Replicate columns, one row per condition** (Prism or Excel): `condition, Rep1, Rep2, Rep3` | Chart type **Bar**, X `condition`, **Average replicate columns into one series each** ticked (it reads `(Mean: 3)`), **SD (n−1)** and **points**: one bar per condition with its mean, SD and replicate dots. | guessed and ticked on import |
 | **Mean and SD columns**: `time_min, MOI 0 mean, MOI 0 SD, MOI 1 mean, MOI 1 SD` | **Error bars** › **from a column**. One picker per series appears, already paired by name (MOI 0 mean → MOI 0 SD). Leave the SD columns unticked under Y columns. | guessed and paired on import |
 | **Wide, one column per group** (Prism column table): `Untreated, Phage-treated` | Chart type **Bar**, **Data layout** › **Columns — each ticked column is a group**, every group ticked under **Group columns (each is one group)**. | guessed this way on import |
 | **European CSV**: `;` separators, decimal commas, a second header row of units | Nothing. `12,5` is read as 12.5, and the units row goes into the axis title (`Durchmesser (mm)`). The status line says `units row: Durchmesser mm`. A tidy file with German headers (`Stamm;Replikat;Biofilm`) gives a bar per strain: `Replikat` is read as the replicate number. | read this way on import |
 | **A source-data file FigureLab wrote** (Task 8) | Nothing: the `#` lines and the Plotted values block are skipped. | read back on import |
+| **A plate reader's export**: `Time` (h:mm:ss, h:mm, minutes or hours), a temperature column, `A1`, `A2` … one column per well | A **Line** chart of every well against time, with a **Plate wells** row that groups wells by plate row or column and subtracts a blank. See [A plate reader's export](phage-and-microbiology.md#a-plate-readers-export) in the phage guide. | read this way on import, from 11 to 49 time points, with and without a blank row |
 
 ### Other ways to add a chart
 
@@ -110,10 +112,12 @@ The **Names & colours** list in the dialog has one row per group or series.
 1. Open **Look** › **Sample colours**. Every sample in your charts has a row: the name the charts show, the data names behind it in brackets (`ΔfliC (dfliC)`), a swatch, and "palette" or **×**. The list follows your charts as you edit them.
 2. Change a swatch to recolour that sample in every chart and in the key.
 3. Click **×** beside a name to put it back on the chart palette.
-4. **⬇ Save as paper_style.json** saves every sample's colour, the palette ones too, for the next figure. The toast counts the samples and says each data name gets the colour, e.g. "paper_style.json saved with 7 sample colours (1 set by hand, 6 from the palette; under 11 data names, so each name a sample is written as gets its colour; sample_palette only)". The file holds colours only, not **shown as** names: in the next figure, type `Δ*fliC*` and the rest again (once per sample is enough, in any chart).
-5. **📄 Load lab style (paper_style.json)…** (at the end of Look) applies a lab style file: its font and its sample colours. A summary says what was applied. Loading replaces the whole colour list, including colours you picked by hand.
+4. **⬇ Save as paper_style.json** saves every sample's colour, the palette ones too, and the **shown as** names, for the next figure. The toast counts them: "paper_style.json saved with 7 sample colours (1 set by hand, 6 from the palette; under 11 data names, so each name a sample is written as gets its colour; sample_palette and 2 shown-as names (sample_names))".
+5. **📄 Load lab style (paper_style.json)…** (at the end of Look) applies a lab style file: its font, its sample colours and its shown-as names. A summary says what was applied. Loading replaces the whole colour list, including colours you picked by hand. In the test, a new figure with the same CFU file, given the saved file, drew `dfliC` as Δ*fliC* again, in its saved colour.
 
-FigureLab reads `MOI_0`, `MOI 0` and `MOI 0 mean` as one sample: one row in Sample colours, one colour. The key still writes the name each chart shows, so give them one name with **shown as** (here `MOI 0` in the replicate-column chart) and the key lists it once. A chart drawn from `… mean` columns has its own **shown as** box, filled in with the name without ` mean` (`MOI 0`): a different name typed in another chart does not reach it, so type it there too. Names that differ in other ways (`dfliC` in one file, `ΔfliC` in another) are two samples: write them the same way in every file.
+FigureLab reads `MOI_0`, `MOI 0` and `MOI 0 mean` as one sample: one row in Sample colours, one colour and one row in the key, even before you name it. **shown as** sets the name that row shows (here `MOI 0` in the replicate-column chart). A chart drawn from `… mean` columns has its own **shown as** box, filled in with the name without ` mean` (`MOI 0`).
+
+One shown name is one sample: a colour follows the name a sample is shown as. In the test, `dfliC` shown as `Δ*fliC*` in one chart and a file whose data say `ΔfliC` in another were drawn in one colour and listed once in the key.
 
 ---
 
@@ -148,11 +152,12 @@ FigureLab reads `MOI_0`, `MOI 0` and `MOI 0 mean` as one sample: one row in Samp
 - A table with two text columns (antibiotic × strain) is a **Grouped bar** with the second column as **Series**.
 - Added several CSVs at once? Double-click each chart to check its guess; the dialog opened only on the last.
 - After placing the figure's legend key, untick each chart's **legend** so the colours are explained once.
+- A chart in one grid cell at journal type size can be squeezed: the compliance check's **Chart room** row warns when a plot is squeezed too small or a legend name is cut off. Give the chart a column span of 2, or untick its **legend** when the figure's key lists the same names.
 - More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).
 
 ## If something looks wrong
 
-- **One sample appears twice in the key.** Two charts show it under two names (`MOI_0` and `MOI 0`): give it one name with **shown as**, in each chart (a chart drawn from `… mean` columns has its own box). If the data names differ in other ways (`dfliC` in one file, `ΔfliC` in another), FigureLab keeps two samples with two colours, even after you type `Δ*fliC*` as the first one's shown-as name: write them the same way in your files.
+- **One sample appears twice in the key.** Two charts show it under two different names: give it one name with **shown as**, in each chart (a chart drawn from `… mean` columns has its own box). Once the shown names match, the charts share one colour and one key row.
 - **The strains of an MIC table are averaged into one bar.** The line under the data box says "⚠ strain not used …": pick `strain` as **Series (group) column** (Chart type **Grouped bar**).
 - **A red "… outside the axis range not shown" note under a chart.** Your **Y min** / **max** cut off data. Widen or clear them.
 - **log Y is greyed out.** The chart is a **Stacked bar**; use **Grouped bar**.

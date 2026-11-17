@@ -631,5 +631,45 @@ const TRUTH = {
     return `A dfliC "${a.dfliC.name}" ${a.dfliC.color}; ${label} ΔfliC ${n['ΔfliC'].color}; key lists ΔfliC ${twice}×`;
   });
 
+  // ---- ux4: layouts the round-4 testers met ------------------------------------------------
+  // (added after the six-panel figure, so they do not change its letters)
+  await step(T, 'T9 Replicate columns, one row per condition (condition, Rep1, Rep2, Rep3): Bar, "Average replicate columns" ticked → one bar per condition, mean ± SD with the points', async () => {
+    CSV['pyoverdine_repcols.csv'] = 'condition,Rep1,Rep2,Rep3\nWT,1.20,1.31,1.25\nΔpvdA,0.10,0.12,0.09\nΔpvdA + ppvdA,1.05,0.98,1.10\n';
+    const d = await importCsv('pyoverdine_repcols.csv');
+    expect(d.kind === 'Bar' && d.x === 'condition' && /Average replicate columns into one series each \(Mean: 3\) \[ticked\]/.test(d.rep) && d.err === 'SD (n−1)', JSON.stringify(d));
+    expect(await chart.locator('#chart-points').isChecked(), 'points not ticked');
+    await apply();
+    const label = (await charts()).pop().label;
+    const st = await p.evaluate((label) => { const el = images.find(im => im && im.label === label); el._chartStat = null; el._chartKey = ''; const S = _chartStatsCached(el);
+      return { cats: S.categories.map(c => _rtText(c)), bars: S.groups.map(g => [g.bars[0].value, g.bars[0].err, g.bars[0].n]) }; }, label);
+    const truth = [[1.20, 1.31, 1.25], [0.10, 0.12, 0.09], [1.05, 0.98, 1.10]];
+    expect(st.cats.join('|') === 'WT|ΔpvdA|ΔpvdA + ppvdA', 'categories ' + st.cats);
+    truth.forEach((v, k) => expect(Math.abs(st.bars[k][0] - mean(v)) < 1e-9 && Math.abs(st.bars[k][1] - sd(v)) < 1e-9 && st.bars[k][2] === 3, `bar ${k}: ${st.bars[k]}`));
+    return `${d.rep}; ${st.cats.map((c, k) => `${c} ${st.bars[k][0].toFixed(3)} ± ${st.bars[k][1].toFixed(3)} (n = ${st.bars[k][2]})`).join(', ')}`;
+  });
+  await step(T, 'T3c Tidy rows whose series column holds numbers (MOI 0, 1, 10): Line against time_min, Series MOI, Y OD600 only', async () => {
+    CSV['lysis_tidy_3moi.csv'] = 'time_min,MOI,replicate,OD600\n' + [0, 60, 120].flatMap(t => [0, 1, 10].flatMap(m => [1, 2, 3].map(r => `${t},${m},${r},${(0.1 + t / 200 / (1 + m) + r * 0.01).toFixed(3)}`))).join('\n') + '\n';
+    const d = await importCsv('lysis_tidy_3moi.csv');
+    expect(d.kind === 'Line' && d.x === 'time_min' && d.series === 'MOI' && d.ycols.join() === 'OD600', JSON.stringify(d));
+    await apply();
+    const label = (await charts()).pop().label;
+    const ser = await p.evaluate((label) => { const el = images.find(im => im && im.label === label); el._chartStat = null; el._chartKey = ''; return (_chartStatsCached(el).series || []).map(s => s.name); }, label);
+    expect(ser.join('|') === 'MOI 0|MOI 1|MOI 10', 'series ' + ser);
+    return `X ${d.x}, Series ${d.series}, Y ${d.ycols}; lines ${ser.join(', ')}`;
+  });
+  await step(T, 'S4 The next figure: ✕ New, the CFU CSV, 📄 Load lab style with the paper_style.json saved in S1 → dfliC is shown as ΔfliC again, in its saved colour', async () => {
+    const saved = JSON.parse(fs.readFileSync(styleFile, 'utf8')).settings;
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    await importCsv('cfu_24h.csv'); await apply();
+    await L.openSection(T, 'Look');
+    await L.pickFiles(T, p.getByText('📄 Load lab style (paper_style.json)…'), [styleFile]);
+    await p.waitForTimeout(800);
+    const sum = (await p.locator('#info-modal-bg').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    await p.keyboard.press('Escape');
+    const a = await drawn('A');
+    expect(a.dfliC && a.dfliC.name === 'Δ*fliC*' && a.dfliC.color.toLowerCase() === saved.sample_palette.dfliC.toLowerCase(), JSON.stringify(a) + ' | ' + JSON.stringify(saved));
+    return `dfliC drawn as "${a.dfliC.name}" ${a.dfliC.color}; summary "${sum.slice(0, 300)}"`;
+  });
+
   await L.finish(T);
 })();
