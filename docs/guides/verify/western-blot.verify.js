@@ -414,9 +414,9 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
   });
 
   // ---------------------------------------------------------------- Task 8
-  await step(T, '10.1 Export › 🗎 Export uncropped originals (S1)… → ⬇ PDF (one page per panel): one page per scan', async () => {
+  await step(T, '10.1 Export › 📄 Export uncropped originals (S1)… → ⬇ PDF (one page per panel): one page per scan', async () => {
     await L.openSection(T, 'Export');
-    await p.locator('button:visible', { hasText: '🗎 Export uncropped originals (S1)…' }).last().click();
+    await p.locator('button:visible', { hasText: '📄 Export uncropped originals (S1)…' }).last().click();
     const s1 = p.locator('#s1-modal-bg'); await s1.waitFor({ state: 'visible' });
     const listed = await s1.innerText();
     expect(/\(tilted crop\)/.test(listed), 'S1 list: ' + listed.slice(0, 200));

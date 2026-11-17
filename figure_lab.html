@@ -888,7 +888,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="addLadderLabels()" title="Add molecular-weight ladder labels down the left edge">↕ MW ladder</button>
       <button class="btn" style="flex:1;font-size:10px;justify-content:center" onclick="openLaneTable()" title="The +/− condition table over or under a blot (rows such as IPTG, phage, MOI; one cell per lane), aligned to the detected lanes and moved with the panel">⊞ Lane table…</button>
     </div>
-    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Supplementary sheet journals ask for: each blot or gel's whole original image with the region used in the figure outlined, its file name, crop in source pixels, tilt and splice markers. PDF (one page per panel) or PNG.">🗎 Export uncropped originals (S1)…</button>
+    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Supplementary sheet journals ask for: each blot or gel's whole original image with the region used in the figure outlined, its file name, crop in source pixels, tilt and splice markers. PDF (one page per panel) or PNG.">📄 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="openGelAnalysis()" style="width:100%;justify-content:center;margin-top:4px" title="Detect lanes and bands on the selected panel (else the first) and measure band volumes from the original pixels — densitometry like ImageJ's gel analyzer, with saturation flags, loading-control normalisation and a molecular-weight fit">⫼ Analyse lanes &amp; bands…</button>
     <button class="btn" onclick="exportBlotMetadata()" style="width:100%;justify-content:center;margin-top:4px" title="Export a CSV of blot processing (grayscale/invert/adjustments/notes) — keep alongside the uncropped original scan">⬇ Blot metadata CSV</button>
     </div>
@@ -1244,7 +1244,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div id="key-names-ui" style="display:none"></div>
     <input type="hidden" id="key-names" value="">
     <button class="btn btn-primary" onclick="exportSubmissionPackage()" style="width:100%;justify-content:center;margin-top:6px" title="One ZIP with everything a journal or lab needs: PNG, TIFF, lossless PDF, SVG, session JSON, metadata CSV, caption, notes, R/Python scripts, reproducibility log, and each panel as a separate image.">📦 Export submission package (ZIP)</button>
-    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Each blot or gel's whole original image with the cropped region outlined, file name, crop coordinates, tilt and splice markers — the uncropped-originals supplement Nature, Cell, JBC, PLOS and eLife require. Also added to the submission package.">🗎 Export uncropped originals (S1)…</button>
+    <button class="btn" onclick="openS1Dialog()" style="width:100%;justify-content:center;margin-top:4px" title="Each blot or gel's whole original image with the cropped region outlined, file name, crop coordinates, tilt and splice markers — the uncropped-originals supplement Nature, Cell, JBC, PLOS and eLife require. Also added to the submission package.">📄 Export uncropped originals (S1)…</button>
     <button class="btn" onclick="showCredits()" style="width:100%;justify-content:center;margin-top:4px" title="Attribution required by anything you've used — FigureLab's own icons need none, but imported CC-BY artwork and AI-generated content do">⚖ Credits &amp; attribution</button>
     <button class="btn" id="pptx-btn" onclick="exportPPTX()" style="width:100%;justify-content:center;margin-top:4px" title="Export an editable PowerPoint (.pptx): each panel a movable picture with nothing baked in, and every letter, heading, title, label and scale bar editable text or shapes — finish your slide in PowerPoint or Keynote. Grid and freeform.">📊 Export editable PowerPoint (.pptx)</button>
 
@@ -9322,8 +9322,18 @@ function _gelLoadingStale(a,im){
 // file — "panel 3" was its position in the list, which the figure never shows.
 function _gelLoadingLabel(a){ const lc=images[_gelLoadingIdx(a)]; if(!lc) return a.loading.label;
   const L=_rtText(formatLabel(lc.label)); if(L) return L;
-  const t=_rtText(String(lc.tag||lc.captionNote||'').trim()), f=_sourceName(lc);
-  return t?`“${t}”`:f?`“${f}”`:String(_gelLoadingIdx(a)+1); }
+  const t=_rtText(String(lc.tag||lc.captionNote||'').trim());
+  return t?`“${t}”`:_panelWho(lc); }
+// A panel named as the reader sees it now: its letter, else its row heading ("the GAPDH
+// strip"), else its file. Reports used "?", "panel 2" (its place in the list, shown nowhere)
+// or the letter it had when an analysis was made — which can name another panel after
+// re-lettering (blot2-09, blot4-10, blot4-16).
+function _panelWho(im){
+  if(!im) return '?';
+  const L=_rtText(formatLabel(im.label)); if(L) return L;
+  const hd=(layoutMode==='freeform'?null:_captionHeadings().get(im))||{}, f=_sourceName(im);
+  return hd.row?`the ${hd.row} ${_isDataPanel(im)?'panel':'strip'}`:f?`“${f}”`:'an unlettered panel';
+}
 
 // Everything the table, the CSV and the Methods sentence read.
 // A band that cannot be quantified — saturated, or partly outside the image — is
@@ -9923,7 +9933,7 @@ function _gelMethodsSentences(P){
     const a=im.gelAnalysis;
     // No lanes, nothing measured: no sentence claims densitometry was done.
     if(!a.lanes.length) return;
-    const nm=_rtText(formatLabel(im.label))||'(unlabelled)', sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
+    const nm=_panelWho(im), sat=_gelSatCount(a), part=_gelFlagCount(a,'partial');
     const inf=a.lanes.map((L,i)=>L.inferred?String(i+1):null).filter(Boolean);
     const lanes=a.laneInfo&&a.laneInfo.whole?'the whole crop width was measured as one lane (the lane count set by hand)'
       :a.laneMode==='forced'?`${a.lanes.length} evenly pitched lanes were fitted to the background-flattened column intensity profile (the lane count set by hand)`
@@ -10037,7 +10047,7 @@ function openGelAnalysis(idx){
   _gelUI={id:im.id, get idx(){ const id=this.id; return images.findIndex(p=>p&&p.id===id); }, k:1, sel:null, drag:null, lane:0, pdrag:null, prof:null};
   const m=document.createElement('div'); m.id='gel-modal-bg'; m.className='modal-bg open';
   const lab=_rtText(formatLabel(im.label))||String(idx+1);
-  const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">panel ${esc(_rtText(formatLabel(p.label))||String(i+1))}</option>`:'').join('');
+  const others=images.map((p,i)=>(p&&i!==idx&&!_gelRefusal(p))?`<option value="${i}">${(()=>{ const L=_rtText(formatLabel(p.label)); return L?'panel '+esc(L):esc(_panelWho(p)); })()}</option>`:'').join('');
   m.innerHTML=`<div class="modal" style="max-width:1000px;width:96vw">
     <button class="modal-close" onclick="closeGelAnalysis()" aria-label="Close" title="Close (Esc)">×</button>
     <h3>⫼ Lanes &amp; bands — panel ${esc(lab)}</h3>
@@ -15224,7 +15234,9 @@ function _checkCompliance(asJ){
   const _ffPics=_ff?freeformElements.filter(e=>e&&!e.hidden&&(e.type==='image'||e.type==='aiicon')):[];
   const _P=_ff?_ffPics:_shownPanels;                 // the pictures the figure shows
   const _lblOf=o=>(o.type==='chart'||o.type==='genemap')&&_ff?o.letter:o.label;
-  const _lblObjs=_ff?freeformElements.filter(e=>e&&!e.hidden&&['image','aiicon','chart','genemap'].includes(e.type)):_shownPanels;
+  // An icon (＋ Icon) is decoration, not a panel: it arrives with no letter, and was counted
+  // as an unlettered panel ("6/7 panels labelled", freeform4-09) — unless it was given one.
+  const _lblObjs=_ff?freeformElements.filter(e=>e&&!e.hidden&&['image','aiicon','chart','genemap'].includes(e.type)&&!(e.isIcon&&!String(e.label||'').trim())):_shownPanels;
   const panelsWithImages=_lblObjs.length;
   const panelsWithLabels=_lblObjs.filter(im=>_lblOf(im)).length;
   // Two panels under one label make every "(B)" in the caption point at two pictures.
@@ -15374,6 +15386,7 @@ function _checkCompliance(asJ){
   checks.push(_reuseComplianceRow());
   { const kr=_ckKeyRow(); if(kr) checks.push(kr); }
   { const tr=_ckTextOverRow(); if(tr) checks.push(tr); }
+  { const br=_ckBlankRow(_targetJournal()); if(br) checks.push(br); }
   // With a target journal the rows come from its own figure guide; without one the
   // report is the general one it has always been, plus a colour-accessibility row only
   // when there is something to flag.
@@ -15396,7 +15409,11 @@ function _checkCompliance(asJ){
   }
   const _tj=asJ?(JOURNALS[gv('target-journal')]||null):null;
   const _asNote=asJ?`<div id="ck-as-note" style="margin-bottom:8px;font-size:11px;padding:6px 8px;border:1px solid var(--border2);border-radius:6px">Report only — your target journal is still <b>${esc(_tj?_tj.label:'None / general')}</b>, and nothing was changed. The fix buttons below apply ${esc(J.label)}’s rules. <a href="#" onclick="event.preventDefault();_ckSwitchTarget('${asJ}')" style="color:var(--accent)">Switch the target to ${esc(J.label)}</a> (one undo step)</div>`:'';
-  showInfoModal(`${J.label} compliance — ${pass}/${total} passed${unv?` · ${unv} unverified`:''}${asJ?' · report only':''}`,
+  // A figure not yet exported in the journal's format has that still to do; "20/20 passed"
+  // read as done while the Export format row said "not checked" (newcomer4-06).
+  const _fmtRow=rowsOut.find(c=>c.label==='Export format'&&c.info&&c.uncounted);
+  const _todo=_fmtRow&&J.formats?` · 1 to do: export as ${({png:'PNG',jpeg:'JPEG',tiff:'TIFF',pdf:'PDF','pdf-lossless':'PDF',svg:'SVG'})[J.formats[0]]||J.formats[0]}`:'';
+  showInfoModal(`${J.label} compliance — ${pass}/${total} passed${unv?` · ${unv} unverified`:''}${_todo}${asJ?' · report only':''}`,
     `${_asNote}<div style="margin-bottom:10px;font-size:11px;color:var(--muted)">Checked against <b>${esc(J.name)}</b>${J.verified
       ? ` — each journal row comes from its own figure guide (${esc(J.src)}), read ${JOURNAL_RULES_READ}. Guides change, so check its own spec too before you submit.`
       : ` — its own page could not be read and the secondary sources disagree, so its rows are <b>unverified</b> (?) and never fail. Check its own spec on <a href="${J.url}" target="_blank" rel="noopener" style="color:var(--accent)">the journal's page</a>.`
@@ -15452,6 +15469,7 @@ function _auditFix(action){
   }
   else if(action==='ckkeyfree'){ _ckKeyToFree(); }
   else if(action==='cktextover'){ _ckTextOverFix(); }
+  else if(action==='ckbalance'){ _ckBalanceMargins(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='noscale'){
     // The pictures the row asked about need no scale: marked, one undo step, kept with the figure.
@@ -19317,7 +19335,7 @@ function _panelPpiList(dpi){
       if(r) out.push({idx:i, label:_rtText(formatLabel(el.label))||`object ${i+1}`, ...r}); });
   } else {
     _figurePanels().forEach(im=>{ const i=images.indexOf(im), r=_panelEffPpi(i,dpi);
-      if(r) out.push({idx:i, label:_rtText(formatLabel(im.label))||`panel ${i+1}`, ...r}); });
+      if(r) out.push({idx:i, label:_panelWho(im), ...r}); });
   }
   return out;
 }
@@ -19586,7 +19604,7 @@ function _onTargetJournal(v){
   _undoHeld++;
   try{
     if(v&&JOURNALS[v]) applyPreset(v);
-    else { _lastPresetName=''; _syncWidthOptions(); scheduleRender(); }
+    else { _lastPresetName=''; _restoreNameAfterJournal(); _syncWidthOptions(); scheduleRender(); }
   } finally { _undoHeld--; }
 }
 // ⌘K "Check against …": a report against that journal, and nothing else. It used to make
@@ -20002,8 +20020,10 @@ function _journalDpiTarget(J, dpi, hasText){
 // What the journal's page asks for, done where it is mechanical. The caller records the
 // undo step. Nothing the page does not state is touched; unverified journals only get
 // their size presets. Returns what changed, in words.
-function _applyJournalRules(J){
+function _applyJournalRules(J, w0){
   const did=[];
+  if(w0==null) w0=getTargetWidthMm();
+  let wi=-1;    // where the width is said in `did`, so a later change replaces it
   if(!J.verified) return did;
   render();
   // printed width: a set width the journal allows is kept; otherwise its nearest
@@ -20011,12 +20031,15 @@ function _applyJournalRules(J){
     const cur=getTargetWidthMm(), w=cur>0?cur:_physFacts().wMm, ok=_journalWidthOk(J,w);
     if(!(cur>0&&ok&&ok.ok)){
       const t=(!(cur>0)&&J.widthDefault)?J.widthDefault:_journalWidthTarget(J,w);
-      if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); did.push(`${t} mm wide`); }
+      if(String(t)!==gv('export-width-mm')){ sv('export-width-mm',String(t)); wi=did.length; did.push(`${t} mm wide`); }
     } else {
       // A width the journal allows is kept — and said, or nobody could tell whether the
       // width was considered at all (phage3-12: PLOS's 173 mm kept for ASM, silently).
-      const r=J.widthRange, nm=J.short||J.label;
-      did.push(`printed width kept at ${_f1mm(cur)} mm${ok.t?` — ${nm}’s ${ok.t.replace(/\s*\([^)]*\)\s*$/,'')}`:(r&&r.max!=null?` (${nm} allows up to ${r.max} mm)`:'')}`);
+      // "Kept" only when it was the width before the preset: one the preset's own size step
+      // had just set read "printed width kept at 183 mm" for a figure that had none.
+      const r=J.widthRange, nm=J.short||J.label, why=ok.t?` — ${nm}’s ${ok.t.replace(/\s*\([^)]*\)\s*$/,'')}`:(r&&r.max!=null?` (${nm} allows up to ${r.max} mm)`:'');
+      wi=did.length;
+      did.push(Math.abs(cur-w0)<0.05?`printed width kept at ${_f1mm(cur)} mm${why}`:`printed width ${_f1mm(cur)} mm${why}`);
     }
     // The width the preset picked (or kept) must not print the figure taller than the
     // journal allows: ASM's 177.8 mm made a tall blot stack 360 mm high, and Nature kept a
@@ -20024,8 +20047,13 @@ function _applyJournalRules(J){
     // nobody had chosen. Then the widest width that fits is used instead, and said.
     const fit=_ckHeightFitWidth(J);
     if(fit){ _ckSetWidthOption(J, fit); if(String(fit)!==gv('export-width-mm')){ sv('export-width-mm',String(fit));
-      if(/ mm wide$/.test(did[did.length-1]||'')) did.pop(); did.push(`${fit} mm wide — the widest that keeps it within ${J.maxH} mm tall`); } }
+      const msg=`printed width ${fit} mm — the widest that keeps it within ${J.maxH} mm tall`;
+      if(wi>=0) did[wi]=msg; else did.push(msg); } }
   }
+  // A journal whose page states no width (JBC's data-presentation page): the toast said only
+  // "figure guide applied", and the author could not tell a width had not been set (blot4-08).
+  else { const nm=J.short||J.label;
+    did.push(`no printed width set — ${nm}’s ${J.dataOnly?'data-presentation page':'guide'} states none${getTargetWidthMm()>0?` (${_f1mm(getTargetWidthMm())} mm kept)`:''}: pick the column width from ${nm}’s author instructions under Export › Printed width`+(J.fonts?'':', and no font')); }
   // fonts: switched only when the current one is not on the journal's list
   if(J.fonts){
     const v=_journalFontValue(J);
@@ -20039,8 +20067,13 @@ function _applyJournalRules(J){
     if(J.letters.upper&&!['ABC','custom'].includes(gv('label-format'))){ sv('label-format','ABC'); did.push('upper-case letters'); }
   }
   if(J.lzw&&!gc('export-tiff-lzw')){ sc('export-tiff-lzw',true); did.push('LZW TIFF'); }
+  // The name the author typed is remembered when a journal renames the files ("Figure 1" →
+  // PLOS's "Fig1"), said in the toast and the package README, and given back when the figure
+  // moves to a journal with no naming rule (newcomer4-08: "Fig1" stayed for good).
   if(J.naming){ const T=_journalNameTarget(J);
-    if(!T.ok&&T.name){ sv('export-name',T.name); did.push(`named ${T.name}`); } }
+    if(!T.ok&&T.name){ const was=gv('export-name').trim(); sv('export-name',T.name); _nameBeforeJournal={from:was, to:T.name};
+      did.push(`files named ${T.name}${was?` (your name “${was}” is kept for when you change journal)`:''}`); } }
+  else _restoreNameAfterJournal(did);
   render();
   const hasText=_figTextSizes().length>0, dt=_journalDpiTarget(J,getExportDPI(),hasText);
   if(dt){ sv('export-dpi',String(dt)); did.push(`${dt} DPI`); }
@@ -20216,7 +20249,7 @@ function _gelMarkerSpan(im){
 }
 function _blotRows(J, shown){
   const B=_blotPanels(shown), rows=[]; if(!B.length||!J.blots) return rows;
-  const bl=J.blots, src=_JSRC(J), nm=im=>esc(_rtText(formatLabel(im.label))||'?'), jn=J.short||J.label;
+  const bl=J.blots, src=_JSRC(J), nm=im=>esc(_panelWho(im)), jn=J.short||J.label;
   if(bl.mw){
     const notes=[]; let warn=false;
     B.forEach(im=>{
@@ -20243,11 +20276,11 @@ function _blotRows(J, shown){
   if(bl.loading){
     const lc=B.filter(im=>im.gelAnalysis&&im.gelAnalysis.loading);
     if(lc.length) rows.push({label:'Loading control', ok:true, info:true, src,
-      note:`${lc.map(im=>`${nm(im)} is normalised to panel ${esc(im.gelAnalysis.loading.label||'?')}`).join('; ')} — ${jn} asks for ${bl.loading}; make sure it was`});
+      note:`${lc.map(im=>`${nm(im)} is normalised to ${(()=>{ const w=_gelLoadingLabel(im.gelAnalysis)||'?'; return /^[A-Za-z0-9]{1,3}$/.test(w)?'panel '+esc(w):esc(w); })()}`).join('; ')} — ${jn} asks for ${bl.loading}; make sure it was`});
   }
   if(bl.uncropped){
     const s1=_s1Panels().filter(_s1Selected).length;
-    let note=`${jn}: ${bl.uncropped}. 🗎 Export uncropped originals (S1) writes them${s1?` (${s1} panel${s1===1?'':'s'} ticked)`:''}, and the submission package includes it`;
+    let note=`${jn}: ${bl.uncropped}. 📄 Export uncropped originals (S1) writes them${s1?` (${s1} panel${s1===1?'':'s'} ticked)`:''}, and the submission package includes it`;
     if(bl.s1Name==='S1_raw_images') note+=` as <b>S1_raw_images.pdf</b>; FigureLab warns when the file is over ${bl.s1MaxMB} MB`;
     if(bl.s1Name==='elife') note+=` as <b>${esc(_journalS1Name())}.pdf</b>${_figNumber()==null?' — the export name carries no figure number, so add it (e.g. “Figure 3”) and the sheet takes it':''}`;
     rows.push({label:'Uncropped originals', ok:true, info:true, src, note, fix:{a:'s1',t:'S1…'}});
@@ -20266,6 +20299,12 @@ function _figNumber(name){
 const _PLOS_SI=/^S\d+[\s_]?Fig/i;
 // What a journal that names its files wants this figure called: {name} when the figure's
 // number is known (or the name already fits), {name:null} when it is not.
+var _nameBeforeJournal=null;
+function _restoreNameAfterJournal(did){
+  const b=_nameBeforeJournal; if(!b) return;
+  _nameBeforeJournal=null;
+  if(gv('export-name').trim()===b.to&&b.from){ sv('export-name',b.from); if(did) did.push(`files named “${b.from}” again`); }
+}
 function _journalNameTarget(J){
   const n=gv('export-name').trim();
   if(!J.naming||J.naming.re.test(n)||_PLOS_SI.test(n)) return {name:n, ok:true};
@@ -20290,6 +20329,46 @@ const _GENERAL_ROWS=['Panel labels','Panel labels unique','Scale-bar calibration
   'Display ranges by channel','Export size','Min panel size','Linked insets','Densitometry','Image reuse across figures'];
 _GENERAL_ROWS.push('Legend key on the figure');
 _GENERAL_ROWS.push('Text over text');
+_GENERAL_ROWS.push('Blank margins');
+// Blank figure margins (grid): the empty strip between the figure's edge and the first thing
+// drawn on each side. The default margins (left 60, top 40, right and bottom 16 px) left a
+// 9–16 mm strip on the left of a printed figure and 3–4 mm on the right (newcomer4-01). The row
+// appears only when one side is more than 3 mm wider than its opposite; a warning for a journal
+// that asks for whitespace cropped, otherwise a note. Balance trims the wider side to match.
+function _ckBlankMargins(){
+  if(layoutMode==='freeform') return null;
+  const W=canvasLogicalW||0, H=canvasLogicalH||0; if(!(W>0&&H>0)) return null;
+  let l=Infinity, t=Infinity, r=-Infinity, b=-Infinity;
+  const add=(x,y,w,h)=>{ if(!(w>0&&h>0)) return; l=Math.min(l,x); t=Math.min(t,y); r=Math.max(r,x+w); b=Math.max(b,y+h); };
+  (panelBounds||[]).forEach(p=>{ if(images[p.idx]) add(p.x,p.y,p.w,p.h); });
+  (figTextItems||[]).forEach(it=>{ if(it&&it.bbox&&String(it.str||'').trim()) add(it.bbox.x,it.bbox.y,it.bbox.w,it.bbox.h); });
+  annotations.forEach(a=>{ if(!a||a.hidden) return; let q=null; try{ q=_annBox(a,W,H); }catch(e){}
+    if(q&&isFinite(q.x)&&isFinite(q.y)) add(q.x,q.y,q.w||1,q.h||1); });
+  if(!isFinite(l)) return null;
+  const mmPx=_physFacts().wMm/W;
+  return {L:Math.max(0,l), T:Math.max(0,t), R:Math.max(0,W-r), B:Math.max(0,H-b), mmPx};
+}
+function _ckBlankRow(J){
+  const m=_ckBlankMargins(); if(!m) return null;
+  const dx=(m.L-m.R)*m.mmPx, dy=(m.T-m.B)*m.mmPx;
+  if(dx<=3&&dy<=3) return null;
+  const f=v=>(v*m.mmPx).toFixed(1);
+  const crop=!!(J&&/whitespace cropped/i.test(J.formatNote||''));
+  return {label:'Blank margins', ok:!crop, warn:crop, info:!crop, uncounted:!crop,
+    note:`blank strip ${dx>3?`on the left ${f(m.L)} mm against ${f(m.R)} mm on the right`:''}${dx>3&&dy>3?', and ':''}${dy>3?`at the top ${f(m.T)} mm against ${f(m.B)} mm at the bottom`:''} — the panels print off-centre and smaller than they could${crop?`; ${esc(J.short||J.label)} asks for whitespace cropped`:''}. Balance trims the wider margin to match (Arrange › Margins)`,
+    fix:{a:'ckbalance',t:'Balance margins'}};
+}
+function _ckBalanceMargins(){
+  const m=_ckBlankMargins(); if(!m) return false;
+  const dl=Math.max(0,Math.round(m.L-m.R)), dt=Math.max(0,Math.round(m.T-m.B));
+  if(!dl&&!dt) return false;
+  pushUndo();
+  const ml=gi('m-left'), mt=gi('m-top');
+  sv('m-left', String(Math.max(0,ml-dl))); sv('m-top', String(Math.max(0,mt-dt)));
+  onLayoutChange(); render();
+  toast(`Margins balanced: left ${ml} → ${gi('m-left')} px, top ${mt} → ${gi('m-top')} px (Arrange › Margins) — a journal preset keeps them`,'ok');
+  return true;
+}
 // Words drawn over other words — a merge's channel names over its panel letter or the next
 // panel's, a tag over a heading. Every other row passed such a figure (fluor4-01: "Panel labels
 // 10/10" while four letters were hidden). Read from the last render's text boxes; a chart's
@@ -20460,6 +20539,11 @@ function _journalRows(J, g){
       note:(lzwBad?'TIFFs are written uncompressed — tick Compress TIFF (LZW). ':'')
         +(!last?`not checked — not exported yet this session; use ${J.formats.map(f=>FN[f]).join(' or ')}`
           :cur.length?`exported as ${fl(cur)} since the figure last changed${okFmt?` ✓ (${fl(good)} accepted)`:` — not accepted${stage}`}`
+            // What FigureLab's PDF is, where the journal asks for vector: pictures, lines and
+            // chart marks as one image, with the words as real text on it. The row passed it as
+            // "accepted" beside "vector preferred" (phage4-18).
+            +(good.some(f=>f==='pdf'||f==='pdf-lossless')&&/vector/i.test(J.formatNote||'')&&!/as an image/.test(J.formatNote||'')
+              ?` — FigureLab’s PDF holds the figure as one image (pictures, lines and chart marks as pixels) with the words as real text on it, not vector art${good.includes('svg')?'; the SVG is the vector file':'; for vector charts and shapes, export SVG'}`:'')
           :`not checked — the figure changed after it was last exported (as ${FN[last]||last}), so that file shows an earlier version; export it again in ${J.formats.map(f=>FN[f]).join(' or ')}`)
         +` · ${nm}: ${J.formatNote}`,
       fix:lzwBad?{a:'jlzw',t:'LZW on'}:(!okFmt||stale?{a:'jfmt',t:`Save as ${FN[J.formats[0]]}`}:null)});
@@ -20569,7 +20653,18 @@ function _journalFix(action){
   if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
   if(action==='jtextsoft'){
     render(); const snap=snapshotState();
-    if(_journalClampText({ptMin:TEXT_PT_SOFT, ptMax:null})) _pushSnap(snap);
+    let did=_journalClampText({ptMin:TEXT_PT_SOFT, ptMax:null});
+    // Text with a superscript or subscript is raised to where those print at FigureLab's
+    // floor (5 pt ÷ 70% ≈ 7.2 pt): raised to 6 pt, a title's 10^{8} printed at 4.2 pt and
+    // the row turned ⚠ straight after the button (freeform4-04).
+    const k=_physFacts().ptPerPx, need=TEXT_PT_FLOOR/_RT_SCRIPT, lifted=[];
+    const lift=a=>{ if(!a||a.hidden||!(a.type==='text'||a.type==='textbox')||!_ckHasScript(a.text)) return;
+      const pt=(a.fontSize||16)*k; if(pt*_RT_SCRIPT>=TEXT_PT_FLOOR-0.05) return;
+      const d=a.fontSize||16, v=Math.ceil(need/k*2)/2; a.fontSize=v; if(a.type==='textbox') _tbGrowFor(a, d, v); lifted.push(_rtText(a.text)); };
+    annotations.forEach(lift); _figurePanels().forEach(im=>((im&&im.panelAnns)||[]).forEach(lift));
+    if(lifted.length){ did=true; render(); }
+    if(did){ _pushSnap(snap);
+      toast(`Text raised to ${TEXT_PT_SOFT} pt${lifted.length?`; ${_listAnd(lifted.map(t=>`“${t.slice(0,24)}”`))} to ${_ckF1(need)} pt, so ${lifted.length>1?'their':'its'} superscripts and subscripts print at ${TEXT_PT_FLOOR} pt`:''}`,'ok'); }
     else toast('Nothing here can be raised — the smallest text has a size of its own; change it where it was made','warn');
     if(typeof renderAnnotationList==='function') renderAnnotationList();
     return true;
@@ -21595,7 +21690,7 @@ function _packageManifest(name,dpi,files,provHash,skipped,textChecks){
     : '';
   return `FigureLab submission package
 =============================
-Figure name : ${name}
+Figure name : ${name}${_nameBeforeJournal&&_nameBeforeJournal.to===name&&_nameBeforeJournal.from?` (the journal's file name; you named it “${_nameBeforeJournal.from}”)`:''}
 Title       : ${_rtText(gv('fig-title'))||'(untitled)'}
 Created     : ${new Date().toISOString()}
 FigureLab   : v${APP_VERSION}
@@ -23468,7 +23563,11 @@ function copyCalibrationToTicked(srcIdx){
   pushUndo();
   const from=_rtText(formatLabel(src.label))||'?', how=_calibSourceOf(src).how;
   const names=[];
-  ticked.forEach(i=>{ const im=images[i]; im.umPerPx=src.umPerPx; im._calibCopy={from, fromId:src.id, fromFile:_sourceName(src)||'', how, um:src.umPerPx, at:new Date().toISOString()}; _afterCalibration(im); names.push(`${_rtText(formatLabel(im.label))||'?'} (${_sbLabel(im)} bar)`); });
+  // The copies draw the source's bar length — the bar burned into it when that is its scale
+  // bar — so two compared micrographs do not ship a 5 µm and a 10 µm bar (newcomer4-02).
+  const len=src.sbBurnedIn&&src.sbBurnedIn.um>0?{um:src.sbBurnedIn.um, unit:src.sbBurnedIn.unit||_sbUnitFor(src.sbBurnedIn.um)}:(src.sbUm>0?{um:src.sbUm, unit:src.sbUnit||_sbUnitFor(src.sbUm)}:null);
+  ticked.forEach(i=>{ const im=images[i]; im.umPerPx=src.umPerPx; im._calibCopy={from, fromId:src.id, fromFile:_sourceName(src)||'', how, um:src.umPerPx, at:new Date().toISOString()};
+    if(len){ im.sbUm=len.um; im.sbUnit=len.unit; } _afterCalibration(im); names.push(`${_rtText(formatLabel(im.label))||'?'} (${_sbLabel(im)} bar)`); });
   renderImgList(); scheduleRender(0);
   logAction('copyCalibration',{from, to:names.join(', '), umPerPx:src.umPerPx});
   toast(`${_fmtPxSize(src.umPerPx)} from ${from} → ${names.join(', ')}`,'ok');
@@ -23517,6 +23616,7 @@ function applyPreset(name){
   // Remembered so the export-time AI policy gate knows which journal to check against.
   _lastPresetName=name; _aiPolicyAcked=false;
   const _ltAx0=gf('axis-fs');   // the heading size before: lane tables follow it (below)
+  const _w0=getTargetWidthMm();  // the width before: "kept" only when the preset did not change it
   // The figure now targets this journal. Poster is a size preset, not a journal.
   sv('target-journal', J?name:'none');
   const nice=J?J.label:name.charAt(0).toUpperCase()+name.slice(1);
@@ -23534,7 +23634,12 @@ function applyPreset(name){
     _gapsCleared = setUniformGaps(p.gapH, p.gapV, `${nice} preset applied`);
     sv('label-pt',p.labelPt); sv('axis-pt',p.axisPt); sv('text-pt',p.textPt);
     sv('sb-h',p.sbH);       sv('bg-color',p.bgColor);
-    sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60);
+    // Margins the author typed are theirs: a preset used to put them back to its own, so a
+    // centred figure went off-centre again at every journal change (newcomer4-01). Only the
+    // factory margins, or another preset's, are replaced.
+    { const mt=gi('m-top'), ml=gi('m-left');
+      const stock=(mt===40&&ml===60)||Object.values(PRESETS).some(q=>q&&q.mTop===mt&&q.mLeft===ml);
+      if(stock){ sv('m-top',p.mTop||40); sv('m-left',p.mLeft||60); } }
     // Science: inside the 150–300 dpi its (unverified) sources give, not above it.
     sv('export-dpi',{nature:300,science:300,cell:300,poster:150,elife:300,plos:300,embo:300,pnas:300}[name]||300);
     // a width inside the journal's stated range, so the export lands at a real physical size;
@@ -23545,7 +23650,7 @@ function applyPreset(name){
   // Then what the journal's own page says, where it is mechanical: its width, font, type
   // size at print size, DPI, TIFF compression (PLOS: LZW — never switched off by another
   // journal, since someone who ticked it wants it) and file name. Same undo step.
-  const did=J?_applyJournalRules(J):[];
+  const did=J?_applyJournalRules(J,_w0):[];
   _syncWidthOptions(); _syncPhysReadout();
   // Applied last, the journal wins over a loaded lab style; say what of it was replaced.
   const labOv=gv('lab-style-src')?_labStyleOverrides():[];
@@ -26315,7 +26420,9 @@ function insertBlankCell(){
   _withWaiting(()=>images.splice(at,0,null));
   renderImgList(); renderMiniGrid(); scheduleRender(0);
   logAction('insertBlankCell',{slot:at+1});
-  toast(`Blank cell inserted at slot ${at+1} — remove it from the image list`,'ok');
+  // Named by the panel it follows: slot numbers are shown nowhere (fluor4-08).
+  const prev=at>0?images[at-1]:null, nm=prev?(_rtText(formatLabel(prev.label))?'panel '+_rtText(formatLabel(prev.label)):(_sourceName(prev)||'the selected panel')):'';
+  toast(`Blank cell inserted ${prev?`after ${nm}`:at>=images.length-1?'at the end':'first'} — to put it before a panel, select the panel ahead of it; remove it from the image list or with Ctrl/⌘+Z`,'ok');
 }
 
 // Collapse the ticked panels — the pages of a z-stack, the frames of a short series —
@@ -27195,10 +27302,25 @@ function _ffFurniture(el){
     // leaving the object looking calibrated with no bar on it.
     if(sbPxW<=4) el._sbSkip='too short to draw (under 4 px) — check µm/px and the bar length';
     else if(sbPxW>=el.w*0.6) el._sbSkip='longer than 60% of the object — check µm/px and the bar length';
+    const sbH2=Math.max(1,gi('sb-h')), color=gv('sb-color')||'#fff';
+    let sbX=0, sbY=0;
     if(!el._sbSkip){
-      const sbH2=Math.max(1,gi('sb-h'));
       const pad=Math.max(6,Math.round(el.w*0.04));
-      const sbX=el.x+el.w-pad-sbPxW, sbY=el.y+el.h-pad-sbH2, color=gv('sb-color')||'#fff';
+      sbX=el.x+el.w-pad-sbPxW; sbY=el.y+el.h-pad-sbH2;
+      // A circle or ellipse clip hides the box's corners: the bar sits in the corner of the
+      // rectangle inscribed in it, or is not drawn (and the check says why) when it is too
+      // long to fit there. It stayed in the square's corner, outside the circle, and its
+      // text went into the PDF and PowerPoint white on white (freeform4-06).
+      const sh=el.cropShape||'rect';
+      if(sh==='circle'||sh==='ellipse'){
+        const r=Math.min(el.w,el.h)/2, a=sh==='circle'?r:el.w/2, b=sh==='circle'?r:el.h/2, cx=el.x+el.w/2, cy=el.y+el.h/2;
+        const k=Math.SQRT1_2, xr=cx+a*k-pad/2, yb=cy+b*k-pad/2, xl=cx-a*k+pad/2;
+        const tH=gc('sb-text')?_figTextPx()+3:0;
+        if(xr-sbPxW<xl||yb-sbH2-tH<cy-b*k) el._sbSkip=`too long for the ${sh} clip — the bar would fall outside it; shorten it (⚙ › Scale bar length) or remove the clip`;
+        else { sbX=xr-sbPxW; sbY=yb-sbH2; }
+      }
+    }
+    if(!el._sbSkip){
       out.sb={x:sbX, y:sbY, w:sbPxW, h:sbH2, color, scale};
       if(gc('sb-text')){
         const sfs=+_figTextPx().toFixed(2);          // the figure's text size, as in the grid
@@ -27262,7 +27384,11 @@ function ffSetClip(shape){
   el.cropShape=shape; if(shape==='rounded'&&el.clipR==null) el.clipR=16;
   updateElemPropsBar(); scheduleRender(0);
   logAction('clipShape',{shape});
-  toast(shape==='rect'?'Clip removed':`${shape==='rounded'?'Rounded rectangle':shape[0].toUpperCase()+shape.slice(1)} clip — it carries into every export`,'ok');
+  // Where the scale bar went: inside the clip, or not drawn because it does not fit there.
+  let bar='';
+  if(el.sbOn&&el.umPerPx>0&&(shape==='circle'||shape==='ellipse')){ _ffFurniture(el);
+    bar=el._sbSkip?` — its scale bar is not drawn: ${el._sbSkip}`:' — its scale bar moved inside the clip'; }
+  toast(shape==='rect'?'Clip removed':`${shape==='rounded'?'Rounded rectangle':shape[0].toUpperCase()+shape.slice(1)} clip — it carries into every export${bar}`,bar&&el._sbSkip?'warn':'ok');
 }
 function ffSetClipR(v){ const el=_selectedImageEl(); if(!el) return; el.clipR=Math.max(0, +v||0); scheduleRender(0); }
 
@@ -33680,7 +33806,13 @@ function runDuplicateScan(){
   const wAlikeRows=V.wAlike.map(h=>`<div class="cc-row" data-xd-alike data-xd-pair="${_pairAttr(h.ia,h.ib)}" style="align-items:flex-start"><span class="cc-icon">ℹ</span><span>
         <b>${esc(h.a)}</b> and <b>${esc(h.b)}</b> — ${esc(alikeName(h.cls))} (${(h.score*100).toFixed(1)}% alike at a glance${h.tf==='as-is'?'':`, ${h.tf}`})<br>
         <span style="font-size:10px;color:var(--muted)">${esc(alikeWhy(h.cls))}</span></span></div>`).join('');
-  const rows = r.compared<2
+  // Whole panels too sparse to compare while their textured regions were compared (sparse
+  // DIC fields): the headline said "Nothing was checked … no duplicate check has been
+  // performed" above a region scan that had compared them — and found a copy (newcomer4-05).
+  const rows = (r.compared<2&&rr.patches>=2)
+    ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>
+        <b>Whole-panel comparison skipped</b> for ${esc(r.skipped.join(', ')||'these panels')} — too little detail across the whole picture (sparse cells on a plain ground) for a whole-panel comparison to mean anything. <b>Their regions were compared</b> — see Regions below.</span></div>`
+    : r.compared<2
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>
         <b>Nothing was checked.</b> ${r.compared?'Only one panel has':'No panel has'} enough image detail
         to compare${r.skipped.length?` — ${r.compared?'the others are':'they are'} too uniform (blank, saturated, or a smooth gradient) for a pixel comparison to carry any information`:''}.
@@ -33693,7 +33825,7 @@ function runDuplicateScan(){
     ? `<div class="cc-row"><span class="cc-icon">ℹ</span><span>No duplicated panels among the ${r.compared} compared; ${V.wAlike.length} pair${V.wAlike.length>1?'s':''} alike at a glance only, below — not counted as reuse</span></div>`
     : `<div class="cc-row cc-pass"><span class="cc-icon">✓</span><span>No duplicated panels found among the ${r.compared} compared</span></div>`)
     + wAlikeRows;
-  const skip = r.skipped.length
+  const skip = (r.skipped.length&&!(r.compared<2&&rr.patches>=2))
     ? `<div class="cc-row cc-warn"><span class="cc-icon">⚠</span><span>Not compared (too uniform to judge): ${esc(r.skipped.join(', '))}</span></div>` : '';
 
   // Region level: the reuse a whole-panel comparison structurally cannot see — a lane
@@ -35947,7 +36079,9 @@ function _s1Reasons(im){
   const r=[];
   if(_s1Cropped(im)) r.push(Math.abs(+im.cropAngle||0)>1e-9?'tilted crop':'cropped');
   if(annotations.some(a=>a&&a.splice&&a.splicePanel===im.id)) r.push('splice marker');
-  if(annotations.some(a=>a&&a.blotPanel===im.id)) r.push('lane labels');
+  // MW labels are named as what they are (a strip with only a ladder's numbers read "lane labels")
+  { const A=annotations.filter(a=>a&&a.blotPanel===im.id);
+    if(A.some(a=>!a.mw)) r.push('lane labels'); if(A.some(a=>a.mw)) r.push('MW labels'); }
   return r;
 }
 function _s1Selected(im){ return typeof im.s1==='boolean' ? im.s1 : _s1Reasons(im).length>0; }
@@ -36160,7 +36294,7 @@ function openS1Dialog(){
     <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">One page per ticked panel: the whole source image with the region used in the figure outlined, the file name, the crop in source pixels, any tilt and splice markers. Journals ask for this for every blot and gel. Ticked to begin with: panels that are cropped or carry a splice marker or lane labels.</div>
     <div id="s1-list" style="max-height:240px;overflow:auto;font-size:11px">${P.map(im=>{ const r=_s1Reasons(im);
       return `<label style="display:flex;gap:6px;align-items:center;padding:2px 0"><input type="checkbox" class="s1-tick" data-id="${esc(im.id)}" ${_s1Selected(im)?'checked':''}>
-        <b>${esc(_rtText(formatLabel(im.label))||'?')}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
+        <b>${esc(_panelWho(im))}</b> <span>${esc(im.name||'')}</span> <span style="color:var(--muted)">${r.length?'('+esc(r.join(', '))+')':''}</span></label>`; }).join('')}</div>
     <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px" title="Off: the file's own pixels, which is what journals ask for. On: as the figure shows them. Either way the page says which."><input type="checkbox" id="s1-display"> Show with the figure's display adjustments</label>
     <div style="display:flex;gap:6px;margin-top:14px">
       <button class="btn btn-primary" id="s1-pdf" style="flex:1;justify-content:center">⬇ PDF (one page per panel)</button>
@@ -37364,6 +37498,9 @@ function applyScaleDetect(imgIdx,barPx,um,opts){
     // the journal check know it is there.
     im.sbOn=false; im.sbBurnedIn={um, unit:_sbUnitFor(um)};
   } else { delete im.sbBurnedIn;
+    // FigureLab's bar shows the length the bar in the image shows (5 µm, not a default
+    // 10 µm beside it), so paired micrographs carry one bar length (newcomer4-02).
+    im.sbUm=um; im.sbUnit=_sbUnitFor(um);
     // The same bar as 🔬 Calibrate from image gives for the same calibration (a length the
     // author chose that fits is kept, else about a fifth of the field), so the two ways of
     // calibrating one image cannot give two different figures.

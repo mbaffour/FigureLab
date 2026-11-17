@@ -91,9 +91,9 @@ const { step, expect, btn } = L;
     await p.waitForTimeout(500);
     const st = await p.evaluate(() => ({ j: document.getElementById('target-journal').value, w: document.getElementById('export-width-mm').value, t: document.getElementById('toast').textContent }));
     expect(/nature/i.test(st.j) && +st.w === 89, JSON.stringify(st));
-    // ux3: the toast lists what changed; its "printed width kept at 183 mm" part is wrong (the
-    // size preset set 183 mm a moment before the height check chose 89 mm) — see ISSUES.md
-    expect(/^Nature preset applied — printed width kept at 183 mm — .*89 mm wide — the widest that keeps it within 170 mm tall, Arial — letters 7 pt/.test(st.t), 'toast: ' + st.t);
+    // ux4: the toast says the width once, as chosen: "kept" only for a width set before the preset
+    expect(/^Nature preset applied — printed width 89 mm — the widest that keeps it within 170 mm tall, Arial — letters 7 pt/.test(st.t), 'toast: ' + st.t);
+    expect(!/kept at 183/.test(st.t), 'toast: ' + st.t);
     return 'Target journal ' + st.j + ', printed width ' + st.w + ' mm — toast: ' + st.t;
   });
 

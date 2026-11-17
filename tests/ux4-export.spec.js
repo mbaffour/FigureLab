@@ -324,3 +324,247 @@ test('fluor4-01: a typed tag over a letter is caught by the compliance check and
   expect(left).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+// ── freeform4-05 ─────────────────────────────────────────────────────────────────────
+test('freeform4-05: format marks in caption notes are converted in the caption and the alt text, as axis titles are', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 300, h: 200, label: 'B', iw: 300, ih: 200 }]);
+  const r = await page.evaluate(() => {
+    freeformElements[0].captionNote = 'P_{lsrA}-mNeonGreen reporter cells 120 min after AI-2 addition';
+    addChartElement('bar'); closeChartModal();
+    const el = freeformElements[freeformElements.length - 1];
+    el.chart.data = { columns: ['strain', 'v'], rows: [['WT', 1], ['dluxS', 2]], source: 'demo', sourceName: '' };
+    el.chart.mapping.xCol = 0; el.chart.mapping.yCols = [1]; el.label = 'E'; el.x = 360; el.y = 20; el.w = 300; el.h = 220;
+    el.chart.caption = 'GFP normalised to OD_{600}; mean ± SD';
+    el._chartKey = ''; el._chartStat = null; render();
+    const cap = _captionText();
+    sv('caption-out', ''); const alt = _buildStructuralAltText();
+    return { cap, alt };
+  });
+  expect(r.cap).not.toMatch(/_\{/);
+  expect(r.cap).toMatch(/OD₆₀₀/);
+  expect(r.cap).toMatch(/P_?lsrA|Pₗₛᵣₐ|P lsrA/);
+  expect(r.alt).not.toMatch(/_\{/);
+  expect(r.alt).toMatch(/lsrA/);
+  expect(errors).toEqual([]);
+});
+
+// ── freeform4-06 ─────────────────────────────────────────────────────────────────────
+test('freeform4-06: a circle clip keeps the scale bar inside the circle, or says it does not fit', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 40, y: 40, w: 300, h: 300, label: 'A', iw: 400, ih: 400 }]);
+  const r = await page.evaluate(async () => {
+    const el = freeformElements[0]; el.umPerPx = 0.1; el.sbOn = true; el.sbUm = 10; sc('sb-text', true); render();
+    selectedElems.clear(); selectedElems.add(0); ffSetClip('circle'); render();
+    const t = document.getElementById('toast').textContent, f = _ffFurniture(el);
+    const R = el.w / 2, cx = el.x + R, cy = el.y + R, inC = (x, y) => Math.hypot(x - cx, y - cy) <= R + 0.01;
+    const corners = [[f.sb.x, f.sb.y], [f.sb.x + f.sb.w, f.sb.y], [f.sb.x, f.sb.y + f.sb.h], [f.sb.x + f.sb.w, f.sb.y + f.sb.h]];
+    const { pdf } = await __pdfOf(true);
+    // the longest bar the object allows (under 60 % of its width) still fits inside
+    el.sbUm = 23; render(); const g = _ffFurniture(el);
+    const long = g.sb && [[g.sb.x, g.sb.y], [g.sb.x + g.sb.w, g.sb.y + g.sb.h]].every(([x, y]) => inC(x, y));
+    return { t, inside: corners.every(([x, y]) => inC(x, y)) && inC(f.sbText.x, f.sbText.y - f.sbText.fs), pdfText: /\(10 \\265m\) Tj|\(10 µm\) Tj/.test(pdf), long };
+  });
+  expect(r.t).toMatch(/scale bar moved inside the clip/);
+  expect(r.inside).toBe(true);
+  expect(r.pdfText).toBe(true);
+  expect(r.long).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer4-01 ─────────────────────────────────────────────────────────────────────
+test('newcomer4-01: the check notes a lopsided blank margin, Balance evens it, and a journal preset keeps typed margins', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 4);
+  await page.evaluate(() => { sv('cols', '2'); sv('rows', '2'); onLayoutChange(); applyPreset('asm'); render(); });
+  const row = await page.evaluate(() => __row('Blank margins'));
+  expect(row.icon).toBe('⚠');                                       // ASM asks for whitespace cropped
+  expect(row.text).toMatch(/on the left [\d.]+ mm against [\d.]+ mm on the right/);
+  expect(row.fixes).toContain('Balance margins');
+  await page.evaluate(() => { checkCompliance(); [...document.querySelectorAll('#info-modal-bg .compliance-row button')].find(b => b.textContent.trim() === 'Balance margins').click(); __close(); });
+  const after = await page.evaluate(() => ({ l: gi('m-left'), t: gi('m-top'), row: __row('Blank margins') }));
+  expect(after.l).toBeLessThan(60);
+  expect(after.t).toBeLessThan(40);
+  expect(after.row).toBeNull();
+  // typed margins survive a journal preset (it used to reset them to 50 / 30)
+  await page.evaluate(() => { sv('m-left', '16'); sv('m-top', '16'); render(); applyPreset('nature'); });
+  expect(await page.evaluate(() => [gi('m-left'), gi('m-top')])).toEqual([16, 16]);
+  // the stock margins are still replaced by the preset's
+  await page.evaluate(() => { sv('m-left', '60'); sv('m-top', '40'); applyPreset('plos'); });
+  expect(await page.evaluate(() => [gi('m-left'), gi('m-top')])).toEqual([52, 32]);
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer4-02 ─────────────────────────────────────────────────────────────────────
+test('newcomer4-02: FigureLab\'s bar takes the detected bar\'s length, and a copied calibration draws the same length', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(() => {
+    const bar = { px: 40, x: 20, y: 90, bright: true };   // 40 px of a 100 px field: the bar shows 5 µm
+    applyScaleDetect(0, 40, 5, { bar });                            // "also draw FigureLab's bar", 5 µm
+    const drawn = { um: images[0].sbUm, on: images[0].sbOn };
+    applyScaleDetect(1, 40, 5, { bar, keep: true });                // keep the bar in the image
+    renderImgList();
+    const picks = [...document.querySelectorAll('#img-list .panel-pick')]; picks.forEach((cb, i) => { cb.checked = i === 2; });
+    copyCalibrationToTicked(1);
+    return { drawn, copy: images[2].sbUm, t: document.getElementById('toast').textContent };
+  });
+  expect(r.drawn).toEqual({ um: 5, on: true });
+  expect(r.copy).toBe(5);
+  expect(r.t).toMatch(/5 µm bar/);
+  expect(errors).toEqual([]);
+});
+
+// ── phage4-18 ────────────────────────────────────────────────────────────────────────
+test('phage4-18: the Nature format row says the PDF is one image with real text, and points to the SVG for vector', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    applyPreset('nature'); render();
+    await _captureDownload(() => doExport('pdf-lossless'));
+    const a = __row('Export format');
+    await _captureDownload(() => doExport('svg'));
+    return { a, b: __row('Export format') };
+  });
+  expect(r.a.text).toMatch(/holds the figure as one image/);
+  expect(r.a.text).toMatch(/export SVG/);
+  expect(r.b.text).toMatch(/the SVG is the vector file/);
+  expect(errors).toEqual([]);
+});
+
+// ── blot4-08 + ISSUES "printed width kept" ────────────────────────────────────────────
+test('blot4-08: the JBC preset says it set no width; a preset says "kept" only for a width set before it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  const r = await page.evaluate(() => {
+    sv('cols', '2'); sv('rows', '2'); onLayoutChange(); sv('export-width-mm', '0');
+    applyPreset('jbc'); const jbc = document.getElementById('toast').textContent;
+    sv('export-width-mm', '0'); applyPreset('nature'); const nat = document.getElementById('toast').textContent;
+    applyPreset('plos'); applyPreset('asm'); const asm = document.getElementById('toast').textContent;
+    return { jbc, nat, asm, w: gv('export-width-mm') };
+  });
+  expect(r.jbc).toMatch(/no printed width set — JBC’s data-presentation page states none/);
+  expect(r.nat).not.toMatch(/kept at 183/);
+  expect(r.nat).toMatch(/printed width 89 mm — the widest that keeps it within 170 mm tall/);
+  expect(r.asm).toMatch(/printed width kept at 173 mm/);
+  expect(errors).toEqual([]);
+});
+
+// ── freeform4-04 ─────────────────────────────────────────────────────────────────────
+test('freeform4-04: Raise to 6 pt lifts text with a superscript far enough that the superscript passes too', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 60, w: 500, h: 380, label: 'A', iw: 400, ih: 300 }]);
+  await page.evaluate(() => {
+    sv('fm-canvas-w', '1328'); sv('fm-canvas-h', '700'); if (typeof onFreeformCanvasSize === 'function') onFreeformCanvasSize();
+    sv('export-width-mm', '114');
+    annotations.push({ type: 'textbox', xf: 0.6, yf: 0.5, x2f: 0.8, y2f: 0.56, text: '10^{8} cells', fontSize: 12, color: '#000000' });
+    render();
+  });
+  await page.evaluate(() => { checkCompliance(); [...document.querySelectorAll('#info-modal-bg .compliance-row')].find(e => e.querySelector('.c-label').textContent.trim() === 'Text size')
+    .querySelectorAll('button').forEach(b => { if (/^Raise to 6 pt/.test(b.textContent.trim())) b.click(); }); __close(); });
+  const r = await page.evaluate(() => ({ row: __row('Text size'), t: document.getElementById('toast').textContent,
+    pt: annotations.find(a => a.type === 'textbox').fontSize * _physFacts().ptPerPx }));
+  expect(r.pt * 0.7).toBeGreaterThanOrEqual(4.95);
+  expect(r.row.icon).toBe('✓');
+  expect(r.t).toMatch(/superscripts and subscripts print at 5 pt/);
+  expect(errors).toEqual([]);
+});
+
+// ── freeform4-09 ─────────────────────────────────────────────────────────────────────
+test('freeform4-09: an icon is not counted as an unlettered panel', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedFreeform(page, [{ type: 'image', x: 20, y: 20, w: 200, h: 200, label: 'A' }, { type: 'image', x: 240, y: 20, w: 200, h: 200, label: 'B' }]);
+  await page.evaluate(() => insertIcon('bacterium'));
+  await page.waitForFunction(() => freeformElements.some(e => e && e.isIcon));
+  const r = await page.evaluate(() => { render(); return __row('Panel labels'); });
+  expect(r.icon).toBe('✓');
+  expect(r.text).toMatch(/2\/2 panels labelled/);
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer4-05 ─────────────────────────────────────────────────────────────────────
+test('newcomer4-05: sparse fields whose regions were compared are not reported as "nothing was checked"', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(async () => {
+    let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const mk = () => { const c = document.createElement('canvas'); c.width = 512; c.height = 512; const x = c.getContext('2d');
+      x.fillStyle = 'rgb(150,150,150)'; x.fillRect(0, 0, 512, 512);
+      const d = x.getImageData(0, 0, 512, 512); for (let i = 0; i < d.data.length; i += 4) { const n = (rnd() - 0.5) * 6; d.data[i] += n; d.data[i + 1] += n; d.data[i + 2] += n; } x.putImageData(d, 0, 0);
+      for (let k = 0; k < 40; k++) { const cx = rnd() * 512, cy = rnd() * 512, a = rnd() * Math.PI; x.save(); x.translate(cx, cy); x.rotate(a);
+        x.fillStyle = 'rgb(110,110,110)'; x.fillRect(-12, -3, 24, 6); x.fillStyle = 'rgb(185,185,185)'; x.fillRect(-12, -4, 24, 1.5); x.restore(); }
+      return c.toDataURL('image/jpeg', 0.9); };
+    for (let i = 0; i < 3; i++) { const src = mk(); await new Promise(r => { const im = new Image(); im.onload = () => { _commitImage(im, src, 'WT_DIC_63x_00' + i + '.jpg'); r(); }; im.src = src; }); }
+    sv('cols', '3'); sv('rows', '1'); onLayoutChange(); render();
+    runDuplicateScan();
+  });
+  const txt = await page.locator('.modal-bg.open').last().innerText();
+  expect(txt).not.toMatch(/Nothing was checked/);
+  expect(txt).not.toMatch(/no duplicate check has been performed/);
+  expect(txt).toMatch(/Whole-panel comparison skipped/);
+  expect(txt).toMatch(/Their regions were compared/);
+  expect(txt).toMatch(/textured patches compared across 3 panels/);
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer4-06 / newcomer4-08 ──────────────────────────────────────────────────────
+test('newcomer4-06/08: the headline names the export still to do; PLOS names the files without losing the typed name', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 2);
+  const r = await page.evaluate(async () => {
+    sv('export-name', 'Figure 1'); applyPreset('plos');
+    const t1 = __report().title, name1 = gv('export-name'), toast1 = document.getElementById('toast').textContent;
+    await _captureDownload(() => doExport('tiff'));
+    const t2 = __report().title;
+    const readme = _packageManifest(gv('export-name'), 300, [], '', [], []);
+    applyPreset('nature');
+    return { t1, t2, name1, toast1, readme, name2: gv('export-name') };
+  });
+  expect(r.t1).toMatch(/passed · 1 to do: export as TIFF/);
+  expect(r.t2).not.toMatch(/to do/);
+  expect(r.name1).toBe('Fig1');
+  expect(r.toast1).toMatch(/your name “Figure 1” is kept/);
+  expect(r.readme).toMatch(/Figure name : Fig1 \(the journal's file name; you named it “Figure 1”\)/);
+  expect(r.name2).toBe('Figure 1');
+  expect(errors).toEqual([]);
+});
+
+// ── blot4-10 / blot4-16 / fluor4-08 ─────────────────────────────────────────────────
+test('blot4-10/16: unlettered strips are named by their row heading in the reports and the S1 dialog; MW labels are called that', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(HELPERS);
+  await seedPanels(page, 3);
+  const r = await page.evaluate(() => {
+    sv('cols', '1'); sv('rows', '3'); onLayoutChange();
+    sc('show-row-labels', true); onLayoutChange(); setAxisLabels('row', ['pAKT', 'AKT', 'GAPDH']);
+    images[1].label = ''; images[2].label = ''; render();
+    annotations.push({ type: 'text', xf: 0.02, yf: 0.5, text: '55', fontSize: 13, color: '#000', halo: false, blotPanel: images[2].id, mw: true });
+    render();
+    const who = [_panelWho(images[1]), _panelWho(images[2])];
+    const ppi = _panelPpiList(2400).map(p => p.label);
+    openS1Dialog(); const s1 = document.getElementById('s1-list').innerText; document.getElementById('s1-modal-bg').remove();
+    return { who, ppi, s1, glyph: [...document.querySelectorAll('button')].filter(b => /Export uncropped originals/.test(b.textContent)).map(b => b.textContent.trim()[0]) };
+  });
+  expect(r.who).toEqual(['the AKT strip', 'the GAPDH strip']);
+  expect(r.ppi).toContain('the GAPDH strip');
+  expect(r.s1).toMatch(/the GAPDH strip/);
+  expect(r.s1).not.toMatch(/^\?/m);
+  expect(r.s1).toMatch(/MW labels/);
+  r.glyph.forEach(g => expect(g).not.toBe('🗎'));
+  expect(errors).toEqual([]);
+});
+
+test('fluor4-08: Insert blank cell says which panel it follows', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 3);
+  const t = await page.evaluate(() => { selectedPanel = 1; insertBlankCell(); return document.getElementById('toast').textContent; });
+  expect(t).toMatch(/Blank cell inserted after panel B/);
+  expect(t).not.toMatch(/slot/);
+  expect(errors).toEqual([]);
+});

@@ -143,7 +143,7 @@ async function card(T, i, { open = false } = {}) {
     expect(/^Journal: Nature/.test(hits[0]), hits[0]);
     await p.waitForTimeout(500);
     const t = await L.toasts(T);
-    expect(/89 mm wide — the widest that keeps it within 170 mm tall/.test(t), 'toast: ' + t);
+    expect(/printed width 89 mm — the widest that keeps it within 170 mm tall/.test(t), 'toast: ' + t);
     let R = await report(T);
     const h0 = row(R, 'Printed height');
     expect(h0.icon === '✓', 'Printed height after the preset: ' + h0.note);
