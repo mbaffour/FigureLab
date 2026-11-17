@@ -985,9 +985,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
     <div class="field"><label>Bar height (px)</label>
       <input type="number" id="sb-h" value="4" min="1" max="24" oninput="scheduleRender()"></div>
     <div class="field"><label>Color</label>
-      <input type="color" id="sb-color" value="#ffffff" oninput="scheduleRender()" onchange="_sbColorHint()"></div>
+      <input type="color" id="sb-color" value="#ffffff" oninput="_sbInkUserSet=true;scheduleRender()" onchange="_sbColorHint()"></div>
     <div class="field look-grid-part"><label for="sb-auto-color" title="Per panel, white or black for the bar and its text from the brightness of the image beneath — a white bar on a bright-field image is invisible">Auto contrast</label>
-      <input type="checkbox" id="sb-auto-color" onchange="scheduleRender()"></div>
+      <input type="checkbox" id="sb-auto-color" onchange="_sbInkUserSet=true;scheduleRender()"></div>
     <div class="field"><label>Show text</label>
       <input type="checkbox" id="sb-text" checked onchange="scheduleRender()"></div>
     <button class="btn look-grid-part" onclick="uniformScaleBars()" style="width:100%;justify-content:center;font-size:11px;margin-top:2px" title="Give every calibrated panel the same bar length — the selected panel's, or a clean value about a fifth of the median field of view — and switch its bar on. Bars then read as one across the figure.">≡ Same bar on all calibrated</button>
@@ -6190,9 +6190,37 @@ function _sbFits(im){
 function _afterCalibration(im){
   if(!im||!(im.umPerPx>0)) return '';
   im.sbOn=true;
-  if(_sbFits(im)) return '';
+  const ink=_sbInkForPicture(im);
+  if(_sbFits(im)) return ink;
   _fitScaleBar(im);
-  return ` · scale bar ${_sbLabel(im)}`;
+  return ` · scale bar ${_sbLabel(im)}`+ink;
+}
+// The bar's colour on a light picture. The bar and its text are white unless a colour is
+// picked, so on a bright-field or DIC micrograph the first calibration drew a white
+// "10 µm" at 1.3–2.4:1 and the check failed it, though one click on Auto contrast fixes it
+// (newcomer4-03). When the colour has not been chosen (still white, Auto contrast off,
+// neither touched this session) and white would not read on the bottom right of the
+// picture, where the bar goes (under 3:1 against its middle grey), Auto contrast is switched
+// on, and the toast says so. It is the figure-wide switch: a dark fluorescence panel keeps a white bar under it.
+let _sbInkUserSet=false;
+function _sbInkForPicture(im){
+  try{
+    if(_sbInkUserSet||gc('sb-auto-color')) return '';
+    if(luma(gv('sb-color')||'#ffffff')<200) return '';
+    const img=im&&(im.img||im._imgEl), W=img&&(img.naturalWidth||img.width), H=img&&(img.naturalHeight||img.height);
+    if(!(W>0&&H>0)) return '';
+    // Where the bar goes by default (the bottom right fifth), by its middle grey: a plate
+    // photo's bright plate or ruler sticker in that corner is not a light picture.
+    const c=document.createElement('canvas'); c.width=48; c.height=24;
+    const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,W*0.6,H*0.78,W*0.4,H*0.22,0,0,48,24);
+    const d=x.getImageData(0,0,48,24).data, lin=v=>{ v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); }, Ls=[];
+    for(let k=0;k<d.length;k+=4) Ls.push(0.2126*lin(d[k])+0.7152*lin(d[k+1])+0.0722*lin(d[k+2]));
+    Ls.sort((p,q)=>p-q);
+    if(1.05/(Ls[Ls.length>>1]+0.05)>=3) return '';
+    const cb=document.getElementById('sb-auto-color'); if(!cb) return '';
+    cb.checked=true;
+    return ' · scale bars follow the picture now (Look › Scale bar › Auto contrast is on): a white bar would not read on it';
+  }catch(e){ return ''; }
 }
 // One click for the panels that show no measured scale: their scale bars off. A blot, a
 // chart screenshot or a gene map has no µm/px and needs no bar; the badge, the export
@@ -6445,15 +6473,53 @@ function _chanLabel(o){
 // Auto-detect read, or the two points 🔬 Calibrate from image was given (a ruler) — in
 // source pixels. Then the first corner clear of it: bottom left, top right, top left.
 // A turned, flipped or tilted panel keeps bottom right.
+// Then, when the picture is on the canvas (g.ctx), the first of those corners where the
+// bar reads — at least 3:1 against the brightest or darkest tenth of what is under it,
+// in its own colour, or in black or white with Auto contrast on. A plate photo calibrated
+// by typing the ruler's length (no points clicked, so no sbAvoid) got its white bar drawn
+// on the white ruler sticker in the bottom right corner (phage3-05). When no corner reads,
+// bottom right (or the first corner clear of sbAvoid) as before. A bar dragged off its
+// corner keeps that corner.
 function _sbCorner(im, cd, g){
   const c=im&&im.sbCorner; if(c&&c!=='auto') return c;
-  const A=im&&im.sbAvoid; if(!A||!cd||cd.rotated||im.rotate||im.flipH||im.flipV||!(cd.sw>0)||!(cd.sh>0)) return 'br';
-  const kx=g.dw/cd.sw, ky=g.dh/cd.sh;
-  const R={x0:g.dx+(A.x0-cd.sx)*kx, y0:g.dy+(A.y0-cd.sy)*ky, x1:g.dx+(A.x1-cd.sx)*kx, y1:g.dy+(A.y1-cd.sy)*ky};
   const box=cn=>{ const x=cn[1]==='l'?g.ox+g.sp:g.ox+g.ow-g.sp-g.barPx, y=cn[0]==='t'?g.oy+g.sp+g.txt:g.oy+g.oh-g.sp-g.sbH;
     return {x0:x-4, y0:y-g.txt-4, x1:x+g.barPx+4, y1:y+g.sbH+4}; };
-  const hits=cn=>{ const b=box(cn); return b.x0<R.x1&&b.x1>R.x0&&b.y0<R.y1&&b.y1>R.y0; };
-  return ['br','bl','tr','tl'].find(cn=>!hits(cn))||'br';
+  const A=im&&im.sbAvoid, plain=!(!cd||cd.rotated||im.rotate||im.flipH||im.flipV||!(cd.sw>0)||!(cd.sh>0));
+  let order=['br','bl','tr','tl'];
+  if(A&&plain){
+    const kx=g.dw/cd.sw, ky=g.dh/cd.sh;
+    const R={x0:g.dx+(A.x0-cd.sx)*kx, y0:g.dy+(A.y0-cd.sy)*ky, x1:g.dx+(A.x1-cd.sx)*kx, y1:g.dy+(A.y1-cd.sy)*ky};
+    const hits=cn=>{ const b=box(cn); return b.x0<R.x1&&b.x1>R.x0&&b.y0<R.y1&&b.y1>R.y0; };
+    order=order.filter(cn=>!hits(cn));
+    if(!order.length) return 'br';
+  } else if(!plain) return 'br';
+  // A bar dragged from its corner (sbDX/sbDY) was placed by hand there: its corner stays.
+  if(g.ctx&&order.length>1&&!(+im.sbDX||+im.sbDY)){
+    const reads=cn=>{ const b=box(cn), r=_inkContrastAt(g.ctx,g.S,b.x0,b.y0,b.x1-b.x0,b.y1-b.y0,g.auto?null:g.ink); return r==null||r>=3; };
+    const ok=order.find(reads); if(ok) return ok;
+  }
+  return order[0];
+}
+// The contrast an ink reaches against the part of a canvas region that is worst for it
+// (its brightest tenth for a light ink, its darkest tenth for a dark one); with no ink
+// (Auto contrast), the better of black and white. Null when the pixels cannot be read.
+function _inkContrastAt(ctx,S,x,y,w,h,ink){
+  if(!ink){ const r=_autoInkInfo(ctx,S,x,y,w,h); return r?r.ratio:null; }
+  try{
+    const c=ctx.canvas, X=Math.max(0,Math.round(x*S)), Y=Math.max(0,Math.round(y*S));
+    const W=Math.min(c.width-X,Math.max(1,Math.round(w*S))), H=Math.min(c.height-Y,Math.max(1,Math.round(h*S)));
+    if(W<1||H<1) return null;
+    const d=ctx.getImageData(X,Y,W,H).data, step=Math.max(4,Math.floor(d.length/4/4000)*4);
+    const lin=v=>{ v/=255; return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4); };
+    const L=(r,g,b)=>0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b);
+    const Ls=[]; for(let i=0;i<d.length;i+=step){ if(d[i+3]<128) continue; Ls.push(L(d[i],d[i+1],d[i+2])); }
+    if(!Ls.length) return null;
+    Ls.sort((p,q)=>p-q);
+    const rgb=_rgbaOf(ink); if(!rgb) return null;
+    const li=L(rgb[0],rgb[1],rgb[2]), n=Ls.length, hi=Ls[Math.min(n-1,Math.floor(n*0.9))], lo=Ls[Math.floor(n*0.1)];
+    const cr=(a,b)=>(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+    return Math.min(cr(li,hi), cr(li,lo));
+  }catch(e){ return null; }
 }
 const _SB_CORNER_NAME={br:'bottom right', bl:'bottom left', tr:'top right', tl:'top left'};
 function _scaleBarDrawn(im){
@@ -12901,7 +12967,7 @@ function render(targetCanvas, exportScale, opts){
             // drawn exactly on top of the one Auto-detect had just read (newcomer3-01), and
             // on the white ruler sticker of a plate photo (phage3-05).
             const _sfs0=sbTxt?+_figTextPx().toFixed(2):0;
-            const _cn=_sbCorner(im, _cd, {dx,dy,dw,dh,ox,oy,ow,oh,sp,barPx,sbH,txt:_sfs0?_sfs0+3:0});
+            const _cn=_sbCorner(im, _cd, {dx,dy,dw,dh,ox,oy,ow,oh,sp,barPx,sbH,txt:_sfs0?_sfs0+3:0, ctx:_vecHole||_plot?null:ctx, S, ink:sbClr, auto:sbAuto});
             im._sbCornerUsed=_cn;
             const sbX=_cn[1]==='l'?ox+sp:ox+ow-sp-barPx, sbY=_cn[0]==='t'?oy+sp+(_sfs0?_sfs0+3:0):oy+oh-sp-sbH;
             // Auto contrast: a white bar on a bright-field image is invisible. Sample the
@@ -12921,8 +12987,11 @@ function render(targetCanvas, exportScale, opts){
               // pixels under it when Auto contrast is on (phage3-01).
               const sfont=`${sfs}px ${_barFontFamily()}`;
               let tcx=sbX+barPx/2;
+              // It keeps the bar's own inset from the panel's edge: kept only 2 px in, "200 nm"
+              // over a shorter bar ended flush with the panel's right edge (phage5-16).
               { ctx.save(); ctx.font=sfont; const tw=ctx.measureText(_rtText(lbl)).width; ctx.restore();
-                if(tw/2+2<=ow/2) tcx=Math.min(Math.max(tcx, ox+tw/2+2), ox+ow-tw/2-2); }
+                const m=Math.max(2, Math.min(sp, (ow-tw)/2));
+                if(tw/2+2<=ow/2) tcx=Math.min(Math.max(tcx, ox+tw/2+m), ox+ow-tw/2-m); }
               const sa=sbAuto?_sbTextInk(ctx,S,'sb',imgIdx,lbl,tcx,sbY-3,sfont,sfs,barInk):null;
               emitText('sb',imgIdx,lbl, tcx, sbY-3, sfont, sa?sa.ink:barInk, 'center','alphabetic',0, sa&&sa.bg);
               ctx.textAlign='left';
@@ -20185,14 +20254,20 @@ function _textFloorRow(k, J){
   const fail=sm.pt<TEXT_PT_FLOOR-0.05, soft=!fail&&sm.pt<TEXT_PT_SOFT-0.05;
   const sc=_ckScriptLow(k, TEXT_PT_FLOOR), lt=_ckLaneLow(k, TEXT_PT_SOFT);
   const edge=_ckEdgeTextNote();
-  const ok=!fail&&!soft&&!sc&&!lt&&!edge, ltFail=!!(lt&&lt.fail);
+  // The label of a bar burned into a picture and kept as its scale bar is measured too —
+  // it is text a reader must read, at the size the picture is printed at (newcomer5-10).
+  const bl=_ckBurnedLabelsLow(TEXT_PT_SOFT);
+  const ok=!fail&&!soft&&!sc&&!lt&&!edge&&!bl.length, ltFail=!!(lt&&lt.fail);
+  const blFix=bl.length?{a:'sbdrawown',t:'Draw FigureLab’s bar instead'}:null;
+  const fix1=((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:(edge&&edge.movable?{a:'cktextedge',t:'Move inside'}:null));
+  const fix2=lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:(sc&&sc.raiseTo&&!fail&&!soft?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null);
   return {label:'Text size', ok, warn:!fail&&!ok&&!ltFail,
-    fix:((fail||soft)&&!(lt&&sm.kind==='lanetable'))?{a:'jtextsoft',t:`Raise to ${TEXT_PT_SOFT} pt`}:(lt&&lt.span?{a:'cklanespan',t:`Widen ${lt.span.name}`}:(edge&&edge.movable?{a:'cktextedge',t:'Move inside'}:null)),
-    fix2:lt&&lt.button?{a:'cklanetext',t:`Lane tables to ${_ckF1(lt.toPt)} pt`}:(sc&&sc.raiseTo&&!fail&&!soft?{a:'jscript',t:`Text to ${_ckF1(sc.raiseTo)} pt`}:null),
+    fix:fix1||blFix, fix2:fix1?(fix2||blFix):fix2,
     note:`smallest text: ${_smallTxt(sm)} (${sm.n} text item${sm.n===1?'':'s'} measured: letters, headings, charts, gene maps, scale-bar and bar text, annotations, the key)`
       +(ok?' ✓':fail?` — below ${TEXT_PT_FLOOR} pt, smaller than any journal FigureLab has read accepts (Nature’s minimum, the smallest stated)`
         :soft?` — below ${TEXT_PT_SOFT} pt: no journal FigureLab has read accepts it without a stated size, and most production desks reject it`:'')
       +(lt?`. ${lt.note}`:'')+(sc?`. ${sc.note}`:'')+(edge?`. ${edge.note}`:'')
+      +(bl.length?`. The scale-bar label burned into ${bl.length>1?'the pictures':'the picture'} of ${bl.map(e=>`${esc(e.label)} (about ${_ckF1(e.pt)} pt)`).join(', ')} prints below ${TEXT_PT_SOFT} pt at this size — it is part of the picture, so FigureLab cannot enlarge it: draw FigureLab’s bar instead (at the figure’s text size), or print the panel larger`:'')
       +(J?` · ${nm} ${J.ptMin!=null&&!J.verified?`gives ${esc(J.ptNote||`${J.ptMin}–${J.ptMax} pt`)} only in unverified sources`:`states no type size, so FigureLab’s floor (${TEXT_PT_FLOOR} pt, ${TEXT_PT_SOFT} pt recommended) is checked`}`:'')};
 }
 const TEXT_PT_SOFT=6;
@@ -21256,6 +21331,7 @@ function _journalFix(action){
       toast(`Text size ${_ckF1(sc.raiseTo)} pt${up?`, panel letters ${_ckF1(lp)} → ${_ckF1(sc.raiseTo)} pt with it`:''} — superscripts and subscripts now print at ${_ckF1(sc.raiseTo*_RT_SCRIPT)} pt; check the charts still fit their cells${mv.length?`. ${_ckEdgeWords(mv)} to stay inside the figure`:''}`,'ok'); }
     return true;
   }
+  if(action==='sbdrawown'){ render(); if(!_ckDrawOwnBars(_ckBurnedLabelsLow(TEXT_PT_SOFT))) toast('No kept burned-in scale bar prints its label below '+TEXT_PT_SOFT+' pt now','ok'); return true; }
   if(action==='cklanetext'){ if(!_ckLaneToText()) toast('Every lane table is already at the figure’s text size','ok'); return true; }
   if(action==='jtextsoft'){
     render(); const snap=snapshotState();
@@ -27959,27 +28035,44 @@ function _ffFurniture(el){
     else if(sbPxW>=el.w*0.6) el._sbSkip='longer than 60% of the object — check µm/px and the bar length';
     const sbH2=Math.max(1,gi('sb-h')), color=gv('sb-color')||'#fff';
     let sbX=0, sbY=0;
+    // The label's width: a label wider than its bar used to be centred on the bar with
+    // nothing to keep it inside the picture, so "10 µm" over a short bar ran past a circle
+    // clip ("10 µ" and half an m in the TIFF; the rest white on the white page in the PDF —
+    // freeform5-05) and ended flush with a picture's edge (phage5-16). Bar and label are
+    // placed as one group whose right end keeps the bar's inset.
+    const sfs=gc('sb-text')?+_figTextPx().toFixed(2):0, sfont=sfs?`${sfs}px ${_barFontFamily()}`:'';
+    let tw=0;
+    if(sfs){ if(!_rulerMc) _rulerMc=document.createElement('canvas').getContext('2d'); _rulerMc.font=sfont; tw=_rulerMc.measureText(_sbLabel(el)).width; }
+    let tcx=0;
     if(!el._sbSkip){
       const pad=Math.max(6,Math.round(el.w*0.04));
       sbX=el.x+el.w-pad-sbPxW; sbY=el.y+el.h-pad-sbH2;
+      let xr=el.x+el.w-pad, xl=el.x+pad;
       // A circle or ellipse clip hides the box's corners: the bar sits in the corner of the
       // rectangle inscribed in it, or is not drawn (and the check says why) when it is too
       // long to fit there. It stayed in the square's corner, outside the circle, and its
       // text went into the PDF and PowerPoint white on white (freeform4-06).
-      const sh=el.cropShape||'rect';
-      if(sh==='circle'||sh==='ellipse'){
+      const sh=el.cropShape||'rect', clip=sh==='circle'||sh==='ellipse';
+      if(clip){
         const r=Math.min(el.w,el.h)/2, a=sh==='circle'?r:el.w/2, b=sh==='circle'?r:el.h/2, cx=el.x+el.w/2, cy=el.y+el.h/2;
-        const k=Math.SQRT1_2, xr=cx+a*k-pad/2, yb=cy+b*k-pad/2, xl=cx-a*k+pad/2;
-        const tH=gc('sb-text')?_figTextPx()+3:0;
+        const k=Math.SQRT1_2, yb=cy+b*k-pad/2;
+        xr=cx+a*k-pad/2; xl=cx-a*k+pad/2;
+        const tH=sfs?sfs+3:0;
         if(xr-sbPxW<xl||yb-sbH2-tH<cy-b*k) el._sbSkip=`too long for the ${sh} clip — the bar would fall outside it; shorten it (⚙ › Scale bar length) or remove the clip`;
+        else if(xr-Math.max(sbPxW,tw)<xl-0.5) el._sbSkip=`its label “${_sbLabel(el)}” is wider than the ${sh} clip leaves room for at this text size — it would run past the clip’s edge; use a smaller text size, a larger picture, or remove the clip`;
         else { sbX=xr-sbPxW; sbY=yb-sbH2; }
+      }
+      if(!el._sbSkip){
+        const gw=Math.max(sbPxW,tw);
+        if(gw<=xr-xl+0.5){ tcx=xr-gw/2; sbX=tcx-sbPxW/2; }   // the group right-aligned at xr
+        else tcx=sbX+sbPxW/2;                               // a label wider than the picture: centred on its bar
       }
     }
     if(!el._sbSkip){
       out.sb={x:sbX, y:sbY, w:sbPxW, h:sbH2, color, scale};
-      if(gc('sb-text')){
-        const sfs=+_figTextPx().toFixed(2);          // the figure's text size, as in the grid
-        out.sbText={kind:'sb', str:_sbLabel(el), x:sbX+sbPxW/2, y:sbY-3, fs:sfs, font:`${sfs}px ${_barFontFamily()}`,
+      if(sfs){
+        // the figure's text size, as in the grid
+        out.sbText={kind:'sb', str:_sbLabel(el), x:tcx, y:sbY-3, fs:sfs, font:sfont,
           fill:color, align:'center', baseline:'alphabetic', rot:0};
       }
     }
@@ -38941,6 +39034,64 @@ function _findBurnedBar(img){
   lens.sort((p,q)=>p-q); const px=lens[lens.length>>1];
   return {px:Math.round(px*10)/10, x:Math.round(starts[0]), y:Math.round((ya+yb)/2), bright:best.sign>0};
 }
+// The height of the label printed with a burned-in bar (its "10 µm"), in source px, or
+// null. Read on the rows above the bar, over its span: past the bar's own rows and the gap
+// above them, the first block of rows with pixels of the bar's kind (dark beside a dark
+// bar, light beside a light one) is the label. A kept burned-in bar's label is text of the
+// picture: FigureLab cannot resize it, so it printed at about 3 pt in a figure whose own
+// text the check passed at 6–8 pt (newcomer5-10). Labels beside the bar are not read.
+function _burnedLabelPx(img, bar){
+  try{
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
+    if(!bar||!(W>0&&H>0)||!(bar.px>4)) return null;
+    const len=bar.px, x0=Math.max(0,Math.round(bar.x-len*0.1)), x1=Math.min(W,Math.round(bar.x+len*1.1));
+    const yTop=Math.max(0,Math.round(bar.y-Math.max(len*1.2,H*0.25))), yBot=Math.min(H,Math.round(bar.y+2));
+    const w=x1-x0, h=yBot-yTop; if(w<4||h<4) return null;
+    const c=document.createElement('canvas'); c.width=w; c.height=h;
+    const x=c.getContext('2d',{willReadFrequently:true}); x.drawImage(img,x0,yTop,w,h,0,0,w,h);
+    const d=x.getImageData(0,0,w,h).data, G=new Float32Array(w*h);
+    for(let i=0,k=0;i<G.length;i++,k+=4) G[i]=(d[k]+d[k+1]+d[k+2])/3;
+    const all=Array.from(G).sort((p,q)=>p-q), med=all[all.length>>1];
+    const ink=y=>{ let n=0; for(let i=0;i<w;i++){ const v=G[y*w+i]-med; if(bar.bright?v>50:v<-50) n++; } return n; };
+    let y=h-1;
+    while(y>=0&&ink(y)>=len*0.4) y--;                 // the bar itself
+    let gap=0; while(y>=0&&ink(y)<2&&gap<len*0.6){ y--; gap++; }   // the space above it
+    if(y<0||gap>=len*0.6) return null;
+    let top=y, bottom=y, empty=0;
+    while(y>=0){ if(ink(y)>=2){ top=y; empty=0; } else if(++empty>Math.max(3,(bottom-top+1)*0.35)) break; y--; }
+    const th=bottom-top+1;
+    if(th<3||th>len*0.8) return null;
+    return th;
+  }catch(e){ return null; }
+}
+// A kept burned-in bar whose label prints small: [{im, idx, pt, label}] for the figure's
+// panels, at the export DPI. The label's glyph height is taken as 0.72 of its type size
+// (a capital's height), so the estimate errs large when the label has a µ.
+function _ckBurnedLabelsLow(minPt){
+  if(layoutMode==='freeform') return [];
+  const dpi=getExportDPI(), out=[];
+  _figurePanels().forEach(im=>{
+    if(!im||!im.sbBurnedIn||!im.img) return;
+    const key=(im.src||'').length+'|'+(im.img.naturalWidth||0)+'x'+(im.img.naturalHeight||0);
+    if(im._sbBurnTxtKey!==key){ const b=_findBurnedBar(im.img); im._sbBurnTxt=b?_burnedLabelPx(im.img,b):null; im._sbBurnTxtKey=key; }
+    if(!(im._sbBurnTxt>0)) return;
+    const idx=images.indexOf(im), r=_panelEffPpi(idx,dpi); if(!r||!(r.ppi>0)) return;
+    const pt=im._sbBurnTxt/0.72/r.ppi*72;
+    if(pt<minPt-0.05) out.push({im, idx, pt, label:_rtText(formatLabel(im.label))||'?'});
+  });
+  return out;
+}
+// The kept burned-in bars of these panels give way to FigureLab's own bar of the same
+// length, drawn at the figure's text size and clear of the one in the image. One undo step.
+function _ckDrawOwnBars(list){
+  list=(list||[]).filter(e=>e&&e.im&&e.im.sbBurnedIn);
+  if(!list.length) return 0;
+  pushUndo();
+  list.forEach(({im})=>{ const b=im.sbBurnedIn; im.sbUm=b.um; im.sbUnit=b.unit||_sbUnitFor(b.um); delete im.sbBurnedIn; im.sbOn=true; });
+  renderImgList(); render();
+  toast(`FigureLab’s scale bar drawn on ${_listAnd(list.map(e=>e.label))} at the figure’s text size, clear of the bar in the image (${_listAnd(list.map(e=>_sbLabel(e.im)))}) — the image’s own bar is still in the picture: crop it out in ⚙ › Crop if you want one bar`,'ok');
+  return list.length;
+}
 function autoDetectScaleBar(imgIdx){
   const im=images[imgIdx]; if(!im||!im.img) return;
   const bar=_findBurnedBar(im.img);
@@ -38990,6 +39141,7 @@ function applyScaleDetect(imgIdx,barPx,um,opts){
   const b=opts.bar, W=(im.img&&(im.img.naturalWidth||im.img.width))||0, H=(im.img&&(im.img.naturalHeight||im.img.height))||0;
   if(b&&W&&H) im.sbAvoid={x0:b.x-W*0.03, x1:b.x+barPx+W*0.03, y0:b.y-H*0.09, y1:b.y+H*0.04};
   const inImg=_sbLabel({sbUm:um,sbUnit:_sbUnitFor(um)});
+  let _sbInk='';
   if(opts.keep){
     // The bar in the image is the figure's scale bar: no second one, and the caption and
     // the journal check know it is there.
@@ -39001,13 +39153,13 @@ function applyScaleDetect(imgIdx,barPx,um,opts){
     // The same bar as 🔬 Calibrate from image gives for the same calibration (a length the
     // author chose that fits is kept, else about a fifth of the field), so the two ways of
     // calibrating one image cannot give two different figures.
-    _afterCalibration(im); }
+    _sbInk=_afterCalibration(im); }
   logAction('autoScaleBar',{panel:im.label,barPx,um,umPerPx:im.umPerPx,keep:!!opts.keep});
   renderImgList(); render();
   const where=!opts.keep&&_scaleBarDrawn(im)&&im._sbCornerUsed?` · FigureLab's ${_sbLabel(im)} bar is drawn ${_SB_CORNER_NAME[im._sbCornerUsed]}${im.sbAvoid&&im._sbCornerUsed!=='br'?', clear of the bar in the image':''} (⚙ › Scale bar › Corner moves it)`:'';
   toast(opts.keep
     ? `Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${inImg}) · the ${inImg} bar in the image is the scale bar — FigureLab draws none (⚙ › Scale bar › Enable adds one, clear of it)`
-    : `Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${inImg})${where||` · scale bar ${_sbLabel(im)}`}`,'ok');
+    : `Scale set: ${_fmtPxSize(im.umPerPx)} (${barPx} px = ${inImg})${where||` · scale bar ${_sbLabel(im)}`}${/Auto contrast/.test(_sbInk)?_sbInk:''}`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════
