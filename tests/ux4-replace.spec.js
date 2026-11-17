@@ -4,7 +4,7 @@
 // records and 16-bit samples made on the old picture must never be passed off as made on
 // the new one. Each test drives the path a tester took (finding IDs in the titles).
 const { test, expect } = require('@playwright/test');
-const { loadApp, seedPanels } = require('./helpers');
+const { loadApp, seedPanels, seedFreeform } = require('./helpers');
 
 // A 16-bit greyscale TIFF (uncompressed, little-endian) with an ImageJ pixel size.
 function tiff16(px, w, h, umPerPx) {
@@ -348,5 +348,117 @@ test('freeform4-07: a freeform figure saved and reopened keeps its 16-bit pictur
   expect(after.raw).toBe(true);                                      // was: the 8-bit PNG only
   expect(after.m).toBe(before.m);                                     // was: "native samples were not available"
   expect(after.c).toBe(before.c);
+  expect(errors).toEqual([]);
+});
+
+test('phage4-10: the dark dish wall the ellipse runs through is not reported as plaques "cut by the rim", nor counted in the foreground area', async ({ page }) => {
+  const errors = await loadApp(page);
+  const b64 = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 400; const x = c.getContext('2d');
+    x.fillStyle = '#000'; x.fillRect(0, 0, 400, 400);
+    x.fillStyle = 'rgb(70,70,70)'; x.beginPath(); x.arc(200, 200, 180, 0, 7); x.fill();       // the dish wall
+    x.fillStyle = 'rgb(210,205,195)'; x.beginPath(); x.arc(200, 200, 172, 0, 7); x.fill();    // the lawn
+    x.fillStyle = 'rgb(60,55,50)';
+    [[120, 120], [280, 120], [200, 200], [120, 280], [280, 280], [200, 110], [110, 200]].forEach(([a, b]) => { x.beginPath(); x.arc(a, b, 6, 0, 7); x.fill(); });
+    return c.toDataURL('image/png').split(',')[1]; });
+  await addPng(page, b64, 'IMG_7731_plate.png');
+  // an ellipse a few px off the wall's middle, as a drag around the dish gives
+  for (const [cx, r] of [[200, 176], [203, 177], [198, 175]]) {
+    const m = await page.evaluate(([cx, r]) => { setTool('measure-count'); document.getElementById('count-polarity').value = 'dark';
+      document.getElementById('count-ellipse').checked = true; document.getElementById('count-threshold').value = '128';
+      const map = _panelSourceMap(panelBounds[0], images[0]), f = (u) => map.dx + (u - map.sx) / map.kx, g = (v) => map.dy + (v - map.sy) / map.ky;
+      countCellsROI(document.getElementById('fig-canvas').getContext('2d'), f(cx - r), g(200 - r), f(cx + r) - f(cx - r), g(200 + r) - g(200 - r));
+      const m = measurements[measurements.length - 1]; return { count: m.count, cut: m.edgeObjects, wall: m.wallObjects, fg: m.fgPx, html: document.getElementById('roi-results').textContent }; }, [cx, r]);
+    expect(m.count).toBe(7);
+    expect(m.cut).toBe(0);                                            // was: +1 (or many) "cut by the ellipse's edge"
+    expect(m.wall).toBeGreaterThan(0);
+    expect(m.html).toMatch(/dish wall along the ellipse's edge is left out/);
+    expect(m.html).not.toMatch(/cut by the ellipse's edge/);
+    expect(m.fg).toBeLessThan(7 * Math.PI * 7 * 7 * 1.3);            // the plaques only, not the wall
+  }
+  expect(errors).toEqual([]);
+});
+
+test('phage4-08 / phage4-17: a count reaches the caption, Methods and the package; the Measurements CSV uses one diameter unit', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addPng(page, await platePng(page, 12, 5, 7), 'IMG_7702_plate.png');
+  await addPng(page, await platePng(page, 8, 3, 9), 'IMG_7705_plate.png');
+  await page.evaluate(() => { images[0].umPerPx = 150; images[1].umPerPx = 60; render(); });   // B in mm, C in µm
+  await countPanel(page, 0);
+  await countPanel(page, 1);
+  const units = await page.evaluate(() => measurements.map(m => m.dia.unit));
+  expect(units).toEqual(['mm', 'µm']);
+  const csv = await csvOf(page, '() => exportMeasurements()');
+  const rows = csv.split('\n').filter(l => !l.startsWith('#')).map(l => JSON.parse('[' + l + ']'));
+  const col = (r, n) => rows[r][rows[0].indexOf(n)];
+  expect([col(1, 'Diameter unit'), col(2, 'Diameter unit')]).toEqual(['mm', 'mm']);          // was: mm, µm
+  expect(+col(2, 'Diameter mean')).toBeLessThan(1);
+  const t = await page.evaluate(() => ({ cap: _captionText(), meth: generateMethodsParagraph() }));
+  expect(t.cap).toMatch(/\(A\)[^(]*12 objects counted; equivalent diameter [\d.]+ ± [\d.]+ mm \(mean ± SD\)\./);
+  expect(t.cap).toMatch(/\(B\)[^(]*8 objects counted; equivalent diameter [\d.]+ ± [\d.]+ µm/);
+  expect(t.meth).toMatch(/Objects in panel A were counted in FigureLab by an intensity threshold \(pixels darker than 128/);
+  // the package carries the measurements file
+  const names = await page.evaluate(async () => { const cap = await _captureDownload(() => exportSubmissionPackage());
+    const td = new TextDecoder('latin1').decode(cap.data); return ['source-data/measurements.csv', 'README.txt'].map(n => td.includes(n)); });
+  expect(names).toEqual([true, true]);
+  // after a replace, the old count leaves the caption and the Methods
+  await replaceWith(page, 0, await platePng(page, 20, 5, 99), 'IMG_7731_plate_repeat.png');
+  const t2 = await page.evaluate(() => ({ cap: _captionText(), meth: generateMethodsParagraph() }));
+  expect(t2.cap).not.toMatch(/12 objects counted/);
+  expect(t2.meth).not.toMatch(/Objects in panel A were counted/);
+  expect(t2.meth).toMatch(/Objects in panel B were counted/);
+  expect(errors).toEqual([]);
+});
+
+test('blot4-09: after a revision the chart caption note follows the re-analysis', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(BLOT);
+  await page.evaluate(async () => {
+    await __addStrip(__strip([40, 60, 80, 100, 120, 140], 60), 'pAKT.png');
+    runGelAnalysis(0); gelSetRefLane(0, 0); chartFromDensitometry(0); render();
+    runGelAnalysis(0, { window: 41 });                       // the background window changes
+  });
+  const r = await page.evaluate(() => { const el = images.find(p => p.type === 'chart'); return { cap: el.chart.caption, bg: _gelBgShort(images[0].gelAnalysis) }; });
+  expect(r.bg).toMatch(/41 px/);
+  expect(r.cap).toContain(r.bg);                              // was: the charting-time window
+  expect(errors).toEqual([]);
+});
+
+test('blot4-09: levels nobody set are not carried to a replaced 16-bit scan, so Methods does not call them adjusted', async ({ page }) => {
+  const errors = await loadApp(page);
+  // a 16-bit scan with its levels untouched, replaced by one with another maximum
+  await dropTiffs(page, [[tiff16(field(64, 64, 2000, 51609, 51609), 64, 64, 0.1), 'blot_16bit.tif'],
+    [tiff16(field(64, 64, 2000, 30000, 30000), 64, 64, 0.1), 'blot_16bit_B.tif']]);
+  const i = 0;
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate((k) => openReplaceImage(k), i)]);
+  await fc.setFiles(tifFile(tiff16(field(64, 64, 2100, 51648, 51648), 64, 64, 0.1), 'blot_16bit_repeat.tif'));
+  await page.waitForFunction((k) => images[k].name === 'blot_16bit_repeat.tif' && _rawOf(images[k]), i);
+  const m = await page.evaluate((k) => ({ wp: images[k].whitePt, meth: generateMethodsParagraph() }), i);
+  expect(m.wp).toBe(255);                                     // was 254.8: the old file's maximum kept
+  expect(m.meth).not.toMatch(/adjusted linearly/);
+  expect(m.meth).not.toMatch(/settings differ between panels/);
+  expect(errors).toEqual([]);
+});
+
+test('charts4-08 / freeform4-10: the replace toast names a kept metadata note, never reads "kept, but;", and points a freeform note to the Props bar', async ({ page }) => {
+  const errors = await loadApp(page);
+  await addPng(page, await platePng(page, 4, 5, 2), 'MG1655_cipro_plate_IMG_5130.jpg');
+  await page.evaluate(() => { images[0].metaNote = 'plate 7, 2026-11-10, lab book p.112'; images[0].captionNote = 'MG1655, ciprofloxacin'; images[0].umPerPx = 50; render(); });
+  // another shape, so a calibration note and a kept note come together
+  const b64 = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 200; c.height = 300; c.getContext('2d').fillRect(0, 0, 10, 10); return c.toDataURL('image/png').split(',')[1]; });
+  await replaceWith(page, 0, b64, 'MG1655_cipro_plate_IMG_5131_rerun.png');
+  const t = await shownToast(page);
+  expect(t).toMatch(/metadata note kept: “plate 7, 2026-11-10, lab book p\.112” — edit it in ⚙ › Metadata note/);   // was: not named
+  expect(t).toMatch(/crop and label kept, but calibration cleared/);
+  expect(t).not.toMatch(/but;/);
+  expect(t).toMatch(/\. Also: caption note kept/);
+  // freeform: the note is in the Props bar, not ⚙
+  await seedFreeform(page, [{ type: 'image', x: 40, y: 40, w: 200, h: 150, label: 'B', name: 'mother.png', captionNote: 'Brightfield of the same field in the mother machine' }]);
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.evaluate(() => openReplaceFfElem(freeformElements[0].id))]);
+  await fc.setFiles({ name: 'mother_square.png', mimeType: 'image/png', buffer: Buffer.from(b64, 'base64') });
+  await page.waitForFunction(() => freeformElements[0].name === 'mother_square.png');
+  const t2 = await shownToast(page);
+  expect(t2).toMatch(/caption note kept: “Brightfield of the same field in the mother ma…” — edit it in the Props bar › Caption note/);
+  expect(t2).not.toMatch(/⚙/);
+  expect(t2).not.toMatch(/but;/);
   expect(errors).toEqual([]);
 });

@@ -4426,7 +4426,12 @@ function _replacePlan(im, d){
   // numbers: those mean a different range on a file with another maximum, and a panel
   // matched to its row at 300–12000 came back at 278–11119 (fluor3-02). A new file
   // without native samples cannot be shown at counts; that is said, not glossed over.
-  const nl=_nativeLevels(im);
+  // Levels nobody set (the file's own 0…its maximum) are not a choice to carry over: the
+  // old file's maximum kept on the new file read as a display adjustment in Methods
+  // ("adjusted linearly for panel A … settings differ") on a panel no one had adjusted
+  // (blot4-09). The new file then shows its own 0…maximum.
+  const untouched=(im.blackPt||0)===0&&(im.whitePt==null?255:im.whitePt)===255;
+  const nl=untouched?null:_nativeLevels(im);
   if(nl&&!(d.raw&&d.raw.data)){ note(`display range ${nl.text} (native values) cannot be kept: the new file has no ${_rawOf(im)?_rawDepth(_rawOf(im)):'16-bit'} samples, so its levels are 8-bit display values now — check them against the panels it is compared with`,'warn'); warn=true; }
   // Measurements made on the old pixels (a count, an ROI, a line profile, a ruler) are
   // not measurements of the new ones: they are named here and marked out of date.
@@ -21213,6 +21218,12 @@ async function exportSubmissionPackage(){
         if(!cx.error) files.push({name:`source-data/panel_${tag}-lane-profiles.csv`, data:gelProfileCSV(gi_)});
       }catch(e){ _captureSkips.push({label:`densitometry CSV for panel ${tag}`, why:e&&e.message||String(e)}); }
     }
+    // The counts and ruler lengths measured on the figure's pictures: they were only in the
+    // repro log, out-of-date ones included (phage4-08). An out-of-date measurement is left
+    // out of the rows and named in the CSV's header.
+    try{ const mr=measurements.length?_measurementsCSV():null; if(mr&&mr.csv) files.push({name:'source-data/measurements.csv', data:mr.csv});
+      const rc=_rulerCSV(); if(rc) files.push({name:'source-data/rulers.csv', data:rc}); }
+    catch(e){ _captureSkips.push({label:'measurements / ruler CSV', why:e&&e.message||String(e)}); }
     // Entry names, once, over everything: a label or an export name is free text, and
     // used raw it collided (two "WT" panels — extraction keeps one) or made folders
     // ("WT/KO", "../x"). The README lists the names as they are in the ZIP.
@@ -23815,6 +23826,10 @@ function _captionText(){
     // The field of view actually shown — the cropped region in physical units — which a
     // methods section needs and a reader cannot recover from a scale bar alone.
     if(im.umPerPx>0&&!parent){ const fov=_fovText(im); if(fov) s+=` Field of view ${fov}.`; }
+    // What was measured on the panel — its current count and its named rulers — so a
+    // plaque count and size reach the legend, not only the repro log (phage4-08). A count
+    // made on a picture since replaced is never stated (phage4-02).
+    { const mc=_capMeasureClause(im); if(mc) s+=` ${mc}`; }
     // The metadata note (plate number, date, lab-book page) goes to metadata.csv and
     // PANEL_HISTORY, not the legend: it used to be appended here, and so reached the alt
     // text and the SVG <desc>. The caption note is the field for the legend.
@@ -23994,6 +24009,8 @@ function generateMethodsParagraph(){
   });
   // Densitometry speaks only for an analysis that still matches its panel's crop.
   _gelMethodsSentences(P).forEach(x=>S.push(x));
+  // Counts made on the pictures the figure shows (never on one since replaced).
+  _measMethodsSentences(P, nm).forEach(x=>S.push(x));
   // Only what the app knows: it records AI-generated objects, and nothing else.
   S.push(_aiDisclosureSentence()||'FigureLab records no generative-AI content in this figure.');
   _reuseSentences().forEach(t=>S.push(t));
@@ -30046,6 +30063,22 @@ function _chartOwnValuesDraft(){
   if(/^Densitometry of panel/.test(String(ch.caption||''))){ ch.caption=''; sv('chart-caption',''); }
   _chartModalRefresh();
 }
+// The caption note a chart made from densitometry carries: what was measured, how, and
+// which band — written from the analyses as they are now.
+function _gelChartCaption(P, T, metric){
+  const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
+  return `Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background), ${label.charAt(0).toLowerCase()+label.slice(1)}: ${T.chosen.join('; ')}${T.nd?'; n.d., no quantifiable band at that position':''}.`;
+}
+// A linked chart's caption note, when FigureLab wrote it, follows an update: it kept the
+// charting-time "rolling minimum, 103 px" while Methods and the re-analysis said 109 px
+// (blot4-09). A note the author typed stays.
+function _chartLinkCaptionSync(ch, T){
+  const L=ch&&ch.link; if(!L||!T||!T.chosen) return;
+  if(ch.caption&&!/^Densitometry of panel/.test(ch.caption)) return;
+  const P=(L.ids||[]).map(id=>images.find(p=>p&&p.id===id)).filter(p=>p&&p.gelAnalysis);
+  if(P.length!==(L.ids||[]).length||!P.length) return;
+  ch.caption=_gelChartCaption(P, T, L.metric);
+}
 // Re-read every linked chart from its analyses (called whenever an analysis changes).
 function _chartLinksSync(){
   let n=0; const lost=[];
@@ -30055,6 +30088,7 @@ function _chartLinksSync(){
     const gone=_chartSeriesEmptied(el.chart, st.table);
     if(gone.length) lost.push(...gone);
     el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows});
+    _chartLinkCaptionSync(el.chart, st.table);
     el._chartKey=''; el._chartStat=null; n++;
     if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   });
@@ -30095,6 +30129,7 @@ function _chartLinkUpdateDraft(){
   if(!st.table){ toast(st.why?`Cannot update: ${st.why} — open ⫼ Lanes & bands on it`:'Already up to date','warn'); return; }
   const gone=_chartSeriesEmptied(ch, st.table);
   ch.data=Object.assign({}, ch.data, {columns:st.table.columns, rows:st.table.rows});
+  { const c0=ch.caption; _chartLinkCaptionSync(ch, st.table); if(ch.caption!==c0) sv('chart-caption', ch.caption); }
   document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
   _chartModalPickers(); _chartModalRefresh();
   if(gone.length) toast(`Read from the densitometry, but ${_listAnd(gone)} — the bars are gone`,'warn');
@@ -30107,6 +30142,7 @@ function _chartLinkUpdateSelected(){
   if(!st.stale){ toast('Already up to date','ok'); return; }
   const gone=_chartSeriesEmptied(el.chart, st.table);
   pushUndo(); el.chart.data=Object.assign({}, el.chart.data, {columns:st.table.columns, rows:st.table.rows}); el._chartKey=''; el._chartStat=null;
+  _chartLinkCaptionSync(el.chart, st.table);
   if(_isDataPanel(el)) _dataPanelRefresh(el, true);
   logAction('chartLinkUpdate',{charts:1}); updateElemPropsBar(); scheduleRender(0);
   toast(gone.length?`Chart re-read from the densitometry, but ${_listAnd(gone)} — the bars are gone`:'Chart updated from the densitometry', gone.length?'warn':'ok');
@@ -30173,7 +30209,7 @@ function chartFromDensitometry(idx){
   ids.forEach((id,i)=>{ names[id]=T.names[i]; });
   const label=_gelChartMetricLabel(metric, P), pn=T.names.map(n=>n.replace(/^Panel /,'')).join(', ');
   const raw=metric==='volume';
-  const caption=`Densitometry of panel${P.length>1?'s':''} ${pn} (FigureLab, lanes & bands; ${_gelBgShort(P[0].gelAnalysis)} background), ${label.charAt(0).toLowerCase()+label.slice(1)}: ${T.chosen.join('; ')}${T.nd?'; n.d., no quantifiable band at that position':''}.`;
+  const caption=_gelChartCaption(P, T, metric);
   const link={kind:'gel', ids, metric, metricLabel:label, panelNames:`panel${P.length>1?'s':''} ${pn}`, names};
   const notes=[];
   if(raw) notes.push(`raw volumes: ${_gelPanelName(me).replace(/^Panel /,'panel ')} has no reference lane or loading control`);
@@ -35509,8 +35545,13 @@ document.addEventListener('change', e=>{
 });
 
 function exportRulerCSV(){
+  const csv=_rulerCSV();
+  if(!csv){ toast('No rulers on the figure — draw one with ⊢ Ruler','warn'); return; }
+  dl(blobUrl(csv), 'figurelab-rulers.csv');
+}
+function _rulerCSV(){
   const rows=_rulerRows();
-  if(!rows.length){ toast('No rulers on the figure — draw one with ⊢ Ruler','warn'); return; }
+  if(!rows.length) return '';
   const q=v=>_csvCell(v);
   const head=[`# FigureLab v${APP_VERSION} ruler lengths — ${new Date().toISOString()}`,
     "# Each length is measured between the ruler's ends mapped back to SOURCE pixels through the panel's display scale, crop and tilt, times that panel's µm/px.",
@@ -35535,8 +35576,7 @@ function exportRulerCSV(){
   const sum=st.length?['','# Repeated measurements: rulers with the same name on the same panel. SD uses an n-1 denominator; blank when n = 1.',
     ['Name','Panel','n','Mean','SD','Unit'].join(','),
     ...st.map(s=>[s.name,s.panel,s.n,s.meanText,s.sdText,s.unit].map(q).join(','))]:[];
-  const csv=head.join('\n')+'\n'+table.map(r=>r.map(q).join(',')).join('\n')+'\n'+(sum.length?sum.join('\n')+'\n':'');
-  dl(blobUrl(csv), 'figurelab-rulers.csv');
+  return head.join('\n')+'\n'+table.map(r=>r.map(q).join(',')).join('\n')+'\n'+(sum.length?sum.join('\n')+'\n':'');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -35804,6 +35844,29 @@ function openS1Dialog(){
   bg.querySelector('#s1-cancel').onclick=()=>bg.remove();
 }
 
+// The caption's words for what was measured on a panel: its latest current count, and
+// its named rulers' n, mean and SD. '' when there is nothing.
+function _capMeasureClause(im){
+  const out=[];
+  const c=_measCurrent().filter(m=>m.type==='cellCount'&&_measIsOn(m, im)).pop();
+  if(c){ const d=c.dia, cal=d&&/^(µm|mm)$/.test(d.unit);
+    out.push(`${c.count} object${c.count===1?'':'s'} counted${c.roi==='ellipse'?' inside the dish':''}${cal&&c.count?`; equivalent diameter ${d.mean}${c.count>1?` ± ${d.sd}`:''} ${d.unit}${c.count>1?' (mean ± SD)':''}`:''}.`); }
+  if(typeof _rulerStats==='function'){
+    const st=_rulerStats().filter(g=>g.im===im||(g.im&&g.im.fromPanel!=null&&g.im.fromPanel===im.id));
+    if(st.length) out.push(_ucFirst(_listAnd(st.map(g=>`${g.name} ${g.meanText}${g.n>1?` ± ${g.sdText}`:''} ${g.unit} (${g.n>1?`mean ± SD, n = ${g.n}`:'n = 1'})`)))+'.');
+  }
+  return out.join(' ');
+}
+// Methods: how each current count was made, in one sentence per panel.
+function _measMethodsSentences(P, nm){
+  const S=[];
+  P.forEach(im=>{
+    const c=_measCurrent().filter(m=>m.type==='cellCount'&&_measIsOn(m, im)).pop(); if(!c) return;
+    const on=/^raw /.test(c.source||'')?`the file's native ${String(c.source).replace(/^raw /,'')} samples`:/^source/.test(c.source||'')?"the image's own pixels at source resolution, before display adjustments":'the 8-bit display';
+    S.push(`Objects in panel ${nm(im)} were counted in FigureLab by an intensity threshold (${c.polarity==='dark'?'pixels darker than':'pixels at or above'} ${c.threshold} on a 0–255 scale, on ${on})${c.roi==='ellipse'?', inside an ellipse drawn around the dish, objects cut by its edge being left out':''}; touching objects count as one${c.dia&&/^(µm|mm)$/.test(c.dia.unit)?', and each object’s size is given as the diameter of the circle of the same area':''}.`);
+  });
+  return S;
+}
 // ── Which picture a measurement was made on ─────────────────────
 // A count, an ROI or a line profile is a fact about the pixels it read. It records the
 // panel (by id) and the file; when ⇄ Replace image swaps that file, the record is marked
@@ -35838,6 +35901,14 @@ function _staleMeasurements(im, was, now){
 }
 function exportMeasurements(){
   if(!measurements.length){ toast('No measurements yet','warn'); return; }
+  const r=_measurementsCSV();
+  if(!r.csv){ toast(`Nothing to export: ${_listAnd(r.old.map(_measName))} ${r.old.length>1?'were':'was'} made on a picture that has been replaced since — measure the new one`,'warn'); return; }
+  dl(blobUrl(r.csv),'figurelab-measurements.csv');
+  if(r.old.length) toast(`Measurements CSV saved — ${r.old.length} out-of-date measurement${r.old.length>1?'s':''} (made on a replaced picture) left out and listed in its header`,'warn');
+}
+// The Measurements CSV as text ({csv:'' when only out-of-date ones}), for the button and
+// the submission package.
+function _measurementsCSV(){
   // A value of 0 is a value: `m.minV||''` wrote a black region's Min and Max, and a
   // measurement at x = 0, as empty cells. A count's result — the number of objects, at
   // the threshold it used — had no column at all, so its row carried only the area.
@@ -35849,14 +35920,14 @@ function exportMeasurements(){
   // replaced since is left out of the rows and listed in the header, so a count of the
   // old plate is never read as the new plate's (phage4-02).
   const cur=_measCurrent(), old=measurements.filter(m=>m&&m.stale);
-  if(!cur.length){ toast(`Nothing to export: ${_listAnd(old.map(_measName))} ${old.length>1?'were':'was'} made on a picture that has been replaced since — measure the new one`,'warn'); return; }
+  if(!cur.length) return {csv:'', old};
   // One unit per column: a count's diameters in µm on one row and mm on the next could not
   // be compared or pasted into a sheet (phage4-17). Calibrated rows take the largest unit
   // any of them uses.
   const calU=cur.some(m=>m.type==='cellCount'&&m.dia&&m.dia.unit==='mm')?'mm':'µm';
   const conv=(v,u)=>{ if(v==null||v==='') return ''; if(u===calU||!/^(µm|mm)$/.test(u)) return v; return +(u==='mm'?v*1000:v/1000).toPrecision(3); };
   const rows=[['Type','Label','Measured on','X','Y','W','H','Display Mean Gray','Display Min','Display Max','Display Integrated Density','Raw Mean','Raw Min','Raw Max','Raw SD','Raw Integrated Density','Area px²','Area µm²','Count','Threshold','Line Values',
-    'Panel','Objects','Region','Cut by the rim (not counted)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters','Source file']];
+    'Panel','Objects','Region','Cut by the rim (not counted)','Dish wall (left out)','Diameter mean','Diameter SD','Diameter median','Diameter unit','Object diameters','Source file']];
   cur.forEach(m=>{
     const v=k=>m[k]??'';
     const cnt=m.type==='cellCount', d=m.dia||null;
@@ -35865,7 +35936,7 @@ function exportMeasurements(){
       v('rawMean'),v('rawMin'),v('rawMax'),v('rawSD'),v('rawIntDens'),
       v('area'),v('areaUm'),v('count'),v('threshold'),m.values||'',
       v('panel'), cnt?(m.polarity==='dark'?'dark (plaques)':m.polarity?'bright':''):'', cnt?(m.roi==='ellipse'?'ellipse (round, a dish)':m.roi?'box':''):'',
-      cnt&&m.roi==='ellipse'?(m.edgeObjects??''):'',
+      cnt&&m.roi==='ellipse'?(m.edgeObjects??''):'', cnt&&m.roi==='ellipse'?(m.wallObjects??''):'',
       d?conv(d.mean,d.unit):'', d?conv(d.sd,d.unit):'', d?conv(d.med,d.unit):'', d?(/^(µm|mm)$/.test(d.unit)?calU:d.unit):'', d?d.values.map(v=>conv(v,d.unit)).join(' '):'',
       m.file||'']);
   });
@@ -35875,8 +35946,7 @@ function exportMeasurements(){
     +(anyRaw?'# Rows measured on raw: '+_RAW_MEASURE_NOTE+' SD uses an n-1 denominator.\n':'')
     +old.map(m=>`# Left out (out of date): ${_measName(m)}${m.panel?`, panel ${m.panel}`:''}, was made on ${m.stale.was||'the old picture'}, which ⇄ Replace image swapped for ${m.stale.now||'another file'} — measure the new picture again.\n`).join('')
     +rows.map(r=>_csvRow(r,true)).join('\n');
-  dl(blobUrl(csv),'figurelab-measurements.csv');
-  if(old.length) toast(`Measurements CSV saved — ${old.length} out-of-date measurement${old.length>1?'s':''} (made on a replaced picture) left out and listed in its header`,'warn');
+  return {csv, old};
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -36410,33 +36480,46 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   // Round (a dish): an object cut by the ellipse — the dish's rim, dark against the lawn,
   // or a plaque only partly inside — is left out and counted separately. A box counts
   // everything in it, as it always has.
+  // An object cut by the ellipse that is long and thin along it is the dish wall, not a
+  // plaque the rim cut: every count said "+1 cut by the ellipse's edge" for the wall, and a
+  // box a few px off "+27", with no plaque near the agar edge (phage4-10). The wall is left
+  // out of the count and of the foreground area, and said separately.
   const labels=new Int32Array(W*H), sizes=[], cxs=[], cys=[];
-  let count=0, edgeN=0, lab=0;
+  let count=0, edgeN=0, wallN=0, edgePx=0, lab=0;
   const isEdge=(cx,cy,cur)=>cx===0||cy===0||cx===W-1||cy===H-1||!valid[cur-1]||!valid[cur+1]||!valid[cur-W]||!valid[cur+W];
   for(let y=0;y<H;y++){
     for(let x=0;x<W;x++){
       const p=y*W+x;
       if(mask[p]&&!labels[p]){
         lab++;
-        let n=0, sx=0, sy=0, edge=false;
+        let n=0, sx=0, sy=0, edge=false, nEdge=0, bx0=x, bx1=x, by0=y, by1=y;
         const q=[p]; labels[p]=lab;
         while(q.length){
           const cur=q.pop();
           const cx=cur%W, cy=(cur-cx)/W; n++; sx+=cx; sy+=cy;
-          if(!edge&&isEdge(cx,cy,cur)) edge=true;
+          if(cx<bx0) bx0=cx; if(cx>bx1) bx1=cx; if(cy<by0) by0=cy; if(cy>by1) by1=cy;
+          if(round){ if(isEdge(cx,cy,cur)){ edge=true; nEdge++; } }
+          else if(!edge&&isEdge(cx,cy,cur)) edge=true;
           if(cx>0&&mask[cur-1]&&!labels[cur-1]){ labels[cur-1]=lab; q.push(cur-1); }
           if(cx<W-1&&mask[cur+1]&&!labels[cur+1]){ labels[cur+1]=lab; q.push(cur+1); }
           if(cy>0&&mask[cur-W]&&!labels[cur-W]){ labels[cur-W]=lab; q.push(cur-W); }
           if(cy<H-1&&mask[cur+W]&&!labels[cur+W]){ labels[cur+W]=lab; q.push(cur+W); }
         }
-        if(edge&&round){ edgeN++; continue; }
+        if(edge&&round){ edgePx+=n;
+          // long and thin (the square of its longer side over its area: about 1.3 for a
+          // round plaque cut in half, the arc's length over its width for a wall), or a
+          // sliver lying along the edge (most of its pixels on it; a cut plaque has only
+          // its chord there)
+          const L=Math.max(bx1-bx0+1, by1-by0+1);
+          if(L*L/n>6||nEdge/n>0.4) wallN++; else edgeN++;
+          continue; }
         count++; sizes.push(n); cxs.push(sx/n+0.5); cys.push(sy/n+0.5);
       }
     }
   }
   const onSrc=!!src&&src!=='';
   const area=inPx;                            // pixels actually segmented (source px when onSrc)
-  const fgPx=mask.reduce((s,v)=>s+v,0);
+  const fgPx=mask.reduce((s,v)=>s+v,0)-(round?edgePx:0);   // the objects counted, not the rim's
   const umPerPx=im?.umPerPx||0;
   // µm/px is calibrated in SOURCE pixels — only convert when we segmented those.
   const cal=umPerPx>0&&onSrc;
@@ -36462,7 +36545,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   res.className='show';
   const how=src==='raw'?`raw ${_fmtRaw(rawThresh,raw)}`:'';
   res.innerHTML=`<b>Count</b> (${dark?'darker than':'at or above'} ${thresh}${how?` → ${how}`:''}${round?' · inside the ellipse':''})<br>
-    Objects detected: <b>${count}</b>${edgeN?` <span style="color:var(--muted);font-size:10px">(+${edgeN} cut by the ellipse's edge — the rim — not counted)</span>`:''}<br>
+    Objects detected: <b>${count}</b>${edgeN?` <span style="color:var(--muted);font-size:10px">(+${edgeN} cut by the ellipse's edge — the rim — not counted)</span>`:''}${wallN?` <span style="color:var(--muted);font-size:10px">(the dish wall along the ellipse's edge is left out)</span>`:''}<br>
     ${diaTxt?diaTxt+'<br>':''}
     Foreground pixels: ${fgPx} / ${Math.round(area)} (${(fgPx/area*100).toFixed(1)}%)${onSrc?' <span style="color:var(--muted);font-size:10px">source px</span>':''}<br>
     ${areaUm?`Foreground area: ${areaUm} µm²<br>`:''}
@@ -36475,7 +36558,7 @@ function countCellsROI(ctx,rx,ry,rw,rh){
   pushUndo();
   measurements.push({type:'cellCount',label:`Count ${measurements.length+1}`,
     x:Math.round(rx),y:Math.round(ry),w:Math.round(rw),h:Math.round(rh),clipped,
-    count,edgeObjects:edgeN,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',polarity:dark?'dark':'bright',roi:round?'ellipse':'rect',
+    count,edgeObjects:edgeN,wallObjects:wallN,fgPx,area:Math.round(area),threshold:thresh,areaUm:areaUm||'',polarity:dark?'dark':'bright',roi:round?'ellipse':'rect',
     panel:im?(_rtText(formatLabel(im.label))||''):'', dia:diaRec,
     source:src==='raw'?`raw ${_rawDepth(raw)}`:src==='source'?'source pixels (8-bit)':'8-bit display', ..._measOn(im)});
   _renderMeasList();
