@@ -117,7 +117,7 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 
 - **Export › Place the key on the figure** puts the key in free space: a margin, an empty cell or a free corner, never over a panel, letter or heading. With no room, a margin grows and a toast says by how much.
 - <kbd>⌘K</kbd> `legend key` › <kbd>Enter</kbd> places it too.
-- The menu beside it (no label of its own) picks the place: **Free space**, a corner, **Right edge** or **Below**. A margin grown for the key's old place is given back when it moves.
+- The menu beside it (no label on screen; the toasts call it **Where**) picks the place: **Free space**, a corner, **Right edge** or **Below**. A margin grown for the key's old place is given back when it moves.
 - After placing the key, untick each chart's **legend** in its Chart dialog, so the colours are explained once ([Charts](charts.md)).
 - In freeform, a placed key moves out of the way of objects moved into its place, and the canvas grows for it ([Freeform](freeform.md) §11).
 - Drag the key with **↖ Select** to put it somewhere yourself; it stays there through later changes. If it covers something, the compliance row **Legend key on the figure** warns and **Move to free space** fixes it ([Journal submission](journal-submission.md)).

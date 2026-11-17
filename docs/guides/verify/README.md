@@ -27,7 +27,7 @@ Each script prints one line per step (`ok` or `FAIL` with the reason) and exits 
 ## Files
 
 - `lib.js`: the harness (start a browser on `figure_lab.html`, run steps, open sidebar sections, ⌘K, file choosers, the Save dialog, downloads, toasts, screenshots), a 16-bit TIFF writer with ImageJ calibration, and readers for PNG, TIFF and ZIP files.
-- `inputs.js`: deterministic synthetic inputs with known truth: tilted western blots with set band amounts and a ladder, a total-protein stain, 16-bit fluorescence channels (DAPI, GFP, CellMask) at 0.108333 µm/px, a TEM micrograph with a burned-in 200 nm bar at 0.5 nm/px, plaque plates, a spot assay, a phase-contrast photo and a phage GenBank file. Scripts write their own CSVs with known means and SDs.
+- `inputs.js`: deterministic synthetic inputs with known truth: tilted western blots with set band amounts and a ladder, a total-protein stain, 16-bit fluorescence channels (DAPI, GFP, CellMask) at 0.108333 µm/px, a TEM micrograph with a burned-in 200 nm bar at 0.5 nm/px, plaque plates, a spot assay, a phase-contrast photo and a phage GenBank file. Scripts write their own CSVs with known means and SDs, plate-reader exports in each time format, and the extra blots and plates their later sections need (a phospho/total pair, a replacement plate).
 - `ISSUES.md`: problems found while verifying, with severity and a suggestion. When a fix lands, re-run the affected script, update the guide's step (and drop its workaround), and mark the entry fixed with the evidence.
 
 Headless Chromium never answers the native "Save as" picker, so `lib.js` hides it and the app uses its ordinary download path (the one Firefox and Safari use).

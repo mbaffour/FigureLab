@@ -146,7 +146,7 @@ Freeform sizes are in canvas px, but text in charts, gene maps, letters and scal
 1. Change **Export › Printed width**. Narrowing it says by how much: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
 2. Enlarge the chart and gene-map boxes (W and H) until their words fit again; there is no "scale everything".
 3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**, or click the row's **Raise to 6 pt**, which raises every text under 6 pt in one undo step ("Text raised to 6 pt"; the label then read 6.0 pt).
-4. If the legend key is on the figure (**Export › Place the key on the figure**, with **Below** in the menu beside it), it keeps out of the way of what you move or enlarge. In the test, the key placed Below grew the canvas from 798 to 819 px ("The legend key needed free space, so the canvas height grew from 798 to 819 px — it sits there without covering anything"); moving the gene map 100 px down into the key's place moved the key below the map, the canvas grew to 839 px, and the compliance report's **Legend key on the figure** row still read "The placed key sits in free space, inside the figure ✓". Re-run the check after each revision: that row says whether the key covers anything. A canvas that grows for the key prints every picture a little smaller at a fixed printed width.
+4. If the legend key is on the figure (**Export › Place the key on the figure**, with **Below** in the menu beside it), it keeps out of the way of what you move or enlarge. In the test, the key placed Below grew the canvas from 798 to 819 px ("The legend key needed free space, so the canvas height grew from 798 to 819 px — it sits there without covering anything"); moving the gene map 100 px down into the key's place moved the key below the map, the canvas grew to 839 px, and the compliance report's **Legend key on the figure** row still read "The placed key sits in free space, inside the figure ✓". Re-run the check after each revision: that row says whether the key covers anything.
 
 Best of all, choose the printed width before you lay out (§1.3).
 
@@ -154,7 +154,7 @@ Best of all, choose the printed width before you lay out (§1.3).
 
 A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
 
-1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> (or **Export › Save / load your work › 💾 Save (bundled)**). You get `<name>-session.json` with the pictures inside ("Session saved (images bundled)"; 2.2 MB for the test figure).
+1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> (or **Export › Save / load your work › 💾 Save (bundled)**). You get `<name>-session.json` with the pictures inside, 16-bit samples included ("Session saved (images bundled, with 3 MB of native 16-bit samples so levels and measurements reopen in camera counts)"; 5.7 MB for the test figure).
 2. To reopen it, click **📂 Load** under Save / load your work (or **📂 Load a session** on the welcome card) and pick the file. Every object comes back in place, with its letter, crop and caption note.
 3. For versions of one figure, use **Export › Session library**: click **＋ Save current to library**, type a name (`Fig2 v1`), and click OK ("Saved "Fig2 v1" to your sessions"). Save again under another name after a change (`Fig2 v2`). The library lives in this browser only; the session file is what you keep or send.
 4. **Open** beside a version replaces the figure on screen with it ("Opened "Fig2 v1""). One <kbd>Ctrl/⌘+Z</kbd> brings back the figure you had before you opened it.
@@ -179,7 +179,6 @@ A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
 - **An object is cut off after a canvas change.** The toast names what reaches past the edge; drag it in or make the canvas larger.
 - **A replaced picture overlaps what is below it.** A file of another shape takes the height it needs (the toast says by how much); move the objects below it, or crop the new picture.
 - **Chart or gene-map words run together after a narrower printed width.** Their text keeps its point size; enlarge the chart or map box (§11).
-- **A small gene map's title sits on the top row of gene names.** Seen on the 446 × 160 map in this guide; a known problem, listed in [`verify/ISSUES.md`](verify/ISSUES.md).
 - **The PDF fails a journal's "all fonts embedded" check.** FigureLab's PDF names its standard fonts without embedding them; send the TIFF, or finish the text in the SVG.
 - **The SVG's gaps read 11.5 px, not 12.** The layered SVG places each panel's picture up to 0.7 px off its box; the PNG, TIFF and PDF have the exact gap. **Export › SVG › Flat (one image)** writes the whole figure as one picture, drawn as the PNG is, with the text on top.
 - More: [troubleshooting.md](troubleshooting.md).

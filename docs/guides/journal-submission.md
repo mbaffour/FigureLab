@@ -40,7 +40,7 @@ Science, Cell and PNAS are marked *unverified*: FigureLab could only read second
 ## 2. Run the compliance check
 
 1. Open **Check** and click **✓ Check journal compliance**. To see how the figure fares under another journal, press ⌘K and type `check against` and its name (`check against nature`): the report's title ends "· report only", a line says "Report only — your target journal is still PLOS ONE, and nothing was changed", and a **Switch the target to Nature** link changes the target if you want it (one undo step).
-2. Read the title: `PLOS ONE compliance — 18/21 passed · 1 to do: export as TIFF`. The "to do" names what is left once the rules pass, here the export in the journal's format (§6).
+2. Read the title: `PLOS ONE compliance — 18/21 passed · 1 to do: export as TIFF`. The "to do" names what is still to be done: here, an export in the journal's format (§6).
 3. Read each row. Each journal row names its source.
 
 ![The PLOS ONE compliance report](img/journal-compliance.png)

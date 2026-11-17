@@ -299,6 +299,19 @@ const { step, expect, btn } = L;
     return `8 pt = ${px} px at 183 mm`;
   });
 
+  // ISSUES (rounds 2–3): a small map's title over the top row of labels, and end labels over
+  // the length label. Freeform draws map words outside the figure's text list, so this is a
+  // screenshot to look at (shots/freeform-genemap.png); the 300 dpi PNG of 5.1 shows the same.
+  await step(T, 'ISSUES (evidence): the 446 × 160 gene map, screenshot of its title, labels, ruler and length', async () => {
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(500);
+    const g = await byName(/phiGuide_late/);
+    const r = await p.evaluate(([x, y, w, h]) => { const cv = document.getElementById('fig-canvas'), c = cv.getBoundingClientRect(), k = c.width / canvasLogicalW;
+      return { x: c.x + x * k - 4, y: c.y + y * k - 4, width: w * k + 8, height: h * k + 8 }; }, [g.x, g.y, g.w, g.h]);
+    const f = await L.shot(T, 'freeform-genemap', r);
+    expect(g.w === 446 && g.h === 160, JSON.stringify(g));
+    return 'see ' + path.relative(T.out, f);
+  });
+
   await step(T, '4.1 ↗ Arrow on A; T Text on B with Δ*ompC* H_{2}O, Enter', async () => {
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '↗ Arrow').click();

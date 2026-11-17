@@ -113,7 +113,7 @@ A reviewer asks for a more representative field. Swap the files and keep everyth
 3. Open the merge's **⚙**. Under **Channels (screen blend)**, click **⇄** beside each channel and pick its new file: "Panel I, GFP: C2-HeLa_DMSO_60x_GFP.tif → C2-HeLa_DMSO_60x_f2_GFP.tif — colour and display range 400–12000 (native values) kept". A file of another size is refused, since channels of one field must match.
 4. The inset follows its merge and shows the new field. The **Display ranges by channel** row still passes, and an untouched caption keeps the ranges.
 
-Pick 16-bit files: an 8-bit file (a PNG, a JPEG) cannot hold a range in counts, and the toast says "crop and label kept, but; display range 400–12000 (native values) cannot be kept: the new file has no 16-bit samples…". Press <kbd>Ctrl/⌘+Z</kbd> and pick the TIFF.
+Pick 16-bit files: an 8-bit file (a PNG, a JPEG) cannot hold a range in counts, and the toast says "crop and label kept, but display range 400–12000 (native values) cannot be kept: the new file has no 16-bit samples…". Press <kbd>Ctrl/⌘+Z</kbd> and pick the TIFF.
 
 ## Tips
 

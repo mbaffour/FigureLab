@@ -34,7 +34,7 @@ Batch crop keeps one box size across all the scans, so the strips come out the s
 
 ![Batch Crop with a typed box levelled along the band row](img/western-blot-batch-crop.png)
 
-On the test blots, Level found 1.1°, −0.9° and 0.7° for true tilts of 1.2°, −0.8° and 0.6°, and Auto found 1.0° on the total-protein stain (true 1.0°). 📐 Level turns the box about its centre, so X can move by a pixel; that is expected.
+On the test blots, Level found 1.3°, −0.7° and 0.7° for true tilts of 1.2°, −0.8° and 0.6°, and Auto found 0.9° on the total-protein stain (true 1.0°). 📐 Level turns the box about its centre, so X can move by a pixel; that is expected.
 
 ## 3. Measure the bands
 
@@ -56,8 +56,8 @@ On the test blot (bands loaded 0.3 / 1 / 0 / 0 / 0.4 / 1.6), ÷LC rel ref read 0
 A phospho-protein is usually shown over its own total protein, probed on a second blot of the same samples.
 
 1. Add the phospho blot, the total blot and a loading control (GAPDH) as in task 1.
-2. Click the phospho strip and open **⫼ Lanes & bands** (⌘K `densitometry`). Set the **Reference lane**.
-3. **Loading control**: pick the total-protein blot's panel, and in the menu beside it choose **Another target (phospho/total)**. Each band is divided by the total blot's band in the paired lane (lanes are paired by order). The dialog says so: "Normalised to another target, AKT_total (panel B) (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane) … It is no loading control: show one as well where the journal asks."
+2. Click the phospho strip and open **⫼ Lanes & bands** (⌘K `densitometry`). Set the **Ladder lane** with its sizes and click **Fit** (step 3 above), then the **Reference lane**.
+3. **Loading control**: pick the total-AKT blot's panel, and in the menu beside it choose **Another target (phospho/total)**. Each band is divided by the total blot's band in the paired lane (lanes are paired by order). The dialog says so: "Normalised to another target, AKT_total (panel B) (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane) … It is no loading control: show one as well where the journal asks."
 4. **📊 Chart these values**. The Y title, caption and Methods name the ratio: "Band volume ÷ AKT_total, relative to lane 3" (the total blot is named by its file); type your own **Y title** (`pAKT / total AKT`) if you like.
 5. Under EMBO J, the compliance report's **Loading control** row (ℹ) says "A is normalised to another target, AKT_total (panel B) (a phospho/total ratio), not to a loading control", so show the GAPDH strip as well.
 
@@ -131,7 +131,7 @@ The S1 file is also in the submission package (**Export › 📦 Export submissi
 3. The chart panel now says it is out of date, on the figure and in its dialog ("⚠ Linked to the densitometry of panels A, B, which has changed since: panel A: the crop changed since this analysis."). Double-click the chart and click **↻ Update from densitometry**: it re-analyses the new scan with the same lane count, ladder, reference lane and loading control, moves the MW labels onto the new ladder, and updates the chart ("1 chart updated from the re-analysed densitometry; 3 MW labels of panel A moved onto the new ladder’s bands"). Click **Apply**.
 4. Open **⫼ Lanes & bands** on the strip: it reads the same 7 lanes, reference lane and loading control as before. Click **⬇ CSV** for the new numbers, then re-export the figure and S1.
 
-On the test re-run (tilted −2.0°), Level found −2.2°, and the re-analysed values were 0.30 / 1.00 / 0 / 0 / 0.40 / 1.60.
+On the test re-run (tilted −2.0°), Level found −2.0°, and the re-analysed values were 0.30 / 1.00 / 0 / 0 / 0.40 / 1.60.
 
 ### A chart whose numbers you typed
 

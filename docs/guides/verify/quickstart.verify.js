@@ -224,5 +224,22 @@ const { step, expect, btn } = L;
     return `${before.slice(0, 150)} → [${bt}] → ${path.basename(f)} → ${after.split(' · ')[0]}`;
   });
 
+  // ISSUES (round 3) "Look › Label format is not counted as a change": re-checked on this build
+  await step(T, 'ISSUES: after the export, Look › Label format a b c — the Export format row, and what one Ctrl/⌘+Z undoes', async () => {
+    await L.openSection(T, 'Look');
+    const cols0 = await p.evaluate(() => document.getElementById('cols').value);
+    await p.locator('#label-format').selectOption({ label: 'a b c' }); await p.waitForTimeout(400);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const row = ((await rep.innerText()).match(/\n([⚠✗✓ℹ])\nExport format\n([^\n]*)/) || []);
+    await p.keyboard.press('Escape');
+    await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } });
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(400);
+    const after = await p.evaluate(() => ({ fmt: document.getElementById('label-format').selectedOptions[0].text, cols: document.getElementById('cols').value }));
+    T._lf = { row: row.slice(1), after, cols0 };
+    return JSON.stringify(T._lf);
+  });
+
   await L.finish(T);
 })();
