@@ -281,6 +281,11 @@ test('newcomer5-03: replicate columns with images say "the mean of Rep 1, Rep 2,
   const t = await page.evaluate(() => window.__toasts.join('\n'));
   expect(t).toContain('bar chart of the mean of Rep 1, Rep 2, Rep 3 by Strain');
   expect(await page.evaluate(() => images.find(p => p && p.type === 'chart').chart.axes.y.title)).toBe('swim diameters (mm)');
+  // and on its own, through the dialog and Apply
+  await drop(page, 'swim_diameters_mm.csv');
+  await expect(modal(page).locator('#chart-ytitle')).toHaveValue('swim diameters (mm)');
+  await apply(page);
+  expect(await page.evaluate(() => images.filter(p => p && p.type === 'chart').pop().chart.axes.y.title)).toBe('swim diameters (mm)');
   expect(errors).toEqual([]);
 });
 
@@ -312,5 +317,257 @@ test('charts5-05: on a log axis 0, 100, 0 is a mean of 33.3 with n = 3, and an a
   const csv = await sourceData(page);
   expect(csv).toMatch(/# Log axis: 1 mean ≤ 0 cannot be placed on it and is drawn at the axis floor \(y = [^)]+\) as open marks/);
   expect(csv).toContain("dmexB,8,3,33.333333333333336,"); expect(csv).toContain("dmexB,24,3,0,0,SD (n-1)");
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer5-01, charts5-06, phage5-04, freeform5-02, blot5-10: charts printed narrow ──
+// Words a chart draws, with their measured boxes (horizontal ones only).
+const WORDS = `window.__words = el => { el._chartKey = ''; const mc = _rtMc(), o = [], L = [];
+  _chartDraw(el, { rect() {}, poly() {}, circle() {}, line(x1, y1, x2, y2) { L.push([x1, y1, x2, y2]); }, text(s, x, y, f, c, a, b, r) { mc.font = f; const w = mc.measureText(_rtText(String(s))).width, fs = parseFloat(String(f).match(/([\\d.]+)px/)[1]);
+    const l = a === 'center' ? x - w / 2 : a === 'right' ? x - w : x; const t = b === 'middle' ? y - fs / 2 : y - fs * 0.8;
+    o.push({ s: String(s), l, r: l + w, t, b: t + fs, rot: r || 0, x, y, fs, w }); } }); return { o, L }; };`;
+const overlap = (a, b) => a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5;
+async function narrowFigure(page) {
+  await page.evaluate(ROWS); await page.evaluate(WORDS);
+  await seedPanels(page, 4);
+  await drop(page, 'swim_diameters_mm.csv'); await apply(page);
+  await page.evaluate(() => { applyPreset('asm'); sv('export-width-mm', '83'); _syncPhysReadout(); render(); });
+}
+test('newcomer5-01 / charts5-06: a chart printed at 83 mm says its tick labels run together, and Chart room’s button gives it the row it needs', async ({ page }) => {
+  const errors = await loadApp(page);
+  await narrowFigure(page);
+  expect(await page.evaluate(() => [gi('cols'), gi('rows')])).toEqual([3, 2]);
+  const row = await page.evaluate(() => { checkCompliance(); return __rows().find(r => r.label === 'Chart room') || null; });
+  expect(row && row.text).toMatch(/E: its plot is [\d.]+ mm tall/);
+  expect(row.text).toMatch(/(group names|tick labels|x numbers) run together \(“[^”]+”, “[^”]+”\)/);
+  // the button does what it says: E spans two rows, and the grid gets the third row for it
+  await page.locator('#info-modal-bg').getByRole('button', { name: /^Give E a (taller|wider|bigger) cell$/ }).click();
+  const after = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); return { cs: el.colSpan, rs: el.rowSpan, grid: [gi('cols'), gi('rows')], h: el.h }; });
+  expect([after.cs, after.rs]).toEqual([2, 2]); expect(after.grid).toEqual([3, 3]);
+  const row2 = await page.evaluate(() => { const m = document.getElementById('info-modal-bg'); if (m) m.remove(); render(); checkCompliance(); return __rows().find(r => r.label === 'Chart room') || null; });
+  // the room it was given: what made the row is gone (a cut legend or title is not this test's)
+  expect(row2 ? row2.text : '').not.toMatch(/its plot is|group names run together/);
+  // one undo step takes it back
+  await page.evaluate(() => { const m = document.getElementById('info-modal-bg'); if (m) m.remove(); undo(); });
+  expect(await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); return [el.colSpan, el.rowSpan, gi('rows')]; })).toEqual([1, 1, 2]);
+  expect(errors).toEqual([]);
+});
+
+test('charts5-06: Row span 2 on a chart in the grid\'s last row says it needs another row, and offers to add it', async ({ page }) => {
+  const errors = await loadApp(page);
+  await seedPanels(page, 4);
+  await drop(page, 'swim_diameters_mm.csv'); await apply(page);
+  const idx = await page.evaluate(() => images.findIndex(p => p && p.type === 'chart'));
+  await page.evaluate(i => { const d = document.getElementById('settings-' + i); if (d && d.tagName === 'DETAILS') d.open = true; }, idx);
+  const box = page.locator(`#img-list .f-rowspan`).nth(idx);
+  await box.evaluate(b => { b.value = '2'; b.dispatchEvent(new Event('input', { bubbles: true })); });
+  await expect(page.locator('#toast')).toContainText('E is in the grid\'s last row — Row span 2 needs 1 more row');
+  await page.locator('#toast').getByRole('button', { name: 'Add 1 row' }).click();
+  expect(await page.evaluate(() => gi('rows'))).toBe(3);
+  expect(errors).toEqual([]);
+});
+
+test('freeform5-02: a narrow line chart with a long legend puts the legend under the plot and thins its x numbers so none run together', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(WORDS);
+  await drop(page, 'timekill_tobramycin_4xMIC.csv');
+  await modal(page).locator('#chart-legend').check();
+  await apply(page);
+  const r = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart');
+    el.chart.names = { PA14: 'P. aeruginosa PA14 wild type', dlasR: 'PA14 ΔlasR::Gm', dmexB: 'PA14 ΔmexB efflux mutant' };
+    el.chart.axes.x.title = 'Time (h)'; el.chart.style.fontPt = 8;
+    sv('panel-w', '170'); sv('panel-h', '200'); onLayoutChange(); render();
+    const { o, L } = __words(el); const axis = L.find(l => l[1] === l[3] && l[2] - l[0] > 30); return { o, axisY: axis[1], W: el.w, H: el.h }; });
+  const nums = r.o.filter(w => !w.rot && /^\d+$/.test(w.s) && w.y > r.axisY);
+  expect(nums.length).toBeGreaterThanOrEqual(2);
+  for (let i = 1; i < nums.length; i++) expect(overlap(nums[i - 1], nums[i]), JSON.stringify(nums)).toBe(false);
+  const leg = r.o.filter(w => /PA14/.test(w.s));
+  expect(leg.length).toBe(3);
+  leg.forEach(w => { expect(w.t).toBeGreaterThan(r.axisY); expect(w.b).toBeLessThanOrEqual(r.H + 0.5); });   // under the plot, inside the panel
+  expect(errors).toEqual([]);
+});
+
+test('phage5-04: legend entries cut by the panel\'s bottom edge are named in Chart room', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(ROWS);
+  await drop(page, 'tecan_OD600_hours.csv');            // twelve wells, each its own series
+  await modal(page).locator('#chart-legend').check();
+  await apply(page);
+  const row = await page.evaluate(() => { sv('panel-w', '520'); sv('panel-h', '120'); onLayoutChange(); render(); checkCompliance(); return __rows().find(r => r.label === 'Chart room') || null; });
+  expect(row && row.text).toMatch(/legend names? (“[^”]+”, )*“D3” cut at the panel edge/);
+  expect(row.text).not.toMatch(/“A1”/);
+  expect(errors).toEqual([]);
+});
+
+test('blot5-10: a Y title too long for a short chart is wrapped inside the panel, not cut at its bottom', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(WORDS);
+  await drop(page, 'swim_diameters_mm.csv'); await apply(page);
+  const r = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart');
+    el.chart.axes.y.title = 'pERK1/2 / total ERK1/2 (fold of 0 min)'; el.chart.style.fontPt = 8;
+    sv('panel-w', '260'); sv('panel-h', '120'); onLayoutChange(); render();
+    return { o: __words(el).o.filter(w => w.rot === -90), H: el.h }; });
+  expect(r.o.map(w => w.s).join(' ')).toBe('pERK1/2 / total ERK1/2 (fold of 0 min)');
+  r.o.forEach(w => { expect(w.y + w.w / 2).toBeLessThanOrEqual(r.H + 0.5); expect(w.y - w.w / 2).toBeGreaterThanOrEqual(-0.5); });
+  expect(errors).toEqual([]);
+});
+
+// ── polish: the key, names, styles and replace ─────────────────────────────────────
+const KEYTXT = page => page.evaluate(() => _keyText());
+test('charts5-08: an RGB micrograph named …PA14-GFP… gets no "(greyscale)" key row', async ({ page }) => {
+  const errors = await loadApp(page);
+  const png = fs.readFileSync(path.join(FX, 'A549_PA14-GFP_4hpi_63x_0007.png')).toString('base64');
+  await page.evaluate(async b64 => { const src = 'data:image/png;base64,' + b64;
+    for (const n of ['A549_PA14-GFP_4hpi_63x_0007.png', 'A549_infected_4hpi_63x_0008.png']) await new Promise(r => { const im = new Image(); im.onload = () => { _commitImage(im, src, n); r(); }; im.src = src; });
+    render(); }, png);
+  await drop(page, INV); await apply(page);
+  const rows = await page.evaluate(() => _figureKey().map(r => [r.kind, String(r.name), r.words || '']));
+  expect(rows.filter(r => r[0] === 'channel')).toEqual([]);
+  expect(await KEYTXT(page)).not.toMatch(/greyscale/);
+  expect(errors).toEqual([]);
+});
+
+test('charts5-09 / charts5-10: a sample drawn as bars in one chart and a line in another is keyed with both marks, and the key follows the order of the chart last reordered', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'timekill_tobramycin_4xMIC.csv');
+  await modal(page).locator('#chart-points').check(); await apply(page);
+  await drop(page, INV); await apply(page);
+  const r = await page.evaluate(() => _figureKey().filter(q => q.kind === 'series').map(q => ({ n: q.name, bar: !!q.bar, line: q.line, m: q.marker })));
+  const pa = r.find(q => q.n === 'PA14');
+  expect(pa.bar && pa.line === 'solid' && pa.m === 'circle').toBe(true);
+  // drawn: a square, a line and a circle in the swatch
+  const sw = await page.evaluate(() => { const row = _figureKey().find(q => q.name === 'PA14'); const o = []; _keySwatch({ rect: () => o.push('rect'), line: () => o.push('line'), circle: () => o.push('circle'), gradient() {} }, row, 0, 10, { sw: 30, sh: 10, bg: '#ffffff' }); return o; });
+  expect(sw).toEqual(['rect', 'line', 'circle']);
+  expect(await KEYTXT(page)).toMatch(/PA14 \([^)]*filled bars[^)]*\)|PA14 \([^)]*bars/);
+  // reorder the invasion chart: dlasR + plasR above dmexB
+  await openChart(page, 1);
+  await moveGroup(page, 'dlasR + plasR', -1);
+  await apply(page);
+  const order = await page.evaluate(() => _figureKey().filter(q => q.kind === 'series').map(q => _rtText(String(q.name))));
+  expect(order).toEqual(['PA14', 'dlasR', 'dlasR + plasR', 'dmexB']);
+  expect(errors).toEqual([]);
+});
+
+test('charts5-11: ⇄ Replace from file… reads a new file into the chart; the caption names it and does not say "edited"', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'invasion_A549_EU.csv'); await apply(page);
+  await openChart(page);
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), modal(page).getByRole('button', { name: '⇄ Replace from file…' }).click()]);
+  await chooser.setFiles(path.join(FX, 'invasion_A549_EU_v2.csv'));
+  await expect(modal(page).locator('#chart-delim-info')).toContainText('invasion_A549_EU_v2.csv');
+  await apply(page);
+  const cap = await caption(page);
+  expect(cap).toContain('Data from invasion_A549_EU_v2.csv.');
+  expect(cap).not.toContain('edited in FigureLab');
+  expect(cap).toContain('dlasR + plasR');
+  const ph = await page.evaluate(() => JSON.stringify(_panelHistory(images.find(p => p && p.type === 'chart'))));
+  expect(ph).toContain('invasion_A549_EU_v2.csv'); expect(ph).not.toContain('by hand');
+  expect(errors).toEqual([]);
+});
+
+test('charts5-12: Save as paper_style.json writes the figure\'s font with the colours and names', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, INV); await apply(page);
+  await page.evaluate(() => applyPreset('asm'));
+  const j = await page.evaluate(async () => { const z = await _captureDownload(() => saveSampleColoursStyle()); return new TextDecoder().decode(z.data); });
+  const o = JSON.parse(j);
+  expect(o.settings.font_family).toBe('Arial');
+  expect(Object.keys(o.settings.sample_palette)).toContain('PA14');
+  expect(errors).toEqual([]);
+});
+
+test('charts5-17: renaming a sample names every chart it shows in, a plate chart whose row carries that name too', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { window.__toasts = []; const t = window.toast; window.toast = function (m) { window.__toasts.push(String(m)); return t.apply(this, arguments); }; });
+  await drop(page, 'tecan_OD600_hours.csv');
+  await modal(page).locator('#chart-wells-by').selectOption('row');
+  await modal(page).locator('#chart-names [data-key="Row D"] input[type=text]').fill('dmexB');
+  await apply(page);
+  await drop(page, INV); await apply(page);
+  // revision 1: dmexB shown as Δ*mexB*; revision 2: as Δ*mexAB*
+  await openChart(page, 1);
+  await modal(page).locator('#chart-names [data-key="dmexB"] input[type=text]').fill('Δ*mexB*');
+  await apply(page);
+  await openChart(page, 1);
+  await modal(page).locator('#chart-names [data-key="dmexB"] input[type=text]').fill('Δ*mexAB*');
+  await apply(page);
+  const t = await page.evaluate(() => window.__toasts.filter(m => /^Chart updated/.test(m)).slice(-1)[0]);
+  expect(t).toMatch(/also shows? in panel A\b/);
+  expect(errors).toEqual([]);
+});
+
+test('newcomer5-04 / charts3-06: under Nature the chart titles stay within 7 pt; a log axis can be labelled in plain numbers', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(ROWS);
+  await drop(page, 'swim_diameters_mm.csv'); await apply(page);
+  await page.evaluate(() => applyPreset('nature'));
+  await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el.chart.axes.y.title = 'Swim diameter (mm)'; el._chartKey = ''; render(); });
+  const row = await page.evaluate(() => { checkCompliance(); return __rows().find(r => r.label === 'Text size') || null; });
+  expect(row.text).not.toMatch(/Swim diameter \(mm\)” in chart “[A-Z]” 7\.[1-9] pt/);
+  expect(row.text.startsWith('✓')).toBe(true);
+  await page.evaluate(() => { const m = document.getElementById('info-modal-bg'); if (m) m.remove(); });
+  // plain numbers on a log axis
+  await drop(page, INV);
+  await modal(page).locator('#chart-ylog').check();
+  await modal(page).locator('#chart-ylog-plain').check();
+  await apply(page);
+  const labels = await page.evaluate(() => { const el = images.filter(p => p && p.type === 'chart').pop(); el._chartKey = ''; const T = []; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s, x, y, f, c, a) { if (a === 'right') T.push(String(s)); } }); return T; });
+  expect(labels).toContain('100 000');
+  expect(labels.some(l => /\^\{|×10/.test(l))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+// ── advisor checks: what the fixes carry through a save and a reload, and other layouts ──
+test('charts5-01/07/04/05: a series bracket, the plate export\'s skip note and plain log labels come back from a saved session', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'serum_killing_tidy.csv');
+  await sigSection(page).locator('xpath=..').getByRole('button', { name: '+ Add' }).click();
+  const row = sigSection(page).locator('> div').first();
+  await row.locator('select').nth(0).selectOption({ label: 'NHS · PA14' });
+  await row.locator('select').nth(1).selectOption({ label: 'NHS · dlasR' });
+  await row.locator('input[type=text]').fill('p = 0.01');
+  await modal(page).locator('#chart-ylog').check(); await modal(page).locator('#chart-ylog-plain').check();
+  await apply(page);
+  await drop(page, 'tecan_OD600_cols.csv'); await apply(page);
+  const saved = await page.evaluate(() => { const t = serializeSession(false); return typeof t === 'string' ? t : JSON.stringify(t); });
+  await page.evaluate(t => _loadSessionText(t, 'round-trip.json'), saved);
+  expect(await caption(page)).toContain('Brackets: p = 0.01 (NHS · PA14 vs NHS · dlasR)');
+  expect(await page.evaluate(() => images.filter(p => p && p.type === 'chart')[0].chart.style.logPlain)).toBe(true);
+  await openChart(page, 1);
+  await expect(modal(page).locator('#chart-delim-info')).toContainText('26 instrument lines above the table skipped');
+  await expect(modal(page).locator('#chart-ylog-plain')).not.toBeChecked();
+  expect(errors).toEqual([]);
+});
+
+test('charts5-01: a legacy session whose two bracketed groups are then shown under one name flags the bracket, never draws it on one group', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(t => _loadSessionText(t, 'v3-session.json'), read('legacy-brackets-session.json'));
+  await openChart(page);
+  await modal(page).locator('#chart-names [data-key="dlasR + plasR"] input[type=text]').fill('dlasR');
+  await expect(sigSection(page)).toContainText('⚠ Not drawn: both ends are now dlasR');
+  await apply(page);
+  expect(await caption(page)).toContain('[⚠ Bracket “p = 0.004” is not drawn: both ends are now dlasR');
+  expect(await caption(page)).toContain('Brackets: p = 0.002 (PA14 vs dlasR)');
+  expect(errors).toEqual([]);
+});
+
+test('charts5-02: the Tecan export saved tab-separated, its first line a bare title, opens as the plate too', async ({ page }) => {
+  const errors = await loadApp(page);
+  const tsv = read('tecan_OD600_cols.csv').split(/\r?\n/).map((l, i) => i === 0 ? 'Application: Tecan i-control' : l.split(',').join('\t')).join('\n');
+  await drop(page, 'tecan_tab.txt', tsv);
+  await expect(modal(page).locator('#chart-kind')).toHaveValue('line');
+  await expect(modal(page).locator('#chart-xcol option:checked')).toHaveText('Time (h)');
+  expect((await ticked(page)).length).toBe(12);
+  expect(errors).toEqual([]);
+});
+
+test('charts5-08: a colour photo whose channel was typed in ⚙ › Channel keeps its key row', async ({ page }) => {
+  const errors = await loadApp(page);
+  const png = fs.readFileSync(path.join(FX, 'A549_PA14-GFP_4hpi_63x_0007.png')).toString('base64');
+  await page.evaluate(async b64 => { const src = 'data:image/png;base64,' + b64;
+    await new Promise(r => { const im = new Image(); im.onload = () => { _commitImage(im, src, 'A549_PA14-GFP_4hpi_63x_0007.png'); r(); }; im.src = src; });
+    images[0].chan = 'PA14-GFP merge'; render(); }, png);
+  const rows = await page.evaluate(() => _figureKey().map(r => [r.kind, String(r.name)]));
+  expect(rows).toEqual([['channel', 'PA14-GFP merge']]);
   expect(errors).toEqual([]);
 });

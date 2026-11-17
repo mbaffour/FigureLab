@@ -1776,6 +1776,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div id="chart-delim-info" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
         <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
           <span id="chart-kind-hint" style="font-size:10px;color:var(--muted);flex:1;min-width:180px"></span>
+          <button class="btn" style="padding:1px 8px;font-size:10px" onclick="_chartReplaceFromFile()" title="Read a new data file (CSV, TSV) into this chart: with the same columns its settings, names and brackets stay, and the caption and source data name the new file">⇄ Replace from file…</button>
           <button class="btn" style="padding:1px 8px;font-size:10px" onclick="_chartLoadExample()" title="Replace the data with a small example laid out the way this chart type reads it">Load example</button>
         </div>
         <div class="sec-lbl" style="margin-top:6px">Preview</div>
@@ -1845,6 +1846,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:11px">
           <label id="chart-xlog-lbl"><input type="checkbox" id="chart-xlog"> log X</label>
           <label id="chart-ylog-lbl"><input type="checkbox" id="chart-ylog"> log Y</label>
+          <label id="chart-ylog-plain-lbl" title="Label the log axis 1, 10, 100 … 1 000 000 instead of 10ⁿ: no superscript, so every label prints at the chart's text size (a journal's smallest type size can leave none that lifts 10ⁿ's exponent)"><input type="checkbox" id="chart-ylog-plain"> plain numbers</label>
           <label><input type="checkbox" id="chart-legend"> legend</label>
           <label><input type="checkbox" id="chart-grid"> grid</label>
           <label><input type="checkbox" id="chart-points"> points</label>
@@ -6932,7 +6934,10 @@ function renderImgList(){
     item.querySelector('.f-bdrc').addEventListener('input',e=>{ images[idx].borderC=e.target.value; scheduleRender(); });
     item.querySelector('.f-bdri').addEventListener('input',e=>{ images[idx].borderInset=parseInt(e.target.value)||0; scheduleRender(); });
     item.querySelector('.f-colspan').addEventListener('input',e=>{ images[idx].colSpan=Math.max(1,parseInt(e.target.value)||1); _syncSpanNotes(); scheduleRender(); });
-    item.querySelector('.f-rowspan').addEventListener('input',e=>{ images[idx].rowSpan=Math.max(1,parseInt(e.target.value)||1); _syncSpanNotes(); scheduleRender(); });
+    item.querySelector('.f-rowspan').addEventListener('input',e=>{ images[idx].rowSpan=Math.max(1,parseInt(e.target.value)||1); _syncSpanNotes(); scheduleRender();
+      // A span past the grid's last row is cut to the rows there are: said, with the rows to add (charts5-06).
+      const im=images[idx], k=_gridSpanRows(im);
+      if(k) toastAction(`${_rtText(formatLabel(im.label))||'This panel'} is in the grid's last row${k>1?'s':''} — Row span ${im.rowSpan} needs ${k} more row${k>1?'s':''} (Arrange › Rows)`,'warn',`Add ${k} row${k>1?'s':''}`,()=>{ pushUndo(); sv('rows', gi('rows')+k); onLayoutChange(); scheduleRender(0); }); });
 
     // Crop editor button
     item.querySelector('[data-opencrop]').addEventListener('click',()=>openCropModal(idx));
@@ -11659,7 +11664,10 @@ function saveSampleColoursStyle(){
   // The shown-as names go with them (sample_names, read back by FigureLab; the other apps
   // ignore it), so dfliC is Δ*fliC* in the next figure too.
   const F=_sampleNames(), sn={}; Object.keys(F).forEach(k=>{ if(String(F[k]||'').trim()) sn[k]=String(F[k]); });
-  const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:Object.assign({sample_palette:m}, Object.keys(sn).length?{sample_names:sn}:{})};
+  // and the figure's font (font_family), which loading it applies — it held colours and names only (charts5-12)
+  const ff=String(_figFontFamily()||'').split(',')[0].replace(/['"]/g,'').trim();
+  const fOk=ff&&_FONT_NAME_RE.test(ff)&&!/^(system-ui|sans-serif|serif|-apple-system)$/i.test(ff), menu=['Arial','Helvetica','Times New Roman'].find(x=>x.toLowerCase()===ff.toLowerCase());
+  const o={app:'FigureLab', preset_version:1, created_at:new Date().toISOString(), settings:Object.assign({sample_palette:m}, Object.keys(sn).length?{sample_names:sn}:{}, fOk?(menu?{font_family:menu}:{font_family:'custom', font_family_custom:ff}):{})};
   dl(URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:'application/json'})), 'paper_style.json');
   const n=L.length, keys=Object.keys(m).length;
   toast(`paper_style.json saved with ${n} sample colour${n>1?'s':''} (${hand} set by hand, ${n-hand} from the palette${keys>n?`; under ${keys} data names, so each name a sample is written as gets its colour`:''}; sample_palette${Object.keys(sn).length?` and ${Object.keys(sn).length} shown-as name${Object.keys(sn).length>1?'s':''} (sample_names)`:' only'})`,'ok');
@@ -15803,6 +15811,7 @@ function _auditFix(action){
   else if(action==='cktextover'){ _ckTextOverFix(); }
   else if(action==='cktextedge'){ _ckTextEdgeFix(); }
   else if(action==='ckbalance'){ _ckBalanceMargins(); }
+  else if(action==='ckchartroom'){ _ckChartRoom(); }
   else if(action==='sboffuncal'){ scaleBarsOffUncalibrated(); }
   else if(action==='noscale'){
     // The pictures the row asked about need no scale: marked, one undo step, kept with the figure.
@@ -16490,7 +16499,9 @@ function _keyImageRows(im, add){
   // `merge`: the row comes from a merge, so a channel shown in grey on its own panel and in
   // its colour in the merge is one row, "TFEB-GFP (greyscale; green in merges)" (fluor2-07)
   if(hasLut) add({..._keyChannelRow(_keyChanName(im, im.lut), im.lut), merge});
-  else if(!chans.length){ const c=_chanLabel(im); if(c) add(_keyPhotoRow(im, c)); }
+  else if(!chans.length){ const c=_chanLabel(im); if(c){ const r=_keyPhotoRow(im, c);
+    // a colour photo is keyed only when its channel was typed (⚙ › Channel), not read from its file name
+    if(r) add(r); else if(String(im.chan||'').trim()) add({..._keyChannelRow(c,'grey'), words:'in colour', grey:false}); } }
   chans.forEach(ch=>{
     const l=ch.lut||'green';
     if(LUTS[l]) add({..._keyChannelRow(_keyChanName(ch, l), l), merge:true});
@@ -16503,6 +16514,7 @@ function _keyImageRows(im, add){
 function _keyPhotoRow(im, name){
   const row=_keyChannelRow(name, 'grey'), t=im.grayscale?null:_imgTint(im);
   if(!t) return row;
+  if(t.photo) return null;
   if(t.stops) return {...row, color:t.hex, stops:t.stops, words:'in colour', grey:false};
   return {...row, color:t.hex, marker:'square', fill:'filled', stops:null, words:_colourName(t.hex), grey:false};
 }
@@ -16531,6 +16543,14 @@ function _imgTint(o){
       if(R>0.85) v={hex};
       else { const S=col.slice().sort((a,b)=>(a.r+a.g+a.b)-(b.r+b.g+b.b)); v={hex, stops:[0,0.25,0.5,0.75,1].map(f=>{ const p=S[Math.min(S.length-1,Math.floor(f*(S.length-1)))]; return _rgbHex([p.r,p.g,p.b]); })}; }
     }
+    // Sampled pixel by pixel too (averaging 48 × 48 blurred thin green bacteria into the dark):
+    // a picture whose coloured pixels are a fair share of what is bright but well under all of
+    // it — green bacteria over grey cells — is a colour photo, not one channel, and has no key
+    // row; its file name ("PA14-GFP") made it a "(greyscale)" channel (charts5-08).
+    { const c2=document.createElement('canvas'); c2.width=128; c2.height=128; const g2=c2.getContext('2d'); g2.imageSmoothingEnabled=false;
+      g2.drawImage(src,0,0,128,128); const d2=g2.getImageData(0,0,128,128).data; let nB=0, nC=0;
+      for(let i=0;i<d2.length;i+=4){ const r=d2[i],gg=d2[i+1],b=d2[i+2], mx=Math.max(r,gg,b), mn=Math.min(r,gg,b); if(mx<24) continue; nB++; if(mx-mn>=24&&mx-mn>=mx*0.25) nC++; }
+      if(nB&&nC>=Math.max(8,nB*0.05)&&nC<nB*0.9) v={photo:true}; }
   }catch(e){ v=null; }
   o._tint={key, v};
   return v;
@@ -16641,6 +16661,11 @@ function _figureKey(){
     if(r.kind==='channel'){ if(!String(o.name).split(' / ').includes(String(r.name))) o.name=o.name+' / '+r.name; o.merge=!!(o.merge&&r.merge); return; }
     if(r.kind==='series'&&String(o.name)===_rtPlain(String(o.name))&&String(r.name)!==_rtPlain(String(r.name))) o.name=r.name;   // the formatted spelling
     if(r.desc&&!(o.descs||[]).includes(r.desc)){ o.descs=(o.descs||[]).concat(r.desc); o.desc=_listAnd(o.descs); }
+    // bars in one chart and a line in another: the key shows the bar's square beside the line
+    // (with its circles) — it showed a line with a circle only (charts5-09)
+    const isBar=q=>q.marker==='square'&&!q.line&&/bars/.test(q.desc||'');
+    if(isBar(r)&&o.line&&o.marker!=='square'){ o.bar={fill:r.fill, stroke:r.stroke, strokeW:r.strokeW}; return; }
+    if(isBar(o)&&r.line&&!o.line&&r.marker==='circle'){ o.bar={fill:o.fill, stroke:o.stroke, strokeW:o.strokeW}; o.line=r.line; o.lineW=r.lineW; o.marker='circle'; o.fill=r.fill; o.stroke=r.stroke; o.strokeW=r.strokeW; o.markerR=r.markerR; return; }
     if(r.line&&!o.line){ o.line=r.line; o.lineW=r.lineW; }
     if((!o.marker||o.marker==='none')&&r.marker&&r.marker!=='none'){ o.marker=r.marker; o.fill=r.fill; o.stroke=r.stroke; o.strokeW=r.strokeW; o.markerR=r.markerR; }
   };
@@ -16655,6 +16680,15 @@ function _figureKey(){
     if(im.type==='chart'){ if(im.chart) _keyChartRows(im, add); }
     else if(im.type==='genemap'){ if(im.map) _keyGenemapRows(im, add); }
     else _keyImageRows(im, add); });
+  // Samples in the order the chart reordered last draws them (↑↓ in Names & colours); the
+  // key kept the order the samples were first seen in (charts5-10).
+  { const oc=_allCharts().filter(el=>el&&el.chart&&Array.isArray(el.chart.order)&&el.chart.order.length&&(layoutMode==='freeform'?freeformElements.includes(el):_figurePanels().includes(el)))
+      .sort((a,b)=>(+b.chart.orderAt||0)-(+a.chart.orderAt||0))[0];
+    let st=null; if(oc){ try{ st=_chartStatsCached(oc); }catch(e){ st=null; } }
+    const L=st?(st.catColours||(st.boxes&&!(st.nSeries>1)?st.boxes:null)||[]).map(x=>_sampleNorm(String(x.name))):[];
+    if(L.length>1){ const at=rows.map((r,i)=>r.kind==='series'?i:-1).filter(i=>i>=0), rank=r=>{ const k=L.indexOf(_sampleNorm(String(r.name))); return k<0?1e6:k; };
+      const S=at.map((i,j)=>({r:rows[i],j})).sort((a,b)=>(rank(a.r)-rank(b.r))||(a.j-b.j)).map(q=>q.r);
+      at.forEach((ri,k)=>{ rows[ri]=S[k]; }); } }
   // One channel, one row: a channel shown in grey on its own panel and in a colour (in a
   // merge, or another panel) was listed twice, "EGFP-LC3 (greyscale)" and "EGFP-LC3
   // (green)" (fluor2-07). The grey row joins the coloured one, which says both.
@@ -16745,6 +16779,11 @@ function _keySwatch(emit, r, sx, cy, L){
   // A sample drawn as bars in one chart and as a line in another: the bar's square and the
   // line side by side, each as a panel draws it — a line through a square is a mark no
   // panel draws (charts2-11).
+  if(r.bar&&r.line){ const q=Math.min(s, sw*0.4), b=r.bar, lx=sx+q+Math.max(2,sw*0.08);
+    emit.rect(sx, cy-q/2, q, q, b.fill==='open'?null:r.color, b.stroke||null, b.strokeW||0);
+    emit.line(lx, cy, sx+sw, cy, r.color, r.lineW||2, r.line==='dashed'?[6,4]:null);
+    if(r.marker==='circle') emit.circle((lx+sx+sw)/2, cy, r.markerR>0?Math.min(r.markerR, s*0.5):s*0.36, r.fill==='open'?null:r.color, r.stroke||null, r.strokeW||0);
+    return; }
   if(r.line&&r.marker==='square'){ const q=Math.min(s, sw*0.45);
     emit.rect(sx, cy-q/2, q, q, r.fill==='open'?null:r.color, r.stroke||null, r.strokeW||0);
     emit.line(sx+q+Math.max(2,sw*0.08), cy, sx+sw, cy, r.color, r.lineW||2, r.line==='dashed'?[6,4]:null); return; }
@@ -18661,6 +18700,7 @@ function showPanelMenu(idx, cx, cy){
       _withWaiting(()=>images.splice(idx+1,0,clone)); renderImgList(); renderMiniGrid(); scheduleRender();
     });
     if(_isDataPanel(im)) row(im.type==='chart'?'📊  Edit chart…':'🧬  Edit gene map…', ()=>{ const idx=here(); if(idx<0) return; openDataPanelEditor(idx); });
+    if(im.type==='chart') row('⇄  Replace data from file…', ()=>{ const idx=here(); if(idx<0) return; openDataPanelEditor(idx); _chartReplaceFromFile(); });
     else {
       row('⇄  Replace image…', ()=>{ const idx=here(); if(idx<0) return; openReplaceImage(idx); });
       if(im.insetOf!=null) row('⧉  Edit inset region…', ()=>{ const idx=here(); if(idx<0) return; pickInsetRegion(idx); });
@@ -20176,8 +20216,8 @@ function _ckScriptLow(k, min, maxPt){
     else if(need>cur&&maxPt!=null&&need*fMax>maxPt+0.05) titleStuck=true;
   }
   return {pt, raiseTo, note:`Superscripts and subscripts print at ${Math.round(_RT_SCRIPT*100)}% of their text: the smallest, ${esc(t.where)}, is ${_ckF1(pt)} pt, below ${_ckF1(min)} pt — `
-    +(titleStuck?`the text size that lifts them to ${_ckF1(min)} pt prints the chart titles (a tenth larger) above ${_ckF1(maxPt)} pt, so no text size clears both: write the exponent out at full size in the data, or keep them and say so to the journal — this row warns, it does not fail`
-      :stuck?`no text size inside the range lifts them (${_ckF1(maxPt)} pt text gives ${_ckF1(maxPt*_RT_SCRIPT)} pt), so write ${t.of==='chart'?'the axis in plain numbers':'the exponent out'} at full size, or keep them and say so to the journal`
+    +(titleStuck?`the text size that lifts them to ${_ckF1(min)} pt prints the chart titles (a tenth larger) above ${_ckF1(maxPt)} pt, so no text size clears both: ${t.of==='chart'?'label the axis in plain numbers (Chart dialog › “plain numbers” beside log Y), ':''}write the exponent out at full size in the data, or keep them and say so to the journal — this row warns, it does not fail`
+      :stuck?`no text size inside the range lifts them (${_ckF1(maxPt)} pt text gives ${_ckF1(maxPt*_RT_SCRIPT)} pt), so write ${t.of==='chart'?'the axis in plain numbers (Chart dialog › “plain numbers” beside log Y)':'the exponent out'} at full size, or keep them and say so to the journal`
       :raiseTo?`text at ${_ckF1(raiseTo)} pt (Look › Typography › Text size) brings them to ${_ckF1(min)} pt — “Text to ${_ckF1(raiseTo)} pt” sets it; all chart text grows with it, so check the charts still fit their cells — or write the exponent out at full size`
       :`a ${t.of==='lanetable'?'larger lane-table size':t.of==='chart'||t.of==='genemap'?'larger text size (Look › Typography › Text size)':'larger size for that text'} raises them, or write the exponent out at full size`)};
 }
@@ -20909,7 +20949,7 @@ _GENERAL_ROWS.push('Chart room');
 // pass every row (charts4-05, phage4-03). Only figures with such a chart get the row.
 function _chartFitRow(){
   const nm=el=>esc(_isDataPanel(el)?(_rtText(formatLabel(el.label))||'?'):(el.letter?_rtText(formatLabel(el.letter)):`“${el.label||'chart'}”`));
-  const k=_physFacts().ptPerPx||0.75, bad=[];
+  const k=_physFacts().ptPerPx||0.75, bad=[], grid=[];
   _figureCharts().forEach(el=>{
     if(!el.chart||!(el.w>0&&el.h>0)) return;
     try{ _chartDraw(el, {rect(){}, line(){}, poly(){}, circle(){}, text(){}}); }catch(e){ return; }
@@ -20917,12 +20957,58 @@ function _chartFitRow(){
     const bits=[];
     if(f.plotH<Math.max(3*f.T, 0.25*f.H)) bits.push(`its plot is ${(f.plotH*k/72*25.4).toFixed(1)} mm tall (${Math.round(100*f.plotH/f.H)}% of the panel)${(el.chart.annos||[]).some(a=>a&&a.kind==='sig')?' under its brackets':''} — give it more height (a taller row, Row span 2) or fewer stacked brackets`);
     if(f.cut.length) bits.push(`legend name${f.cut.length>1?'s':''} ${f.cut.map(t=>`“${esc(t)}”`).join(', ')} cut at the panel edge — a shorter name, a wider panel, or the legend key instead`);
-    if(bits.length) bad.push(`${nm(el)}: ${bits.join('; ')}`);
+    // Words that run together: tick labels, x numbers and group names, as drawn (the chart
+    // already labels every other tick when it can) — newcomer5-01, freeform5-02.
+    const run=_chartFitOverlaps(f);
+    if(run.length) bits.push(run.map(o=>`${o.what} run together (${o.ex.map(t=>`“${esc(t)}”`).join(', ')})`).join('; ')+' — give it more room or fewer, shorter names');
+    if(f.titleCut) bits.push('its Y title is longer than the panel is tall and is cut — a shorter Y title or a taller panel');
+    if(bits.length){ bad.push(`${nm(el)}: ${bits.join('; ')}`);
+      // what more room means for it: a taller cell, a wider one, or both
+      if(_isDataPanel(el)&&layoutMode!=='freeform') grid.push({el, wide:run.some(o=>o.what!=='tick labels'), tall:f.plotH<Math.max(3*f.T, 0.25*f.H)||run.some(o=>o.what==='tick labels')||f.titleCut||f.cut.length>0}); }
   });
   if(!bad.length) return null;
-  return {label:'Chart room', ok:false, warn:true, note:bad.join(' · ')};
+  // The button does what the advice says: a taller cell, with the row the span needs added
+  // (Row span 2 in the grid's last row did nothing, charts5-06, newcomer5-01).
+  const g0=grid[0];
+  return {label:'Chart room', ok:false, warn:true, note:bad.join(' · '),
+    fix:g0?{a:'ckchartroom', t:`Give ${_rtText(formatLabel(g0.el.label))||'it'} ${g0.wide&&!g0.tall?'a wider':g0.wide?'a bigger':'a taller'} cell`}:undefined, _room:grid};
 }
 _GENERAL_ROWS.push('Brackets');
+// Labels of one kind that overlap as drawn: [{what, ex:[two of them]}].
+function _chartFitOverlaps(f){
+  const out=[], W={y:'tick labels', x:'x numbers', cat:'group names'};
+  ['y','x','cat'].forEach(kd=>{ const L=(f.labels||[]).filter(q=>q.kind===kd); let hit=null;
+    for(let i=1;i<L.length&&!hit;i++){ const a=L[i-1], b=L[i];
+      if(a.rot){ if(a.room<f.T*0.95) hit=[a.s,b.s]; }
+      else if(a.l<b.r-0.5&&b.l<a.r-0.5&&a.t<b.b-0.5&&b.t<a.b-0.5) hit=[a.s,b.s]; }
+    if(hit) out.push({what:W[kd], ex:hit}); });
+  return out;
+}
+// Chart room's button: the first chart it names gets one more row of span, and the grid the
+// row that span needs — a span in the last row used to be cut to one row with no word.
+function _ckChartRoom(){
+  const r=_chartFitRow(); if(!r||!r._room||!r._room.length) return;
+  const {el, wide, tall}=r._room[0], cols=Math.max(1,gi('cols'));
+  pushUndo();
+  // a wider cell where the words run together across, a taller one where the plot is short
+  let widened=false; if(wide&&Math.max(1,el.colSpan||1)<cols){ const was=Math.max(1,el.colSpan||1); el.colSpan=was+1;
+    // in the grid's last column the span is cut to the columns there are: no wider, so taller instead
+    const pl=_gridPlacements().find(q=>q.im===el); if(pl&&pl.cs>was) widened=true; else el.colSpan=was; }
+  if(tall||!widened) el.rowSpan=Math.max(1,el.rowSpan||1)+1;
+  let added=_gridSpanRows(el);
+  if(added) sv('rows', gi('rows')+added);
+  // and every panel still has a cell
+  for(let k=0;k<3&&_gridPlacements().unplaced>0;k++){ sv('rows', gi('rows')+1); added++; }
+  onLayoutChange(); renderImgList(); scheduleRender(0);
+  logAction('chartRoom',{label:el.label, colSpan:el.colSpan, rowSpan:el.rowSpan, rowsAdded:added});
+  toast(`${_rtText(formatLabel(el.label))||'The chart'} now spans ${Math.max(1,el.colSpan||1)} × ${Math.max(1,el.rowSpan||1)} cells${added?` — ${added} row${added>1?'s':''} added to the grid for it`:''} (Ctrl/⌘+Z undoes it)`,'ok');
+}
+// The rows a grid panel's Row span still lacks (it is cut at the grid's last row), or 0.
+function _gridSpanRows(im){
+  if(!im||layoutMode==='freeform') return 0;
+  const want=Math.max(1,im.rowSpan||1), p=_gridPlacements().find(q=>q.im===im);
+  return p?Math.max(0, want-p.rs):0;
+}
 // Compliance: a significance bracket that cannot be drawn — its group removed from the data,
 // or pooled with the other end under one name. It is not drawn and is a failed row: the
 // author typed that p value for those two groups (charts5-01).
@@ -29354,8 +29440,13 @@ function _parseDelimited(text){
     }
   }
   // Detect the delimiter from the first non-empty line, counting only outside quotes.
-  const firstLine=(()=>{ let inq=false,out=''; for(let i=0;i<s.length;i++){ const c=s[i]; if(c==='"') inq=!inq; if((c==='\n'||c==='\r')&&!inq) break; out+=c; } return out; })();
-  const count=ch=>{ let n=0,inq=false; for(const c of firstLine){ if(c==='"') inq=!inq; else if(c===ch&&!inq) n++; } return n; };
+  // (the first line that has one: an instrument export can open on a bare title line —
+  // "Application: Tecan i-control" — and its tab-separated table was read as one column)
+  const lineAt=st=>{ let inq=false,out=''; for(let i=st;i<s.length;i++){ const c=s[i]; if(c==='"') inq=!inq; if((c==='\n'||c==='\r')&&!inq) break; out+=c; } return out; };
+  const count0=(L,ch)=>{ let n=0,inq=false; for(const c of L){ if(c==='"') inq=!inq; else if(c===ch&&!inq) n++; } return n; };
+  let firstLine=lineAt(0);
+  if(![',','\t',';'].some(ch=>count0(firstLine,ch))){ let at=0; for(let k=0;k<60;k++){ const nl=s.indexOf('\n',at); if(nl<0) break; at=nl+1; const L=lineAt(at); if([',','\t',';'].some(ch=>count0(L,ch))){ firstLine=L; break; } } }
+  const count=ch=>count0(firstLine,ch);
   const cands=[[',',count(',')],['\t',count('\t')],[';',count(';')]].sort((a,b)=>b[1]-a[1]);
   const delim=cands[0][1]>0?cands[0][0]:',';
   // Full RFC4180 field walk.
@@ -30240,7 +30331,7 @@ function _chartAxisSpec(dom, a, opts){
     // Less than two decades on the axis: 2× and 5× are labelled too, so it can be read.
     if(ticks.length<2){ minor.filter(v=>{ const k=Math.round(v/p10(Math.floor(Math.log10(v)+1e-9))); return k===2||k===5; }).forEach(v=>ticks.push(v)); ticks.sort((x,y)=>x-y); }
     if(!ticks.length) ticks=[L,Hh];
-    return {log:true, min:L, max:Hh, ticks, minor:minor.filter(v=>!ticks.includes(v)), labels:_fmtLogTicks(ticks), user:umin!=null||umax!=null};
+    return {log:true, min:L, max:Hh, ticks, minor:minor.filter(v=>!ticks.includes(v)), labels:opts.plain?ticks.map(_fmtPlainNum):_fmtLogTicks(ticks), user:umin!=null||umax!=null};
   }
   const tg=opts.target||5;
   if(umin!=null||umax!=null){
@@ -30285,6 +30376,10 @@ function _fmtTicks(ticks){
   }
   return ticks.map(t=>String(t));
 }
+// A log axis written in plain numbers (the Chart dialog's "plain numbers"): 1 000 000, 0.001 —
+// at full size, where a journal's minimum type size leaves no size for 10ⁿ's superscript
+// (charts3-06). Thousands are set apart by a narrow space.
+function _fmtPlainNum(v){ if(!(v>=1e4)) return String(+(+v).toPrecision(6)); return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g,'\u202f'); }
 // Log-axis labels: plain numbers from 0.001 to 10 000, else 10ⁿ (2×10ⁿ for a labelled minor tick).
 function _fmtLogTicks(ticks){
   const ex=v=>Math.floor(Math.log10(v)+1e-9);
@@ -30326,14 +30421,17 @@ function _chartDraw(el, emit){
   // small still fits beside its axis instead of running off the chart.
   const T=_objTextPx(st), fam=_objFontFamily(st);
   const font=(sz,wt)=>`${wt?wt+' ':''}${+(+sz).toFixed(2)}px ${fam}`;
-  const fs=T*1.1, u=fs/12, ink='#222222', grid='#e2e2e2';
+  // Titles a tenth larger than the ticks, but never past the target journal's largest type
+  // size: Nature's 7 pt text gave 7.7 pt axis titles, a failed Text size row (newcomer5-04).
+  const _Jt=(typeof JOURNALS!=='undefined'&&JOURNALS[gv('target-journal')])||null, _tMax=_Jt&&_Jt.ptMax>0?_Jt.ptMax/(_ty.k||0.75):Infinity;
+  const fs=Math.max(T, Math.min(T*1.1, _tMax)), u=T*1.1/12, ink='#222222', grid='#e2e2e2';
   if(stat.kind==='heatmap'){ _chartDrawHeatmap(el, emit, stat, font, fs, ink, T); return; }
   if(stat.kind==='survival'){ _chartDrawSurvival(el, emit, stat, font, fs, ink, T); return; }
   const axes=ch.axes||{}, axX=axes.x||{}, axY=axes.y||{};
   const clipOn=(x,y,w,h)=>{ if(emit.clipStart) emit.clipStart(x,y,w,h); }, clipOff=()=>{ if(emit.clipEnd) emit.clipEnd(); };
   // ── Axes first: their limits decide what is drawn and what notes the chart carries ──
   const yLog=!!axY.log && !_chartLogWhy(stat.kind,'y');
-  let yA=_chartAxisSpec(stat.yDomain||[0,1], axY, {log:yLog});
+  let yA=_chartAxisSpec(stat.yDomain||[0,1], axY, {log:yLog, plain:!!st.logPlain});
   let ymin=yA.min, ymax=yA.max;
   let xA=null, xDataTicks=null;
   if(stat.series){
@@ -30411,8 +30509,17 @@ function _chartDraw(el, emit){
   // count-based margin and was cut at the panel edge (phage4-03).
   const _legTw=t=>{ const f=font(T), mc=_rtMc(); mc.font=f; const R=_rtDrawRuns(String(t)); return R?_rtLayout(mc,R,f).w:mc.measureText(String(t)).width; };
   let _legW=0; if(_legItems&&_legItems.length>1){ let mx=0; for(const it of _legItems) mx=Math.max(mx,_legTw(it.name)); _legW=Math.min(W*0.42, 26*u+mx+2*u); }
+  // A legend that would take more than 30 % of a narrow chart's width goes under the plot, in
+  // rows: beside it, it left the plot half the width and the x numbers ran together
+  // ("01020304050", freeform5-02).
+  const _legBelow=_legW>0&&_legW+8*u>W*0.3&&(W-Math.max(48*u, 4*T)-_legW-8*u)<9*T;   // the plot beside it would be under nine characters wide
+  let _legRows=[];
+  if(_legBelow){ let row=[], x=0; const room=W-4*u;
+    _legItems.forEach(it=>{ const w=26*u+_legTw(it.name)+10*u; if(row.length&&x+w>room){ _legRows.push(row); row=[]; x=0; } row.push(it); x+=w; });
+    if(row.length) _legRows.push(row); }
+  const legBH=_legBelow?_legRows.length*16*u+2*u:0;
   let _yLabW=0; for(const l of yA.labels) _yLabW=Math.max(_yLabW,_rtText(l).length);
-  const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0?_legW+8*u:16*u);
+  const padL=Math.max(48*u, _yLabW*T*0.56+(10+(axY.title?18:4))*u), padR=(_legW>0&&!_legBelow?_legW+8*u:16*u);
   // A bracket label wider than the plot is set on two lines (it ran over the y-axis labels).
   const _sigLines=an=>{ const t=String(an.text||'*'), pwE=W-padL-padR; if(_rtText(t).length*fs*0.55<=pwE*0.98) return [t];
     const sp=[...t.matchAll(/ /g)].map(m=>m.index); if(!sp.length) return [t];
@@ -30429,7 +30536,7 @@ function _chartDraw(el, emit){
   }
   // Room for rotated labels grows with the longest label, capped so it can't eat the plot.
   const _rotExtent = rotateXLabels ? Math.min(H*0.38, _maxLabelChars*T*0.55*0.7+10*u) : 0;
-  const padB = (rotateXLabels ? (axX.title?24:14)*u+_rotExtent : (axX.title?40:28)*u) + noteH;
+  const padB = (rotateXLabels ? (axX.title?24:14)*u+_rotExtent : (axX.title?40:28)*u) + noteH + legBH;
   // The panel letter (top left in the grid, as freeform draws it) keeps its corner: the
   // plot starts below it when the top tick label or the Y title would run under it — the
   // letter covered "1." of 1.2×10⁸ and the end of "(mm)" (charts3-07, newcomer3-13).
@@ -30452,13 +30559,19 @@ function _chartDraw(el, emit){
   let yTitleLines=axY.title?[String(axY.title)]:[], yTitleFs=fs;
   if(axY.title){ while(yTitleFs>T&&tw_(axY.title,font(yTitleFs))>ph) yTitleFs=Math.max(T,yTitleFs-0.25);
     if(tw_(axY.title,font(yTitleFs))>ph){ const t=String(axY.title), sp=[...t.matchAll(/ /g)].map(m=>m.index);
-      if(sp.length){ const k=sp.reduce((b,i)=>Math.abs(i-t.length/2)<Math.abs(b-t.length/2)?i:b, sp[0]); yTitleLines=[t.slice(0,k), t.slice(k+1)]; } } }
-  const padL2=padL+(yTitleLines.length>1?yTitleFs*1.1:0);
+      if(sp.length){ const k=sp.reduce((b,i)=>Math.abs(i-t.length/2)<Math.abs(b-t.length/2)?i:b, sp[0]); yTitleLines=[t.slice(0,k), t.slice(k+1)]; }
+      // still longer than the panel is tall: three lines, so its start is not cut off at the
+      // panel's bottom ("…ERK1/2 / total ERK1/2", blot5-10)
+      if(yTitleLines.length===2&&Math.max(...yTitleLines.map(l=>tw_(l,font(yTitleFs))))>H*0.8){ const w=t.split(' ');
+        if(w.length>=3){ const L3=['','',''], tot=tw_(t,font(yTitleFs)); let k=0; w.forEach(x=>{ const cand=L3[k]?L3[k]+' '+x:x; if(k<2&&L3[k]&&tw_(cand,font(yTitleFs))>tot/3+yTitleFs) k++; L3[k]=L3[k]?L3[k]+' '+x:x; });
+          if(L3[2]) yTitleLines=L3; } } } }
+  const padL2=padL+(yTitleLines.length>1?(yTitleLines.length-1)*yTitleFs*1.1:0);
   const px0=padL2, py0=padT, pw=Math.max(10,W-padL2-padR);
   const px1=px0+pw, py1=py0+ph;
   // What fits, for Check › compliance (_chartFitRow): the plot's height and the legend
   // names cut at the panel's edge.
-  const fit={W, H, plotH:ph, T, cut:[]}; try{ Object.defineProperty(el,'_chartFit',{value:fit, writable:true, configurable:true, enumerable:false}); }catch(e){}
+  // labels: the boxes of tick labels and category names as drawn, for words that run together.
+  const fit={W, H, plotH:ph, T, cut:[], labels:[], titleCut:false}; try{ Object.defineProperty(el,'_chartFit',{value:fit, writable:true, configurable:true, enumerable:false}); }catch(e){}
   // The Y title is centred on the plot, but never runs up under the panel letter: a two-line
   // title longer than the plot started above it, and its first words sat under "B" (blot4-07).
   let yTitleCy=py0+ph/2;
@@ -30467,6 +30580,7 @@ function _chartDraw(el, emit){
     const top=(LB&&LB.top&&LB.x1>xL&&LB.x0<xR)?LB.y1+2*u:2*u, bot=H-padB+Math.min(padB*0.5, 14*u);
     const len=Math.max(...yTitleLines.map(l=>tw_(l,font(yTitleFs))));
     yTitleCy=len<=bot-top?Math.max(top+len/2, Math.min(yTitleCy, bot-len/2)):top+len/2;
+    if(top+len>H+0.5) fit.titleCut=true;
   }
 
   // Background + frame.
@@ -30478,16 +30592,22 @@ function _chartDraw(el, emit){
   }
   const yScale0=_chartScaleFn(yA, py1, py0), yScale=yLog?(v=>v>0?yScale0(v):py1):yScale0;   // ≤ 0 on a log axis: its floor
   // Y grid + ticks (minor ticks on a log axis, unlabelled).
+  // Labels a line apart at least: on a short plot every other one (or fewer) is labelled,
+  // the ticks all kept — 10⁴ 10⁵ 10⁶ were printed on top of each other (charts5-06).
+  const yEvery=(()=>{ const n=yA.ticks.length; if(n<3) return 1; const room=Math.abs(yScale(yA.ticks[0])-yScale(yA.ticks[n-1]))/(n-1); let k=1; while(k<n-1&&room*k<T*1.15) k++; return k; })();
   yA.ticks.forEach((t,i)=>{
     const y=yScale(t);
     if(st.showGrid) emit.line(px0,y,px1,y,grid,1);
     emit.line(px0-3,y,px0,y,ink,axW);
+    if(i%yEvery&&i!==yA.ticks.length-1) return;
+    if(yEvery>1&&i===yA.ticks.length-1&&i%yEvery) return;
     emit.text(yA.labels[i],px0-6*u,y,font(T),ink,'right','middle');
+    fit.labels.push({kind:'y', s:_rtText(yA.labels[i]), t:y-T*0.5, b:y+T*0.5, l:px0-6*u-tw_(yA.labels[i],font(T)), r:px0-6*u});
   });
   yA.minor.forEach(t=>{ const y=yScale(t); emit.line(px0-2,y,px0,y,ink,Math.max(0.5,axW*0.7)); });
   // Axis titles.
   yTitleLines.forEach((ln,k)=>emit.text(ln, 12*u+k*yTitleFs*1.1, yTitleCy, font(yTitleFs), ink, 'center', 'alphabetic', -90));
-  if(axX.title) emit.text(axX.title, px0+pw/2, H-6*u-noteH, font(fs), ink, 'center', 'alphabetic');
+  if(axX.title) emit.text(axX.title, px0+pw/2, H-6*u-noteH-legBH, font(fs), ink, 'center', 'alphabetic');
 
   // User reference / threshold lines — a DRAWN value the author supplies (LOD,
   // baseline, cutoff), never a computed statistic.
@@ -30510,6 +30630,10 @@ function _chartDraw(el, emit){
     // Rotate crowded labels ~40° (right-anchored at the tick) so they never overlap.
     if(rotateXLabels) cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+9*u, font(T), ink, 'right', 'middle', -40));
     else cats.forEach((c,ci)=>emit.text(String(c), xCenter(ci), py1+14*u, font(T), ink, 'center', 'alphabetic'));
+    // turned 40°, neighbours run together when the band is narrower than a line of text across them
+    cats.forEach((c,ci)=>{ const w=tw_(c,font(T)), x=xCenter(ci);
+      fit.labels.push(rotateXLabels?{kind:'cat', s:_rtText(String(c)), rot:true, l:x-band*0.32, r:x+band*0.32, t:0, b:0, room:band*Math.sin(40*Math.PI/180)}
+        :{kind:'cat', s:_rtText(String(c)), l:x-w/2, r:x+w/2, t:py1+14*u-T, b:py1+14*u}); });
     // The top of what each category draws, for its significance bracket.
     const top=new Array(nC).fill(py1), tops=[];
     // x: where across the plot it is drawn (a bar's, a box's centre), for a bracket that joins one bar
@@ -30645,10 +30769,16 @@ function _chartDraw(el, emit){
     const XA={log:xLog, min:xmin2, max:xmax2};
     const xScale=_chartScaleFn(XA, px0, px1);
     const inX=v=>v>=xmin2-1e-12*Math.abs(xmax2-xmin2)&&v<=xmax2+1e-12*Math.abs(xmax2-xmin2);
-    xt.forEach((t,i)=>{ if(!inX(t)) return; const x=xScale(t);
+    // The x numbers a word space apart at least: on a narrow chart every other one (or
+    // fewer) is labelled, measured as drawn — "01020304050" ran together (freeform5-02).
+    const xIn=xt.map((t,i)=>i).filter(i=>inX(xt[i])), xw=i=>tw_(xl[i],font(T));
+    let xEvery=1; while(xEvery<xIn.length-1&&xIn.some((i,k)=>k>=xEvery&&k%xEvery===0&&(()=>{ const j=xIn[k-xEvery]; return Math.abs(xScale(xt[i])-xScale(xt[j]))<(xw(i)+xw(j))/2+4*u; })())) xEvery++;
+    xIn.forEach((i,k)=>{ const t=xt[i], x=xScale(t);
       if(st.showGrid) emit.line(x,py0,x,py1,grid,1);
       emit.line(x,py1,x,py1+3,ink,1);
-      emit.text(xl[i],x,py1+14*u,font(T),ink,'center','alphabetic'); });
+      if(k%xEvery) return;
+      emit.text(xl[i],x,py1+14*u,font(T),ink,'center','alphabetic');
+      fit.labels.push({kind:'x', s:_rtText(xl[i]), l:x-xw(i)/2, r:x+xw(i)/2, t:py1+14*u-T, b:py1+14*u}); });
     if(xLog) xA.minor.forEach(t=>{ const x=xScale(t); emit.line(x,py1,x,py1+2,ink,1); });
     // Vertical reference lines (author-supplied x threshold).
     (ch.refs||[]).forEach(rf=>{ if(rf.axis!=='x') return; if(!(rf.value>=xmin2 && rf.value<=xmax2)) return;
@@ -30698,19 +30828,32 @@ function _chartDraw(el, emit){
   // Legend: each series drawn the way it is plotted (a line with its marker, a dot, a bar).
   if(st.showLegend){
     const items=stat.seriesNames||(stat.series?stat.series.map(s=>({name:s.name,color:s.color})):(stat.boxes?stat.boxes.map(b=>({name:b.name,color:b.color})):[]));
-    if(items && items.length>1){
+    // one entry: its mark from gx (the mark's left edge less 8u) and its name, baseline at ly+9u
+    const glyph=(it,gx,ly)=>{
+      if(stat.kind==='line'){ emit.line(gx+8*u,ly+5*u,gx+22*u,ly+5*u,it.color,st.lineWidth||2); if(st.showPoints) emit.circle(gx+15*u,ly+5*u,Math.min(4,st.pointSize||3),it.color,null,0); }
+      else if(stat.kind==='scatter') emit.circle(gx+15*u,ly+5*u,Math.min(4.5,st.pointSize||4),it.color,'#ffffff',0.5);
+      else if(stat.kind==='beeswarm') emit.circle(gx+15*u,ly+5*u,4,it.color,'#333333',0.5);
+      else emit.rect(gx+10*u,ly,10*u,10*u,it.color,ink,0.5); };
+    if(items && items.length>1&&_legBelow){
+      // under the plot, in rows, below the x title
+      let ly=H-noteH-legBH+2*u;
+      _legRows.forEach(row=>{ let gx=2*u-8*u;
+        row.forEach(it=>{ glyph(it,gx,ly); const nm=String(it.name);
+          emit.text(nm,gx+26*u,ly+9*u,font(T),ink,'left','alphabetic');
+          if(gx+26*u+_legTw(nm)>W+0.5) fit.cut.push(_rtText(nm));
+          gx+=26*u+_legTw(nm)+10*u; });
+        ly+=16*u; });
+    } else if(items && items.length>1){
       let ly=py0+4*u;
       items.forEach(it=>{
-        if(stat.kind==='line'){ emit.line(px1+8*u,ly+5*u,px1+22*u,ly+5*u,it.color,st.lineWidth||2); if(st.showPoints) emit.circle(px1+15*u,ly+5*u,Math.min(4,st.pointSize||3),it.color,null,0); }
-        else if(stat.kind==='scatter') emit.circle(px1+15*u,ly+5*u,Math.min(4.5,st.pointSize||4),it.color,'#ffffff',0.5);
-        else if(stat.kind==='beeswarm') emit.circle(px1+15*u,ly+5*u,4,it.color,'#333333',0.5);
-        else emit.rect(px1+10*u,ly,10*u,10*u,it.color,ink,0.5);
+        glyph(it,px1,ly);
         // A name longer than the room to the panel's edge goes on two lines; one that
-        // still does not fit is noted for the compliance check.
+        // still does not fit — across, or below the panel's bottom edge — is noted for the
+        // compliance check (a wrapped fifth entry was cut at the bottom unnoted, phage5-04).
         const room=W-(px1+26*u)-2*u, nm=String(it.name);
         let L=[nm]; if(_legTw(nm)>room){ const sp=[...nm.matchAll(/ /g)].map(m=>m.index);
           if(sp.length){ const k=sp.reduce((b,i)=>Math.abs(i-nm.length/2)<Math.abs(b-nm.length/2)?i:b, sp[0]); L=[nm.slice(0,k), nm.slice(k+1)]; } }
-        if(L.some(t=>_legTw(t)>room+0.5)) fit.cut.push(_rtText(nm));
+        if(L.some(t=>_legTw(t)>room+0.5)||ly+9*u+(L.length-1)*T*1.1+T*0.25>H+0.5) fit.cut.push(_rtText(nm));
         L.forEach((t,k)=>emit.text(t,px1+26*u,ly+9*u+k*T*1.1,font(T),ink,'left','alphabetic')); ly+=16*u+(L.length-1)*T*1.1; });
     }
   }
@@ -31001,6 +31144,33 @@ function addChartElement(kind){
   _chartFreshSnap=undoStack[undoStack.length-1]||null;
 }
 
+// ⇄ Replace from file… in the Chart dialog (and a chart panel's right-click menu): a new
+// data file read into the open chart. With the same columns the settings, names, order and
+// brackets stay; with others the table is guessed afresh, as typing a new table in the box
+// is. The chart cites the new file and is not "edited" — the round-5 tester pasted the new
+// file into the box, and the caption still named the old one, "edited in FigureLab" (charts5-11).
+function _chartReplaceFromFile(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(f) _chartReplaceFile(f); }; inp.click();
+}
+function _chartReplaceFile(f){
+  return new Promise(res=>{ const rd=new FileReader();
+    rd.onload=e=>{ const ch=_chartDraft; if(!ch){ res(false); return; }
+      const P=_parseDelimited(e.target.result);
+      if(!P.columns.length||!P.rows.length){ toast(`${f.name} had no readable rows — the chart's data are as they were`,'err'); res(false); return; }
+      const sameHead=JSON.stringify(P.columns)===JSON.stringify(ch.data.columns||[]), was=ch.data.sourceName||'';
+      ch.data=Object.assign({}, ch.data, {columns:P.columns, rows:P.rows, units:P.units||null, durations:P.durations&&P.durations.length?P.durations:null, sourceName:f.name, source:'file'});
+      delete ch.data.edited; if(P.instrument) ch.data.instrument=P.instrument; else delete ch.data.instrument;
+      ch._fileRows=JSON.stringify([P.columns,P.rows]);
+      document.getElementById('chart-data-ta').value=_chartDataToText(ch.data);
+      ch._parseNote={decimalComma:P.decimalComma||0, units:P.units||null, empty:false, skip:_csvSkipNote(P)};
+      if(!sameHead){ _chartReadControls(); _chartApplyGuess(ch, _chartGuess(P), true); _chartModalPickers(); sv('chart-xtitle', ch.axes.x.title||''); sv('chart-ytitle', ch.axes.y.title||''); }
+      _chartModalRefresh();
+      toast(`Data read from ${f.name}${was&&was!==f.name?` in place of ${was}`:''}${sameHead?' — same columns: the settings, names and brackets stay':' — new columns: chart guessed afresh'}; Apply to keep it`,'ok');
+      res(true); };
+    rd.onerror=()=>{ toast(`Could not read ${f.name}`,'err'); res(false); };
+    rd.readAsText(f); });
+}
 // Load a dropped/selected CSV/TSV file into a new chart: a panel in the grid (it used to
 // switch the figure to freeform), an object on the freeform canvas. Resolves true once
 // the chart is added. opts.holdMode (a drop that also held images) adds it without
@@ -31046,7 +31216,7 @@ function _loadDataFile(f, fail, opts){
     // Replicate columns have no value column to name the Y axis: a file name that ends in
     // its unit ("swim_diameters_mm.csv") gives it — "swim diameters (mm)" — and the dialog
     // shows it to change (newcomer5-03). A chart came with no Y title at all.
-    if(!ch.axes.y.title&&ch.mapping.repCols){ const t=_chartTitleFromFile(f.name); if(t){ ch.axes.y.title=t; ch.axes.y.autoTitle=t; } }
+    if(!ch.axes.y.title&&ch.mapping.repCols){ const t=_chartTitleFromFile(f.name); if(t){ ch.axes.y.title=t; delete ch.axes.y.autoTitle; } }   // not a column's name: it stays when the columns change
     if(layoutMode!=='freeform'){
       const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
       logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
@@ -31688,7 +31858,7 @@ function _chartModalSync(){
   const lim=v=>{ if(v==null||v===''||!isFinite(+v)) return ''; v=+v; const a=Math.abs(v);
     return (a>=1e5||(a>0&&a<1e-3))?v.toExponential().replace(/\.?0+e/,'e').replace('e+','e'):String(v); };
   sv('chart-xmin', lim(ch.axes.x.min)); sv('chart-xmax', lim(ch.axes.x.max)); sv('chart-ymin', lim(ch.axes.y.min)); sv('chart-ymax', lim(ch.axes.y.max));
-  sc('chart-xlog', !!ch.axes.x.log); sc('chart-ylog', !!ch.axes.y.log);
+  sc('chart-xlog', !!ch.axes.x.log); sc('chart-ylog', !!ch.axes.y.log); sc('chart-ylog-plain', !!ch.style.logPlain);
   sv('chart-palette', ch.style.palette||'okabeIto');
   sc('chart-legend', !!ch.style.showLegend); sc('chart-grid', !!ch.style.showGrid); sc('chart-points', !!ch.style.showPoints);
   sc('chart-fit', !!ch.fit.on); sc('chart-fit-r2', !!ch.fit.showR2);
@@ -31773,6 +31943,7 @@ function _chartReadControls(){
   if(!xl.disabled) ch.axes.x.log=xl.checked; if(!yl.disabled) ch.axes.y.log=yl.checked;
   ch.style.palette=gv('chart-palette');
   ch.style.showLegend=gc('chart-legend'); ch.style.showGrid=gc('chart-grid'); ch.style.showPoints=gc('chart-points');
+  if(gc('chart-ylog-plain')) ch.style.logPlain=true; else delete ch.style.logPlain;
   ch.fit.on=gc('chart-fit'); ch.fit.showR2=gc('chart-fit-r2'); ch.fit.showEq=gc('chart-fit-r2');
   m.timeCol=+gv('chart-timecol'); m.eventCol=+gv('chart-eventcol');
   const gcv=gv('chart-groupcol'); m.groupCol=gcv===''?null:+gcv;
@@ -31969,7 +32140,7 @@ function _chartNameEdit(key,val){
   if(_chartDraft===ch){
     if(!own) _chartDraftNames[key]=(val.trim()===''||val===key)?null:val; else _chartDraftOwn.add(key);
     if(_chartMergeDefaults(ch, before)){ sv('chart-err', ch.error); sc('chart-points', !!ch.style.showPoints); _chartRenderErrCols(); }
-    _chartMergeNote(); _chartPreview(); }
+    _chartMergeNote(); _chartRenderSigList(); _chartPreview(); }   // a name that pools a bracket's two groups is said at once
 }
 // So are a plate's wells and its rows and columns ("Row C", "Column 2", "B3"): Row C of
 // another plate is another sample. A name given to one (Row C shown as dacrB) still makes
@@ -31996,7 +32167,8 @@ function _setSampleNames(map, self){
   // A chart shows one of them when it draws that data name (or one written another way),
   // or a series shown under that name (a plate row shown as dacrB is dacrB).
   const kn=new Set(keys.map(_sampleNorm));
-  const also=_allCharts().filter(el=>el!==self&&_sampleDrawn(el).some(o=>keys.includes(o.key)||kn.has(_sampleNorm(o.key))||kn.has(_sampleNorm(o.disp)))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
+  // (a plate row named dmexB in that chart is dmexB: its toast left the plate chart out, charts5-17)
+  const also=_allCharts().filter(el=>el!==self&&(_sampleDrawn(el).some(o=>keys.includes(o.key)||kn.has(_sampleNorm(o.key))||kn.has(_sampleNorm(o.disp)))||Object.values(el.chart.names||{}).some(v=>kn.has(_sampleNorm(String(v)))))).map(el=>_isDataPanel(el)?`panel ${_rtText(formatLabel(el.label))||'?'}`:`“${el.label||'chart'}”`);
   const pooled=new Map(_allCharts().filter(el=>el!==self).map(el=>[el,_chartMerged(el.chart)]));
   Object.entries(map).forEach(([k,v])=>{ if(v==null||String(v).trim()===''||v===k) delete F[k]; else F[k]=String(v);
     _allCharts().forEach(el=>{ if(el.chart.names&&_own(el.chart.names,k)){ delete el.chart.names[k]; el._chartKey=''; el._chartStat=null; } }); });
@@ -32011,7 +32183,7 @@ function _chartOrderMove(key,dir){
   let st=null; try{ st=_chartStats({chart:ch, w:300, h:200}); }catch(e){ return; }
   _chartSigBind(ch, st);   // a bracket follows its groups, not the places they move out of
   const keys=(st.catKeys||[]).slice(), i=keys.indexOf(key), j=i+dir; if(i<0||j<0||j>=keys.length) return;
-  [keys[i],keys[j]]=[keys[j],keys[i]]; ch.order=keys;
+  [keys[i],keys[j]]=[keys[j],keys[i]]; ch.order=keys; ch.orderAt=Date.now();
   if(_chartDraft===ch){ _chartRenderNames(); _chartRenderSigList(); _chartPreview(); }
 }
 // Serialise the dataset back to a tab-separated block for the textarea (with its units row).
@@ -32064,8 +32236,11 @@ function applyChartModal(){
       else ch.data.source='densitometry'; }
     // The caption names the file the chart came from; it says so when the table was then
     // edited or replaced by hand (it used to cite a raw file whose values were pasted over).
-    if(ch.data.sourceName&&ch.data.source!=='densitometry') ch.data.edited=true;
+    // Data read whole from a file (⇄ Replace from file…) are that file's, not edited (charts5-11).
+    if(ch.data.sourceName&&ch.data.source!=='densitometry'&&ch._fileRows!==JSON.stringify([ch.data.columns,ch.data.rows])) ch.data.edited=true;
+    else if(ch._fileRows) delete ch.data.edited;
   }
+  delete ch._fileRows;
   el.chart=ch;
   // Colours set here are the figure's sample colours: every chart and the key follow.
   if(Object.keys(_chartDraftColours).length){
