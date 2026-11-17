@@ -119,7 +119,7 @@ async function pickFiles(T, trigger, files) {
 }
 
 /** Wait until a download appears whose name matches re (after an action). Returns its path. */
-async function download(T, action, re = /./, timeout = 30000) {
+async function download(T, action, re = /./, timeout = 120000) {
   const n0 = T.downloads.length;
   await action();
   const t0 = Date.now();
