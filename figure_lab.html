@@ -2771,6 +2771,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:3px;font-size:10px;color
       <button class="btn" id="crop-copy-all" onclick="copyCropTo('all')" title="Apply this exact crop to every panel">⤳ To all</button>
       <span style="font-size:10px;color:var(--muted)">Arrow keys nudge · Shift = larger</span>
       <button id="crop-skip-btn" class="btn" onclick="skipPreCrop()" style="display:none">→ Skip &amp; Add</button>
+      <label id="inset-place-row" style="display:none;font-size:10px;align-items:center;gap:4px;margin-left:auto">Put it
+        <select id="inset-place" style="font-size:10px" aria-label="Where the new inset goes in the grid">
+          <option value="after">right after its panel</option>
+          <option value="free">in the first free cell</option>
+        </select></label>
       <button class="btn btn-primary" id="crop-apply-btn" onclick="applyCropModal()" style="margin-left:auto">✓ Apply Crop</button>
     </div>
   </div>
@@ -4234,6 +4239,7 @@ function _resetCropModalUI(){
   const pdest=document.getElementById('paste-dest-bar'); if(pdest) pdest.style.display='none';
   const tr=document.getElementById('crop-tilt-row'); if(tr) tr.style.display='';
   ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display=''; });
+  const ip=document.getElementById('inset-place-row'); if(ip) ip.style.display='none';
 }
 
 // The EXIF orientation of a JPEG data URL (1 = as stored, or no tag), read from the
@@ -8046,22 +8052,46 @@ function _drawPanelTag(ctx, im, imgIdx, dx, dy, dw, dh, lblSz, lblClr, emitText,
     if(L&&L.bbox.y<y0+4&&L.bbox.y+L.bbox.h>y0-fs-2){
       if(pos.endsWith('r')&&L.bbox.x<hi) lo=Math.max(lo, L.bbox.x+L.bbox.w+gap);
       else if(!pos.endsWith('r')&&L.bbox.x+L.bbox.w>lo) hi=Math.min(hi, L.bbox.x-gap); } }
-  const avail=Math.max(0,hi-lo), custom=!!(im.tag||'').trim();
-  let lines=[parts.map((p,i)=>i)];
-  if(total>avail+0.5&&!custom&&parts.length>1){
-    const fitsAlone=widths.every(w=>w<=avail+0.5), maxLines=Math.max(1,Math.floor((dh*0.5)/(fs*1.25)));
-    if(fitsAlone){
-      lines=[]; let cur=[], cw=0;
-      widths.forEach((w,i)=>{ const add=cur.length?gap+w:w;
-        if(cur.length&&cw+add>avail+0.5){ lines.push(cur); cur=[i]; cw=w; } else { cur.push(i); cw+=add; } });
-      if(cur.length) lines.push(cur);
+  const custom=!!(im.tag||'').trim(), parts0=parts, widths0=widths, total0=total;
+  const fit=(lo,hi)=>{
+    const avail=Math.max(0,hi-lo);
+    let P=parts0, Wd=widths0, tot=total0, tf=null, lines=[P.map((p,i)=>i)];
+    if(tot>avail+0.5&&!custom&&P.length>1){
+      const fitsAlone=Wd.every(w=>w<=avail+0.5), maxLines=Math.max(1,Math.floor((dh*0.5)/(fs*1.25)));
+      if(fitsAlone){
+        lines=[]; let cur=[], cw=0;
+        Wd.forEach((w,i)=>{ const add=cur.length?gap+w:w;
+          if(cur.length&&cw+add>avail+0.5){ lines.push(cur); cur=[i]; cw=w; } else { cur.push(i); cw+=add; } });
+        if(cur.length) lines.push(cur);
+      }
+      if(!fitsAlone||lines.length>maxLines){
+        ctx.font=font; const mw=_rtMeasure(ctx,'Merge');
+        if(mw<=avail+0.5){ P=[{str:'Merge', color:lblClr}]; Wd=[mw]; tot=mw; lines=[[0]]; tf='merge'; }
+        else lines=[P.map((p,i)=>i)];
+      } else if(lines.length>1) tf='wrapped';
     }
-    if(!fitsAlone||lines.length>maxLines){
-      ctx.font=font; const mw=_rtMeasure(ctx,'Merge');
-      if(mw<=avail+0.5){ parts=[{str:'Merge', color:lblClr}]; widths=[mw]; total=mw; lines=[[0]]; im._tagFit='merge'; }
-      else lines=[parts.map((p,i)=>i)];
-    } else if(lines.length>1) im._tagFit='wrapped';
+    const ok=lines.every(ln=>ln.reduce((a,i,j)=>a+Wd[i]+(j?gap:0),0)<=avail+0.5);
+    return {lo, hi, parts:P, widths:Wd, total:tot, lines, tf, ok};
+  };
+  // The outlines of this panel's insets, and their letters, are taken like the letter: a
+  // merge's two-line tag covered the top of an outline and its letter, so a reader could
+  // not tell which box the zoom came from (fluor5-03). The tag gives up the width the
+  // outline takes, beside it; when what is left cannot hold it, it is drawn as before and
+  // the compliance check's Text over text row names the overlap.
+  let F=fit(lo,hi);
+  { const frames=(_panelFramesNow||[]).filter(f=>f.parentIdx===imgIdx);
+    const lh0=fs*1.25;
+    for(let k=0;k<3&&frames.length;k++){
+      const n=F.lines.length, top=pos.startsWith('t')?y0-fs-2:y0-(n-1)*lh0-fs-2, bot=pos.startsWith('t')?y0+(n-1)*lh0+4:y0+4;
+      const boxes=[]; frames.forEach(f=>{ boxes.push({x:f.x-3,y:f.y-3,w:f.w+6,h:f.h+6}); if(f.lbox) boxes.push({x:f.lbox.x-2,y:f.lbox.y-2,w:f.lbox.w+4,h:f.lbox.h+4}); });
+      const hit=boxes.filter(b=>b.y<bot&&b.y+b.h>top&&b.x<F.hi&&b.x+b.w>F.lo);
+      if(!hit.length) break;
+      const G=pos.endsWith('r')?fit(F.lo, Math.min(...hit.map(b=>b.x))-gap):fit(Math.max(...hit.map(b=>b.x+b.w))+gap, F.hi);
+      if(!G.ok||G.hi-G.lo<fs*2) break;
+      F=G;
+    }
   }
+  lo=F.lo; hi=F.hi; parts=F.parts; widths=F.widths; total=F.total; const lines=F.lines; im._tagFit=F.tf;
   const lh=fs*1.25;
   // Auto contrast applies to text in the label colour; a channel keeps its own colour.
   // A word that still reads under 4.5:1 on the picture under it — a channel name in its
@@ -14075,6 +14105,8 @@ function applyCropModal(){
     if(!(cw>0.02&&ch>0.02)){ toast('Draw the region to magnify first','warn'); return; }
     const pi=_insetOfId!=null?_pidx(_insetOfId):_insetOf;
     const ei=cropEdState._editInsetId!=null?_pidx(cropEdState._editInsetId):-1;
+    const _pr=document.getElementById('inset-place-row'), _ps=document.getElementById('inset-place');
+    const place=_pr&&_ps&&_pr.style.display!=='none'?_ps.value:'after';
     cropEdState._insetOf=null; cropEdState._editInsetId=null; closeCropModal();
     if(ei>=0&&images[ei]){
       // Editing an inset's region: the inset re-derives its crop from it, and the outline
@@ -14092,7 +14124,8 @@ function applyCropModal(){
       renderImgList(); scheduleRender(0);
       toast(`Inset ${_rtText(formatLabel(ins.label))} now magnifies ${(+(1/Math.max(cw,ch))).toFixed(1)}×${sbNote}`,'ok');
     }
-    else if(pi>=0&&images[pi]){ selectedPanel=pi; addLinkedInset(cx,cy,cw,ch); }
+    else if(pi>=0&&images[pi]){ selectedPanel=pi;
+      addLinkedInset(cx,cy,cw,ch, place); }
     else toast(_PANEL_GONE,'warn');
     return;
   }
@@ -16362,6 +16395,7 @@ function _pushSnap(snap){
   // A control edited but not yet committed (the field still has focus) is its own step,
   // recorded first so it is not folded into this one.
   if(_pendingUndoSnap!==snap && _pendingUndoDirty) _flushPendingUndo();
+  if(snap&&typeof snap==='object') snap._t=Date.now();   // logAction names the step just after it
   undoStack.push(snap); if(undoStack.length>80) undoStack.shift(); redoStack=[];
   _pendingUndoSnap=null; _pendingUndoFor=null; _pendingUndoDirty=false;
   _ckEdits++;          // the figure changed: exports made before this are of another version
@@ -16381,9 +16415,13 @@ function undo(){
   // Ctrl+Z while a drop is still arriving takes back what came so far; the rest of the
   // drop then starts a step of its own rather than joining one that is gone.
   if(_importStep==='taken') _importStep='pending';
-  redoStack.push(snapshotState({boundary:_isBoundary(undoStack)}));
+  const top=undoStack[undoStack.length-1], what=top&&top._what;
+  const back=snapshotState({boundary:_isBoundary(undoStack)}); if(what){ back._what=what; back._t=0; }
+  redoStack.push(back);
   restoreState(undoStack.pop());
-  toast(`Undo (${undoStack.length} left)`,'ok');
+  // What was undone, when the step is a named action: "Undo (24 left)" alone sent the
+  // author through four undos and a redo to find the inset they had added (fluor5-09).
+  toast(what?`Undone: ${what} (${undoStack.length} left)`:`Undo (${undoStack.length} left)`,'ok');
   _tutAbort();
 }
 function redo(){
@@ -16392,9 +16430,11 @@ function redo(){
   _flushPendingUndo();
   if(!redoStack.length){ toast('Nothing to redo','warn'); return; }
   if(_importStep==='taken') _importStep='pending';
-  undoStack.push(snapshotState({boundary:_isBoundary(redoStack)}));
+  const top=redoStack[redoStack.length-1], what=top&&top._what;
+  const fwd=snapshotState({boundary:_isBoundary(redoStack)}); if(what){ fwd._what=what; fwd._t=0; }
+  undoStack.push(fwd);
   restoreState(redoStack.pop());
-  toast('Redo','ok');
+  toast(what?`Redone: ${what}`:'Redo','ok');
   _tutAbort();
 }
 // A tutorial works on the demo figure it built, and its "Do it for me" steps act on
@@ -16807,6 +16847,9 @@ function _keyLayout(rows, fs, font){
   return {rows,fs,font,pad,sw,sh,gap,lh,w,h,cols,colX};
 }
 // The width a key placed Below may span (layout px), or 0 for a key in one column.
+// A key placed automatically that found no free spot and went under the panels (k._below)
+// runs across the figure too: it was a four-row list that grew the bottom margin by a
+// quarter of the figure's height, mostly empty (fluor5-15).
 function _keyBelowAvail(){
   const k=(annotations||[]).find(a=>a&&a.type==='legend'&&!a.hidden);
   if(!k||(k.where||'auto')!=='bottom') return 0;
@@ -19464,6 +19507,9 @@ function confirmNewFigure(){
     if(typeof _tutAbort==='function'){ _tutSaved=null; _tutAbort('Tutorial ended — you started a new figure.'); }
     pushUndo({boundary:true});
     _resetFigureState();
+    // The export record was the old figure's: compliance read "the figure changed after it
+    // was last exported (as TIFF)" for a new figure never exported (fluor5-10).
+    _lastExportFmt=null; _ckExports=[];
     if(keepFont){ _ensureFontOption(lf); sv('label-font', lf); if(af){ _ensureFontOption(af); sv('axis-font', af); } }
     logAction('newFigure');
     panelBounds=[];
@@ -20911,6 +20957,16 @@ function _ckTextOver(){
     const oy=Math.min(a.bbox.y+a.bbox.h,b.bbox.y+b.bbox.h)-Math.max(a.bbox.y,b.bbox.y);
     if(ox>1&&oy>1) out.push({a,b});
   }
+  // A tag over an inset's outline or its letter (fluor5-03): the outline's edge ran between
+  // a two-line tag's words and its letter was hidden, while this row said only "wrapped".
+  if(layoutMode!=='freeform') (_insetFrames||[]).forEach(f=>{
+    const hit=(b,r)=>Math.min(b.x+b.w,r.x+r.w)-Math.max(b.x,r.x)>1&&Math.min(b.y+b.h,r.y+r.h)-Math.max(b.y,r.y)>1;
+    const inner=(b,r)=>b.x>r.x+2&&b.y>r.y+2&&b.x+b.w<r.x+r.w-2&&b.y+b.h<r.y+r.h-2;
+    T.filter(t=>t.kind==='tag').forEach(t=>{
+      const onEdge=hit(t.bbox,f)&&!inner(t.bbox,f), onLetter=f.lbox&&hit(t.bbox,f.lbox);
+      if(onEdge||onLetter) out.push({a:t, b:{kind:'insetFrame', str:f.letter||'', idx:f.parentIdx, letterHidden:!!onLetter}});
+    });
+  });
   return {pairs:out, name};
 }
 // Gene-map labels the map could not give a row of their own (its panel is too short for the
@@ -20930,7 +20986,7 @@ function _ckTextOverRow(){
   if(gmc.length&&!pairs.length) return {label:'Text over text', ok:false, warn:true,
     note:`${esc(gmc.join('; '))} — the map has no room for another row of labels: make its panel taller (or Rows hug off), or set its Text size smaller in 🧬 Edit gene map`};
   if(!pairs.length&&!fitted.length) return null;
-  const word=t=>t.kind==='panel'?`letter ${_rtText(String(t.str))}`:`${(_TEXT_KIND[t.kind]||t.kind).replace(/s$/,'')} “${_rtText(String(t.str)).trim().slice(0,30).trim()}”${t.idx!=null&&t.kind!=='panel'&&name(t)?` (${name(t)})`:''}`;
+  const word=t=>t.kind==='insetFrame'?`the outline of inset ${_rtText(String(t.str))||'(unlettered)'}${t.letterHidden?' and its letter':''}`:t.kind==='panel'?`letter ${_rtText(String(t.str))}`:`${(_TEXT_KIND[t.kind]||t.kind).replace(/s$/,'')} “${_rtText(String(t.str)).trim().slice(0,30).trim()}”${t.idx!=null&&t.kind!=='panel'&&name(t)?` (${name(t)})`:''}`;
   const seen=new Set(), list=[];
   pairs.forEach(({a,b})=>{ const s=`${word(a)} and ${word(b)}`; if(!seen.has(s)){ seen.add(s); list.push(s); } });
   const fitNote=fitted.length?`Tags fitted to clear their letters: ${fitted.map(im=>`${_rtText(formatLabel(im.label))||_sourceName(im)||'?'} ${im._tagFit==='merge'?'shown as “Merge” (its channels did not fit beside the letter; they are in the key and caption)':'wrapped to more lines'}`).join('; ')} — type a tag in ⚙ › Tag for your own wording.`:'';
@@ -21735,6 +21791,15 @@ function pickInsetRegion(editInsetIdx){
   document.getElementById('crop-apply-btn').textContent=editing?'✓ Update inset':'⧉ Add inset';
   const tr=document.getElementById('crop-tilt-row'); if(tr) tr.style.display='none';   // an inset takes its parent's tilt
   ['crop-copy-group','crop-copy-all'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display='none'; });
+  // Where a new inset goes. Right after its panel shifts every later panel by one cell, so
+  // a channels | merge grid lost its rows (the merge wrapped to the next row, fluor5-07);
+  // when the grid has a free cell, that is the default.
+  { const row=document.getElementById('inset-place-row'), sel=document.getElementById('inset-place');
+    if(row&&sel){ const fr=!editing&&layoutMode!=='freeform'?_insetFreeCell(idx):null;
+      row.style.display=fr&&fr.shifts?'flex':'none';
+      sel.value=fr&&fr.shifts&&fr.midRow&&fr.free?'free':'after';
+      const o=sel.querySelector('option[value="free"]');
+      if(o) o.textContent=fr&&fr.free?'in the first free cell (no panel moves)':'at the end of the figure (adds a row)'; } }
   document.getElementById('crop-modal').classList.add('open');
   requestAnimationFrame(()=>{
     const cc=document.getElementById('crop-ed-canvas');
@@ -21744,7 +21809,37 @@ function pickInsetRegion(editInsetIdx){
     drawCropEd();
   });
 }
-function addLinkedInset(fx,fy,fw,fh){
+// Where an inset of panel idx can go without moving the panels after it: the cell after
+// the last panel the grid draws, when the grid has one left. {shifts}: panels follow idx
+// in the grid, so "right after it" moves them; {free}: a cell is left; {at}: the index in
+// `images` an inset placed there takes.
+// {shifts}: a panel after it would change row; {midRow}: idx is not the last panel of its
+// row (a channel of a channels | merge row, not the merge at its end, where an inset
+// "right after it" is the zoom column of ux1 fluor-11).
+function _insetFreeCell(idx){
+  const order=typeof _gridOrder==='function'?_gridOrder():[];
+  const cols=Math.max(1,gi('cols')), rows=Math.max(1,gi('rows'));
+  const pl=_gridPlacements(cols,rows), k=pl.findIndex(c=>c.imgIdx===idx);
+  let shifts=false, midRow=false;
+  if(k>=0) for(let j=k+1;j<pl.length;j++){ if(!pl[j].im) continue;
+    if(pl[j].r===pl[k].r) midRow=true;
+    if(!pl[j+1]||pl[j+1].r!==pl[j].r) shifts=true; }
+  let last=-1; images.forEach((im,i)=>{ if(im&&!im.excluded) last=i; });
+  return {shifts, midRow, free:pl.unplaced===0&&pl.some(c=>!c.im&&!c.held&&c.seq>=order.length), at:last+1};
+}
+// The first letter no panel the reader sees has. A hidden source holding it gives it up
+// (hidden panels are lettered out of the reader's way, as Relabel does): a figure whose
+// hidden channel files held A–Z gave its new inset "28" (fluor5-07).
+function _insetLetter(inset){
+  const shown=new Set(images.filter(p=>p&&p!==inset&&!p.excluded).map(p=>String(p.label||'')));
+  let L=null; for(let i=0;i<26;i++) if(!shown.has(ALPHABET[i])){ L=ALPHABET[i]; break; }
+  if(!L) return nextLabel();
+  const holder=images.find(p=>p&&p!==inset&&p.excluded&&String(p.label||'')===L);
+  inset.label=L;
+  if(holder){ holder.label=''; holder.label=nextLabel(); }
+  return L;
+}
+function addLinkedInset(fx,fy,fw,fh,place){
   const idx=_insetTarget();
   const src=images[idx];
   if(!src){ toast(_insetTargetWhyNot(),'warn'); return; }
@@ -21766,12 +21861,17 @@ function addLinkedInset(fx,fy,fw,fh){
   // Next to its panel: inserted right after it. It used to go to the end of the list
   // (after any hidden source files), so a figure of three merges got its three insets in
   // a row of their own; now three insets and one more column give each row its zoom.
-  _withWaiting(()=>images.splice(idx+1,0,inset));
+  const fc=place==='free'&&layoutMode!=='freeform'?_insetFreeCell(idx):null;
+  const at=fc?Math.max(idx+1,fc.at):idx+1;
+  _withWaiting(()=>images.splice(at,0,inset));
   _growGridToFit();
+  _insetLetter(inset);
   images.forEach(im=>{ if(im&&!im.label) im.label=nextLabel(); });
   onLayoutChange(); renderImgList(); scheduleRender(0);
-  logAction('linkedInset',{parent:src.label||'?', magnification:+(1/Math.max(fw,fh)).toFixed(2)});
-  toast(`Inset ${_rtText(formatLabel(inset.label))} of ${_rtText(formatLabel(src.label))||'the source panel'} placed right after it — it follows that panel's adjustments. A whole column of insets: add a column (Arrange › Columns) after making them.`,'ok');
+  logAction('linkedInset',{parent:src.label||'?', magnification:+(1/Math.max(fw,fh)).toFixed(2), place:fc?(fc.free?'first free cell':'end'):'after its panel'});
+  const IL=_rtText(formatLabel(inset.label)), PL=_rtText(formatLabel(src.label))||'the source panel';
+  if(fc) toast(`Inset ${IL} of ${PL} placed ${fc.free?'in the first free cell':'at the end of the figure'} — no other panel moved; it follows ${PL}'s adjustments. Shift+← / → moves it, ⚙ › Label renames it.`,'ok');
+  else toast(`Inset ${IL} of ${PL} placed right after it — it follows that panel's adjustments. A whole column of insets: add a column (Arrange › Columns) after making them.`,'ok');
 }
 
 // Outline every inset's region on its parent, with the inset's letter — the convention
@@ -21797,7 +21897,9 @@ function _insetFrameMap(xf){
   // translate(cx,cy) . rotate(t) . scale(sx,sy): X = cx + a*x + c*y, Y = cy + b*x + d*y
   return {a:co*sx, b:si*sx, c:-si*sy, d:co*sy, cx:xf.cx, cy:xf.cy};
 }
+var _panelFramesNow=[];
 function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr, isExport, xf){
+  _panelFramesNow=[];
   if(!parent||!parent.id||!_insetFramesOn()) return;
   const M=_insetFrameMap(xf);
   const at=(x,y)=>[M.cx+M.a*x+M.c*y, M.cy+M.b*x+M.d*y];
@@ -21817,9 +21919,15 @@ function _drawInsetFrames(ctx, parent, parentIdx, x0, y0, dw, dh, lblSz, lblClr,
       if(!square) pts=q;
     }
     const lin=M?[M.a,M.b,M.c,M.d]:null;
-    if(!isExport) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, dw, dh, lin});
     const letter=formatLabel(o.label);
     const fs=Math.max(7,Math.round((lblSz||12)*0.75));
+    // Where the outline's letter sits, for the Text over text check (fluor5-03): a merge's
+    // tag drawn over it hid which box the zoom came from.
+    let lbox=null;
+    if(letter){ ctx.save(); ctx.font=`bold ${fs}px ${gv('label-font')||'system-ui,sans-serif'}`; const tw=ctx.measureText(_rtPlain(letter)).width; ctx.restore();
+      const inside=fh>=fs+8&&fw>=tw+8; lbox={x:fx+4, y:inside?fy+4:fy-3-fs, w:tw, h:fs}; }
+    if(!isExport) _insetFrames.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, dw, dh, lin, lbox, letter});
+    _panelFramesNow.push({parentIdx, x:fx, y:fy, w:fw, h:fh, lbox});   // read by the tag drawn next, screen and export
     if(_frameSink) _frameSink.push({parentIdx, insetIdx:k, x:fx, y:fy, w:fw, h:fh, pts, ink:lblClr||'#fff', letter, fs});
     if(_skipFrameDraw) continue;                       // the SVG export draws these itself
     ctx.save();
@@ -25234,8 +25342,34 @@ function _buildStructuralAltText(){
   const ai=_aiGeneratedCount();
   if(ai) parts.push(`${ai} element${ai!==1?'s are':' is'} an AI-generated schematic.`);
   const cap=(gv('caption-out')||'').trim();
-  if(cap) parts.push('Caption: '+cap);
-  return parts.join(' ') || 'A scientific figure.';
+  if(cap) parts.push('Caption, shortened: '+_altCaptionSummary(cap));
+  return _capWords(parts.join(' '), 250) || 'A scientific figure.';
+}
+// The caption, cut down to what a screen-reader user needs to follow the figure: what each
+// panel shows, panels that show the same thing named together, without the scale bars,
+// pixel sizes, fields of view and display ranges (those are for the printed legend). The
+// whole caption made a 2,400-character alt text, while journals cap alt text at about
+// 150–250 words (fluor5-11).
+const _ALT_DROP=/^\(?(scale bars?\b|field of view\b|display ranges?\b|display settings\b|levels\b|gamma\b|brightness\b|contrast\b|each channel was displayed\b|data from\b|bars show\b|dots,|points show\b|error bars\b|the same display\b)|\bper pixel\b/i;
+function _altCaptionSummary(cap){
+  const sentences=t=>String(t).split(/(?<=\.|\.\))\s+(?=[A-Z(])/).map(x=>x.trim()).filter(Boolean);
+  const keep=t=>sentences(t).filter(x=>!_ALT_DROP.test(x)).join(' ').trim();
+  // Panel sentences start "(A) " at the start or after a full stop.
+  const re=/(^|\.\)?\s+)\(([A-Za-z0-9]{1,3}(?:\s*[,–-]\s*[A-Za-z0-9]{1,3})*)\)\s+/g;
+  const marks=[]; let m;
+  while((m=re.exec(cap))) marks.push({at:m.index+m[1].length, end:re.lastIndex, L:m[2]});
+  if(!marks.length) return keep(cap);
+  const head=keep(cap.slice(0, marks[0].at));
+  const segs=marks.map((k,i)=>({L:k.L, t:keep(cap.slice(k.end, i+1<marks.length?marks[i+1].at:cap.length)).replace(/[.\s]+$/,'')}));
+  // Panels that say the same thing are one sentence: "(A, F and K) DAPI (blue)."
+  const groups=[];
+  segs.forEach(g=>{ const same=groups.find(x=>x.t===g.t); if(same) same.L.push(g.L); else groups.push({t:g.t, L:[g.L]}); });
+  const body=groups.map(g=>`(${_listAnd(g.L)}) ${g.t||'panel'}.`).join(' ');
+  return (head?head+' ':'')+body;
+}
+function _capWords(t, n){
+  const w=String(t).trim().split(/\s+/);
+  return w.length<=n?String(t).trim():w.slice(0,n).join(' ').replace(/[,;:]$/,'')+' …';
 }
 // The button: a draft replaces the box, so text the author wrote is asked about first.
 function draftAltText(){
@@ -38443,8 +38577,18 @@ async function batchExportPanels(){
 // a session starts an empty log: the file does not carry one. `var` because
 // _resetFigureState can run before this line does.
 var reproLog=[];
+// The undo step taken just before (within a second and a half) is named after the action,
+// so Ctrl+Z can say what it undid. A step already named, or an older one, is left alone.
+const _UNDO_NAMES={linkedInset:'linked inset', replaceImage:'replace image', replaceChannel:'replace channel', replaceAll:'replace all images',
+  splitChannels:'split channels', mergeTicked:'merge', newFigure:'new figure', preset:'journal preset', keyOnFigure:'legend key on the figure',
+  keyWhere:'legend key place', autoScaleBar:'scale bar from the image', copyCalibration:'copy calibration', clipShape:'clip shape',
+  rotatePanel:'rotate panel', multiCrop:'multi-crop', chartAdd:'add chart', genemapAdd:'add gene map', addImage:'add image',
+  insetMove:'move inset', cellCount:'cell count', syncLevelsByChannel:'sync by channel', matchAll:'match to all', fitGrid:'fit grid'};
+function _undoName(type){ return _UNDO_NAMES[type]||String(type).replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase(); }
 function logAction(type, params={}){
   reproLog.push({ts:new Date().toISOString(), action:type, ...params});
+  try{ const top=typeof undoStack!=='undefined'&&undoStack[undoStack.length-1];
+    if(top&&typeof top==='object'&&!top._what&&top._t&&Date.now()-top._t<1500&&!/^(export|exportKey|exportPPTX|exportMultiPagePDF|batchExport|submissionPackage|tutorialStart|altText|generateCaption|methodsParagraph|crossFigureDupScan|duplicateScan|tiffMeta)$/.test(type)) top._what=_undoName(type); }catch(e){}
 }
 function exportReproLog(){
   const hasFig=images.some(Boolean)||(typeof freeformElements!=='undefined'&&freeformElements.length);
