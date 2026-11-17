@@ -484,7 +484,9 @@ test('bar chart draws bars in data order with the palette colours', async ({ pag
   expect(errors).toEqual([]);
 });
 
-test('log axis drops non-positive values with a visible warning, never clamps', async ({ page }) => {
+// ux5 (charts5-05): a value ≤ 0 on a log axis is no longer left out — dropping it changed
+// the mean and n. It is kept, drawn at the axis floor as an open mark, and said on the chart.
+test('log axis keeps non-positive values, draws them at the floor open, with a visible note', async ({ page }) => {
   const errors = await loadApp(page);
   const r = await page.evaluate(() => {
     const el = { type: 'chart', x: 0, y: 0, w: 300, h: 240,
@@ -492,13 +494,16 @@ test('log axis drops non-positive values with a visible warning, never clamps', 
         mapping: { xCol: 0, yCols: [1], seriesCol: null, errCol: null }, agg: 'none', error: 'none',
         axes: { x: { log: false }, y: { log: true } }, style: { palette: 'okabeIto' }, annos: [] } };
     const withLog = _chartStatsCached(el);
+    const T = [], C = []; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle(x, y, r, f) { C.push(f); }, text(t) { T.push(String(t)); } });
     el.chart.axes.y.log = false; el._chartKey = ''; el._chartStat = null;
     const noLog = _chartStatsCached(el);
-    return { logPts: withLog.series[0].points.length, logDropped: withLog.warn.dropped, noLogPts: noLog.series[0].points.length };
+    return { logPts: withLog.series[0].points.length, logDropped: withLog.warn.dropped, noLogPts: noLog.series[0].points.length, open: C.filter(f => f === '#ffffff').length, T };
   });
-  expect(r.noLogPts).toBe(4);       // all four points when linear
-  expect(r.logPts).toBe(2);         // 0 and −5 dropped on a log axis
-  expect(r.logDropped).toBe(2);
+  expect(r.noLogPts).toBe(4);
+  expect(r.logPts).toBe(4);         // nothing left out
+  expect(r.logDropped).toBe(0);
+  expect(r.open).toBe(2);           // 0 and −5 at the floor, open
+  expect(r.T).toContain('○ 2 values ≤ 0 drawn at the axis floor (10), open');
   expect(errors).toEqual([]);
 });
 

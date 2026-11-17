@@ -191,3 +191,126 @@ test('charts5-07: on a grouped bar with a Series column a bracket joins two stra
   expect(csv).toContain('# Significance mark "p = 0.01" between NHS · PA14 and NHS · dlasR');
   expect(errors).toEqual([]);
 });
+
+test('charts5-07: the bracket icon in Annotate & Draw adds a bracket to the chart in the grid, in its dialog — the figure stays a grid', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'serum_killing_tidy.csv');
+  await apply(page);
+  await page.evaluate(() => { const d = document.querySelector('details summary'); });
+  await page.evaluate(() => insertIcon('bracket'));
+  await expect(modal(page)).toBeVisible();
+  await expect(sigSection(page).locator('> div')).toHaveCount(1);
+  expect(await page.evaluate(() => layoutMode)).toBe('grid');
+  expect(await page.evaluate(() => freeformElements.length)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// ── charts5-02 / 03 / 04, phage5-03: plate-reader exports as the reader wrote them ────
+const status = page => modal(page).locator('#chart-delim-info').innerText();
+const ticked = page => modal(page).locator('#chart-ycols input:checked').evaluateAll(b => b.map(x => x.parentElement.textContent.trim()));
+const xs = page => page.evaluate(() => { const ch = _chartDraft; return ch.data.rows.map(r => r[ch.mapping.xCol]); });
+for (const [file, extra] of [['tecan_OD600_cols.csv', ''], ['tecan_OD600_cols_padded.csv', ''], ['tecan_OD600_rows.csv', 'the wells ran down the rows: turned to one column per well'], ['tecan_OD600_rows_noheader.csv', 'the wells ran down the rows: turned to one column per well'], ['tecan_OD600_cols_noheader.csv', '']]) {
+  test(`charts5-02/03/04: ${file} opens as a line of every well against Time (h), its header block skipped and said`, async ({ page }) => {
+    const errors = await loadApp(page);
+    await drop(page, file);
+    await expect(modal(page).locator('#chart-kind')).toHaveValue('line');
+    await expect(modal(page).locator('#chart-xcol option:checked')).toHaveText('Time (h)');
+    await expect(modal(page).locator('#chart-xtitle')).toHaveValue('Time (h)');
+    const t = await ticked(page);
+    expect(t).toEqual(['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3']);   // no Cycle Nr., no temperature
+    await expect(modal(page).locator('#chart-wells-wrap')).toContainText('Plate wells (12: A1–D3)');
+    const st = await status(page);
+    expect(st).toContain('Time [s] read as seconds, in hours (Time (h))');
+    if (/noheader/.test(file)) expect(st).not.toContain('instrument line'); else expect(st).toContain('26 instrument lines above the table skipped (it starts at “Cycle Nr.”)');
+    if (!/noheader/.test(file)) expect(st).toContain('1 line below it (“End Time”) left out');
+    if (extra) expect(st).toContain(extra);
+    // 49 reads, 0 to 12 h; the data box read again (any edit) does not divide the hours a second time
+    let x = await xs(page);
+    expect(x.length).toBe(49); expect(x[0]).toBe(0); expect(Math.abs(x[48] - 43200.4 / 3600)).toBeLessThan(1e-4);
+    await page.evaluate(() => _chartReparse(false)); x = await xs(page);
+    expect(Math.abs(x[48] - 43200.4 / 3600)).toBeLessThan(1e-4);
+    await apply(page);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('phage5-03: a Gen5 export with its 22-line instrument header opens exactly as the bare table does', async ({ page }) => {
+  const errors = await loadApp(page);
+  const pts = () => page.evaluate(() => { const el = images.filter(p => p && p.type === 'chart').pop(); el._chartKey = ''; const s = _chartStatsCached(el); return s.series.map(q => [q.key, q.points.map(p => [p.x, p.y])]); });
+  await drop(page, 'Tq4_lysis_Gen5_20h_20261114.csv'); await apply(page);
+  const bare = await pts();
+  await drop(page, 'Tq4_lysis_Gen5_20h_with_header.csv');
+  expect(await status(page)).toContain('22 instrument lines above the table skipped (it starts at “Time”)');
+  await expect(modal(page).locator('#chart-wells-wrap')).toContainText('Plate wells (24: A1–F4)');
+  await apply(page);
+  const head = await pts();
+  expect(head).toEqual(bare);
+  expect(head.length).toBe(24);
+  expect(errors).toEqual([]);
+});
+
+test('charts5-13: a Time (h) header is the X title as it stands', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'tecan_OD600_hours.csv');
+  await expect(modal(page).locator('#chart-xtitle')).toHaveValue('Time (h)');
+  expect(errors).toEqual([]);
+});
+
+// ── newcomer5-03, fluor5-08: numbered replicate columns are averaged, and say so ─────
+test('fluor5-08: Culture1–3 are averaged into one bar per condition, mean ± SD matching the truth', async ({ page }) => {
+  const errors = await loadApp(page);
+  await drop(page, 'psd95_puncta_per10um.csv');
+  await expect(modal(page).locator('#chart-kind')).toHaveValue('bar');
+  await expect(modal(page).locator('#chart-repcols')).toBeChecked();
+  await apply(page);
+  const g = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el._chartKey = ''; const s = _chartStatsCached(el); return s.groups.map(q => [q.key, q.bars[0].value, q.bars[0].err, q.bars[0].n]); });
+  const want = { shCtrl: [9.8, 10.04, 9.59], shNlgn1: [4.75, 4.92, 4.71], Rescue: [8.94, 9.91, 8.56] };
+  const mean = a => a.reduce((s, v) => s + v, 0) / a.length, sd = a => Math.sqrt(a.reduce((s, v) => s + (v - mean(a)) ** 2, 0) / (a.length - 1));
+  expect(g.map(q => q[0])).toEqual(Object.keys(want));
+  g.forEach(([k, m, e, n]) => { expect(m).toBeCloseTo(mean(want[k]), 6); expect(e).toBeCloseTo(sd(want[k]), 6); expect(n).toBe(3); });
+  expect(errors).toEqual([]);
+});
+
+test('newcomer5-03: replicate columns with images say "the mean of Rep 1, Rep 2, Rep 3", and the Y title comes from the file name', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(() => { window.__toasts = []; const t = window.toast; window.toast = function (m) { window.__toasts.push(String(m)); return t.apply(this, arguments); }; });
+  await seedPanels(page, 2);
+  await page.evaluate(T => addFiles([new File([T], 'swim_diameters_mm.csv', { type: 'text/csv' }), ...[0, 1].map(i => { const c = document.createElement('canvas'); c.width = c.height = 40; return new File([Uint8Array.from(atob(c.toDataURL('image/png').split(',')[1]), ch => ch.charCodeAt(0))], `IMG_${i}.png`, { type: 'image/png' }); })]), read('swim_diameters_mm.csv'));
+  await page.waitForFunction(() => images.some(p => p && p.type === 'chart'));
+  await page.waitForTimeout(800);
+  const t = await page.evaluate(() => window.__toasts.join('\n'));
+  expect(t).toContain('bar chart of the mean of Rep 1, Rep 2, Rep 3 by Strain');
+  expect(await page.evaluate(() => images.find(p => p && p.type === 'chart').chart.axes.y.title)).toBe('swim diameters (mm)');
+  expect(errors).toEqual([]);
+});
+
+// ── charts5-05: zeros on a log axis are averaged in, then drawn at the floor and said ──
+test('charts5-05: on a log axis 0, 100, 0 is a mean of 33.3 with n = 3, and an all-zero time point is drawn at the floor, open, in the caption and source data', async ({ page }) => {
+  const errors = await loadApp(page);
+  await page.evaluate(ZIP);
+  await drop(page, 'timekill_zeros.csv');
+  await modal(page).locator('#chart-ylog').check();
+  await page.waitForTimeout(300);
+  await apply(page);
+  const s = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); el._chartKey = ''; return _chartStatsCached(el).series.map(q => ({ k: q.key, p: q.points.map(p => [p.x, p.y, p.n]) })); });
+  const dm = s.find(q => q.k === 'dmexB').p;
+  const at = x => dm.find(p => p[0] === x);
+  expect(at(8)[1]).toBeCloseTo(100 / 3, 6); expect(at(8)[2]).toBe(3);
+  expect(at(24)).toEqual([24, 0, 3]);
+  // drawn: an open circle at the bottom of the plot for 24 h, and a note on the chart
+  const d = await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart'); const C = [], T = [], L = [];
+    _chartDraw(el, { rect() {}, poly() {}, line(x1, y1, x2, y2) { L.push([x1, y1, x2, y2]); }, circle(x, y, r, f, s) { C.push({ x, y, f, s }); }, text(t) { T.push(String(t)); } });
+    const axis = L.find(l => l[0] === l[2] && l[3] > l[1]); return { C, T, bottom: axis ? axis[3] : null }; });
+  const open = d.C.filter(c => c.f === '#ffffff');
+  expect(open.length).toBe(1);
+  expect(Math.abs(open[0].y - d.bottom)).toBeLessThan(0.5);
+  expect(d.T.some(t => /^○ 1 mean ≤ 0 drawn at the axis floor \(.+\), open$/.test(t))).toBe(true);
+  expect(d.T.some(t => /omitted/.test(t))).toBe(false);
+  const cap = await caption(page);
+  expect(cap).toMatch(/On the log axis, 1 mean ≤ 0 is drawn at the axis floor \([^)]+\) as open marks; means and n include them\./);
+  expect(cap).toContain('n = 3 per point');
+  const csv = await sourceData(page);
+  expect(csv).toMatch(/# Log axis: 1 mean ≤ 0 cannot be placed on it and is drawn at the axis floor \(y = [^)]+\) as open marks/);
+  expect(csv).toContain("dmexB,8,3,33.333333333333336,"); expect(csv).toContain("dmexB,24,3,0,0,SD (n-1)");
+  expect(errors).toEqual([]);
+});

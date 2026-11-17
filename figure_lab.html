@@ -22036,6 +22036,7 @@ async function exportSubmissionPackage(){
       const head=[]; head.push('# Source data for '+(el.label||('chart '+(ci+1)))+' ('+el.chart.kind+')');
       if(el.chart.error&&el.chart.error!=='none') head.push('# Error bars: '+(el.chart.error==='sd'?'SD, sample (n-1 denominator)':el.chart.error==='sem'?'SEM = SD/sqrt(n), SD with n-1':'taken from a data column'));
       { const wt=_chartWellsText(el.chart); if(wt) head.push('# Plate wells: '+wt+' (the raw table below is as read; the plotted values are after this)'); }
+      { const lf=_chartLogFloor(el); if(lf) head.push(`# Log axis: ${_chartLogFloorWords(lf)} cannot be placed on it and ${lf.means+lf.values>1?'are':'is'} drawn at the axis floor (y = ${_fmtTick(lf.floor)}) as open marks; every mean and n below includes the values ≤ 0`); }
       { const ss=_chartSourceState(el);
         if(ss.state==='linked') head.push(`# Linked to the densitometry of ${ss.from} (source-data/panel_…-densitometry.csv); current with it`);
         else if(ss.state==='stale') head.push(`# WARNING: out of date with the densitometry of ${ss.from} — it changed after this chart was made`);
@@ -24577,6 +24578,8 @@ function _dataCaption(el){
     else if(ser.length===1&&pl&&pl.numericX) d+=` (values: ${ser[0]})`;
     else if(!cats.length&&!ser.length&&ys.length) d+=` (${ys.length>1?'series':'values'}: ${many(ys,8)})`;
     if(pl&&pl.ylog) d+=', on a log scale';
+    // a mean of 0 on a log axis: where it is drawn, and that it is in the mean (charts5-05)
+    const lf=_chartLogFloor(el);
     bits.push(d+'.');
     // What the chart draws, from the same settings the renderer reads: a beeswarm's
     // line is the mean with the whisker Error bars names, not a box; a box is the median
@@ -24605,6 +24608,7 @@ function _dataCaption(el){
         else if(ch.kind==='scatter'&&!agg) bits.push('Each point is one value.');
       } else if(ch.kind==='survival') bits.push('Kaplan–Meier estimates.');
     }
+    if(lf) bits.push(`On the log axis, ${_chartLogFloorWords(lf)} ${lf.means+lf.values>1?'are':'is'} drawn at the axis floor (${_fmtTick(lf.floor)}) as open marks; means and n include them.`);
     // Significance brackets are the author's own: said so, by the groups they join.
     // By the groups they join now (charts5-01); one that cannot be drawn is flagged, not captioned.
     const sigR=_chartSigResolve(ch, st), sig=sigR.filter(r=>r.ok), sigBad=sigR.filter(r=>!r.ok);
@@ -29111,6 +29115,20 @@ function _iconIsMono(ic){ return !ic || ic.mono!==false; }
 
 function insertIcon(name){
   const ic=SCIENCE_ICONS[name]; if(!ic) return;
+  // A bracket or asterisk for a chart in the grid is the chart's own significance bracket,
+  // added in its dialog, where it is drawn over the groups (or bars) it joins and follows
+  // them: the icon switched the figure to the separate freeform canvas (charts5-07).
+  if((name==='bracket'||name==='asterisk')&&layoutMode!=='freeform'){
+    const charts=images.map((im,i)=>({im,i})).filter(q=>q.im&&q.im.type==='chart'&&q.im.chart&&_chartCategorical(q.im.chart.kind));
+    const sel=charts.find(q=>q.i===selectedPanel)||(charts.length?charts[0]:null);
+    if(sel){
+      openDataPanelEditor(sel.i); _chartAddSig();
+      const w=document.getElementById('chart-sig-list'); if(w&&w.scrollIntoView) w.scrollIntoView({block:'center'});
+      const nm=_rtText(formatLabel(sel.im.label))||'?';
+      toast(`A significance bracket added to chart ${nm} — pick the two groups (or two bars) it joins and type your own p value or symbol${charts.length>1&&sel.i!==selectedPanel?'; for another chart, select it first':''}`,'ok');
+      return;
+    }
+  }
   // From the grid, the switch to freeform and the icon are one undo step, taken before the
   // switch: the switch recorded none, so the first Ctrl+Z left the canvas in freeform and
   // the second took the grid's last edit (a calibration) with it (phage3-08).
@@ -29361,6 +29379,33 @@ function _parseDelimited(text){
   // Drop fully-empty trailing rows.
   while(rows.length && rows[rows.length-1].every(v=>v===''||v==null)) rows.pop();
   if(!rows.length) return {columns:[],rows:[],delim};
+  // A plate reader's export as the reader wrote it (Tecan i-control, BioTek Gen5): an
+  // instrument block of settings above the table, a line or two after it ("End Time"), and
+  // on a Tecan the wells may run down the rows (Cycle Nr., Time [s], Temp., A1 … across).
+  // The table is the block that starts at a row holding a time or cycle header and three
+  // well names or more (A1 … H12) — across the row, or down the first column. Everything
+  // above it is skipped and the reading says so; wells in rows are turned to one column
+  // per well. The block above used to be read as the table, cut to the width of its first
+  // line: "Application: Tecan i-control" against 2 columns (charts5-02/03, phage5-03).
+  let instrument=null;
+  { const ct=v=>String(v??'').trim(), well=v=>/^[A-Pa-p]0?\d{1,2}$/.test(ct(v)), tHead=v=>/^(time|cycle|kinetic|zeit|temps|tiempo)\b/i.test(ct(v));
+    const blank=r=>r.every(v=>ct(v)==='');
+    let k=rows.findIndex(r=>r.some(tHead)&&r.filter(well).length>=3), across=k>=0;
+    if(!across) for(let i=0;i<rows.length&&k<0;i++){
+      if(!tHead(rows[i][0])||rows[i].slice(1).filter(v=>/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(ct(v))).length<2) continue;
+      let j=i+1, w=0; while(j<rows.length&&!blank(rows[j])){ if(well(rows[j][0])) w++; j++; }
+      if(w>=3) k=i; }
+    if(k>=0){
+      let e=k+1; while(e<rows.length&&!blank(rows[e])) e++;
+      const below=rows.slice(e).filter(r=>!blank(r));
+      let block=rows.slice(k,e);
+      if(!across){ const W=Math.max(...block.map(r=>r.length));
+        block=Array.from({length:W},(_,c)=>block.map(r=>r[c]??''));
+        while(block.length>1&&blank(block[block.length-1])) block.pop(); }
+      if(k>0||below.length||!across){
+        instrument={lines:k, transposed:!across, at:ct(across?block[0].find(tHead):block[0][0]), below:below.length, belowFirst:below.length?ct(below[0].find(v=>ct(v)!=='')).replace(/:$/,''):''};
+        rows.length=0; block.forEach(r=>rows.push(r)); }
+    } }
   const columns=rows.shift().map(h=>String(h).trim());
   const numRe=/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
   // A semicolon or tab file is how Excel writes CSV where the comma is the decimal mark
@@ -29399,7 +29444,20 @@ function _parseDelimited(text){
     body.forEach(r=>{ const v=r[ci]; if(v===''||v==null) return; const t=sec(v); r[ci]=+(unit==='h'?t/3600:t/60).toFixed(6); });
     durations.push({col:c, unit, form:three?'h:mm:ss':'h:mm'});
   });
-  return {columns, rows:body, delim, units, decimalComma, comments, cutBlock, durations};
+  // Time in seconds ("Time [s]", a Tecan's): read in hours when the run is three hours or
+  // longer, else in minutes, as h:mm:ss is, and the column takes that unit in its name —
+  // so the data box (read again on every edit) is not divided a second time. A 12 h run
+  // was drawn on a 0–43 200 axis with no title (charts5-04).
+  columns.forEach((c,ci)=>{
+    if(!/^(time|zeit|temps|tiempo)\s*[\[(]\s*(s|sec|secs|seconds?|sek)\s*[\])]$/i.test(c)) return;
+    const cells=body.map(r=>r[ci]).filter(v=>v!==''&&v!=null);
+    if(!cells.length||!cells.every(v=>typeof v==='number'&&isFinite(v))) return;
+    const unit=Math.max(...cells)>=3*3600?'h':'min', name=`${c.replace(/\s*[\[(].*$/,'')} (${unit})`;
+    if(columns.some((o,oi)=>oi!==ci&&o===name)) return;
+    body.forEach(r=>{ const v=r[ci]; if(typeof v==='number') r[ci]=+(unit==='h'?v/3600:v/60).toFixed(6); });
+    columns[ci]=name; durations.push({col:name, unit, form:'seconds', was:c});
+  });
+  return {columns, rows:body, delim, units, decimalComma, comments, cutBlock, durations, instrument};
 }
 
 // Min/max via reduce — spreading a big array into Math.min(...) throws RangeError
@@ -29532,8 +29590,11 @@ function _chartColName(cols, i){ return String((cols&&cols[i])!=null&&cols[i]!==
 const _CH_REP_SUF=/^(.+?)(?:[\s_.\-]*(?:replicate|rep)|[\s_.\-]+r)[\s_.\-]?(\d+)$/i;
 const _CH_REP_PRE=/^(?:replicate|rep|r)[\s_.\-]?(\d+)[\s_.\-]+(.+)$/i;
 // Bare replicate columns ("Rep1, Rep2, Rep3", "R1", "Replicate 2") are replicates of one
-// value with no name of its own: their base is "Mean".
-const _CH_REP_BARE=/^(?:replicate|rep|r|bio(?:logical)?[\s_.\-]*rep(?:licate)?)[\s_.\-#]?(\d+)$/i;
+// value with no name of its own: their base is "Mean". So are columns numbered by what was
+// repeated — Culture1–3, Mouse 1, Exp_2, Donor3, Run 1 — and a spreadsheet's own Column1,
+// Column2: they were averaged only when headed Rep (fluor5-08, newcomer5-03). Columns
+// numbered by time or dose (Day1, Day2) are not replicates and are not among these.
+const _CH_REP_BARE=/^(?:replicate|rep|r|bio(?:logical)?[\s_.\-]*rep(?:licate)?|tech(?:nical)?[\s_.\-]*rep(?:licate)?|cultures?|mouse|mice|animal|rat|exp|expt|experiment|trial|batch|donor|patient|subject|clone|isolate|biorep|run|repeat|column|col|n)[\s_.\-#]?(\d+)$/i;
 function _chartRepBase(name){
   const s=String(name??'').trim(); if(_CH_REP_BARE.test(s)) return 'Mean';
   let m=_CH_REP_SUF.exec(s); if(m) return m[1];
@@ -29574,7 +29635,7 @@ function _chartErrMap(ch){
 }
 // Column ids that are never a plotted value: replicate number, sample id, well.
 // In other languages too (Replikat, réplica, Wiederholung), and biological/technical replicate.
-const _CH_ID_RE=/^(rep|reps|replicates?|replikate?|replicat[aeo]|r[ée]plicas?|r[ée]pliques?|wiederholung|wdh|(bio(logical)?|tech(nical)?)[\s_.]*rep(licate)?s?|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|probe[\s_#.]*(nr|no)|well|#|index|row|run|tube)$/i;
+const _CH_ID_RE=/^(rep|reps|replicates?|replikate?|replicat[aeo]|r[ée]plicas?|r[ée]pliques?|wiederholung|wdh|(bio(logical)?|tech(nical)?)[\s_.]*rep(licate)?s?|rep(licate)?[\s_#.]*(no|nr|n|num|number|id)|id|sample[\s_#.]*(no|nr|n|num|number|id)|probe[\s_#.]*(nr|no)|cycle[\s_#.]*(no|nr|n|num|number)\.?|kinetic[\s_]*(cycle|read)s?|well|#|index|row|run|tube)$/i;
 // A header that names a measured or x quantity, not a group: a two-column table of these
 // is x against y (a scatter), of anything else one group per column.
 const _CH_QTY_RE=new RegExp('(^|[^a-zäöü])(time|zeit|temps|tiempo|hours?|hrs?|h|min|mins|minutes?|stunden?|days?|tage?|d|weeks?|wochen?|months?|passages?|cycles?|generations?|gen|rounds?|visits?|stages?|dilutions?|doses?|dosis|conc|concentration|konz|od|od\\d+|abs|absorbance|a\\d{3}|fluor|fluorescence|signal|intensity|area|fl[äa]che|length|l[äa]nge|width|diam|diameter|mass|weight|gewicht|temp|temperature|ph|x|y|counts?|cfu|pfu|titer|titre|rate|ratio|yield|volume|value|wert|mm|µm|um|nm|ml|µg|ug|mg)(?=$|[^a-zäöü])|\\(.*\\)','i');
@@ -29641,7 +29702,10 @@ function _chartShape(ch, warn){
   // unit, the commonest (blot5-03). Any lane not shown as a number: none are.
   const lnx=numericX&&ch.link?_chartLaneNumX(ch, rows.map(r=>r[xc]).filter(v=>typeof v==='string'&&v)):null;
   rows.forEach(r=>{
-    if(wide){ yCols.forEach(yc=>{ const y=num(r[yc]); if(!isFinite(y)) return; if(yLog&&y<=0){ warn.dropped++; return; }
+    // A value ≤ 0 on a log axis is kept: it is averaged with the others, and the mean is
+    // drawn at the axis floor if it is ≤ 0 (_chartDraw). Dropping it first made 0, 100, 0
+    // a mean of 100 with n = 1 (charts5-05).
+    if(wide){ yCols.forEach(yc=>{ const y=num(r[yc]); if(!isFinite(y)) return;
       obs.push({cat:_chartColName(cols,yc), s:'', x:NaN, y, e:NaN}); }); return; }
     const cat=String(r[xc]??''); let xv=num(r[xc]);
     if(numericX&&!isFinite(xv)&&lnx&&lnx.has(cat)) xv=lnx.get(cat);
@@ -29654,7 +29718,7 @@ function _chartShape(ch, warn){
     sdefs.forEach(sd=>sd.cols.forEach(yc=>{
       const y=num(r[yc])-blank; if(!isFinite(y)) return;
       any=true;
-      if((yLog&&y<=0)||(xLog&&xv<=0)){ warn.dropped++; return; }
+      if(xLog&&xv<=0){ warn.dropped++; return; }
       const ec=ecMap[yc]; obs.push({cat, s:sLabel(r,sd), x:xv, y, e:ec!=null?num(r[ec]):NaN});
     }));
     if(!numericX&&(any||cat!=='')) addCat(cat);
@@ -29725,7 +29789,10 @@ function _chartGuessDoubt(ch){
 function _chartGuessWords(im){
   const ch=im.chart, cols=(ch.data&&ch.data.columns)||[], m=ch.mapping||{};
   const K={bar:'bar chart', groupedBar:'grouped bar chart', stackedBar:'stacked bar chart', line:'line chart', scatter:'scatter plot', box:'box plot', violin:'violin plot', beeswarm:'dot plot', heatmap:'heatmap', survival:'survival curve'};
-  const ys=(m.yCols||[]).map(i=>_chartColName(cols,i)), x=m.layout==='columns'&&!_chartNumericX(ch.kind)?'':_chartColName(cols,m.xCol??0);
+  let ys=(m.yCols||[]).map(i=>_chartColName(cols,i)); const x=m.layout==='columns'&&!_chartNumericX(ch.kind)?'':_chartColName(cols,m.xCol??0);
+  // replicate columns are plotted as their mean: said so (it read "bar chart of Rep 1, Rep 2, Rep 3", newcomer5-03)
+  if(m.repCols&&_chartHasRepGroups(cols, m.yCols||[])){ const G=_chartRepGroups(cols, m.yCols||[]);
+    ys=G.length===1&&G[0].key==='Mean'?[`the mean of ${G[0].cols.map(i=>_chartColName(cols,i)).join(', ')}`]:[`${G.map(g=>g.key).join(', ')} (each the mean of its replicate columns)`]; }
   const sr=m.seriesCol!=null&&m.seriesCol!==''?_chartColName(cols,+m.seriesCol):'';
   return `${_rtText(formatLabel(im.label))||'?'}: ${K[ch.kind]||'chart'} of ${ys.length>3?ys.length+' columns':ys.join(', ')}${x?` ${_chartNumericX(ch.kind)?'against':'by'} ${x}`:''}${sr?` and ${sr}`:''}`;
 }
@@ -29736,7 +29803,7 @@ function _chartEmptyWhy(ch, short){
   if(S.obs.length) return '';
   const cols=(ch.data&&ch.data.columns)||[], xn=_chartColName(cols, (ch.mapping||{}).xCol??0);
   if(w.nonNumX) return short?`nothing drawn: x column “${xn}” holds no numbers`:`nothing drawn: the x column “${xn}” holds no numbers (“${w.xExample}”) — a ${ch.kind==='line'?'line':'scatter'} needs a numeric x; pick another X column, or a bar chart`;
-  if(w.dropped) return 'nothing drawn: every value is ≤ 0 on the log axis';
+  if(w.dropped) return 'nothing drawn: every x is ≤ 0 on the log axis';
   if((ch.data&&(ch.data.rows||[]).length)) return 'nothing drawn: the value columns hold no numbers — tick a numeric column under Y columns';
   return '';
 }
@@ -29881,6 +29948,10 @@ function _chartGuess(parsed){
   if(units){ if(M.layout!=='columns') g.xTitle=ut(M.xCol); if(M.yCols.length===1) g.yTitle=ut(M.yCols[0]); }
   // A plate reader's h:mm:ss time column, read as hours or minutes: the unit is the title's.
   const du=(parsed.durations||[]).find(d=>d.col===cols[M.xCol]);
+  // An x header that already reads as a title — a quantity with its unit, "Time (h)",
+  // "Dose [µg/mL]" — is the X title (charts5-13); a bare name ("time_h") is not.
+  const xh=String(cols[M.xCol]??'').trim();
+  if(!g.xTitle&&_chartNumericX(g.kind)&&/^[^()[\]]*[A-Za-zµ][^()[\]]*\s[\[(][^()[\]]+[\])]$/.test(xh)) g.xTitle=xh.replace(/\[([^\]]+)\]$/,'($1)');
   if(du&&!g.xTitle) g.xTitle=`${_chartColName(cols,M.xCol)} (${du.unit})`;
   // The value axis is titled from the value column when there is one (swim_diameter_mm):
   // a chart used to come with no y-axis title at all.
@@ -29944,6 +30015,8 @@ function _chartStats(el){
 
   const style=ch.style||{};
   const S=_chartShape(ch, warn), obs=S.obs;
+  // On a log axis only values above 0 set its range; the rest are drawn at its floor.
+  const yPos=a=>S.yLog?a.filter(v=>v>0):a;
   const disp=k=>_chartDisp(ch,k);
   // A chart's own keys (a plate's "Row B", a blot's "Lane 2") are another sample in another
   // chart: their colour goes by the name they are shown under, never by the bare key.
@@ -29973,7 +30046,7 @@ function _chartStats(el){
       if(kind==='scatter'&&aggOn&&style.showPoints&&p.n>1) p.vals.forEach(v=>ys.push(v)); }));
     return {kind, series, categories:null, aggregated:aggOn,
       xDomain:[_arrMin(xs,0),_arrMax(xs,1)],
-      yDomain:[_arrMin(ys,0),_arrMax(ys,1)], warn};
+      yDomain:[_arrMin(yPos(ys),0),_arrMax(yPos(ys),1)], warn};
   }
 
   const catKeys=S.cats, cats=catKeys.map(disp);
@@ -30002,9 +30075,9 @@ function _chartStats(el){
     // the whisker, or added from the menu, keeps its SD.)
     const ek=kind==='beeswarm'?(ch.error==='sem'?'sem':(ch.error==='none'&&ch.whiskerOff)?'none':'sd'):'sd';
     boxes.forEach(b=>{ b.err=ek==='none'?0:ek==='sem'?b.sem:b.sd; b.errKind=ek; });
-    const all=boxes.flatMap(b=>b.raw);
+    const all=yPos(boxes.flatMap(b=>b.raw));
     if(kind==='beeswarm') boxes.forEach(b=>{ if(b.err>0){ all.push(b.mean+b.err); if(!(S.yLog&&b.mean-b.err<=0)) all.push(b.mean-b.err); } });
-    let yd=[_arrMin(all,0),_arrMax(all,1)];
+    let yd=[_arrMin(yPos(all),0),_arrMax(yPos(all),1)];
     if(kind==='violin'&&!S.yLog){ const pad=((yd[1]-yd[0])*0.14)||1; yd=[yd[0]-pad, yd[1]+pad]; }  // headroom for KDE tails
     return {kind, boxes, categories:cats, catKeys, series:null, nSeries:multi?S.skeys.length:1,
       seriesNames:multi?S.skeys.map((k,si)=>({name:sNames[si], key:k, color:scol[si]})):undefined, yDomain:yd, warn};
@@ -30271,14 +30344,17 @@ function _chartDraw(el, emit){
     if(!xLog&&!xA.user&&xs.length>=2&&xs.length<=8) xDataTicks=xs;
   }
   // Values the axis limits leave out, counted and said on the figure.
-  const inY=v=>v>=ymin-1e-12*Math.abs(ymax-ymin)&&v<=ymax+1e-12*Math.abs(ymax-ymin);
+  // On a log axis a value ≤ 0 has no place: it is drawn at the axis floor, open, and said
+  // (charts5-05) — not left out, which changed the mean and n.
+  const inY=v=>(yLog&&v<=0)||(v>=ymin-1e-12*Math.abs(ymax-ymin)&&v<=ymax+1e-12*Math.abs(ymax-ymin));
+  const floorN=_chartLogFloorCount(stat, yLog, st);
   let outside=0, cut=0;
   if(stat.series){ const xin=v=>!xA||(v>=xA.min-1e-12&&v<=xA.max+1e-12);
     stat.series.forEach(s=>s.points.forEach(p=>{ if(!inY(p.y)||!xin(p.x)) outside++; else if(p.err>0&&(p.y+p.err>ymax||(p.y-p.err<ymin&&!(yLog&&p.y-p.err<=0)))) cut++; })); }
   // A stacked bar draws neither error bars nor points: they are not counted (a red note
   // about values outside the axis used to appear with no limit set). Its stacks are.
   if(stat.groups&&stat.kind==='stackedBar') stat.groups.forEach(g=>{ let cum=0; g.bars.forEach(b=>{ if(b.missing) return; cum+=b.value; if(cum>ymax+1e-12*Math.abs(ymax-ymin)||cum<ymin-1e-12*Math.abs(ymax-ymin)) outside++; }); });
-  else if(stat.groups) stat.groups.forEach(g=>g.bars.forEach(b=>{ if(b.missing) return; if(b.value>ymax||(yLog&&b.value<ymin)) outside++;
+  else if(stat.groups) stat.groups.forEach(g=>g.bars.forEach(b=>{ if(b.missing) return; if(b.value>ymax||(yLog&&b.value>0&&b.value<ymin)) outside++;
     else if(b.err>0&&b.value+b.err>ymax) cut++;
     if(st.showPoints&&b.vals&&b.vals.length>1) b.vals.forEach(v=>{ if(!inY(v)) outside++; }); }));
   if(stat.boxes) stat.boxes.forEach(b=>b.raw.forEach(v=>{ if(!inY(v)) outside++; }));
@@ -30286,7 +30362,8 @@ function _chartDraw(el, emit){
   // Integrity: a non-zero bar baseline visually exaggerates differences — disclose it.
   if(stat.categories && stat.kind!=='box' && !yLog && axY.min!=null && axY.min!=='' && +axY.min>0)
     notes.push(`⚠ y-axis starts at ${axY.min}, not 0 — bar differences are visually exaggerated`);
-  if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} ≤0 omitted (log axis)`);
+  if(stat.warn && stat.warn.dropped>0) notes.push(`${stat.warn.dropped} value${stat.warn.dropped>1?'s':''} at x ≤0 omitted (log axis)`);
+  if(floorN.means||floorN.values) notes.push(`○ ${_chartLogFloorWords(floorN)} drawn at the axis floor (${_rtText(yA.labels[0]!=null&&yA.ticks[0]===ymin?yA.labels[0]:_fmtTick(ymin))}), open`);
   // An empty plot says why (a time column of text, no numeric values), on the figure.
   if((stat.series&&stat.series.every(s=>!s.points.length))||(stat.groups&&stat.groups.every(g=>g.bars.every(b=>b.missing)))||(stat.boxes&&!stat.boxes.some(b=>b.n))){
     const ew=_chartEmptyWhy(ch, true); if(ew) notes.push('⚠ '+ew); }
@@ -30399,7 +30476,7 @@ function _chartDraw(el, emit){
     emit.line(px0,py1,px1,py1,ink,axW);                   // x axis
     emit.line(px0,py0,px0,py1,ink,axW);                   // y axis
   }
-  const yScale=_chartScaleFn(yA, py1, py0);
+  const yScale0=_chartScaleFn(yA, py1, py0), yScale=yLog?(v=>v>0?yScale0(v):py1):yScale0;   // ≤ 0 on a log axis: its floor
   // Y grid + ticks (minor ticks on a log axis, unlabelled).
   yA.ticks.forEach((t,i)=>{
     const y=yScale(t);
@@ -30467,7 +30544,7 @@ function _chartDraw(el, emit){
           if(!(yLog&&b.mean-e<=0)) emit.line(cx-bw*0.3,yScale(b.mean-e),cx+bw*0.3,yScale(b.mean-e),'#222222',1.2);
           lift(ci, yScale(b.mean+e), cx); }  // ± SD or SEM, as Error bars says
         clipOff();
-        if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr, cx); });
+        if(b.raw) b.raw.forEach((v,k)=>{ if(!inY(v)) return; if(yLog&&v<=0) emit.circle(cx+_jit(k)*bw, py1, pr, '#ffffff', b.color, 1.2); else emit.circle(cx+_jit(k)*bw, yScale(v), pr, b.color, '#333333', 0.5); lift(ci, yScale(v)-pr, cx); });
       });
     } else if(stat.kind==='box'){
       const bw=bW*0.5, pr=Math.max(1.8,(st.pointSize||4)-1.5);
@@ -30506,6 +30583,7 @@ function _chartDraw(el, emit){
             const bx=gx+slot*si+(slot-barW)/2;
             if(b.missing){ dots.push({nd:true, x:bx+barW/2, y:base0-3}); return; }
             const by=yScale(b.value);
+            if(yLog&&b.value<=0) dots.push({x:bx+barW/2, y:py1, c:b.color, open:true});   // a mean ≤ 0: marked at the floor
             emit.rect(bx,Math.min(by,base0),barW,Math.abs(base0-by),b.color,ink,0.5);
             lift(ci, Math.min(by,base0), bx+barW/2);
             if(b.err>0){ const ex=bx+barW/2;
@@ -30517,7 +30595,7 @@ function _chartDraw(el, emit){
               lift(ci, yScale(capV), ex); }
             // Overlay the replicate values (jittered) so the bar never hides its n/spread.
             if(st.showPoints && b.vals && b.vals.length>1){ const bcx=bx+barW/2;
-              b.vals.forEach((v,k)=>{ if(inY(v)){ dots.push({x:bcx+_jit(k)*barW*0.6, y:yScale(v), c:b.color}); lift(ci, yScale(v), bcx); } }); }
+              b.vals.forEach((v,k)=>{ if(inY(v)){ dots.push({x:bcx+_jit(k)*barW*0.6, y:yScale(v), c:b.color, open:yLog&&v<=0}); lift(ci, yScale(v), bcx); } }); }
           });
         }
       });
@@ -30527,6 +30605,7 @@ function _chartDraw(el, emit){
       // a light bar, a light dot with a dark edge on a dark one. Translucent black with a
       // white edge read as open circles in a black bar and filled ones above it (charts3-12).
       dots.forEach(d=>{ if(d.nd) emit.text('n.d.', d.x, d.y, font(T), '#555555', 'center', 'alphabetic');
+        else if(d.open) emit.circle(d.x, d.y, pr, '#ffffff', '#222222', 1);
         else { const dk=d.c&&luma(d.c)<110; emit.circle(d.x, d.y, pr, dk?'#d0d0d0':'#4d4d4d', dk?'#000000':'#ffffff', 0.6); } });
     }
     // Significance annotations (user-entered strings), on every category chart. Anchored
@@ -30595,11 +30674,12 @@ function _chartDraw(el, emit){
       }
       s.points.forEach(p=>{ if(!inY(p.y)||!inX(p.x)) return;
         if(stat.kind==='scatter'&&stat.aggregated&&st.showPoints&&p.n>1) p.vals.forEach((v,k)=>{ if(inY(v)) marks.push({x:xScale(p.x)+_jit(k)*6, y:yScale(v), r:Math.max(1.5,(st.pointSize||4)-2), fill:'rgba(20,20,20,0.45)', stroke:null}); });
+        if(yLog&&p.y<=0){ marks.push({x:xScale(p.x), y:py1, r:stat.kind==='line'?(st.pointSize||3):(st.pointSize||4), fill:'#ffffff', stroke:s.color, sw:1.2}); return; }   // at the floor, open
         if(stat.kind==='line'){ if(st.showPoints) marks.push({x:xScale(p.x), y:yScale(p.y), r:st.pointSize||3, fill:s.color, stroke:null}); }
         else marks.push({x:xScale(p.x), y:yScale(p.y), r:st.pointSize||4, fill:s.color, stroke:'#ffffff'}); });
     });
     clipOff();
-    marks.forEach(m=>emit.circle(m.x,m.y,m.r,m.fill,m.stroke,m.stroke?0.5:0));
+    marks.forEach(m=>emit.circle(m.x,m.y,m.r,m.fill,m.stroke,m.sw||(m.stroke?0.5:0)));
     if(ch.fit&&ch.fit.on&&(ch.fit.showEq||ch.fit.showR2)) stat.series.forEach((s,si)=>{
       const f=_chartLinFit(s.points), parts=[]; if(ch.fit.showEq) parts.push(`y=${f.m.toFixed(2)}x+${f.b.toFixed(2)}`); if(ch.fit.showR2) parts.push(`R²=${f.r2.toFixed(2)}`);
       emit.text(parts.join('  '), px1-4, py0+12*u+si*(T+2), font(T), s.color, 'right', 'alphabetic'); });
@@ -30718,6 +30798,29 @@ function _fmtTick(v){
 // Render a chart element into the freeform canvas ctx (local space already set up).
 // While a gesture is active we blit a cached raster proxy so drags stay smooth —
 // _chartStats never re-runs per frame, and export never touches the proxy.
+// What a log axis draws at its floor because it is ≤ 0: means (points, bars, a beeswarm's
+// mean) and single values (overlaid replicates, beeswarm dots). {means, values}.
+function _chartLogFloorCount(stat, yLog, st){
+  const o={means:0, values:0}; if(!yLog||!stat) return o;
+  if(stat.series) stat.series.forEach(s=>s.points.forEach(p=>{ if(p.y<=0){ if(p.n>1) o.means++; else o.values++; } }));   // a point of one value is a value
+  if(stat.groups&&stat.kind!=='stackedBar') stat.groups.forEach(g=>g.bars.forEach(b=>{ if(b.missing) return; if(b.value<=0) o.means++;
+    if(st&&st.showPoints&&b.vals&&b.vals.length>1) b.vals.forEach(v=>{ if(v<=0) o.values++; }); }));
+  if(stat.boxes) stat.boxes.forEach(b=>{ if(stat.kind==='beeswarm'&&b.mean<=0) o.means++; (b.raw||[]).forEach(v=>{ if(v<=0) o.values++; }); });
+  return o;
+}
+function _chartLogFloorWords(o){
+  return [o.means?`${o.means} mean${o.means>1?'s':''} ≤ 0`:'', o.values?`${o.values} value${o.values>1?'s':''} ≤ 0`:''].filter(Boolean).join(' and ');
+}
+// The same for a chart element, with the floor's value: for the caption and source data.
+function _chartLogFloor(el){
+  const ch=el.chart, ax=(ch.axes&&ch.axes.y)||{};
+  if(!ax.log||_chartLogWhy(ch.kind,'y')) return null;
+  let stat=null; try{ stat=_chartStatsCached(el); }catch(e){ return null; }
+  if(!stat||(!stat.series&&!stat.groups&&!stat.boxes)) return null;
+  const o=_chartLogFloorCount(stat, true, ch.style||{}); if(!o.means&&!o.values) return null;
+  o.floor=_chartAxisSpec(stat.yDomain||[0,1], ax, {log:true}).min;
+  return o;
+}
 function _chartGesturing(){ return !!(elemDragState||elemResizeState||elemRotateState); }
 function _drawChartElement(el, ctx, isExport){
   if(!el.chart){ return; }   // half-built or legacy element: draw nothing, never throw
@@ -30903,7 +31006,27 @@ function addChartElement(kind){
 // the chart is added. opts.holdMode (a drop that also held images) adds it without
 // opening the editor over the figure.
 // What reading a table left out: the comment lines over it, a commented block below it.
-function _csvSkipNote(P){ return (P.comments?` — ${P.comments} comment line${P.comments>1?'s':''} (#) over the table skipped`:'')+(P.cutBlock?`; the “${P.cutBlock}” block below it left out`:''); }
+function _csvSkipNote(P){ return (P.comments?` — ${P.comments} comment line${P.comments>1?'s':''} (#) over the table skipped`:'')+(P.cutBlock?`; the “${P.cutBlock}” block below it left out`:'')+(P.instrument?' — '+_csvInstrumentNote(P.instrument):''); }
+// What reading a plate reader's export skipped or turned (_parseDelimited), in words.
+function _csvInstrumentNote(I){
+  if(!I) return '';
+  const b=[];
+  if(I.lines) b.push(`${I.lines} instrument line${I.lines>1?'s':''} above the table skipped (it starts at “${I.at}”)`);
+  if(I.transposed) b.push('the wells ran down the rows: turned to one column per well');
+  if(I.below) b.push(`${I.below} line${I.below>1?'s':''} below it${I.belowFirst?` (“${I.belowFirst}”)`:''} left out`);
+  return b.join('; ');
+}
+// Time columns read from another form, in words: "Time read as h:mm:ss time, in hours".
+function _csvDurationsNote(D){ return (D||[]).map(d=>d.form==='seconds'?`${d.was} read as seconds, in ${d.unit==='h'?'hours':'minutes'} (${d.col})`:`${d.col} read as ${d.form} time, in ${d.unit==='h'?'hours':'minutes'}`).join(', '); }
+// "swim_diameters_mm.csv" → "swim diameters (mm)": a file name ending in a unit, as a title; else ''.
+function _chartTitleFromFile(name){
+  const w=String(name||'').replace(/\.[a-z0-9]{1,5}$/i,'').split(/[\s_\-]+/).filter(Boolean);
+  if(w.length<2) return '';
+  const U={mm:'mm', cm:'cm', um:'µm', 'µm':'µm', nm:'nm', ml:'mL', ul:'µL', 'µl':'µL', mg:'mg', ug:'µg', 'µg':'µg', ng:'ng', cfu:'CFU', pfu:'PFU', pct:'%', percent:'%'};
+  const u=U[w[w.length-1].toLowerCase()]; if(!u) return '';
+  const body=w.slice(0,-1).filter(t=>!/^\d{6,8}$/.test(t)&&!/^v\d+$/i.test(t));   // dates and versions are not words of the title
+  return body.length?`${body.join(' ')} (${u})`:'';
+}
 function _loadDataFile(f, fail, opts){
   const hold=!!(opts&&opts.holdMode);
   return new Promise(settle=>{
@@ -30916,10 +31039,14 @@ function _loadDataFile(f, fail, opts){
     const W=canvasLogicalW||parseInt((document.getElementById('fm-canvas-w')||{}).value)||1200;
     const H=canvasLogicalH||parseInt((document.getElementById('fm-canvas-h')||{}).value)||900;
     const w=380,h=280, ch=_defaultChart('bar');
-    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name, units:parsed.units||null, durations:parsed.durations&&parsed.durations.length?parsed.durations:null};
+    ch.data={columns:parsed.columns, rows:parsed.rows, source:'file', sourceName:f.name, units:parsed.units||null, durations:parsed.durations&&parsed.durations.length?parsed.durations:null, ...(parsed.instrument?{instrument:parsed.instrument}:{})};
     // A first guess from the table's shape — X, values, error columns, layout, series,
     // chart type — every part of it a control in the dialog that opens next.
     _chartApplyGuess(ch, _chartGuess(parsed), false);
+    // Replicate columns have no value column to name the Y axis: a file name that ends in
+    // its unit ("swim_diameters_mm.csv") gives it — "swim diameters (mm)" — and the dialog
+    // shows it to change (newcomer5-03). A chart came with no Y title at all.
+    if(!ch.axes.y.title&&ch.mapping.repCols){ const t=_chartTitleFromFile(f.name); if(t){ ch.axes.y.title=t; ch.axes.y.autoTitle=t; } }
     if(layoutMode!=='freeform'){
       const im=_addDataPanel('chart', ch, w, h, f.name||'chart');
       logAction('chartImport',{rows:parsed.rows.length, cols:parsed.columns.length, source:'file'});
@@ -31663,6 +31790,8 @@ function _chartReparse(force){
   if(!parsed.columns.length||!parsed.rows.length){ _chartModalRefresh(); return; }
   const sameHead=JSON.stringify(parsed.columns)===JSON.stringify(ch.data.columns||[]);
   ch.data=Object.assign({}, ch.data, {columns:parsed.columns, rows:parsed.rows, units:parsed.units||null, durations:parsed.durations&&parsed.durations.length?parsed.durations:(sameHead?ch.data.durations||null:null)});
+  // what reading the export skipped stays said while the table is the one it gave
+  if(parsed.instrument) ch.data.instrument=parsed.instrument; else if(!sameHead) delete ch.data.instrument;
   if(!sameHead||force){
     _chartReadControls();
     // A new table keeps the chart type the author chose; the rest is guessed afresh.
@@ -31717,7 +31846,8 @@ function _chartModalRefresh(){
   if(pn.decimalComma) bits.push(`${pn.decimalComma} decimal comma${pn.decimalComma>1?'s':''} read as points`);
   if(pn.skip) bits.push(pn.skip.replace(/^ — /,''));
   if(pn.empty) bits.push('⚠ no rows read yet — a header row and at least one data row');
-  if(D.durations&&D.durations.length) bits.push(D.durations.map(d=>`${d.col} read as ${d.form} time, in ${d.unit==='h'?'hours':'minutes'}`).join(', '));
+  if(D.instrument&&!String(pn.skip||'').includes(_csvInstrumentNote(D.instrument))) bits.push(_csvInstrumentNote(D.instrument));
+  if(D.durations&&D.durations.length) bits.push(_csvDurationsNote(D.durations));
   { const un=_chartUnusedNote(ch); if(un) bits.push(un); }
   { const ew=_chartEmptyWhy(ch); if(ew) bits.push('⚠ '+ew); }
   { const tl=_chartTempLeftOut(ch); if(tl) bits.push(tl); }
