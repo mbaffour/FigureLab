@@ -380,6 +380,56 @@ const PHRASES = {
     return `panel shape ${s0}:1 → Fit ${s1}:1 → PLOS ONE preset ${s2}:1`;
   });
 
+  // ---- round 4 tips -------------------------------------------------------------------------
+  // (on the two-blot figure the step above left)
+  await step(T, 'Right-click a panel while another panel\'s ⚙ is open: the open settings move to the panel you right-clicked', async () => {
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(300);
+    const rows = p.locator('#img-list > .img-item');
+    await rows.nth(0).locator('button', { hasText: '⚙' }).first().click(); await p.waitForTimeout(300);
+    const pt = await clickPanel('B', 0.5, 0.5, 'none');
+    await p.mouse.click(pt.x, pt.y, { button: 'right' }); await p.waitForTimeout(400);
+    const open = await p.evaluate(() => [...document.querySelectorAll('#img-list > .img-item')].map((r, i) => r.querySelector('.img-settings.open') ? i : -1).filter(i => i >= 0));
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    expect(open.length === 1 && open[0] === 1, 'settings open on rows ' + JSON.stringify(open));
+    for (const r of await rows.all()) if (await r.locator('.img-settings.open').count()) await r.locator('button', { hasText: '⚙' }).first().click();
+    return 'settings open on panel B only (row ' + (open[0] + 1) + ')';
+  });
+
+  await step(T, 'Ctrl/⌘+S saves the session from inside a text box (the caption box)', async () => {
+    await L.openSection(T, 'Export');
+    await p.locator('#caption-out').click();
+    const f = await L.download(T, () => p.keyboard.press('ControlOrMeta+s'), /\.json$/);
+    return 'focus in the caption box → ' + path.basename(f);
+  });
+
+  await step(T, 'Caption: a sentence typed at the end of the caption is replaced by ✦ Regenerate; the same sentence as the Chart dialog\'s Caption note stays', async () => {
+    const csv = path.join(inp, 'od_tips.csv');
+    require('fs').writeFileSync(csv, 'strain,replicate,OD600\nWT,1,1.10\nWT,2,1.20\nWT,3,1.15\nKO,1,0.60\nKO,2,0.55\nKO,3,0.65\n');
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [csv]);
+    const chart = p.locator('#chart-modal'); await chart.waitFor({ state: 'visible' }); await p.waitForTimeout(300);
+    const NOTE = 'Mean ± SD of three biological replicates; Welch t-test.';
+    await chart.locator('#chart-caption').fill(NOTE);
+    await chart.getByRole('button', { name: 'Apply' }).click(); await p.waitForTimeout(600);
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(500);
+    const cap0 = await p.locator('#caption-out').inputValue();
+    const TYPED = ' Strains were grown in LB at 37 °C.';
+    await p.locator('#caption-out').fill(cap0 + TYPED); await p.locator('#caption-out').press('Tab'); await p.waitForTimeout(300);
+    // a change to the figure: a caption note on the first blot
+    const r0 = p.locator('#img-list > .img-item').first();
+    if (!(await r0.locator('.img-settings.open').count())) await r0.locator('button', { hasText: '⚙' }).first().click();
+    await r0.locator('input.f-cap').fill('PhoA western blot'); await r0.locator('input.f-cap').press('Enter'); await p.waitForTimeout(800);
+    await r0.locator('button', { hasText: '⚙' }).first().click();
+    await L.openSection(T, 'Export');
+    const flag = p.locator('#caption-stale');
+    await flag.waitFor({ state: 'visible', timeout: 5000 });
+    const ft = (await flag.innerText()).replace(/\s+/g, ' ');
+    await flag.locator('a', { hasText: 'Regenerate' }).click(); await p.waitForTimeout(500);
+    const cap1 = await p.locator('#caption-out').inputValue();
+    expect(cap0.includes(NOTE) && cap1.includes(NOTE) && cap1.includes('PhoA western blot') && !cap1.includes('Strains were grown'), JSON.stringify({ cap0: cap0.slice(-200), cap1: cap1.slice(-200) }));
+    return `flag "${ft}"; after ✦ Regenerate the chart's note stays ("${NOTE}") and the typed sentence is gone`;
+  });
+
   await L.finish(T);
 })();
 

@@ -108,7 +108,7 @@ Marks drawn over an object are pinned to it and move with it (Shift+→ on panel
 2. Press <kbd>⌘K</kbd>, type `graphical abstract`, and press <kbd>Enter</kbd> on **Canvas: graphical abstract (Elsevier)**. The canvas becomes 1328 × 531 px, exported at 300 DPI (112.4 mm wide), and a note gives Elsevier's rule and where it was read. Close it with <kbd>Esc</kbd>.
    - **Canvas: square graphical abstract (custom size — check your journal)** gives 1200 × 1200 px; it is not a checked specification. Switching an existing abstract to it keeps every object's place in px and names anything now past the edge, for example "Canvas 1200×1200: 1 object (Bacterium) reaches past the edge … — nothing was moved; drag them in or make the canvas larger".
 3. **Annotate & Draw › Insert icon**: click an icon (here Bacteriophage and Bacterium; **Show all 210 icons** lists the rest). Icons arrive with no letter, and the **Elements** list names them ("Bacteriophage", "Bacterium").
-4. Add a photo with **Drop or click to add images**, set its **W** and **Clip ◯**.
+4. Add a photo with **Drop or click to add images**, set its **W** (300) and **Clip ◯**, and type a rough **X** (500) so it sits between where the two icons will go. A new picture lands at the left; left there, Distribute (step 6) would keep it as an outer object and put an icon in the middle.
 5. Size and place the outer two first: phage **H** 220, **X** 80; bacterium **W** 220, **X** 1028.
 6. Click beside the canvas, press <kbd>Ctrl/⌘+A</kbd>, then **↕** (centres in a line), **←→** (equal gaps; here "3 items, 247.85 px apart"), and type **Y** 156. With several selected, **Y** is the top of the box around them; that box is as tall as the tallest object (the 300 px plate), so Y 156 centres the row in the space under the 80 px title band (80 to 531). Y 116 would centre it on the whole canvas, high under the title.
 7. Title: **⬜ TextBox**, drag a box, select it, then type **X** 80, **Y** 16, **W** 1168, **H** 64 and the text, for example `Phage phiGuide lyses *E. coli* K-12 within 90 min at 10^{8} PFU/mL`. Set **Fnt** 32 and a dark **Color**, and untick **Fill** so no box is drawn. The compliance check measures text boxes too, superscripts included (they print at 70 % of the text), so keep the title's Fnt large enough for its 10⁸.
@@ -135,7 +135,7 @@ These work on the results figure from §1–§6.
 ## 10. Replace a picture
 
 1. Right-click the picture on the canvas › **⇄ Replace image…** (the menu has **⇄ Replace image…** and **✕ Delete object**) and pick the new file.
-2. The picture keeps its place, width, crop, letter and caption note. A file of another shape keeps the width and takes the height its picture needs, and the toast says so. In the test, the 4:3 photo B replaced by a square one: "Picture B: phase_rods.png → phase_rods_rerun.png — … caption note kept: “Phase contrast of strain MG1655” — edit it in ⚙ if it no longer fits; box height 300 → 400 px so the new picture keeps its shape — check what sits below it".
+2. The picture keeps its place, width, crop, letter and caption note. A file of another shape keeps the width and takes the height its picture needs, and the toast says so. In the test, the 4:3 photo B replaced by a square one: "Picture B: phase_rods.png → phase_rods_rerun.png — place, crop, letter and settings kept; caption note kept: “Phase contrast of strain MG1655” — edit it in the Props bar › Caption note if it no longer fits; box height 300 → 400 px so the new picture keeps its shape — check what sits below it".
 3. If the box grew, move what sits below it, and edit the **Caption note** if the new picture shows something else.
 4. The caption, `metadata.csv` and `PANEL_HISTORY.txt` name the new file ("── B ── (source: phase_rods_rerun.png)" in the test package). One <kbd>Ctrl/⌘+Z</kbd> puts the old picture back.
 
@@ -145,7 +145,8 @@ Freeform sizes are in canvas px, but text in charts, gene maps, letters and scal
 
 1. Change **Export › Printed width**. Narrowing it says by how much: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
 2. Enlarge the chart and gene-map boxes (W and H) until their words fit again; there is no "scale everything".
-3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**.
+3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**, or click the row's **Raise to 6 pt**, which raises every text under 6 pt in one undo step ("Text raised to 6 pt"; the label then read 6.0 pt).
+4. If the legend key is on the figure (**Export › Place the key on the figure**, with **Below** in the menu beside it), it keeps out of the way of what you move or enlarge. In the test, the key placed Below grew the canvas from 798 to 819 px ("The legend key needed free space, so the canvas height grew from 798 to 819 px — it sits there without covering anything"); moving the gene map 100 px down into the key's place moved the key below the map, the canvas grew to 839 px, and the compliance report's **Legend key on the figure** row still read "The placed key sits in free space, inside the figure ✓". Re-run the check after each revision: that row says whether the key covers anything. A canvas that grows for the key prints every picture a little smaller at a fixed printed width.
 
 Best of all, choose the printed width before you lay out (§1.3).
 
@@ -165,7 +166,7 @@ A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
 - Place the outermost objects first, then Distribute; set rough positions before Align.
 - Type sizes in **mm** when the journal gives panel sizes in mm.
 - Choose **Export › Printed width** before typing sizes in pt or mm, and keep annotation **Fnt** (px) large enough to print at 6 pt or more; the compliance check's **Text size** row tells you.
-- Replace a picture in place (right-click › **⇄ Replace image…**) rather than deleting it and adding the new file: the letter, crop and caption note stay.
+- Replace a picture in place (right-click › **⇄ Replace image…**) rather than deleting it and adding the new file: the letter, crop and caption note stay. The toast says to edit the note in the Props bar › **Caption note** if it no longer fits.
 - Save versions with **Export › Session library › ＋ Save current to library**, and keep the <kbd>Ctrl/⌘+S</kbd> session file.
 - A chart in freeform is drawn from its data with the same Chart dialog as in a grid ([charts.md](charts.md)). For a figure that mixes micrographs, charts and gene maps in rows, a grid is simpler ([phage-and-microbiology.md](phage-and-microbiology.md)).
 - More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).

@@ -49,7 +49,7 @@ Press <kbd>⌘K</kbd> (<kbd>Ctrl+K</kbd>), type a few words, press <kbd>Enter</k
 | <kbd>R</kbd> | Render (redraw) the figure |
 | <kbd>Ctrl/⌘+Z</kbd> | Undo |
 | <kbd>Ctrl/⌘+Shift+Z</kbd> or <kbd>Ctrl+Y</kbd> | Redo |
-| <kbd>Ctrl/⌘+S</kbd> | Save the session file, images included |
+| <kbd>Ctrl/⌘+S</kbd> | Save the session file, images included (also with the cursor in a text box) |
 | <kbd>Esc</kbd> | Close a dialog, leave a tool, deselect |
 | <kbd>Ctrl</kbd> + scroll | Zoom about the pointer |
 | <kbd>Space</kbd> + drag | Pan a zoomed figure (click the empty canvas first, so the Space is not typed into a field) |
@@ -85,12 +85,12 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 ## Marks that stay on their panel
 
 - **Double-click a panel, type, press <kbd>Enter</kbd>**: the text is pinned to that panel. In the test it stayed on panel A when A was spanned over two columns.
-- Marks drawn over a panel belong to it. Checked here: text and an arrow stayed on their panel through a span change, and MW labels and the lane table stayed on a blot through **⇄ Replace image…** ([Western blot](western-blot.md)). The fixers' notes add rulers and lane numbers, and reorder, width, row-height and crop changes. Draw a mark over the panel it belongs to.
+- Marks drawn over a panel belong to it. Checked here: text and an arrow stayed on their panel through a span change, and MW labels and the lane table stayed on a blot through **⇄ Replace image…**, the MW labels at the old scan's heights until **↻ Update from densitometry** moved them onto the new ladder ([Western blot](western-blot.md)). The fixers' notes add rulers and lane numbers, and reorder, width, row-height and crop changes. Draw a mark over the panel it belongs to.
 - **📌 Panel mode (annotations follow panels)** in Annotate & Draw attaches new marks to the panel you draw on. Select a mark with **↖ Select**, and its floating toolbar's **⧉ Repeat on…** menu copies it onto **panels in this row**, **panels in this match group** or **every panel** ("arrow repeated on 1 panel" in the test, for a two-panel row).
 
 ## Panels
 
-- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📏 Scale bar / calibrate…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more. **📏 Scale bar / calibrate…** is the way to a scale bar on a micrograph without calibration: its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar** (⌘K `add scale bar` does the same for the selected panel).
+- **Right-click a panel** on the canvas for **⇄ Replace image…**, **⧉ Add linked inset…**, **📏 Scale bar / calibrate…**, **📊 Edit chart…** (charts), **⚙ Open settings** and more. If another panel's ⚙ is open in the sidebar, it moves to the panel you right-clicked. **📏 Scale bar / calibrate…** is the way to a scale bar on a micrograph without calibration: its ⚙ opens at **Objective**, **🔬 Calibrate from image** and **🔍 Auto-detect scale bar** (⌘K `add scale bar` does the same for the selected panel).
 - **Drag one panel onto another** on the canvas to swap them; the letters follow position. From the keyboard: Tab to the figure, pick a panel with the arrow keys, <kbd>Shift</kbd>+arrow swaps it, <kbd>Enter</kbd> opens its settings. A screen reader hears each step ("Moved: … is now panel A; … Ctrl+Z undoes it").
 - **⌘K `trim` › Trim borders…** lists each panel with a margin and what it would lose. Blots, gels and micrographs on a black background start unticked, and a panel that would lose more than half its area is flagged; tick only the panels with a real border.
 - **⌘K `span`** with a panel selected opens its **Col span** / **Row span** fields; then **Arrange › ⊞ Fit grid to panels**.
@@ -117,14 +117,16 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 
 - **Export › Place the key on the figure** puts the key in free space: a margin, an empty cell or a free corner, never over a panel, letter or heading. With no room, a margin grows and a toast says by how much.
 - <kbd>⌘K</kbd> `legend key` › <kbd>Enter</kbd> places it too.
-- The **Where** menu beside it picks the place: **Free space**, a corner, **Right edge** or **Below**. A margin grown for the key's old place is given back when it moves.
+- The menu beside it (no label of its own) picks the place: **Free space**, a corner, **Right edge** or **Below**. A margin grown for the key's old place is given back when it moves.
 - After placing the key, untick each chart's **legend** in its Chart dialog, so the colours are explained once ([Charts](charts.md)).
+- In freeform, a placed key moves out of the way of objects moved into its place, and the canvas grows for it ([Freeform](freeform.md) §11).
 - Drag the key with **↖ Select** to put it somewhere yourself; it stays there through later changes. If it covers something, the compliance row **Legend key on the figure** warns and **Move to free space** fixes it ([Journal submission](journal-submission.md)).
 
 ## Caption, Methods and alt text
 
 - Untouched text follows the figure. Text you edited is kept; if the figure changes, a line under the box offers **✦ Regenerate** (Methods: **✎ Rewrite**, alt text: **✦ Redraft**), which replaces your edits, or **Keep mine**.
 - **✦ Generate Caption** and **✎ Write Methods paragraph** ask before writing over your edits ("Replace your caption?", "Replace your Methods paragraph?"): **Replace** or **Keep mine** ([Journal submission](journal-submission.md)).
+- **A sentence that should survive ✦ Regenerate** (assay, n, statistics) goes in a caption note: a panel's ⚙ › **Caption note (not rendered)**, a chart's **Caption note** in its Chart dialog, or a freeform picture's **Caption note** in the Props bar. In the test, "Mean ± SD of three biological replicates; Welch t-test." typed as a chart's Caption note was still there after ✦ Regenerate; the same kind of sentence typed at the end of the caption was gone.
 
 ## Charts and blots
 
@@ -134,7 +136,8 @@ Journals give type sizes in points at the printed size, and FigureLab keeps text
 - **Replicate lanes.** Give them one name, either the same **shown as** in the Chart dialog or a lane-table row of names (`WT, WT, WT, R42P, R42P, R42P`) before you chart. They chart as one bar with mean ± SD, n and the points, and the chart stays linked. Typing numbers into the chart unlinks it, and the chart, caption and compliance check then say "typed by hand" ([Western blot](western-blot.md)).
 - **Two text columns** (antibiotic × strain) are guessed as a **Grouped bar** with the second column as **Series** ([Charts](charts.md)).
 - **Several CSVs at once** each become a chart; the dialog opens on the last one only, so double-click the others to check their guess ([Charts](charts.md)).
-- **Plate-reader exports** go in as they are: time as h:mm:ss is read as time, the temperature column is left out, and the Chart dialog's **Plate wells** row groups wells by plate row or column and subtracts a blank row ([Phage and microbiology](phage-and-microbiology.md)).
+- **Plate-reader exports** go in as they are, at any run length: time as h:mm:ss (or h:mm under a `Time` header) is read as time, in minutes or hours by the run's length, the temperature column is left out, and the Chart dialog's **Plate wells** row groups wells by plate row or column and subtracts a blank row if there is one ([Phage and microbiology](phage-and-microbiology.md#a-plate-readers-export)).
+- **Replicate columns, one row per condition** (`condition, Rep1, Rep2, Rep3`) chart as one bar per condition with mean ± SD and the points: **Average replicate columns into one series each** is ticked on import ([Charts](charts.md)).
 
 ## Scale bars
 
@@ -162,9 +165,10 @@ Help (**❔**) › Tutorials, or ⌘K `tutorial`. A tutorial puts your figure as
 | A whole row typed into a lane table cell lands in one cell. | Separate the cells: `- + - + - +` with spaces fills a +/− row; doses and other text need commas (`10^{0}, 10^{-1}, …`). |
 | Bigger figures go missing after a browser crash. | Autosave cannot hold large images. Save the session file yourself (<kbd>Ctrl/⌘+S</kbd>) and keep it. |
 | A chart's tick labels run together in a single grid cell. | At journal type size a one-cell chart is small: span it over two columns (⌘K `span`). |
-| One strain is listed twice in the key. | Give it one name with the chart's **shown as** box (it renames it in every chart; a chart drawn from `… mean` columns has its own box), and spell it the same way in every file (`dfliC` is not `ΔfliC`). |
+| One strain is listed twice in the key. | Give it one name with the chart's **shown as** box (it renames it in every chart; a chart drawn from `… mean` columns has its own box). Samples shown under one name share one colour and one key row. |
 | Two scale bars on one picture. | The picture has a bar burned in. Choose **Keep the bar in the image as the scale bar** in Auto-detect, or crop the old bar off. |
 | Text grows against the pictures after a narrower printed width. | Text keeps its point size, and the toast says by how much it grew. Re-run the compliance check; lane tables: **Lane tables to 7 pt** on the **Text size** row. |
-| After replacing an image, the caption still describes the old one. | Replace keeps the caption note, and the toast names it. Edit it in ⚙ › **Caption note**. |
+| After replacing an image, the caption still describes the old one. | Replace keeps the caption note, and the toast names it. Edit it in ⚙ › **Caption note** (in freeform, the Props bar's **Caption note**). |
+| After replacing a counted photo, the compliance **Measurements** row warns. | The count was made on the old photo; it is marked out of date and left out of the CSV, caption and Methods. Count the new photo, or remove the old count (× in Measure) ([Phage and microbiology](phage-and-microbiology.md)). |
 
 More in [Troubleshooting](troubleshooting.md). Back to the [guide index](README.md).

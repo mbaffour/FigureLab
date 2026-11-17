@@ -520,13 +520,50 @@ const { step, expect, btn } = L;
     await btn(T, '✓ Check journal compliance').click();
     const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
     const row = ((await rep.innerText()).match(/Text size\n([^\n]*)/) || [])[1] || '';
+    // ux4: the row's Raise to 6 pt raises the small text in one click (one undo step)
+    const raise = rep.locator('.compliance-row', { hasText: 'Text size' }).getByRole('button', { name: 'Raise to 6 pt' });
+    expect(await raise.count() === 1, 'no Raise to 6 pt button: ' + row);
+    await L.toasts(T);
+    await raise.click(); await p.waitForTimeout(600);
+    const rt = await L.toasts(T);
+    const row2 = ((await rep.innerText()).match(/Text size\n([^\n]*)/) || [])[1] || '';
     await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    expect(/✓/.test(row2), 'after Raise to 6 pt: ' + row2);
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(400);
+    T._raise = `Raise to 6 pt → "${rt.slice(0, 160)}"; row "${row2.slice(0, 100)}"`;
     await L.openSection(T, 'Export');
     await sel.click().catch(() => {}); await sel.selectOption('183'); await p.waitForTimeout(500);
     const back = await L.toasts(T);
     expect(/Printed width 183 → 89 mm: text keeps its point size, so it is 2\.06× larger against the pictures now/.test(t) && !/Printed width 89 →/.test(back) &&
       (await sel.inputValue()) === '183', JSON.stringify({ t, back }));
-    return `toast "${t}"; at 89 mm Text size: "${row.slice(0, 160)}"`;
+    return `toast "${t}"; at 89 mm Text size: "${row.slice(0, 160)}"; ${T._raise}`;
+  });
+
+  // ux4 (freeform4-08): a key placed below follows later moves
+  await step(T, 'W2 Export › Place the key on the figure, Below; then the gene map moved down 100 px, into the key\'s place: the key moves below it and covers nothing; untick it again', async () => {
+    await beside();
+    await L.openSection(T, 'Export');
+    await L.toasts(T);
+    await p.locator('#key-where').selectOption({ label: 'Below' }); await p.waitForTimeout(800);
+    const t1 = await L.toasts(T);
+    const keyBox = () => p.evaluate(() => { const k = annotations.find(a => a && a.type === 'legend'); const W = canvasLogicalW, H = canvasLogicalH; return k ? { y: Math.round(k.yf * H), H, W } : null; });
+    const k1 = await keyBox();
+    await pickRow('linear gene map'); const g0 = await geoVals();
+    await typeGeo({ y: +g0[1] + 100 }); await p.waitForTimeout(600);
+    await beside();
+    const k2 = await keyBox();
+    const gm = await byName(/phiGuide_late/);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const kr = ((await rep.innerText()).match(/\n([⚠✗✓ℹ])\nLegend key on the figure\n([^\n]*)/) || []);
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    expect(k1 && k2 && k2.y > k1.y && k2.y >= gm.y + gm.h && k2.y + 10 < k2.H && kr[1] === '✓', JSON.stringify({ k1, k2, gm, kr: kr.slice(1) }));
+    // back as it was: the gene map up again, the key off the figure
+    await pickRow('linear gene map'); await typeGeo({ y: +g0[1] }); await beside();
+    await L.openSection(T, 'Export');
+    await p.getByLabel('Place the key on the figure').uncheck(); await p.waitForTimeout(500);
+    return `"${t1.slice(0, 140)}"; key top ${k1.y} → ${k2.y} px (map bottom ${gm.y + gm.h}, canvas ${k2.H}); Legend key on the figure ${kr[1]} "${(kr[2] || '').slice(0, 100)}"`;
   });
 
   let sessionFile;
@@ -655,13 +692,13 @@ const { step, expect, btn } = L;
 
   // Round 3 (freeform3-09): Y 116 centres the row on the whole canvas, which leaves it high
   // under an 80 px title band; the row's box is 300 px tall (the plate), so Y 156 centres it in the 451 px below the band (80–531).
-  await step(T, '7.3 Phage icon H 220, X 80; bacterium W 220, X 1028; plate W 300 + Clip ◯; Ctrl+A → ↕ → ←→ → Y 156 (centred under the title band)', async () => {
+  await step(T, '7.3 Phage icon H 220, X 80; bacterium W 220, X 1028; plate W 300, X 500 + Clip ◯; Ctrl+A → ↕ → ←→ (the plate in the middle) → Y 156 (centred under the title band)', async () => {
     // The Elements list is newest first: the phage was inserted first, so it is the last row.
     const rows = p.locator('.tpl-saved');
     const n = await rows.count(); const names = []; for (let i = 0; i < n; i++) names.push(await rows.nth(i).innerText());
     await rows.nth(n - 1).locator('span').first().click(); await typeGeo({ h: 220, x: 80 });
     await rows.nth(n - 2).locator('span').first().click(); await typeGeo({ w: 220, x: 1028 });
-    await pickRow('plate_MG1655.jpg'); await typeGeo({ w: 300 }); await p.locator('button:visible[title="Circle clip"]').click();
+    await pickRow('plate_MG1655.jpg'); await typeGeo({ w: 300, x: 500 }); await p.locator('button:visible[title="Circle clip"]').click();
     await beside(); await p.keyboard.press('ControlOrMeta+a');
     await barBtn('↕').click(); await barBtn('←→').click();
     const distributed = (await L.toasts(T)).split(' | ').pop();
@@ -669,6 +706,8 @@ const { step, expect, btn } = L;
     const e = (await els()).sort((a, b) => a.x - b.x);
     const cy = e.map(x => x.y + x.h / 2), gaps = [e[1].x - (e[0].x + e[0].w), e[2].x - (e[1].x + e[1].w)];
     expect(cy.every(v => near(v, 306, 0.6)) && near(gaps[0], gaps[1], 0.1), JSON.stringify({ cy, gaps, names }));
+    // ux4 (freeform4): the photo typed at X 500 is the middle one, between the icons
+    expect(e[1].w === 300 && /3 items, 247\.85 px apart/.test(distributed), 'middle ' + JSON.stringify(e[1]) + ' | ' + distributed);
     return `centres at y ${cy.map(v => v.toFixed(1)).join(', ')}; gaps ${gaps.map(g => g.toFixed(2)).join(' and ')} px; toast "${distributed}"`;
   });
 
