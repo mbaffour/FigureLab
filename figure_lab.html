@@ -9071,12 +9071,15 @@ function _gelDoubletSites(a, skip){
 }
 // Apply the panel's doublet setting to its bands, re-quantify the lanes it changed, and
 // record what was found (a.doubletSites) for the dialog, the chart and compliance.
-function _gelDoubletsApply(a, ctx, skip){
+function _gelDoubletsApply(a, ctx, skip, keepOld){
   const mode=_gelDoubletMode(a), fr=a.frame, sites=_gelDoubletSites(a, skip), out=[];
+  // Divided by another target's summed bands (a phospho/total pair), "auto" sums a doublet
+  // that every lane split, too: numerator and divisor then both hold both bands.
+  const whole=_gelLoadTarget(a);
   const dirty=new Set();
   const rfOf=y=>(y-fr.sy)/fr.sh;
   sites.forEach(s=>{
-    const mixed=s.one.length>0, act=mode==='two'?(mixed?'two':null):(mode==='one'||mixed)?'one':null;
+    const mixed=s.one.length>0, act=mode==='two'?(mixed?'two':null):(mode==='one'||mixed||whole)?'one':null;
     const rec={rf:rfOf(s.yv), rf1:rfOf(s.c1), rf2:rfOf(s.c2), split:s.pairs.map(x=>x.li).sort((x,y)=>x-y), one:s.one.map(x=>x.li).sort((x,y)=>x-y),
       odd:s.odd.slice(), applied:act, cut:[]};
     // Bands read as one over both crowns are the doublet too ("merged?" said it might be two).
@@ -9096,7 +9099,10 @@ function _gelDoubletsApply(a, ctx, skip){
     out.push(rec);
   });
   if(ctx) dirty.forEach(li=>{ a.lanes[li].bands.sort((x,y)=>x.y0-y.y0); _gelRequantLane(a,ctx,li); a.lanes[li].bands.sort((x,y)=>x.yc-y.yc); });
-  if(out.length) a.doubletSites=out; else delete a.doubletSites;
+  // Re-applied on bands already read (a later loading pick): sites summed before are not
+  // found as pairs again, and keep their record.
+  const all=keepOld?(a.doubletSites||[]).filter(o=>!out.some(n=>Math.abs(n.rf-o.rf)<0.02)).concat(out).sort((x,y)=>x.rf-y.rf):out;
+  if(all.length) a.doubletSites=all; else delete a.doubletSites;
   return out;
 }
 // A site in words, by size when the ladder gives one: "the doublet at 42.6–44.1 kDa".
@@ -9113,8 +9119,14 @@ function _gelDoubletOdd(a, s){
   const mode=[...c.entries()].sort((p,q)=>q[1]-p[1]||q[0]-p[0])[0];
   // A lane with no band there at all is n.d. on a chart, and said so; the lanes named here
   // are those read with another number of bands (two where most have one, or one of two).
-  return mode?n.map((k,li)=>k&&k!==mode[0]?li:-1).filter(li=>li>=0):[];
+  // Lanes the user has looked at and kept (✓ These lanes are right: a knockout, a doublet
+  // summed by hand) are not named again.
+  const ok=new Set(a.doubletOk||[]);
+  return mode?n.map((k,li)=>k&&k!==mode[0]&&!ok.has(li)?li:-1).filter(li=>li>=0):[];
 }
+// "✓ These lanes are right" (one undo step).
+function gelDoubletOddChecked(idx){ return _gelEdit(idx,a=>{ const odd=(a.doubletSites||[]).flatMap(st=>_gelDoubletOdd(a,st)); if(!odd.length) return false;
+  a.doubletOk=[...new Set((a.doubletOk||[]).concat(odd))].sort((x,y)=>x-y); }); }
 // One line per site for the dialog: what detection found and what is measured.
 function _gelDoubletText(a, s){
   const ls=xs=>_gelLaneList(xs.map(i=>i+1)), w=_gelDoubletWhere(a,s), odd=_gelDoubletOdd(a,s);
@@ -9625,6 +9637,7 @@ function runGelAnalysis(idx,opts){
   let dropped=null;
   if(prev){
     if(prev.refLane!=null&&prev.refLane<a.lanes.length) a.refLane=prev.refLane;
+    if(prev.doubletOk&&prev.lanes.length===a.lanes.length) a.doubletOk=prev.doubletOk.slice();
     if(prev.ladder&&prev.ladder.lane<a.lanes.length) a.ladder={lane:prev.ladder.lane, sizes:prev.ladder.sizes};
     // The loading control follows its panel by id. It is dropped — and said to be, in the
     // dialog, the chart's note and the update's toast — when that panel is gone, is now
@@ -9729,12 +9742,14 @@ function _gelReapplyEdits(a, prev, im){
   // edit is placed on it (a 15-lane analysis re-detected as 16 used to shift every one).
   const sameLanes=a.lanes.length===prev.lanes.length;
   const kdaAt=y=>pfit?Math.pow(10,pfit.intercept+pfit.slope*((y-PF.sy)/PF.sh)):null;
-  // Where a row of the old analysis is on the new one, or null.
-  const rowOf=y=>{ if(pfit&&fit){ const k=kdaAt(y), rf=(Math.log10(k)-fit.intercept)/fit.slope; return F.sy+rf*F.sh; } return same?y:null; };
+  // Where a row of the old analysis is on the new one, or null: by size through both ladder
+  // fits, else the same row — only on the same picture and crop (the frame key cannot see a
+  // replaced scan, whose bands sit elsewhere).
+  const sameImg=same&&prev.fp!=null&&prev.fp===a.fp;
+  const rowOf=y=>{ if(pfit&&fit){ const k=kdaAt(y), rf=(Math.log10(k)-fit.intercept)/fit.slope; return F.sy+rf*F.sh; } return sameImg?y:null; };
   const at=(li,y)=>{ const k=pfit&&!(prev.ladder&&prev.ladder.lane===li)?kdaAt(y):null; return k?`${_gelFmt(k,1)} kDa`:`Rf ${_gelFmt((y-PF.sy)/PF.sh,2)}`; };
   const ctx=im?_gelCtx(im,a):{error:'no panel'}, dirty=new Set();
   // Lane edges set by hand: only on the same image and crop (a new scan moves the lanes).
-  const sameImg=same&&prev.fp!=null&&prev.fp===a.fp;
   prev.lanes.forEach((L,li)=>{ if(!L.manual) return;
     const N=a.lanes[li];
     if(sameImg&&N&&a.lanes.length===prev.lanes.length){ N.x0=L.x0; N.x1=L.x1; N.manual=true; dirty.add(li); out.lanes.add(li); out.carried.push(`lane ${li+1}'s edges`); }
@@ -9750,6 +9765,9 @@ function _gelReapplyEdits(a, prev, im){
     if(!(n1-n0>=1)){ out.lostWhat.push(what); out.lostLanes.add(li); return; }
     const mine=made.get(li)||[];
     if(mine.some(m=>m.y0<n1&&m.y1>n0)){ out.lostWhat.push(what); out.lostLanes.add(li); return; }
+    // A band re-edged by hand is a detected band moved: with nothing detected inside the
+    // place it maps to, it is not placed blind.
+    if(b.resized&&!b.manual&&!N.bands.some(o=>!mine.includes(o)&&o.yc>=n0&&o.yc<n1)){ out.lostWhat.push(what+' (no band found there on the new picture)'); out.lostLanes.add(li); return; }
     // Detected bands centred inside it are what it replaces; neighbours reaching into it give way.
     N.bands=N.bands.filter(o=>mine.includes(o)||!(o.yc>=n0&&o.yc<n1));
     N.bands.forEach(o=>{ if(mine.includes(o)) return; if(o.yc<n0&&o.y1>n0) o.y1=n0; if(o.yc>=n1&&o.y0<n1) o.y0=n1; });
@@ -9902,7 +9920,15 @@ function gelSetRefLane(idx,li){
 // (total protein, whole-lane signal). Left out, the current mode is kept.
 // 'target': another target's bands (phospho/total), measured as loading band(s) are.
 function gelSetLoading(idx,lcIdx,mode){
-  return _gelEdit(idx,a=>{
+  _gelRunNotes=null;
+  const ok=_gelSetLoading(idx,lcIdx,mode);
+  // Said with a linked chart's update when there is one (it reads _gelRunNotes), else here.
+  if(_gelRunNotes&&_gelRunNotes.length) toast(_ucFirst(_gelRunNotes.join('; ')),'ok');
+  _gelRunNotes=null;
+  return ok;
+}
+function _gelSetLoading(idx,lcIdx,mode){
+  return _gelEdit(idx,(a,ctx)=>{
     if(lcIdx==null||lcIdx<0){ if(!a.loading&&!a.loadingDropped) return false; a.loading=null; delete a.loadingDropped; return; }
     if(lcIdx===idx||images[lcIdx]===images[idx]){ toast('Pick a different panel to normalise to','warn'); return false; }
     const target=mode==='target'||(mode==null&&_gelLoadTarget(a));
@@ -9910,6 +9936,11 @@ function gelSetLoading(idx,lcIdx,mode){
     if(lc.error){ toast(`${target?'Normalise to':'Loading control'}: ${lc.error}`,'warn'); return false; }
     if(target) lc.target=true;
     a.loading=lc; delete a.loadingDropped;
+    // A doublet every lane split is summed once the divisor is another target's whole lane.
+    if(target&&_gelDoubletMode(a)==='auto'&&(a.doubletSites||[]).some(st=>!st.applied)){
+      const done=_gelDoubletsApply(a, ctx, new Set(a.ladder?[a.ladder.lane]:[]), true).filter(st=>st.applied==='one');
+      if(done.length) _gelRunNotes=[`${done.map(st=>_gelDoubletWhere(a,st)).join(' and ')} now counted as one band (both summed) in every lane, as the other target's whole lane is — untick Count the doublet as one band to count two`];
+    }
   });
 }
 function gelSetLadder(idx,li,sizes){
@@ -10582,7 +10613,7 @@ function _gelRenderModal(){
     ${note?`<div style="color:${a.lanes.some(L=>L.inferred&&L.end)||(a.laneInfo&&a.laneInfo.rejected.length)||_gelWideLanes(a).length?'var(--warn)':'var(--muted)'};margin-top:2px">${a.lanes.some(L=>L.inferred&&L.end)||_gelWideLanes(a).length?'⚠ ':''}${esc(note.charAt(0).toUpperCase()+note.slice(1))}.</div>`:''}
     ${a.editsLost?`<div style="color:var(--warn);margin-top:3px">⚠ Hand edits NOT carried over to the ${a.editsLost.on==='image'?'new image':'new crop'}: ${esc(a.editsLost.what.join('; '))}. ${a.editsLost.lanes.length?`Lane${a.editsLost.lanes.length>1?'s':''} ${esc(_gelLaneList(a.editsLost.lanes.map(i=>i+1)))} ${a.editsLost.lanes.length>1?'are':'is'} measured as detected — redo the edits (an edit in a lane clears it here), or`:''} <button class="btn" style="padding:0 6px;font-size:10px" title="The lanes are right as detected: stop flagging them here, in the chart and in compliance (one undo step)" onclick="gelEditsChecked(_gelUI.idx)">✓ Checked</button></div>`:''}
     ${(a.doubletSites||[]).map((s,k)=>{ const odd=_gelDoubletOdd(a,s), on=s.applied==='one';
-      return `<div style="color:${odd.length?'var(--warn)':'var(--muted)'};margin-top:3px">${odd.length?'⚠ ':''}${esc(_gelDoubletText(a,s))}. <label title="A partly resolved doublet is split at its shallow valley in some lanes and read as one band in others. Ticked: both bands are summed in every lane (what a whole-lane divisor, such as a phospho/total pair's summed bands, measures). Unticked: every lane is cut at the valley into two bands. Re-detects the panel; hand edits are carried over (one undo step)." style="white-space:nowrap;color:var(--text)"><input type="checkbox" class="gel-doublet-one"${on?' checked':''} onchange="gelSetDoublets(_gelUI.idx,this.checked?'one':'two')"> Count the doublet as one band</label></div>`; }).join('')}
+      return `<div style="color:${odd.length?'var(--warn)':'var(--muted)'};margin-top:3px">${odd.length?'⚠ ':''}${esc(_gelDoubletText(a,s))}.${odd.length?` <button class="btn" style="padding:0 6px;font-size:10px" title="These lanes are right as they are (a knockout, a doublet summed by hand): stop naming them here, in the chart and in compliance (one undo step)" onclick="gelDoubletOddChecked(_gelUI.idx)">✓ These lanes are right</button>`:''} <label title="A partly resolved doublet is split at its shallow valley in some lanes and read as one band in others. Ticked: both bands are summed in every lane (what a whole-lane divisor, such as a phospho/total pair's summed bands, measures). Unticked: every lane is cut at the valley into two bands. Re-detects the panel; hand edits are carried over (one undo step)." style="white-space:nowrap;color:var(--text)"><input type="checkbox" class="gel-doublet-one"${on?' checked':''} onchange="gelSetDoublets(_gelUI.idx,this.checked?'one':'two')"> Count the doublet as one band</label></div>`; }).join('')}
     ${a.polarityUncertain&&a.polaritySetBy!=='user'?'<div style="color:var(--warn);margin-top:2px">⚠ The band polarity is a low-confidence guess (the crop border and the image median disagree) — check the Bands setting.</div>':''}
     ${_gelWindowShort(a)?'<div style="color:var(--warn);margin-top:3px">⚠ The background window is barely taller than the tallest band — the background rides up the bands and volumes come out low. Widen it and re-detect.</div>':''}
     · <span style="color:${sat?'var(--danger)':'var(--a2)'}"><b>${sat}</b> saturated band${sat===1?'':'s'}${sat?' — cannot be quantified':''}</span>
@@ -30971,7 +31002,8 @@ function _gelChartTable(ids, metric, names){
     if(ladder.has(li)&&P.every(im=>!im.gelAnalysis.ladder||im.gelAnalysis.ladder.lane===li)) continue;   // the marker lane is no sample
     const row=[`Lane ${li+1}`];
     P.forEach((im,k)=>{ const a=im.gelAnalysis;
-      if((a.ladder&&a.ladder.lane===li)||!Tg[k]){ row.push(''); return; }
+      if(a.ladder&&a.ladder.lane===li){ row.push(''); return; }
+      if(!Tg[k]){ row.push(''); nd=true; return; }
       const r=_gelRowAt(a, R[k], li, Tg[k]);
       const v=r&&r[metric]!=null&&isFinite(r[metric])?+(+r[metric]).toPrecision(6):'';
       if(v==='') nd=true;
@@ -31006,7 +31038,7 @@ function _chartLinkCaveats(ch){
     if(a.editsLost) out.push(`${P}: hand edits were not carried over to the ${a.editsLost.on==='image'?'new image':'new crop'} (${a.editsLost.what.join('; ')}) — ${a.editsLost.lanes.length?`lane${a.editsLost.lanes.length>1?'s':''} ${_gelLaneList(a.editsLost.lanes.map(i=>i+1))} ${a.editsLost.lanes.length>1?'are':'is'} measured as detected; `:''}redo the edits in its ⫼ Lanes & bands, or ✓ Checked there`);
     const T=_gelChartTarget(a,im);
     if(T) (a.doubletSites||[]).forEach(st=>{ const odd=_gelDoubletOdd(a,st), lo=Math.min(st.rf1,st.rf2), hi=Math.max(st.rf1,st.rf2), pad=Math.max(0.01,(hi-lo)*0.75);
-      if(odd.length&&T.rf>=lo-pad&&T.rf<=hi+pad) out.push(`${P}: lane${odd.length>1?'s':''} ${_gelLaneList(odd.map(i=>i+1))} hold${odd.length>1?'':'s'} a different number of bands at ${_gelDoubletWhere(a,st)} it is charted at — check ${odd.length>1?'them':'it'} on the lane profile`); });
+      if(odd.length&&T.rf>=lo-pad&&T.rf<=hi+pad) out.push(`${P}: lane${odd.length>1?'s':''} ${_gelLaneList(odd.map(i=>i+1))} hold${odd.length>1?'':'s'} a different number of bands at ${_gelDoubletWhere(a,st)} it is charted at — check ${odd.length>1?'them':'it'} on the lane profile, or ✓ These lanes are right in its ⫼ Lanes & bands`); });
     if(/^normLC/.test(L.metric)){
       if(a.loading){ const why=_gelLoadingStale(a,im), w=_gelLoadingWho(a);
         if(why) out.push(`${P}: ${why} — ↻ Update from densitometry measures ${w.who} again and pairs it again; if it cannot, pick ${w.who} again as ${w.what} in ${P}'s ⫼ Lanes & bands › Loading control`); }
@@ -31255,7 +31287,7 @@ function _chartLinkUpdateDraft(){
 function _chartLinkUpdateSelected(){
   const el=_selectedChartEl(); if(!el) return;
   let st=_chartLinkState(el);
-  const rep=_chartLinkReanalyse((st.stalePanels||[]).concat(el.chart.link.ids||[]));
+  const rep=el.chart.link?_chartLinkReanalyse((st.stalePanels||[]).concat(el.chart.link.ids||[])):[];
   if(rep.length||(st.stalePanels&&st.stalePanels.length)){ st=_chartLinkState(el); if(!st.stale){ updateElemPropsBar(); scheduleRender(0); return; } }
   if(!st.table){ toast(st.stale?`Cannot update: ${st.why} — re-analyse it (⫼ Analyse lanes & bands)`:'Already up to date', st.stale?'warn':'ok'); return; }
   if(!st.stale){ toast('Already up to date','ok'); return; }
@@ -31410,7 +31442,7 @@ function chartFromDensitometry(idx){
   _samplePinSync();
   logAction('chartFromDensitometry',{panels:ids.length, metric});
   scheduleRender(0);
-  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}${T.nd?'; a lane with no band there is n.d.':''}${notes.length?' — '+notes.join('; ')+'.':''} Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
+  toast(`Charted ${T.rows.length} lanes × ${T.names.length} panel${T.names.length>1?'s':''}: ${label}; ${chosen}${T.nd?'; a lane with no band there is n.d.':''}${notes.length?' — '+notes.join('; ')+'.':T.nd?'':'.'} Linked — a re-analysis updates it.${where}`, raw||left.length?'warn':'ok');
   return true;
 }
 

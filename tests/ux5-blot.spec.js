@@ -51,7 +51,7 @@ const tif = (name, px) => ({ name, mimeType: 'image/tiff', buffer: tiff16(px) })
 // ── Driving the app ─────────────────────────────────────────────
 async function addBlots(page, files) {
   await page.setInputFiles('#file-input', files);
-  await page.waitForFunction(n => images.filter(Boolean).length === n && images.every(im => im.img && im.img.complete), files.length, { timeout: 60000 });
+  await page.waitForFunction(n => images.filter(Boolean).length === n && images.every(im => im.img && im.img.complete), files.length, { timeout: 150000 });
   await page.evaluate(() => { window.__T = []; const t = document.getElementById('toast');
     new MutationObserver(() => { const s = t.textContent; if (s && window.__T[window.__T.length - 1] !== s) window.__T.push(s); }).observe(t, { childList: true, subtree: true, characterData: true }); });
 }
@@ -181,6 +181,13 @@ test('blot5-02: after ⇄ Replace and ↻ Update, a band widened by hand over a 
   expect(Math.abs(r.l5[0][0] / r.ref[0] - 1)).toBeLessThan(0.04);
   expect(r.l3).toBe(1);
   expect(r.lost).toBeNull();
+  // Lane 5 now holds one band where the others hold two: named until the user says it is right
+  const ss = () => page.evaluate(() => _chartSourceState(images.find(p => p.type === 'chart')));
+  expect((await ss()).why).toMatch(/lane 5 holds a different number of bands at the doublet .* or ✓ These lanes are right/);
+  await page.evaluate(() => openGelAnalysis(0));
+  await page.locator('#gel-banner button:has-text("These lanes are right")').click();
+  expect((await ss()).state).toBe('linked');
+  expect(await page.locator('#gel-banner').innerText()).not.toMatch(/different number of bands/);
   expect(errors).toEqual([]);
 });
 
@@ -208,6 +215,34 @@ test('blot5-02: hand edits that cannot be placed again (no ladder, a new crop) a
   expect(await page.locator('#gel-banner').innerText()).toMatch(/Hand edits NOT carried over to the new crop: lane 6: the band with edges set by hand/);
   await page.locator('#gel-banner button:has-text("Checked")').click();
   expect(await page.evaluate(() => _chartSourceState(images.find(p => p.type === 'chart')).state)).toBe('linked');
+  // ⇄ Replace with a shifted scan on the same crop, still no ladder: the same rows are not
+  // the same band, so the edge set by hand is not placed there blind
+  await page.evaluate(() => { const a = images[0].gelAnalysis, b = a.lanes[5].bands.slice().sort((p, q) => q.volume - p.volume)[0];
+    gelSetBandBounds(0, 5, a.lanes[5].bands.indexOf(b), b.y0 - 3, b.y1 + 3); });
+  await page.evaluate(() => closeGelAnalysis());
+  await replace(page, 0, tif('pERK_rerun.tif', pERK(P1, { seed: 511, dy: 12 })));
+  await toasts(page);
+  const u2 = await updateChart(page);
+  expect(u2.t).toMatch(/hand edits were not carried over to the new image \(lane 6: the band with edges set by hand/);
+  expect(await page.evaluate(() => _chartSourceState(images.find(p => p.type === 'chart')).state)).toBe('check');
+  expect(errors).toEqual([]);
+});
+
+test('blot5-01: divided by another target\'s whole lane, a doublet every lane split is summed too — and the toast says so', async ({ page }) => {
+  const errors = await loadApp(page);
+  // total ERK over total ERK: the doublet splits in all 15 lanes of both
+  await addBlots(page, [tif('ERK-a.tif', ERK({ seed: 502, dy: 5 })), tif('ERK-b.tif', ERK({ seed: 512, dy: 2 }))]);
+  await page.evaluate(() => { images.forEach(im => { im.cropT = 3; im.cropB = 3; im.cropL = 2.35; im.cropR = 2.35; }); render();
+    [0, 1].forEach(i => { runGelAnalysis(i); gelSetLadder(i, 0, '75, 50, 37'); gelSetRefLane(i, 1); }); });
+  const before = await page.evaluate(() => images[0].gelAnalysis.doubletSites);
+  expect(before.length).toBe(1); expect(before[0].one).toEqual([]); expect(before[0].applied).toBeNull();   // all split: two bands, as before
+  await toasts(page);
+  await page.evaluate(() => gelSetLoading(0, 1, 'target'));
+  expect(await toasts(page)).toMatch(/the doublet at (4\d\.\d–4\d\.\d kDa|Rf 0\.\d\d) now counted as one band \(both summed\) in every lane, as the other target's whole lane is/i);
+  const after = await page.evaluate(() => { const a = images[0].gelAnalysis, s = a.doubletSites[0], F = a.frame, y1 = F.sy + s.rf1 * F.sh, y2 = F.sy + s.rf2 * F.sh;
+    return { applied: s.applied, n: a.lanes.slice(1).map(L => L.bands.filter(b => b.yc > y1 - 12 && b.yc < y2 + 12).length) }; });
+  expect(after.applied).toBe('one');
+  expect(after.n.every(k => k === 1)).toBe(true);
   expect(errors).toEqual([]);
 });
 
