@@ -14,7 +14,7 @@ A results figure that is not a regular grid (one big panel, a 4:3 photo and two 
 
 This guide was checked step by step by `verify/freeform.verify.js`, on a 16-bit fluorescence TIFF, a 4:3 photo, a plate photo, a TEM micrograph, a growth-curve CSV and a GenBank file.
 
-**Grid or freeform?** If your panels fit rows and columns (even with a panel spanning two cells), stay in the grid: you keep the lane table, headings, automatic letters and the caption's structure. Use freeform when panels of different shapes and sizes have to sit where you put them, or for a graphical abstract.
+**Grid or freeform?** If your panels fit rows and columns (even with a panel spanning two cells), stay in the grid: you keep the lane table, headings and automatic letters. Use freeform when panels of different shapes and sizes have to sit where you put them, or for a graphical abstract. A freeform figure gets a lettered caption, a submission package and its records as a grid does (§9).
 
 ## 1. Start a freeform figure
 
@@ -39,7 +39,7 @@ There are two ways in.
 
 The bar above the canvas holds the selection's **X**, **Y**, **W**, **H** and **∠** (angle), a **⛓** tick (keep the shape), and a **px / mm** menu. Type a value and press <kbd>Enter</kbd>.
 
-![The position bar (X, Y, W, H, angle, ⛓, px/mm), Align, Space, Distribute, Match and Layer, and the Props bar below it](img/freeform-bar.png)
+![The position bar (X, Y, W, H, angle, ⛓, px/mm), Align, Space, Distribute, Match and Layer, and the Props bar below it with Label, Crop%, Clip and Caption note](img/freeform-bar.png)
 
 1. Click an object on the canvas, or its name in the **Elements** list (useful when objects overlap). The fields always show the object you picked.
 2. With **⛓** ticked, typing **W** sets **H** in proportion. A 4:3 photo given W 400 gets H 300; untick **⛓** to set both freely (charts and gene maps usually need this).
@@ -58,7 +58,7 @@ Select two or more objects: **Shift-click** or **⌘/Ctrl-click** them, or drag 
 3. Click **B**, Shift-click **C**, then **⊢L** (align left edges) and **⇕** (12 px top to bottom). C moves to Y 332.
 4. Click **C**, ⌘/Ctrl-click **D**, then **=W** (same width as the first one you selected), **⊤T** and **⇿**. D lands at X 744: its right edge meets B's (938) and, because A, C and D are square here, C's bottom meets A's (526).
 5. **←→** and **↑↓** (Distribute) spread three or more objects evenly between the outer two, which stay where they are. Place the outer two first: if the middle one does not fit between them, the gaps come out negative (the toast says, for example, "3 items, -77.15 px apart").
-6. **↔** and **↕** centre one object on the canvas; with several selected they line up their centres with each other.
+6. **↔** and **↕** at the end of the Align buttons (tooltips "Centre horizontally" and "Centre vertically") centre one object on the canvas; with several selected they line up their centres with each other. (The **↕ MW ladder** button under Annotate & Draw is a different tool.)
 
 Align uses the outermost edge of the selection (the topmost top for **⊤T**, the leftmost left for **⊢L**), whichever you clicked first. Move a newcomer roughly into place before aligning it, or it pulls the others to it.
 
@@ -76,6 +76,7 @@ The **Props** bar under the position bar shows the selected picture's settings.
 2. **Crop%**: type **T**, **L**, **B**, **R** in percent. The box shrinks with the crop, keeps its **X** and **Y**, and the picture keeps its proportions (Crop% L 10 on a 194 px square gives 174.6 × 194, still at X 744, Y 332).
 3. **Layer**: **⬆⬆** bring to front, **⬆** forward one step, **⬇** back one step, **⬇⬇** send to back.
 4. **Label**: the panel letter of that object. **Arrange › 🔤 Relabel A, B, C…** letters everything in reading order, charts and gene maps included (here pictures A–D, chart E, gene map F). Set the letter size in **Look › Panel Labels (A, B, C…) › Size** in pt (8 pt at 183 mm is 14.77 px).
+5. **Caption note**: what the caption says about this picture, after its letter (not drawn on the figure). See §9.
 
 ## 5. Add a chart and a gene map
 
@@ -87,12 +88,12 @@ The **Props** bar under the position bar shows the selected picture's settings.
 
 ## 6. Arrows, text and shapes
 
-All of these are in **Annotate & Draw › Tool**. Set **Color**, **Width** and **Fnt** (font size, px) there before drawing; each mark keeps its own afterwards. On the white canvas new marks are dark (#111111); over a picture they start white.
+All of these are in **Annotate & Draw › Tool**. Set **Color**, **Width** and **Fnt** (font size, px) there before drawing; each mark keeps its own afterwards. Until you pick a **Color** yourself, a new mark takes dark (#111111) or white by what is under the point where you start it: dark on the white canvas or a light picture, white on a dark picture (the arrow and text on the fluorescence and phase panels here came out white). Once you have picked a Color, every new mark uses it.
 
 1. **↗ Arrow**: drag from tail to head.
 2. **T Text**: click where the text starts, type, press <kbd>Enter</kbd>. Format marks work: `Δ*ompC*` gives italic *ompC*, `H_{2}O` a subscript, `10^{8}` a superscript.
 3. To edit text, choose **↖ Select** and double-click it; the editor opens on the text as typed, marks included. Its floating toolbar has **Color**, **W**, **Fnt**, **Halo**, the text field, **B** (bold for this text only; text starts bold) and **✕ Del**.
-4. **⬜ TextBox**: drag a box. Select it and type into its toolbar's text field. A new TextBox is white text on a black box at 60 % opacity: set **Fnt**, the text **Color**, and the box **Fill** colour and opacity there, or untick **Fill** for text with no box.
+4. **⬜ TextBox**: drag a box. Select it and type into its toolbar's text field. A new TextBox is white text on a black box at 60 % opacity, whatever colour the other tools are set to: set **Fnt**, the text **Color**, and the box **Fill** colour and opacity there, or untick **Fill** for text with no box (then give the text a dark **Color** on a white canvas).
 5. **□ Rect** and **○ Ellipse**: drag. Choosing a **Fill** colour ticks **Fill**. Rectangles have **Corner R** (radius in px).
 6. Selected marks show in the position bar too: here the box behind C and D is **X** 530, **Y** 326, **W** 418, **H** 206.
 7. **⬇ Behind** sends a mark behind every object ("The annotation is now behind every object — it is drawn there in the figure and every export"); **⬆ Front** brings it back. The tinted, rounded box behind C and D in the figure above is a Rect with a fill, Corner R 12, sent Behind.
@@ -109,19 +110,53 @@ Marks drawn over an object are pinned to it and move with it (Shift+→ on panel
 3. **Annotate & Draw › Insert icon**: click an icon (here Bacteriophage and Bacterium; **Show all 210 icons** lists the rest). Icons arrive with no letter, and the **Elements** list names them ("Bacteriophage", "Bacterium").
 4. Add a photo with **Drop or click to add images**, set its **W** and **Clip ◯**.
 5. Size and place the outer two first: phage **H** 220, **X** 80; bacterium **W** 220, **X** 1028.
-6. Click beside the canvas, press <kbd>Ctrl/⌘+A</kbd>, then **↕** (centres in a line), **←→** (equal gaps; here "3 items, 247.85 px apart"), and type **Y** 116 to centre the row on the canvas.
-7. Title: **⬜ TextBox**, drag a box, select it, then type **X** 80, **Y** 16, **W** 1168, **H** 64 and the text, for example `Phage phiGuide lyses *E. coli* K-12 within 90 min at 10^{8} PFU/mL`. Set **Fnt** 28 and a dark **Color**, and untick **Fill** so no box is drawn.
-8. Set **Fnt** 26 in Annotate & Draw, draw two **↗ Arrow**s between the objects and two **T Text** labels above them. **Fnt** is in canvas px: on this 1328 px canvas printed 112.4 mm wide, 26 px prints at 6.2 pt; 18 px would print at 4.3 pt, which the check fails (under 5 pt).
-9. **Check › ✓ Check journal compliance**: the **Text size** row reads "smallest text: annotation text “infects” 6.2 pt … ✓".
+6. Click beside the canvas, press <kbd>Ctrl/⌘+A</kbd>, then **↕** (centres in a line), **←→** (equal gaps; here "3 items, 247.85 px apart"), and type **Y** 156. With several selected, **Y** is the top of the box around them; that box is as tall as the tallest object (the 300 px plate), so Y 156 centres the row in the space under the 80 px title band (80 to 531). Y 116 would centre it on the whole canvas, high under the title.
+7. Title: **⬜ TextBox**, drag a box, select it, then type **X** 80, **Y** 16, **W** 1168, **H** 64 and the text, for example `Phage phiGuide lyses *E. coli* K-12 within 90 min at 10^{8} PFU/mL`. Set **Fnt** 32 and a dark **Color**, and untick **Fill** so no box is drawn. The compliance check measures text boxes too, superscripts included (they print at 70 % of the text), so keep the title's Fnt large enough for its 10⁸.
+8. Set **Fnt** 26 in Annotate & Draw, draw two **↗ Arrow**s between the objects and two **T Text** labels above them (dark, since they start on the white canvas). **Fnt** is in canvas px: on this 1328 px canvas printed 112.4 mm wide, 26 px prints at 6.2 pt; 18 px would print at 4.3 pt, which the check fails (under 5 pt).
+9. **Check › ✓ Check journal compliance**: the **Text size** row reads "smallest text: annotation text “infects” 6.2 pt (3 text items measured: …) ✓": the title and the two labels.
 
 ## 8. Export and check
 
 1. **↓ SVG** (layered by default): one layer per object, a layer "Annotations behind objects" under the panels, the clip as a clipPath, and every letter, label and text box as `<text>` with italic and superscript spans. Open it in Illustrator, Affinity or Inkscape to finish.
-2. **Export › 📊 Export editable PowerPoint (.pptx)**: the slide is the figure's printed size (183 mm wide for the results figure, 112.4 mm for the abstract), so type sizes read in PowerPoint as they will print. It holds the pictures, plus editable text boxes for every letter, T Text and TextBox with their italic, subscript and superscript runs, and for the words of charts and gene maps (axis numbers, series names, gene names). The toast counts them: "PowerPoint exported — 6 pictures, 41 editable text boxes, and the legend key on slide 2".
+2. **Export › 📊 Export editable PowerPoint (.pptx)**: the slide is the figure's printed size (183 mm wide for the results figure, 112.4 mm for the abstract), so type sizes read in PowerPoint as they will print. It holds the pictures, plus editable text boxes for every letter, T Text and TextBox with their italic, subscript and superscript runs, and for the words of charts and gene maps (axis numbers, series names, gene names). The toast counts them, for example "PowerPoint exported — 6 pictures, 41 editable text boxes, and the legend key on slide 2" for the results figure.
 3. **↓ PDF lossless**: the Save dialog says panel letters, labels, text annotations, text boxes and the words of charts and gene maps are written as real, selectable text in the PDF's standard fonts (Helvetica, Times or Courier; Greek letters and signs such as Δ, φ, −, ≥ in the standard Symbol font). The fonts are named, not embedded: every PDF reader supplies them, but a journal preflight that requires embedded fonts will flag them. Text with characters none of them has (✓, CJK, emoji) and text on a turned object stays in the picture. On the abstract, the title, "infects" and "Δ*ompC* resists" were all real text.
 4. **↓ PNG** / **↓ TIFF**: the gaps you typed are the gaps in the file.
 
 Before submitting, run the compliance check and add the legend key and caption: [journal-submission.md](journal-submission.md).
+
+## 9. Caption, records and the submission package
+
+These work on the results figure from §1–§6.
+
+1. Select a picture and type its **Caption note** in the Props bar, for example `Phase contrast of strain MG1655` on B.
+2. Open **Export** and click **✦ Generate Caption**. The caption is lettered by each object's **Label**: "(A) Panel A. Scale bar, 10 µm (0.108 µm per pixel). Field of view 55.5 × 55.5 µm. (B) Phase contrast of strain MG1655. (C) Panel C. (D) Panel D. (E) Line chart (series: MOI_0 and MOI_1). …". A picture without a note is "Panel C"; charts and gene maps are described from their data.
+3. **📦 Export submission package (ZIP)** holds what a grid figure's package holds ([journal-submission.md](journal-submission.md)): the figure in each format, the key, caption, Methods, `-metadata.csv` (one row per object), `PANEL_HISTORY.txt` (each object's file and what was done to it) and `panels/` with one file per lettered object, named by its own letter (`panel_1_A.png` … `panel_6_F.png`). The test package held 27 files.
+
+## 10. Replace a picture
+
+1. Right-click the picture on the canvas › **⇄ Replace image…** (the menu has **⇄ Replace image…** and **✕ Delete object**) and pick the new file.
+2. The picture keeps its place, width, crop, letter and caption note. A file of another shape keeps the width and takes the height its picture needs, and the toast says so. In the test, the 4:3 photo B replaced by a square one: "Picture B: phase_rods.png → phase_rods_rerun.png — … caption note kept: “Phase contrast of strain MG1655” — edit it in ⚙ if it no longer fits; box height 300 → 400 px so the new picture keeps its shape — check what sits below it".
+3. If the box grew, move what sits below it, and edit the **Caption note** if the new picture shows something else.
+4. The caption, `metadata.csv` and `PANEL_HISTORY.txt` name the new file ("── B ── (source: phase_rods_rerun.png)" in the test package). One <kbd>Ctrl/⌘+Z</kbd> puts the old picture back.
+
+## 11. Change the printed width later
+
+Freeform sizes are in canvas px, but text in charts, gene maps, letters and scale-bar labels keeps its size in points. Narrow the printed width and that text grows against the pictures; marks typed in px (**Fnt**) shrink with them.
+
+1. Change **Export › Printed width**. Narrowing it says by how much: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
+2. Enlarge the chart and gene-map boxes (W and H) until their words fit again; there is no "scale everything".
+3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**.
+
+Best of all, choose the printed width before you lay out (§1.3).
+
+## 12. Keep your figure: saving and versions
+
+A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
+
+1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> (or **Export › Save / load your work › 💾 Save (bundled)**). You get `<name>-session.json` with the pictures inside ("Session saved (images bundled)"; 2.2 MB for the test figure).
+2. To reopen it, click **📂 Load** under Save / load your work (or **📂 Load a session** on the welcome card) and pick the file. Every object comes back in place, with its letter, crop and caption note.
+3. For versions of one figure, use **Export › Session library**: click **＋ Save current to library**, type a name (`Fig2 v1`), and click OK ("Saved "Fig2 v1" to your sessions"). Save again under another name after a change (`Fig2 v2`). The library lives in this browser only; the session file is what you keep or send.
+4. **Open** beside a version replaces the figure on screen with it ("Opened "Fig2 v1""). One <kbd>Ctrl/⌘+Z</kbd> brings back the figure you had before you opened it.
 
 ## Tips
 
@@ -130,6 +165,8 @@ Before submitting, run the compliance check and add the legend key and caption: 
 - Place the outermost objects first, then Distribute; set rough positions before Align.
 - Type sizes in **mm** when the journal gives panel sizes in mm.
 - Choose **Export › Printed width** before typing sizes in pt or mm, and keep annotation **Fnt** (px) large enough to print at 6 pt or more; the compliance check's **Text size** row tells you.
+- Replace a picture in place (right-click › **⇄ Replace image…**) rather than deleting it and adding the new file: the letter, crop and caption note stay.
+- Save versions with **Export › Session library › ＋ Save current to library**, and keep the <kbd>Ctrl/⌘+S</kbd> session file.
 - A chart in freeform is drawn from its data with the same Chart dialog as in a grid ([charts.md](charts.md)). For a figure that mixes micrographs, charts and gene maps in rows, a grid is simpler ([phage-and-microbiology.md](phage-and-microbiology.md)).
 - More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).
 
@@ -139,6 +176,9 @@ Before submitting, run the compliance check and add the legend key and caption: 
 - **Align pulled everything to the wrong place.** Align uses the outermost edge of the selection. Undo, move the stray object roughly into place, and align again.
 - **Distribute made the objects overlap.** The outer two stay put; move them apart first.
 - **An object is cut off after a canvas change.** The toast names what reaches past the edge; drag it in or make the canvas larger.
+- **A replaced picture overlaps what is below it.** A file of another shape takes the height it needs (the toast says by how much); move the objects below it, or crop the new picture.
+- **Chart or gene-map words run together after a narrower printed width.** Their text keeps its point size; enlarge the chart or map box (§11).
+- **A small gene map's title sits on the top row of gene names.** Seen on the 446 × 160 map in this guide; a known problem, listed in [`verify/ISSUES.md`](verify/ISSUES.md).
 - **The PDF fails a journal's "all fonts embedded" check.** FigureLab's PDF names its standard fonts without embedding them; send the TIFF, or finish the text in the SVG.
 - **The SVG's gaps read 11.5 px, not 12.** The layered SVG places each panel's picture up to 0.7 px off its box; the PNG, TIFF and PDF have the exact gap. **Export › SVG › Flat (one image)** writes the whole figure as one picture, drawn as the PNG is, with the text on top.
 - More: [troubleshooting.md](troubleshooting.md).

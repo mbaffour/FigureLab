@@ -49,6 +49,13 @@ const PHRASES = {
   'position': /^Position and size: type X, Y, W, H/,
   'graphical abstract': /^Canvas: graphical abstract \(Elsevier\)/,
   'tutorial': /^Tutorials/,
+  // round 3
+  'copy calibration': /^Same µm\/px on ticked panels/,
+  'fit panels to images': /^Fit panels to images/,
+  'rename channel': /^Rename a channel in the legend key/,
+  'relabel': /^Relabel panels A, B, C/,
+  'scale bar corner': /^Scale bar: which corner/,
+  'session library': /^Save to session library/,
 };
 
 (async () => {
@@ -155,6 +162,31 @@ const PHRASES = {
     const names2 = await p.evaluate(() => images.filter(Boolean).map(i => formatLabel(i.label) + ':' + i.name.split('_').pop()).join(' '));
     expect(names2 === names0, 'undo: ' + names2 + ' (was ' + names0 + ')');
     return `${tabs} Tabs after ⟳ Render; ${live1} → ${live2} → ${live3}; Ctrl+Z → ${names2}`;
+  });
+
+  // ux3 (was ISSUES.md "a click on a panel does not give the figure the keyboard")
+  await step(T, 'Keyboard: a click on a panel gives the figure the keyboard — → then picks the next panel', async () => {
+    await clickPanel('A');
+    const a = await p.evaluate(() => document.activeElement.id);
+    await p.keyboard.press('ArrowRight'); await p.waitForTimeout(250);
+    const live = await p.locator('#panel-kb-live').innerText();
+    expect(a === 'ann-canvas' && /^Panel B .*selected/.test(live), 'focus ' + a + ' | ' + live);
+    await p.keyboard.press('Escape');
+    return live;
+  });
+
+  // ux3 (newcomer2-19): ↻ with nothing selected turns every photo, and says so with an Undo button
+  await step(T, '↻ in the toolbar with no panel selected turns every photo; the toast names them, and its ↶ Undo turns them back', async () => {
+    await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } }); await p.keyboard.press('Escape');
+    await L.toasts(T);
+    const rot = () => p.evaluate(() => images.map((im, i) => im ? _panelAngle(i) : null).filter(v => v !== null).join(','));
+    const r0 = await rot();
+    await p.locator('button[aria-label="Rotate 90 degrees clockwise"]').click(); await p.waitForTimeout(500);
+    const t = await L.toasts(T), r1 = await rot();
+    await p.locator('#toast button', { hasText: 'Undo' }).click(); await p.waitForTimeout(500);
+    const r2 = await rot();
+    expect(/^No panel was selected, so all 4 photos \(A, B, C and D\) turned clockwise/.test(t) && r1 !== r0 && r2 === r0, `${t} | ${r0} → ${r1} → ${r2}`);
+    return `"${t.replace(/↶ Undo$/, '').trim()}" [↶ Undo] → rotations ${r0} → ${r1} → ${r2}`;
   });
 
   await step(T, 'Ctrl+Z undoes a Columns change and Ctrl/⌘+Shift+Z redoes it', async () => {
@@ -271,6 +303,28 @@ const PHRASES = {
     return JSON.stringify(st);
   });
 
+  // ux3 (newcomer3-10, newcomer3-12): Fit panels to images with mixed shapes offers ⛶ Crop to
+  // fill cells; a journal preset keeps the panel shape Fit made
+  await step(T, '⌘K "fit panels to images" on mixed shapes offers ⛶ Crop to fill cells; a journal preset then keeps the panel shape', async () => {
+    const shape = () => p.evaluate(() => { const b = panelBounds.find(q => formatLabel(images[q.idx].label) === 'B'); return +(b.w / b.h).toFixed(3); });
+    await L.openSection(T, 'Arrange');
+    await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } });
+    await L.toasts(T);
+    await L.cmdk(T, 'fit panels to images'); await p.waitForTimeout(600);
+    const t = await L.toasts(T), btns = await p.locator('#toast button').allInnerTexts();
+    const s1 = await shape();
+    await L.cmdk(T, 'plos'); await p.waitForTimeout(600);
+    const s2 = await shape();
+    await L.toasts(T);
+    await L.cmdk(T, 'fit panels to images'); await p.waitForTimeout(600);
+    await p.locator('#toast button', { hasText: 'Crop to fill cells' }).click(); await p.waitForTimeout(600);
+    const t2 = await L.toasts(T);
+    expect(/aren.t all the same shape/.test(t) && btns.some(b => /⛶ Crop to fill cells/.test(b)) && Math.abs(s1 - s2) < 0.01 && /cropped to fill their cells/.test(t2), JSON.stringify({ t, btns, s1, s2, t2 }));
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);   // the crops back
+    await L.openSection(T, 'Look'); await p.locator('#target-journal').selectOption({ index: 0 }); await p.waitForTimeout(400);   // back to no journal
+    return `"${t.slice(0, 110)}…" [${btns.join(', ')}]; panel B ${s1}:1 → ${s2}:1 after the PLOS ONE preset; ${t2}`;
+  });
+
   await step(T, 'Ctrl/⌘+S downloads the session file', async () => {
     await p.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } });
     const f = await L.download(T, () => p.keyboard.press('ControlOrMeta+s'), /\.json$/);
@@ -296,6 +350,17 @@ const PHRASES = {
     const after = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
     expect(after === before, `before ${before} / after ${after}`);
     return 'restored ' + after.split(',').length + ' panels';
+  });
+
+  // ux3 (freeform2-15): ✕ New keeps a font chosen by hand, and says so
+  await step(T, 'Look › Font family Times New Roman, then ✕ New › Confirm: the new figure keeps the font and the toast says so', async () => {
+    await L.openSection(T, 'Look');
+    await p.locator('#label-font').selectOption({ label: 'Times New Roman' }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(600);
+    const t = await L.toasts(T), f = await p.locator('#label-font').inputValue();
+    expect(/New figure started — font Times New Roman kept/.test(t) && /Times New Roman/.test(f), t + ' | ' + f);
+    return t + ' — Font family ' + f;
   });
 
   await L.finish(T);

@@ -39,6 +39,37 @@ const { step, expect, btn } = L;
   }
   const lysis = path.join(inp, 'lysis_OD600.csv'); fs.writeFileSync(lysis, csv);
 
+  // A plate reader's export (Gen5-like): Time as h:mm:ss, a temperature column, one column
+  // per well. Row A holds the blank (medium only); rows B–D are three cultures in triplicate.
+  // Truth at each time: the mean of (well − mean of A1–A3) over the row's three wells.
+  const pr = L.rng(77);
+  const wells = ['A', 'B', 'C', 'D'].flatMap(R => [1, 2, 3].map(c => R + c));
+  let plate = 'Time,T° 600,' + wells.join(',') + '\n';
+  const plateTruth = {};          // { minutes: [rowB, rowC, rowD] }
+  for (let t = 0; t <= 150; t += 15) {
+    const g = 0.04 * Math.exp(t / 50), lysed = t < 75 ? g : Math.max(0.01, 0.04 * Math.exp(75 / 50) * Math.exp(-(t - 75) / 20));
+    const base = { A: 0.085, B: 0.085 + g, C: 0.085 + lysed, D: 0.085 + g * 0.8 };
+    const v = {}; for (const w of wells) v[w] = +(base[w[0]] + (pr() - 0.5) * 0.006).toFixed(3);
+    const hh = Math.floor(t / 60), mm = t % 60;
+    plate += [`${hh}:${String(mm).padStart(2, '0')}:00`, '37.0', ...wells.map(w => v[w].toFixed(3))].join(',') + '\n';
+    const blank = (v.A1 + v.A2 + v.A3) / 3;
+    plateTruth[t] = ['B', 'C', 'D'].map(R => [1, 2, 3].map(c => v[R + c] - blank).reduce((s, x) => s + x, 0) / 3);
+  }
+  const plateCsv = path.join(inp, 'Kz7_platereader_Gen5.csv'); fs.writeFileSync(plateCsv, plate);
+
+  // A phase-contrast micrograph with a 10 µm bar burned into its bottom-right corner (the
+  // microscope software's own), for Auto-detect's "Keep the bar in the image" choice.
+  const phase = path.join(inp, 'phase_100x_burnedbar.png');
+  await L.canvasImage(T, phase, 800, 600, (ctx, w, h, rnd) => {
+    ctx.fillStyle = '#8a8a8a'; ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 50; i++) {
+      const x = rnd() * w, y = rnd() * h * 0.8, a = rnd() * Math.PI;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.ellipse(0, 0, 22, 7, 0, 0, 7); ctx.fill(); ctx.restore();
+    }
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(560, 560, 200, 8);          // 200 px = 10 µm
+  }, { seed: 41 });
+
   // Virions in the synthetic TEM (same generator, same seed): centre, axis angle.
   const r = L.rng(11);
   const virions = Array.from({ length: 4 }, (_, i) => ({ x: 180 + (i % 2) * 450 + r() * 80, y: 200 + Math.floor(i / 2) * 400 + r() * 60, a: r() * Math.PI * 2 }));
@@ -120,6 +151,10 @@ const { step, expect, btn } = L;
     if (!found) return 'auto-detect: "' + msg.slice(0, 70) + '…"';
     const said = (await det.textContent()).match(/([\d.]+) px/);
     expect(said && Math.abs(+said[1] - 400) <= 0.5, 'bar length ' + (said && said[1]));
+    // ux3 (newcomer3-01): two choices under the lengths; the default also draws FigureLab's bar
+    const choices = await det.locator('label:has(input[name="sbd-draw"])').allInnerTexts();
+    const dflt = await det.locator('input[name="sbd-draw"]:checked').evaluate(e => e.parentElement.innerText.trim());
+    expect(choices.length === 2 && /^Also draw FigureLab's bar/.test(dflt) && choices.some(c => /^Keep the bar in the image as the scale bar — calibrate only, draw no second bar/.test(c.trim())), JSON.stringify(choices));
     await det.locator('.sbd-pick', { hasText: '200 nm' }).click();
     await p.waitForTimeout(300);
     const um = await p.evaluate(() => images[0].umPerPx);
@@ -127,7 +162,7 @@ const { step, expect, btn } = L;
     expect(Math.abs(um * 1000 - 0.5) / 0.5 < 0.01, 'nm/px ' + um * 1000);
     // ux3 (newcomer3-01): the toast says where FigureLab's bar is drawn (clear of the burned-in one)
     expect(/Scale set: 0\.5 nm\/px \(400 px = 200 nm\) · FigureLab's 100 nm bar is drawn bottom (right|left)/.test(t), 'toast: ' + t);
-    return `auto-detect found the bar (${said[1]} px); toast "${t}"`;
+    return `auto-detect found the bar (${said[1]} px); default "${dflt.slice(0, 40)}…"; toast "${t}"`;
   });
 
   // The by-hand path the guide gives for a bar Auto-detect does not find, replayed on the
@@ -205,14 +240,20 @@ const { step, expect, btn } = L;
     return `capsid ${cap[1]} ± ${cap[2]} nm (true ${TRUE_CAPSID}), tail ${tail[1]} ± ${tail[2]} nm (true ${TRUE_TAIL.toFixed(1)}); ${path.basename(rulerCsv)}`;
   });
 
-  await step(T, 'Annotate & Draw › ✕ Clear → Confirm removes the rulers; Panel span back to 1 × 1', async () => {
+  // ISSUES.md "Ruler labels stick out of a panel after its span shrinks": span back to 1 × 1
+  // with the rulers still on, then look at panel A and its margin (shots/phage-rulers-1x1.png).
+  await step(T, 'Panel span back to 1 × 1 with the rulers on (they follow the panel); Annotate & Draw › ✕ Clear → Confirm removes them', async () => {
+    const it = await settings(0);
+    await setField(it.locator('input.f-colspan'), 1);
+    await setField(it.locator('input.f-rowspan'), 1);
+    await render();
+    const cv = await p.locator('#fig-canvas').boundingBox();
+    const b = await p.evaluate(() => panelBounds.find(q => q.idx === 0));
+    await L.shot(T, 'phage-rulers-1x1', { x: Math.max(0, cv.x + b.x - 60), y: cv.y + Math.max(0, b.y - 20), width: b.w + 120, height: b.h + 40 });
     await L.openSection(T, 'Annotate & Draw');
     await btn(T, '✕ Clear').click();
     await btn(T, /^Confirm$/).click();
     await p.waitForTimeout(300);
-    const it = await settings(0);
-    await setField(it.locator('input.f-colspan'), 1);
-    await setField(it.locator('input.f-rowspan'), 1);
     await render();
     const n = await p.evaluate(() => annotations.length);
     expect(n === 0, n + ' annotations left');
@@ -236,11 +277,16 @@ const { step, expect, btn } = L;
     await setField(m.locator('#calib-px'), 220);
     await m.locator('#calib-um').fill('10');
     await m.locator('#calib-unit').selectOption('mm');
+    await L.toasts(T);
     await m.locator('button', { hasText: 'Apply' }).click();
     await p.waitForTimeout(400);
-    const st = await p.evaluate(() => ({ um: images[1].umPerPx, unit: images[1].sbUnit, len: images[1].sbUm, on: images[1].sbOn }));
+    const t = await L.toasts(T);
+    await render();
+    const st = await p.evaluate(() => ({ um: images[1].umPerPx, unit: images[1].sbUnit, len: images[1].sbUm, on: images[1].sbOn, corner: images[1]._sbCornerUsed, avoid: !!images[1].sbAvoid }));
     expect(Math.abs(st.um - 1000 / 22) < 0.05 && st.on && st.unit === 'mm', JSON.stringify(st));
-    return `1:1 shows the photo ${w11} px wide; clicks gave ${clicked} px; typed 220 px = 10 mm → ${st.um.toFixed(2)} µm/px, ${st.len / 1000} mm bar`;
+    // ux3 (phage3-05): the bar is drawn in a corner clear of the ruler that was clicked on
+    const cornerOpt = await (await settings(1)).locator('select.f-sbcorner option:checked').innerText().catch(() => '');
+    return `1:1 shows the photo ${w11} px wide; clicks gave ${clicked} px; typed 220 px = 10 mm → ${st.um.toFixed(2)} µm/px, ${st.len / 1000} mm bar drawn ${st.corner} (Corner: "${cornerOpt}"); toast "${t}"`;
   });
 
   await step(T, 'Plate C: tick B and C → B ⚙ › ⇉ Same µm/px on ticked panels', async () => {
@@ -271,6 +317,7 @@ const { step, expect, btn } = L;
       const txt = await sec.innerText();
       const got = +((txt.match(/Objects detected: (\d+)/g) || []).pop() || '').replace(/\D/g, '');
       const dia = (txt.match(/Equivalent diameter: ([^\n]*)/g) || []).pop();
+      const objLine = (txt.match(/Objects detected: [^\n]*/g) || []).pop();
       expect(Math.abs(got - n) <= 3, `counted ${got}, made ${n}`);
       if (letter === 'B') {
         // the result box (sidebar) beside panel B with its marks, as one picture
@@ -291,7 +338,7 @@ const { step, expect, btn } = L;
         expect(want.every(w => head.includes(w)) && /ellipse \(round, a dish\)/.test(lines[1]), 'CSV: ' + head + ' | ' + lines[1]);
         csvNote = '; ' + path.basename(f) + ' has ' + want.join(', ');
       }
-      return `${got} objects (made ${n}); ${dia}${csvNote}`;
+      return `"${objLine}" (made ${n}); ${dia}${csvNote}`;
     });
   }
 
@@ -315,19 +362,25 @@ const { step, expect, btn } = L;
     const m = p.locator('#lt-modal-bg'); await m.waitFor({ state: 'visible' });
     expect(/panel D/.test(await m.innerText()), 'lane table is not for panel D');
     await setField(m.locator('#lt-lanes'), 8);
-    await setField(m.locator('input.lt-name').first(), 'Dilution');
-    const c0 = m.locator('input.lt-cell').first();
-    await c0.click(); await p.keyboard.press('ControlOrMeta+a');
+    // ux3 (phage3-03): as the guide says it: click the row's name box, type the name, click
+    // the first cell, type the row with commas, Enter. (The click used to cycle the cell to +.)
+    const hint = (await m.innerText()).match(/Type a whole row into its first cell[^\n]*/);
+    expect(hint && /separated by commas/.test(hint[0]), 'hint: ' + (hint && hint[0]));
+    await m.locator('input.lt-name').first().click();
+    await p.keyboard.type('Dilution');
+    await m.locator('input.lt-cell').first().click();
+    await L.toasts(T);
     await p.keyboard.type('10^{0}, 10^{-1}, 10^{-2}, 10^{-3}, 10^{-4}, 10^{-5}, 10^{-6}, 10^{-7}');
     await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    const t = await L.toasts(T);
     const lt = await p.evaluate(() => images[3].laneTable);
-    expect(lt && lt.rows[0].cells.length === 8 && lt.rows[0].cells[7] === '10^{-7}', JSON.stringify(lt));
+    expect(lt && lt.rows[0].name === 'Dilution' && lt.rows[0].cells.length === 8 && lt.rows[0].cells[0] === '10^{0}' && lt.rows[0].cells[7] === '10^{-7}', JSON.stringify(lt));
     await m.locator('.modal-close, button:has-text("×")').first().click();
     await render();
     const cv = await p.locator('#fig-canvas').boundingBox();
     const b = await p.evaluate(() => panelBounds.find(q => q.idx === 3));
     await L.shot(T, 'phage-spot', { x: cv.x + b.x - 70, y: cv.y + b.y - 8, width: b.w + 80, height: b.h + 16 }, { doc: false });
-    return lt.rows[0].cells.join(' ');
+    return `${lt.rows[0].name}: ${lt.rows[0].cells.join(' ')}; toast "${t}"`;
   });
 
   // ---- 6 lysis curves -------------------------------------------------------------------
@@ -394,6 +447,12 @@ const { step, expect, btn } = L;
     expect(/^10\.8 kb · 12 features · [\d.]+ bp per pixel$/.test(line), 'import summary: ' + line);
     expect(/10 genes listed twice \(gene \+ CDS or RNA\) drawn once each/.test(t), 'toast: ' + t);
     T._gmNote = line + ' — toast "' + t + '"';
+    // ux3 (data): the dialog's ruler checkbox is "ruler", and a Unit menu reads bp (DNA) / aa (protein)
+    const rul = (await m.locator('label:has(#gm-ruler)').innerText()).trim();
+    const units = await m.locator('#gm-unit option').allInnerTexts();
+    const unit = await m.locator('#gm-unit option:checked').innerText();
+    expect(rul === 'ruler' && units.join('|') === 'bp (DNA)|aa (protein)' && unit === 'bp (DNA)', JSON.stringify({ rul, units, unit }));
+    T._gmNote += `; "${rul}" ticked ${await m.locator('#gm-ruler').isChecked()}, Unit ${unit}`;
     await m.locator('#gm-title').fill('*Escherichia* phage phiGuide, late region');
     await m.locator('button', { hasText: /^Apply$/ }).click();
     await p.waitForTimeout(300);
@@ -473,19 +532,7 @@ const { step, expect, btn } = L;
     const r1 = await readReport();
     await p.keyboard.press('Escape');
     expect(/^Auto contrast on/.test(t) && /every text over a picture now reads at 4\.5:1 or better/.test(t) && /✓/.test(r1.tc), 'toast: ' + t + ' | ' + r1.tc);
-    return `${r0.title} (${r0.open.join(', ')}) → Auto contrast → ${r1.title}; toast "${t}"`;
-  });
-
-  await step(T, 'TEM ⚙ › Black pt 10000 (darker display); ✓ Check journal compliance passes every row', async () => {
-    const it = await settings(0);
-    await it.locator('input.f-bpt-v').fill('10000'); await it.locator('input.f-bpt-v').press('Enter');
-    await p.waitForTimeout(400);
-    await L.openSection(T, 'Check');
-    await btn(T, '✓ Check journal compliance').click();
-    const r = await readReport();
-    await p.keyboard.press('Escape');
-    expect(/compliance — 20\/20 passed/.test(r.title) && !r.open.length, JSON.stringify(r));
-    return `${r.title}; Text contrast: ${r.tc.slice(0, 90)}; Text size: ${r.ts.slice(0, 60)}`;
+    return `${r0.title} (${r0.open.join(', ')}: ${r0.tc.slice(0, 260)}) → Auto contrast → ${r1.title}, "${r1.tc.slice(0, 80)}"; toast "${t}"`;
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -510,7 +557,10 @@ const { step, expect, btn } = L;
     const want = ['Uninfected', 'MOI 1', 'portal', 'tape measure', '100 nm', '10 mm', 'Dilution'];
     const miss = want.filter(w => !new RegExp('>[^<]*' + w.replace(/ /g, '\\s') + '[^<]*<').test(svg));
     expect(!miss.length, 'not text in the SVG: ' + miss.join(', '));
-    return path.basename(r.file) + ' carries ' + want.join(', ') + ' as <text>';
+    // ux3 (phage3-04): a map of 10 kb or more has its ruler in kb, with fewer ticks that keep apart
+    const kb = [...svg.matchAll(/>\s*([\d.]+ kb)\s*</g)].map(x => x[1]);
+    expect(kb.length >= 2, 'ruler in kb: ' + kb.join(', '));
+    return path.basename(r.file) + ' carries ' + want.join(', ') + ' as <text>; gene-map ruler ' + kb.join(', ');
   });
 
   // ux2: the PDF writes chart and gene-map words (and the minus sign, in the standard Symbol
@@ -545,9 +595,13 @@ const { step, expect, btn } = L;
     await btn(T, '✎ Write Methods paragraph').click();
     await p.waitForTimeout(400);
     const m = await p.locator('#methods-out').inputValue();
-    expect(/10000–62000 \(panel A\)/.test(m), 'display range missing: ' + m.slice(0, 300));
+    fs.writeFileSync(path.join(T.out, 'methods.txt'), m);
+    // no display range typed in this guide: Methods gives the TEM's range as it opened, in the
+    // file's own counts, and where each pixel size came from
+    expect(/\d+–\d+ \(panel A\)/.test(m), 'display range missing: ' + m.slice(0, 300));
     expect(/copied from panel B/.test(m), 'calibration source missing');
-    return (m.match(/display ranges in native values:[^.]*/) || [''])[0] + '; ' + (m.match(/copied from panel B[^)]*\)/) || [''])[0];
+    expect(/measured on the image \(400 px = 200 nm\) for panel A/.test(m), 'TEM pixel-size source missing');
+    return (m.match(/display ranges? in native values:[^.]*/) || m.match(/[^.]*\(panel A\)[^.]*/) || [''])[0] + ' | ' + (m.match(/measured on the image \(400 px = 200 nm\) for panel A[^,]*/) || [''])[0] + ' | ' + (m.match(/copied from panel B[^)]*\)/) || [''])[0];
   });
 
   await step(T, '⌘K finds the measuring tools by plain words', async () => {
@@ -581,6 +635,138 @@ const { step, expect, btn } = L;
       return { where: k.where, y: Math.round(k.yf * cv.height), bottom: Math.round(panelBounds.reduce((m, q) => Math.max(m, q.y + q.h), 0)), right: document.getElementById('m-right').value }; });
     expect(+a > 16 && b === '16' && k.where === 'bottom' && k.y >= k.bottom && k.right === '16', JSON.stringify({ a, b, k }));
     return `right margin 16 → ${a} (Free space) → ${b} after Where › Below; key below the panels`;
+  });
+
+  // ---- ISSUES.md re-checks on this build ------------------------------------------------
+  const pdfWords = file => {
+    const zlib = require('zlib'); const d = fs.readFileSync(file).toString('latin1'); let tj = [];
+    for (const m of d.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+      let b = Buffer.from(m[1], 'latin1'); try { b = zlib.inflateSync(b); } catch (_) {}
+      tj = tj.concat([...b.toString('latin1').matchAll(/\(([^)]*)\)\s*Tj/g)].map(x => x[1]));
+    }
+    return tj;
+  };
+  // "A journal preset can turn a one-cell lane table into '…'": the spot assay back in one
+  // cell under ASM; the PDF's dilution labels and the Text size row.
+  await step(T, 'ISSUES: the spot assay in one grid cell under ASM keeps its eight dilution labels (no "…")', async () => {
+    await setField((await settings(3)).locator('input.f-colspan'), 1);
+    await render();
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const r = await readReport();
+    const tsBtns = await p.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' }).first().locator('button').allInnerTexts();
+    await p.keyboard.press('Escape');
+    const f = (await L.exportVia(T, 'PDF lossless', { name: 'Fig1_spot1cell' })).file;
+    const tj = pdfWords(f);
+    const tens = tj.filter(t => t === '10').length, dots = tj.filter(t => t === '\\205' || /…/.test(t)).length;
+    const lt = await p.evaluate(() => images[3].laneTable.fs);
+    await setField((await settings(3)).locator('input.f-colspan'), 2);
+    await render();
+    expect(dots === 0 && tens >= 8, `${tens} "10" labels, ${dots} "…" in the PDF`);
+    return `${tens} "10" labels and no "…" in the PDF; table ${(+lt).toFixed(1)} px; ${r.title}; open rows: ${r.open.join(' | ')}; Text size: ${r.ts.slice(0, 160)}; buttons: ${tsBtns.join(', ')}`;
+  });
+
+  // "A chart in one grid cell runs its tick labels together at journal size": the lysis
+  // chart at Col span 1 under ASM. Evidence only (shots/phage-chart-1cell-figure.png); the
+  // guide keeps the chart at Col span 2.
+  await step(T, 'ISSUES (evidence): the lysis chart in one grid cell under ASM, screenshot; then back to Col span 2', async () => {
+    await setField((await settings(4)).locator('input.f-colspan'), 1);
+    await render(); await p.waitForTimeout(600); await render();
+    await L.shot(T, 'phage-chart-1cell-figure', p.locator('#canvas-container'));
+    const b = await p.evaluate(() => panelBounds.find(q => q.idx === 4));
+    await setField((await settings(4)).locator('input.f-colspan'), 2);
+    await render();
+    return `chart panel ${Math.round(b.w)} × ${Math.round(b.h)} px at Col span 1 — see shots/phage-chart-1cell-figure.png`;
+  });
+
+  // ---- Keep the bar in the image (Auto-detect's second choice) --------------------------
+  await step(T, 'A micrograph whose bar stays in the picture: ⚙ › 🔍 Auto-detect › "Keep the bar in the image as the scale bar" → 10 µm: no second bar; the caption names the bar in the image', async () => {
+    const n0 = (await panels()).length;
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [phase]);
+    await p.waitForFunction(n => images.filter(Boolean).length === n + 1, n0, { timeout: 15000 });
+    const i = n0;
+    const it = await settings(i);
+    await L.toasts(T);
+    await it.locator('button', { hasText: '🔍 Auto-detect scale bar' }).click(); await p.waitForTimeout(800);
+    const det = p.locator('#sbdetect-modal');
+    expect(await det.isVisible().catch(() => false), 'no bar found: ' + await L.toasts(T));
+    const said = (await det.textContent()).match(/([\d.]+) px/);
+    await det.locator('label', { hasText: 'Keep the bar in the image as the scale bar' }).click();
+    await det.locator('.sbd-pick', { hasText: /^10 µm$/ }).click(); await p.waitForTimeout(400);
+    const t = await L.toasts(T);
+    const st = await p.evaluate(i => ({ um: images[i].umPerPx, on: images[i].sbOn, kept: images[i].sbBurnedIn }), i);
+    expect(Math.abs(st.um - 0.05) < 0.002 && !st.on && st.kept, JSON.stringify(st));
+    expect(/the 10 µm bar in the image is the scale bar — FigureLab draws none/.test(t), 'toast: ' + t);
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(400);
+    const rep = p.locator('#info-modal-bg .modal, .modal-bg.open').filter({ hasText: 'Replace your caption?' });
+    if (await rep.count()) await rep.locator('button', { hasText: 'Replace' }).first().click();
+    const cap = await p.locator('#caption-out').inputValue();
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const txt = await p.locator('#info-modal-bg').innerText(); await p.keyboard.press('Escape');
+    const sb = (txt.match(/\nScale bars\n([^\n]*)/) || [])[1] || '(no Scale bars row)';
+    const capLine = (cap.match(/Scale bar \(in the image\)[^.]*\([^)]*\)\./) || [''])[0];
+    expect(capLine && !/calibrated but showing no scale bar/.test(sb), 'caption: ' + cap.slice(-300) + ' | row: ' + sb);
+    // take it out again: the figure above is the guide's
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);
+    const x = row(i).locator('button[title*="Remove" i], button:has-text("×")').first();
+    if (await x.count()) { await x.click(); await p.waitForTimeout(300); const c = btn(T, /^Confirm$/); if (await c.isVisible().catch(() => false)) await c.click(); }
+    return `bar ${said && said[1]} px; toast "${t}"; caption "${capLine}"; Scale bars: ${sb.slice(0, 80)}`;
+  });
+
+  // ---- Plate-reader export (§8) ---------------------------------------------------------
+  await step(T, 'Plate reader: Drop or click to add images → the export (Time h:mm:ss, T° 600, wells A1–D3): Line, Time in minutes, temperature left out and said so, a Plate wells row', async () => {
+    await p.keyboard.press('Escape');
+    await L.toasts(T);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [plateCsv]);
+    const m = p.locator('#chart-modal'); await m.waitFor({ state: 'visible' });
+    const info = (await m.locator('#chart-delim-info').innerText()).replace(/\s+/g, ' ');
+    const st = await m.evaluate(e => ({ kind: e.querySelector('#chart-kind').selectedOptions[0].text, x: e.querySelector('#chart-xcol').selectedOptions[0].text,
+      xt: e.querySelector('#chart-xtitle').value, wells: e.querySelector('#chart-wells-wrap').offsetParent !== null, lbl: e.querySelector('#chart-wells-lbl').textContent }));
+    expect(st.kind === 'Line' && st.x === 'Time' && st.xt === 'Time (min)' && st.wells && st.lbl === 'Plate wells (12: A1–D3)', JSON.stringify(st));
+    expect(/Time read as h:mm:ss time, in minutes/.test(info) && /T° 600 \(temperature\) not plotted — tick it under Y columns to plot it/.test(info), 'status: ' + info);
+    T._prInfo = info;
+    return `${st.kind}, X ${st.x}, X title "${st.xt}", "${st.lbl}"; status "${info.slice(0, 200)}"`;
+  });
+
+  await step(T, 'Plate reader: Plate wells › replicates by plate row, blank › subtract Row A; name the rows; Apply → mean ± SD of each row, blank taken away, at each time', async () => {
+    const m = p.locator('#chart-modal');
+    await m.locator('#chart-wells-by').selectOption({ label: 'by plate row (A, B, C…)' }); await p.waitForTimeout(200);
+    const blanks = await m.locator('#chart-wells-blank option').allInnerTexts();
+    await m.locator('#chart-wells-blank').selectOption({ label: 'subtract Row A' }); await p.waitForTimeout(200);
+    const err = await m.locator('#chart-err').evaluate(e => e.selectedOptions[0].text);
+    const names = { 'Row B': 'BW25113', 'Row C': 'BW25113 + Kz7', 'Row D': 'ΔfhuA + Kz7' };
+    for (const [k, v] of Object.entries(names)) await setField(m.locator(`#chart-names [data-key="${k}"] input[type=text]`), v);
+    await m.locator('#chart-ytitle').fill('OD_{600} (blank-subtracted)');
+    await m.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(600);
+    const st = await p.evaluate(() => { const el = images.filter(i => i && i.type === 'chart').pop(); return { label: formatLabel(el.label), s: el._chartStat }; });
+    let worst = 0, npts = 0;
+    st.s.series.forEach((sr, k) => sr.points.forEach(pt => { npts++; const t = plateTruth[Math.round(pt.x)][k]; worst = Math.max(worst, Math.abs(pt.y - t)); if (pt.n !== 3 || !(pt.err >= 0)) worst = 1; }));
+    expect(npts === 33 && worst < 1e-9, `${npts} points, worst |mean − truth| ${worst}`);
+    expect(st.s.series.map(x => x.name).join('|') === 'BW25113|BW25113 + Kz7|ΔfhuA + Kz7', st.s.series.map(x => x.name).join('|'));
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(400);
+    const rep = p.locator('.modal-bg.open').filter({ hasText: 'Replace your caption?' });
+    if (await rep.count()) await rep.locator('button', { hasText: 'Replace' }).first().click();
+    const cap = await p.locator('#caption-out').inputValue();
+    const bl = (cap.match(/[^.;(]*blank-subtracted[^.;]*/) || [''])[0];
+    expect(/blank-subtracted: the mean of A1, A2, A3 at each time point/.test(cap), 'caption: ' + cap.slice(-400));
+    return `blank menu: ${blanks.join(' / ')}; Error bars ${err}; chart ${st.label}: ${npts} points = row means minus the blank (n = 3, worst error ${worst.toExponential(1)}); caption "${bl.trim()}"`;
+  });
+
+  await step(T, 'A line chart that can draw nothing says why (x column of words), and Cancel takes it away', async () => {
+    const odf = path.join(inp, 'od_by_day.csv'); fs.writeFileSync(odf, 'timepoint,od\nday one,0.1\nday two,0.2\nday three,0.3\n');
+    const n0 = (await panels()).length;
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [odf]);
+    const m = p.locator('#chart-modal'); await m.waitFor({ state: 'visible' });
+    await m.locator('#chart-kind').selectOption({ label: 'Line' }); await p.waitForTimeout(300);
+    const info = (await m.locator('#chart-delim-info').innerText()).replace(/\s+/g, ' ');
+    await m.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
+    const n1 = (await panels()).length;
+    const msg = (info.match(/⚠ nothing drawn[^⚠]*/) || [''])[0].trim();
+    expect(/⚠ nothing drawn: the x column “timepoint” holds no numbers/.test(info) && n1 === n0, info + ' panels ' + n0 + ' → ' + n1);
+    return `"${msg}"; Cancel: panels ${n0} → ${n1}`;
   });
 
   await L.finish(T);

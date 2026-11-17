@@ -19,8 +19,8 @@ Every step below was run on this build by `verify/journal-submission.verify.js`,
 Do this after the layout is settled (columns, rows, spans), and after you name the figure.
 
 1. Open **Export** and type the figure's name in **File name**, with its number: `Figure 2`.
-2. Open **Look** and choose your journal in **Target journal**. You can also press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, type the journal's name or abbreviation (`plos`, `mbio`, `j bacteriol`, `jbc`) and press <kbd>Enter</kbd> on **Journal: …**, or click one of the preset buttons under it (**Nature**, **PLOS**, **eLife**, **EMBO**, **ASM**, **JBC** …). A journal FigureLab has no preset for says so: `nat comms` finds "Journal: no preset for Nature Communications", which changes nothing.
-3. Read the toast. It lists what the preset changed, for example `PLOS ONE preset applied — Arial, LZW TIFF, named Fig2 — letters 10 pt, headings 9 pt, text 8 pt`.
+2. Open **Look** and choose your journal in **Target journal**. You can also press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>, type the journal's name or abbreviation (`plos`, `mbio`, `j bacteriol`, `jbc`) and press <kbd>Enter</kbd> on **Journal: …**, or click one of the preset buttons under it (**Nature**, **PLOS**, **eLife**, **EMBO**, **ASM**, **JBC** …). A journal FigureLab has no preset for says so and changes nothing: `nat comms` finds "Journal: no preset for Nature Communications", and `scientific reports` finds "Journal: no preset for Scientific Reports".
+3. Read the toast. It lists what the preset set, for example `PLOS ONE preset applied — printed width kept at 173 mm (PLOS ONE allows up to 190.5 mm), Arial, LZW TIFF, named Fig2 — letters 10 pt, headings 9 pt, text 8 pt`.
 
 What a preset sets, where the journal states it:
 
@@ -31,7 +31,7 @@ What a preset sets, where the journal states it:
 | Letters / headings / text | 7 / 7 / 7 pt | 10 / 9 / 8 pt | 8 / 8 / 7 pt (eLife states no size) |
 | TIFF | — | LZW, named `Fig2.tif` | — |
 
-A preset picks the widest width the journal allows that keeps the figure within its height limit, and its toast says so: on a 2 × 2 figure of square panels, "Nature preset applied — 89 mm wide — the widest that keeps it within 170 mm tall".
+A preset picks the widest width the journal allows that keeps the figure within its height limit, and its toast says so: on a 2 × 2 figure of square panels, "… 89 mm wide — the widest that keeps it within 170 mm tall".
 
 PLOS file names take the number from your File name: `Figure 2` becomes `Fig2`. If you rename the figure after choosing PLOS, the compliance report's **File name** row offers a **Name Fig3** button.
 
@@ -39,7 +39,7 @@ Science, Cell and PNAS are marked *unverified*: FigureLab could only read second
 
 ## 2. Run the compliance check
 
-1. Open **Check** and click **✓ Check journal compliance** (or ⌘K › **Check against …**, which reports without changing your journal).
+1. Open **Check** and click **✓ Check journal compliance**. To see how the figure fares under another journal, press ⌘K and type `check against` and its name (`check against nature`): the report's title ends "· report only", a line says "Report only — your target journal is still PLOS ONE, and nothing was changed", and a **Switch the target to Nature** link changes the target if you want it (one undo step).
 2. Read the title: `PLOS ONE compliance — 18/21 passed`.
 3. Read each row. Each journal row names its source.
 
@@ -61,15 +61,18 @@ Each button is one undo step, and the report refreshes after it.
 | Text size, journal states sizes | **Fit 8–12 pt** (the journal's range) | Brings the figure's text sizes into range. Verified: 3 pt text → 8 pt under PLOS. |
 | Text size, journal states none (None, Science, Cell, PNAS) | **Raise to 6 pt** | Text under 5 pt (the smallest any journal FigureLab has read accepts) fails, and text under 6 pt warns; the button raises it to 6 pt. |
 | Scale-bar calibration | **Calibrate…** / **No scale bar on these** | Calibrate a micrograph, or switch off a bar on a photo, blot or chart that has no scale. |
+| Scale-bar calibration, a picture that looks like a micrograph with no calibration and no bar | **Calibrate…** / **No scale needed** | The row warns, for example "E (HeLa_DMSO_phase.tif) looks like a micrograph — its file name says “phase” — with no calibration and no scale bar". **No scale needed** marks a picture that truly has none (it is kept with the figure), and the row passes. |
 | Text contrast | **Auto contrast** | Darkens the chips behind the letters and picks black or white text, so every letter reads against its panel. See the note below. |
 | Printed height | **Set 89 mm** (the width that fits) | Narrows the figure until it fits the journal's height. |
 | Legend key on the figure | **Move to free space** | Puts a key that covers a panel, letter or heading back into free space. |
 | Panel resolution | **Select panel** | Selects the first panel that prints below 300 ppi, so you can make it smaller. |
 | Alt text | **Alt text** | Opens the ALT TEXT box under the caption. |
 | File name (PLOS) | **Name Fig2** | Renames the export. |
-| Export format (Nature) | **Save as PDF (lossless)** | Opens the Save dialog in a format the journal accepts. |
+| Export format | **Save as …** in the journal's format (**Save as TIFF** under PLOS) | Opens the Save dialog again when nothing was exported since the figure last changed (see §6). |
 
-**Text contrast.** The row measures each letter against the picture under its strokes. In the test, letter C on its chip over the white blot read 3.55:1 (⚠). The row's **Auto contrast** button fixed it with **Look › Panel Labels (A, B, C…) › Background** still ticked: the toast reads "Auto contrast on — the chips behind the letters are darker and the letters white…", and the row passed. Text without a chip over a mid-grey picture (a TEM's scale-bar text, for example) can still fall short; darken that panel slightly with its ⚙ › **Black pt** ([phage guide](phage-and-microbiology.md)).
+Rows for charts and blots have their own buttons, described in those guides: **Text to N pt** when chart superscripts print below the journal's minimum ([charts](charts.md)), **Lane tables to 7 pt** and **Widen A** for lane-table labels, and the **Charts from densitometry** row for a chart whose numbers were typed by hand ([western blot](western-blot.md)).
+
+**Text contrast.** The row measures each letter against the picture under its strokes. In the test, letter C on its chip over the white blot read 3.55:1 (⚠). The row's **Auto contrast** button fixed it with **Look › Panel Labels (A, B, C…) › Background** still ticked: the toast reads "Auto contrast on — the chips behind the letters are darker and the letters white — every text over a picture now reads at 4.5:1 or better", and the row passed. Scale-bar text is inked from the pixels under it, with a backing chip where neither black nor white reads, so text over a mid-grey TEM passes too ([phage guide](phage-and-microbiology.md)).
 
 **Printed height.** Nature allows 170 mm. The preset already picks a width that fits. If you choose a wider **Export › Printed width** afterwards (183 mm on a 2 × 2 figure of square panels), the row fails and its **Set 89 mm** button brings it back. Fewer rows also work.
 
@@ -78,8 +81,8 @@ Each button is one undo step, and the report refreshes after it.
 The key lists every channel colour, chart series and gene-map feature once, with the exact colour, marker and line drawn in the figure.
 
 1. Open **Export › Legend key**.
-2. Rename a channel under **Channel names** if the file name gave the wrong one (`GFP` → `GFP-LC3`). The key, its text and the placed key follow. Clear a name to go back to the tag or file name.
-3. Tick **Place the key on the figure**. It goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. When there is no room, a margin grows for it and a toast says so: in the test, "The legend key needed free space, so the bottom margin grew from 16 to 53 px — it sits there without covering anything." The key moves itself when the layout, text size, printed width or journal changes.
+2. Rename a channel under **Channel names** if the file name gave the wrong one (`GFP` → `GFP-LC3`). The key, its text and the placed key follow. Clear a name to go back to the tag or file name. Greyscale pictures (phase contrast, bright field) are listed there too, under the name their panels show: an uncalibrated `HeLa_DMSO_phase.tif` came in as **BF**, and typing `Phase contrast` in its field renamed every panel of that name ("Phase contrast (greyscale)" in the key text).
+3. Tick **Place the key on the figure**, or press <kbd>⌘K</kbd>, type `legend key` and press <kbd>Enter</kbd> on **Legend key: place it on the figure** ("Legend key placed on the figure, in free space — …"). It goes into free space (a margin, an empty cell or a free corner), never over a panel, letter or heading. When there is no room, a margin grows for it and a toast says so ("The legend key needed free space, so the bottom margin grew from 16 to 53 px — it sits there without covering anything"). The key moves itself when the layout, text size, printed width or journal changes, and when it moves, the margin grown for its old place is given back ("The key moved; the bottom margin back to 16 px").
 4. To choose the place yourself, use the **Where** menu beside the switch: **Free space**, **Top right**, **Top left**, **Bottom right**, **Bottom left**, **Right edge** or **Below**. Or drag the key with **Annotate & Draw › ↖ Select**: a key you moved stays where you put it. If it then covers something, the compliance report's **Legend key on the figure** row warns ("the key you moved covers panel letter A, 1 panel") and its **Move to free space** button puts it back.
 5. Click **⬇ Download key**. It is written in the format of your last export, shown on the button: **⬇ Download key (PNG)** before any export, **⬇ Download key (TIFF)** after a TIFF.
 6. Under **Figure caption helper**, the **Legend text starter** box holds the key as a sentence: `DAPI (blue); GFP-LC3 (green).` Click **Copy** and paste it into your figure legend.
@@ -88,14 +91,14 @@ The placed key shows the same names, swatches and font as the downloaded file.
 
 ## 4. Write the caption, Methods and alt text
 
-1. In each panel's **⚙**, type a **Caption note (not rendered)**: what the panel shows, for example `PhoA western blot; WT and ΔphoA, ± IPTG`.
-2. Open **Export** and click **✦ Generate Caption**. Panels are named by letter: `(C) PhoA western blot; …`. Scale bars, µm per pixel and field of view are written in for calibrated panels.
+1. In each panel's **⚙**, type a **Caption note (not rendered)**: what the panel shows, for example `PhoA western blot; WT and ΔphoA, ± IPTG`. Lab-book details (dates, conditions) go in the field under it, **Metadata note (records only, not the caption)**, which is kept in the package's metadata.csv and PANEL_HISTORY and never written into the caption or alt text.
+2. Open **Export** and click **✦ Generate Caption**. Panels are named by letter: `(C) PhoA western blot; …`. Scale bars, µm per pixel and field of view are written in for calibrated panels; chart panels are described by what they draw ([charts](charts.md)).
 3. Click **✎ Write Methods paragraph**. It states the 16-bit display ranges in camera counts, the look-up tables, where each calibration came from, which panels print below 300 ppi, and any reuse you marked as intentional.
 4. Under **Alt text**, click **✦ Draft from figure**. The draft says what is where, not what it shows; add your findings. It goes into the PNG, SVG and PDF and into the package.
 
-An untouched caption follows the figure by itself, also in a reopened session: in the test, swapping panels A and B after reopening rewrote the untouched caption to start with "(A) GFP-LC3". A new caption note reaches the caption at the next **⟳ Render** (<kbd>R</kbd>).
+An untouched caption follows the figure by itself, also in a reopened session: in the test, swapping panels A and B after reopening rewrote the untouched caption to start with "(A) GFP-LC3". A new caption note reaches an untouched caption within a second (0.6 s in the test), without **⟳ Render**.
 
-Once you edit one of them, FigureLab keeps your words. If the figure changes afterwards, a line under the box says so and offers both ways:
+Once you edit one of them, FigureLab keeps your words. If the figure changes afterwards (a caption note, a swap, a renamed sample, a replaced picture), a line under the box says so within a second and offers both ways:
 
 - caption: `⚠ The figure has changed since this caption was written. ✦ Regenerate (replaces your edits) · Keep mine`;
 - Methods: `… since this paragraph was written. ✎ Rewrite (replaces your edits) · Keep mine`;
@@ -129,7 +132,7 @@ The compliance report's **Image reuse across figures** row shows whether the che
 ## 6. Export and build the submission package
 
 1. Export the figure in the journal's format: the toolbar's **↓ TIFF** › **Save TIF** under PLOS wrote `Fig2.tif`, LZW, 300 dpi, 173.0 mm wide. For Nature use **↓ PDF lossless**.
-2. Re-run **✓ Check journal compliance**: the **Export format** row counts every format you saved since the figure last changed, and passes if one of them is one the journal accepts.
+2. Re-run **✓ Check journal compliance**: the **Export format** row counts every format you saved since the figure last changed, and passes if one of them is one the journal accepts ("exported as TIFF since the figure last changed ✓ (TIFF accepted)"). A file saved before the last change does not count: the row turns ℹ "not checked — the figure changed after it was last exported (as TIFF), so that file shows an earlier version; export it again in TIFF", and its **Save as TIFF** button opens the Save dialog.
 3. Open **Export** and click **📦 Export submission package (ZIP)**.
 
 What the package holds (25 files in the test):
@@ -138,10 +141,12 @@ What the package holds (25 files in the test):
 - the key as `-key.png`, `-key.tif`, `-key.pdf`, `-key.svg` and `-key.txt` (the legend text starter);
 - `-caption.txt`, `-methods.txt`, `-alt.txt`;
 - `-session.json` (reopens the whole figure), `-metadata.csv`, `-repro-log.txt`, `_assemble.R`, `_assemble.py`;
-- `PANEL_HISTORY.txt` and `.json` (every operation on every panel, including replaced images);
+- `PANEL_HISTORY.txt` and `.json` (every operation on every panel: the file first imported, each replacement, and where each pixel size came from, e.g. "source=read from ImageJ metadata");
 - `IMAGE_REUSE_CHECK.txt`;
 - `panels/` (each panel on its own);
 - `README.txt` (the list, and notes on the text files).
+
+File names inside the ZIP use plain hyphens, never en or em dashes.
 
 A figure with cropped blots also carries the uncropped originals (S1) and the densitometry CSVs; the [western blot guide](western-blot.md) covers them.
 
@@ -149,17 +154,37 @@ Caption and Methods in the package: an untouched box is regenerated for the figu
 
 ## 7. Save and reopen your work
 
-1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>, or **Export › Save / load your work › 💾 Save (bundled)**. You get `<name>-session.json` with the images inside, including the 16-bit samples (the toast says how many MB).
+1. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>, or **Export › Save / load your work › 💾 Save (bundled)**. You get `<name>-session.json` with the images inside, including the 16-bit samples: "Session saved (images bundled, with 2 MB of native 16-bit samples so levels and measurements reopen in camera counts)".
 2. To reopen: on a fresh page, click **📂 Load a session** on the welcome card, or **Export › 📂 Load**, and pick the file.
 
-Verified: panels, letters, target journal, File name, channel names in the key and caption notes all came back. Autosave cannot hold large images; keep the session file.
+Verified: panels, letters, target journal, printed width (173 mm), File name, channel names in the key and caption notes all came back. Autosave cannot hold large images; keep the session file.
 
-## 8. Revise after review
+## 8. Revising after review
 
-1. **Replace an image.** Right-click the panel on the canvas › **⇄ Replace image…** (also in the panel's **⚙** and in ⌘K). Label, crop, caption note and settings are kept: `Panel C: PhoA_blot.tif → PhoA_blot_rerun.tif — crop, labels and settings kept`. Calibration comes from the new file, and is cleared with a message when the pixel size may differ.
-2. **Swap two panels.** Drag one panel onto the other on the canvas. The toast says `Panels swapped`, and the letters follow position. After **⎘ Duplicate** or other reordering, **Arrange › 🔤 Relabel A, B, C…** letters them in order again.
-3. **Change journal.** ⌘K › **Journal: eLife** (or Look › Target journal). Run the compliance check again.
-4. **Re-export** the figure and the package. `PANEL_HISTORY.txt` records the replaced file.
+Reviewers ask for a panel swapped, a sample renamed, another journal or another width. Save the session first (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd>), make the changes, then re-check and re-export.
+
+**Change the figure**
+
+1. **Replace a picture.** Right-click the panel on the canvas › **⇄ Replace image…** (also in the panel's **⚙** and in ⌘K). Letter, crop, settings and caption note are kept, and the toast says so: `Panel C: PhoA_blot.tif → PhoA_blot_rerun.tif — crop, label and settings kept; display range 0–53369 (native values) kept; caption note kept: “PhoA western blot; WT and ΔphoA, ± IPTG” — edit it in ⚙ if it no longer fits`. If the new picture shows something else, edit that caption note. When something cannot be kept (a display range an 8-bit file cannot hold, a calibration that may not fit), the toast reads "crop and label kept, but" and names it. Calibration comes from the new file. Freeform pictures are replaced the same way ([freeform](freeform.md)).
+2. **Swap two panels.** Drag one panel onto the other on the canvas. The toast says `Panels swapped`, and the letters follow position.
+3. **Remove a panel.** Right-click it › **✕ Remove panel**. When the letters then skip one, the toast says so and offers to reletter: "Panel A removed — Ctrl+Z brings it back. The letters now skip A" with a **🔤 Relabel A, B, C…** button.
+4. **Rename a sample.** A channel: **Export › Legend key › Channel names** (in the test `GFP-LC3` → `LC3`; the key text and the untouched caption read "LC3 (green)" at once). A chart sample: its **shown as** box ([charts](charts.md)).
+5. **Change the journal.** ⌘K › **Journal: eLife** (or Look › Target journal). The toast lists what the preset set.
+6. **Change the printed width.** In **Export › Printed width**. A narrower width keeps text at its point size, so the toast warns that it grows against the pictures: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
+
+**What FigureLab flags for you**
+
+- An untouched caption, Methods or alt text follows the change; one you edited shows its "⚠ The figure has changed…" line with **Regenerate** / **Keep mine** (§4).
+- The compliance report's **Export format** row turns ℹ "not checked — the figure changed after it was last exported" until you export again, with a **Save as …** button in the journal's format (§6).
+- The package keeps your edited texts and adds `-caption-generated.txt`, `-methods-generated.txt` or `-alt-generated.txt` beside them, with a note "⚠ Check the …" (§6). In the test, after a replace and a swap, it held `Fig2-methods-generated.txt` and `Fig2-alt-generated.txt`.
+- `PANEL_HISTORY.txt` records the file first imported and each replacement ("replaceImage: from=PhoA_blot.tif, to=PhoA_blot_rerun.tif").
+- A densitometry chart whose numbers you typed is flagged when its blot changes ([western blot](western-blot.md)).
+
+**Then**
+
+1. Run **✓ Check journal compliance** again and work through the new ✗ and ⚠ rows.
+2. Re-export the figure in the journal's format, and check that **Export format** passes.
+3. Rebuild the package (**📦 Export submission package (ZIP)**) and read any "⚠ Check the …" note.
 
 ## Tips
 
@@ -174,13 +199,13 @@ Verified: panels, letters, target journal, File name, channel names in the key a
 
 | Symptom | Fix |
 |---|---|
-| **Text contrast** still warns after **Auto contrast** on text without a chip over a mid-grey picture | Darken that panel slightly: its ⚙ › **Black pt**. |
 | **Printed height** fails | You widened the figure after the preset: click **Set … mm** on the row, or use fewer rows. |
 | **Legend key on the figure** warns | A key you dragged covers something: click **Move to free space**, or pick a place under **Export › Legend key › Where**. |
-| A margin stays wide after you move the key | A margin grown for the key keeps its width when the key moves elsewhere. Set it back under **Arrange › Margins**. |
 | The key lists only some panels | It keys colour: channels, chart series and gene-map features. A blot or an RGB photo has no key row. |
 | The caption shows ⚠ out of date | Click **✦ Regenerate** (replaces your edits) or **Keep mine**. |
-| A caption note does not appear in the caption | Press **⟳ Render**. |
+| **Export format** reads ℹ "not checked — the figure changed after it was last exported" | The file you saved shows an earlier version. Click the row's **Save as …** button (or the toolbar's format) and save again. |
+| ⌘K **Check against …** did not change the target journal | It reports only. Click **Switch the target to …** in the report to change it. |
+| **Scale-bar calibration** warns that a picture "looks like a micrograph" | Calibrate it (**Calibrate…**), or click **No scale needed** for a picture that has no scale. |
 | A blot pair is listed as "similar layout" | Nothing to do: it is not counted as reuse. |
 | The TIFF is named `Figure 2.tif` under PLOS | Click **Name Fig2** on the report's **File name** row, or choose PLOS after naming. |
 

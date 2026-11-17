@@ -42,30 +42,45 @@ Symptom → cause → fix. The first table is for habits from earlier versions: 
 | Edit "0–255 display scale" ranges out of the caption and Methods | Merged panels were described on the 8-bit scale | Caption and Methods give 16-bit ranges in the files' own values, grouped by channel. → `fluorescence` |
 | Click − after **⊡ Fit** in freeform; give a TextBox a white fill | Fit cut off the canvas bottom; unticking Fill did nothing | **⊡ Fit** shows the whole canvas; unticking **Fill** removes a TextBox's box. → `freeform` |
 | Write "phi" instead of φ for selectable PDF text | Greek letters stayed in the picture | Greek letters such as Δ and φ are real text in the PDF's standard Symbol font. → `freeform` |
+| Darken a TEM with ⚙ › **Black pt** until its scale-bar text passes **Text contrast** | Auto contrast picked the text colour from the bar's strip, not the pixels under the text | **Auto contrast** reads each text on the pixels under it and adds a backing chip where neither black nor white reads; coloured channel tags keep their colour on a chip. → `phage-and-microbiology`, `fluorescence` |
+| Set **Arrange › Margins** back by hand after moving the placed key | A margin grown for the key kept its width | The margin is given back when the key moves. → `phage-and-microbiology`, `journal-submission` |
+| Press **⟳ Render** to get a new caption note into the caption | The caption updated only on the next render | An untouched caption takes the note within a second. → `journal-submission` |
+| Type a short **Y title** for a densitometry chart | The default title was cut off | A long Y title is set on two lines. → `western-blot` |
+| Type replicate means into the densitometry chart by hand | Lanes with one name were not pooled | Give the replicate lanes one **shown as** name, or a lane-table row of names: one bar, mean ± SD with n and the points, still linked. A chart with typed numbers is flagged as "typed by hand". → `western-blot` |
+| Press <kbd>Esc</kbd> carefully before ⌘K `densitometry` or `lane table` | With nothing selected they opened on the first panel | They act on the panel you clicked last, and ask **Which panel?** when it is unclear. → `western-blot` |
+| Delete a freeform picture and add the new file | **⇄ Replace image** worked only in the grid | Right-click the picture › **⇄ Replace image…**: place, width, crop, letter and caption note are kept. → `freeform` |
+| Remove a merge's channels and **+ Add channel** the new field, then sync again | Replace swapped only the base channel and kept 8-bit levels | **⇄** beside each channel in the merge's **⚙ › Channels** swaps its file and keeps its colour and range in counts. → `fluorescence` |
+| Save before a tutorial | **Restore my figure** lost the 16-bit samples | Restore keeps them. → `fluorescence` |
+| Convert a plate reader's export to minutes and subtract blanks in Excel | h:mm:ss was not read as time; wells were not grouped | Add the export as it is: the Chart dialog's **Plate wells** row groups wells by plate row or column and subtracts a blank row. → `phage-and-microbiology` |
+| Re-export even when the **Export format** row is ✓ | An export made before a change still passed | A stale export is ℹ "not checked — the figure changed after it was last exported", with a **Save as …** button. → `quickstart`, `journal-submission` |
+| Choose your journal again after ⌘K **Check against …** | It switched the target journal | It only reports; **Switch the target to …** in the report switches if you want. → `journal-submission` |
+| Click **Set … mm** after reopening a session | A width a preset computed did not come back | The printed width comes back with the session. → `journal-submission` |
+| Tab to the figure before using the arrow keys | A click on a panel did not give the figure the keyboard | Click a panel, then use the arrows. → `tips` |
 
 ## Problems you can still meet
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| **Text contrast** still warns after **Auto contrast**, on text without a chip over a mid-grey picture (a TEM's scale-bar text) | Neither black nor white reaches 4.5:1 over mid-grey | Darken the panel's display slightly (⚙ › **Black pt**). → `phage-and-microbiology` |
-| A margin stays wide after you move the placed key | A margin grown to make room for the key keeps its width when the key moves to another place | Set it back under **Arrange › Margins**; on a wide figure, choose **Where › Below** before ticking **Place the key on the figure**. → `phage-and-microbiology` |
-| Dilution labels read "…" after a journal preset | The preset scales lane tables to the journal's type size, and the labels no longer fit a one-cell panel | Give the spot-assay panel **Col span** 2. → `phage-and-microbiology` |
-| One strain is listed twice in the key | Two charts show it under different names, or the files spell it differently (`dfliC`, `ΔfliC`) | Give it one name with **shown as** (it renames it in every chart), and spell it the same way in every file. → `charts` |
+| Lane-table labels print tiny and **Text size** fails, with a **Widen …** button | The labels are too long for their lanes at the journal's type size | Click **Widen …** (the panel takes the whole row), give the panel **Col span** 2, or use shorter labels. → `phage-and-microbiology`, `western-blot` |
+| Lane-table labels drop under 5 pt after a narrower printed width | The lane table is shrunk with the pictures | Click **Lane tables to 7 pt** on the **Text size** row. → `western-blot` |
+| Chart or gene-map words run together after a narrower printed width | Text keeps its point size, so it grows against the pictures (the toast says by how much) | Enlarge the panel (span, or W and H in freeform) and re-run the check. → `freeform`, `journal-submission` |
+| The **Export format** row is ℹ "not checked — the figure changed after it was last exported" | The file you saved shows an earlier version | Click the row's **Save as …** button. → `quickstart`, `journal-submission` |
+| A chart says "typed values" or "Not linked", or **Charts from densitometry** fails | Its numbers were typed in the Chart dialog, and the blot has changed since | Double-click it › **↻ Link again**, or **These are my own values**. → `western-blot` |
+| A replace toast says the display range "cannot be kept" | The new file is 8-bit and cannot hold a range in camera counts | <kbd>Ctrl/⌘+Z</kbd> and pick the 16-bit file. → `fluorescence` |
+| The strains of a table are averaged into one bar | The table has two text columns and only one is used; the line under the data box says "… not used" | Choose **Grouped bar** with the second text column as **Series (group) column**. → `charts` |
+| Two scale bars on one picture | The picture has a bar burned in | In 🔍 Auto-detect choose **Keep the bar in the image as the scale bar**, or crop the old bar off. → `phage-and-microbiology` |
+| One strain is listed twice in the key | Two charts show it under different names, or the files spell it differently (`dfliC`, `ΔfliC`) | Give it one name with **shown as** (it renames it in every chart; a chart from `… mean` columns has its own box), and spell it the same way in every file. → `charts` |
 | A second chart appeared when you charted a blot again | 📊 **Chart these values** in a blot that is not yet in the linked chart adds a new chart | <kbd>Ctrl/⌘+Z</kbd>, then click **📊 Chart these values** in a blot that is already in the chart. → `western-blot` |
 | A chart's tick labels run together in one grid cell | At journal type size a one-cell chart is small | Span it over two columns (⌘K `span`). → `phage-and-microbiology` |
 | A dilution row typed into one lane table cell stays in that cell | Cells other than +/− need commas | Type `10^{0}, 10^{-1}, …` with commas. → `phage-and-microbiology` |
-| A caption note does not show in the caption | The untouched caption updates on the next render | Press **⟳ Render** (<kbd>R</kbd>). → `journal-submission` |
-| The Y title of a densitometry chart is cut off | The default title is longer than a small chart panel | Type a short **Y title** in the Chart dialog. → `western-blot` |
 | <kbd>Space</kbd>+drag does not pan | A text field has the focus | Click the empty canvas first. → `tips` |
-| Arrow keys do nothing after clicking a panel | A click does not give the figure the keyboard | Tab to the figure (right after the toolbar), then use the arrows. → `tips` |
 
 ## Known limits
 
 - **16-bit images**: import decodes each file from 0 to its own maximum, and says so. Session files that keep native samples are larger (about 2.7 bytes per sample more) and reopen with them at once. Autosave does not keep native samples: after a crash, the recovery bar names the 16-bit panels; save the session file yourself, or bring each file back with **⇄ Replace image…**. A split channel keeps the native samples.
 - **Charts**: there is no "show n" label on the chart (n is in the source data), and no axis break. Significance brackets are stored by category position, so reordering categories changes the pair. A chart imported as an SVG picture cannot be keyed.
-- **Grid**: there is no "hide row" action. Per-panel files and provenance and the docking of the welcome card were not changed in this round.
+- **Grid**: there is no "hide row" action.
 - **Freeform**: PDF text uses the standard fonts by name and does not embed them; Greek letters and signs such as Δ, φ, −, ≥ use the standard Symbol font, and only characters none of them has (✓, CJK, emoji) or text on a turned object stays in the picture. The PowerPoint slide is the figure's printed size, and chart and gene-map words, letters included, are editable text boxes. The layered SVG places a picture up to 0.7 px off its box (the PNG, TIFF and PDF are exact). Some edge handles are clipped at the canvas edge.
 - **Reuse checks** compare only what you give them: they do not search published papers or detect AI-generated images. See [Journal submission](journal-submission.md).
-- **Legend key**: when there is no free space, a margin grows to make room; it does not shrink back when the key moves elsewhere.
 
 Open problems found while writing these guides, with severities and suggestions, are in [`verify/ISSUES.md`](verify/ISSUES.md). Back to the [guide index](README.md).

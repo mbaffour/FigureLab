@@ -1,6 +1,8 @@
 // Verifies docs/guides/western-blot.md through the visible UI: stack the blots, straighten and
 // crop them to one size, measure the bands against total protein, MW labels, lane table,
-// chart the values, uncropped originals (S1), and a revision by replacing an image.
+// chart the values, a journal preset and printed width, uncropped originals (S1), and a revision
+// by replacing an image. A second figure (one blot with WT and R42P replicate lanes) checks
+// "Which panel?", ✕ Remove analysis, replicates pooled by name, a chart typed by hand, and Widen.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -230,7 +232,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(/\bM\b/.test(hdr), 'ladder column header: ' + hdr);
     return 'header: ' + hdr.replace(/\t/g, ' ');
   });
-  await step(T, '5.2 + Row twice; name the rows ΔphoA and IPTG; type "- + - + - +" into one cell to fill the row', async () => {
+  await step(T, '5.2 + Row twice; name the rows ΔphoA and IPTG; type "- + - + - +" into one cell to fill the row; clicking a +/– cell cycles + / – / blank', async () => {
     await lt.locator('button', { hasText: '+ Row' }).click(); await p.waitForTimeout(300);
     const names = lt.locator('.lt-name'); const n = await names.count();
     expect(n >= 2, 'rows: ' + n);
@@ -243,9 +245,15 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const vals = await cells.evaluateAll(cs => cs.map(c => c.value));
     const r2 = vals.slice(per, 2 * per).join(' ');
     expect(/– \+ – \+ – \+|- \+ - \+ - \+/.test(r2), 'IPTG row: ' + r2);
+    // ux3 (blot3-05): a click on an empty or +/– cell cycles + / – / blank; three clicks come back
+    const hint = (await lt.innerText()).replace(/\s+/g, ' ');
+    expect(/Click an empty or \+\/– cell to cycle \+ \/ – \/ blank; click a cell with text, or type, to write anything else/.test(hint), 'hint: ' + hint.slice(0, 300));
+    const cyc = [await cells.nth(per + 2).inputValue()];
+    for (let k = 0; k < 3; k++) { await cells.nth(per + 2).click(); await p.waitForTimeout(200); cyc.push(await cells.nth(per + 2).inputValue()); }
+    expect(new Set(cyc.slice(0, 3)).size === 3 && cyc[3] === cyc[0], 'IPTG lane 3 cell by clicks: ' + cyc.map(v => v || 'blank').join(' → '));
     await L.shot(T, 'western-blot-lane-table', lt.locator('xpath=./*[1]'));
     await lt.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
-    return 'ΔphoA: ' + vals.slice(0, per).join(' ') + ' | IPTG: ' + r2;
+    return 'ΔphoA: ' + vals.slice(0, per).join(' ') + ' | IPTG: ' + r2 + ' | IPTG lane 3 by clicks: ' + cyc.map(v => v || 'blank').join(' → ');
   });
 
   // ---------------------------------------------------------------- Task 6
@@ -255,6 +263,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const t = await L.toasts(T);
     expect(/Charted 6 lanes × 1 panel/.test(t) && /Linked/.test(t), t);
     expect(/a lane with no band there is n\.d\./.test(t), 'n.d. not said: ' + t);
+    expect(!/n\.d\.\./.test(t), 'double full stop: ' + t);   // ISSUES (fixed in ux3)
     expect(/left out Panel B \(no loading control and no reference lane\)/.test(t), 'B not named as left out: ' + t);
     const st = await p.evaluate(() => ({ mode: layoutMode, n: images.length, last: images[images.length - 1].type, charts: images.filter(i => i && i.type === 'chart').length }));
     expect(st.mode === 'grid' && st.last === 'chart' && st.charts === 1, JSON.stringify(st));
@@ -305,18 +314,19 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     TRUTH.PhoB.forEach((v, k) => expect(Math.abs(b[k] - v / TRUTH.PhoB[1]) < 0.08 + 0.05 * v, `PhoB lane ${k + 2}: ${b[k]} vs ${v}`));
     return data.replace(/\n/g, ' | ');
   });
-  await step(T, '6.3 Names & colours "shown as": the lanes WT −, WT +, … and the series PhoA, PhoB; Y title "÷ total protein, rel. WT +" → Apply', async () => {
+  await step(T, '6.3 Names & colours "shown as": the lanes WT −, WT +, … and the series PhoA, PhoB → Apply; the default Y title fits on two lines', async () => {
     const keys = await chartDlg.locator('[data-key]').evaluateAll(rs => rs.filter(r => r.querySelector('input[placeholder^="shown as"]')).map(r => r.dataset.key));
     const want = { 'Lane 2': 'WT −', 'Lane 3': 'WT +', 'Lane 4': 'Δ −', 'Lane 5': 'Δ +', 'Lane 6': 'C −', 'Lane 7': 'C +', 'Panel A': 'PhoA', 'Panel B': 'PhoB' };
     const filled = [];
     for (const k of keys) if (want[k]) { await chartDlg.locator(`[data-key="${k}"] input[placeholder^="shown as"]`).fill(want[k]); filled.push(k); }
     expect(filled.length === 8, 'shown-as rows: ' + keys.join(', '));
-    const yt = chartDlg.getByLabel('Y title').or(chartDlg.locator('input[placeholder*="Y"]')).first();
-    await yt.fill('÷ total protein, rel. WT +');
     await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    // ux3 (data): the default Y title is kept; a title longer than the plot is set smaller, then on two lines
+    const yt = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); const T = []; el._chartKey = ''; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.filter(x => /total|relative|Band volume/.test(x)); });
+    expect(yt.length === 2 && yt.join(' ') === 'Band volume ÷ total protein, relative to lane 3', 'Y title drawn as: ' + JSON.stringify(yt));
     const st = await p.evaluate(() => { const el = images.find(i => i.type === 'chart'); const S = _chartStatsCached(el); return { cats: S.categories, series: (S.seriesNames || []).map(x => x.name || x.key || x) }; });
     expect(st.cats.join(',') === 'WT −,WT +,Δ −,Δ +,C −,C +', 'categories ' + st.cats);
-    return 'rows: ' + keys.join(', ') + ' → categories ' + st.cats.join(', ') + '; series ' + JSON.stringify(st.series);
+    return 'rows: ' + keys.join(', ') + ' → categories ' + st.cats.join(', ') + '; series ' + JSON.stringify(st.series) + '; Y title drawn as ' + JSON.stringify(yt);
   });
 
   await step(T, '6.4 A new reference lane in strip A\'s ⫼ Lanes & bands updates the linked chart by itself (lane 7, then back to lane 3)', async () => {
@@ -331,8 +341,8 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     return `PhoA rel. lane 7: ${v7.map(v => v === '' ? 'n.d.' : (+v).toFixed(2)).join(' / ')}; back to lane 3: ${v3.map(v => v === '' ? 'n.d.' : (+v).toFixed(2)).join(' / ')}`;
   });
 
-  // ---------------------------------------------------------------- Task 7
-  await step(T, '7.1 Clear the letters of strips 2–4 (label box in each image row); type B for the chart', async () => {
+  // ---------------------------------------------------------------- Task 8 (letters)
+  await step(T, '8.1 Clear the letters of strips 2–4 (label box in each image row); type B for the chart', async () => {
     const boxes = p.locator('#img-list .img-label-input');
     for (const k of [1, 2, 3]) { await boxes.nth(k).fill(''); await boxes.nth(k).press('Tab'); }
     await boxes.nth(4).fill('B'); await boxes.nth(4).press('Tab');
@@ -344,8 +354,67 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     return labs;
   });
 
+
+  // ---------------------------------------------------------------- Task 9: journal and printed width (round 3)
+  const readReport = async () => p.locator('#info-modal-bg').evaluate(m => ({
+    title: (m.querySelector('#im-title') || {}).textContent || '',
+    rows: [...m.querySelectorAll('.compliance-row')].map(r => ({
+      icon: (r.querySelector('.c-icon') || {}).textContent?.trim(),
+      label: (r.querySelector('.c-label') || {}).textContent?.trim(),
+      note: (r.querySelector('.c-note') || {}).textContent?.trim(),
+      buttons: [...r.querySelectorAll('button')].map(b => b.innerText.trim()) })) }));
+  const rowOf = (R, label) => R.rows.find(r => r.label === label) || { icon: '', note: '(no row)', buttons: [] };
+  const check = async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click(); await p.waitForTimeout(800);
+    const R = await readReport(); await p.keyboard.press('Escape'); await p.waitForTimeout(200); return R;
+  };
+  const widthNow = () => p.evaluate(() => document.getElementById('export-width-mm').value);
+  await step(T, '9.1 ⌘K "embo" → Journal: EMBO J: 180 mm, Helvetica letters, 600 DPI, text 7 pt; at 180 mm the stack prints >300 mm tall and Panel resolution fails', async () => {
+    const w0 = await widthNow();
+    await L.toasts(T);
+    const hits = await L.cmdk(T, 'embo');
+    expect(/^Journal: EMBO J/.test(hits[0]), hits[0]);
+    await p.waitForTimeout(800);
+    const t = await L.toasts(T);
+    expect(/^EMBO J preset applied/.test(t) && /180 mm/.test(t) && /Helvetica letters, 600 DPI/.test(t) && /text 7 pt/.test(t), t);
+    expect(await widthNow() === '180', 'width ' + await widthNow());
+    const R = await check();
+    const pr = rowOf(R, 'Panel resolution'), ph = rowOf(R, 'Printed height');
+    expect(pr.icon === '✗' && /below the 300 ppi EMBO J asks for/.test(pr.note), JSON.stringify(pr));
+    return `Printed width before: ${w0 === '0' ? 'Free' : w0}; toast "${t}"; ${R.title}; Printed height ${ph.note}; Panel resolution ✗ "${pr.note.slice(0, 60)}…"`;
+  });
+  await step(T, '9.2 Export › Printed width › 87 mm — narrowest (EMBO J): the toast says text grows against the pictures', async () => {
+    await L.openSection(T, 'Export');
+    const sel = p.locator('#export-width-mm');
+    await sel.focus();
+    await L.toasts(T);
+    await sel.selectOption({ label: '87 mm — narrowest (EMBO J); single column (PNAS, unverified)' }); await p.waitForTimeout(800);
+    const t = await L.toasts(T);
+    expect(await widthNow() === '87', 'width ' + await widthNow());
+    expect(/^Printed width 180 → 87 mm: text keeps its point size/.test(t), t);
+    return t;
+  });
+  await step(T, '9.3 ✓ Check journal compliance at 87 mm: the lane table now prints under 5 pt and Text size offers "Lane tables to 7 pt"; after it Panel resolution, Printed width and height, Text size, MW markers and Charts from densitometry pass; Panel labels warns for the unlettered strips', async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click(); await p.waitForTimeout(800);
+    const R0 = await readReport();
+    const ts0 = rowOf(R0, 'Text size');
+    expect(ts0.icon === '✗' && /Lane-table text prints at [\d.]+ pt/.test(ts0.note) && ts0.buttons.includes('Lane tables to 7 pt'), JSON.stringify(ts0));
+    await p.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' }).locator('button', { hasText: 'Lane tables to 7 pt' }).click(); await p.waitForTimeout(800);
+    const R = await readReport(); await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    const want = { 'Printed width': '✓', 'Printed height': '✓', 'Text size': '✓', 'MW markers': '✓', 'Charts from densitometry': '✓', 'Loading control': 'ℹ', 'Uncropped originals': 'ℹ', 'Panel labels': '⚠' };
+    const bad = Object.entries(want).filter(([k, v]) => rowOf(R, k).icon !== v).map(([k]) => k + ' ' + rowOf(R, k).icon + ' ' + rowOf(R, k).note.slice(0, 160));
+    const pr = rowOf(R, 'Panel resolution');
+    expect(!bad.length, bad.join(' | '));
+    expect(pr.icon === '✓' || !/below the 300 ppi/.test(pr.note), 'Panel resolution: ' + pr.icon + ' ' + pr.note);
+    expect(/S1…/.test(rowOf(R, 'Uncropped originals').buttons.join(' ')), 'no S1… button');
+    const open = R.rows.filter(r => r.icon === '⚠' || r.icon === '✗').map(r => r.icon + ' ' + r.label);
+    return `before: Text size ✗ "${(ts0.note.match(/smallest text: [^(]*/) || [''])[0]}"; after "Lane tables to 7 pt": ${R.title}; Text size "${rowOf(R, 'Text size').note.slice(0, 80)}"; Printed height ${rowOf(R, 'Printed height').note}; Panel resolution ${pr.icon} ${pr.note.slice(0, 50)}; MW markers "${rowOf(R, 'MW markers').note.slice(0, 50)}…"; Panel labels "${rowOf(R, 'Panel labels').note}"; still open: ${open.join(', ')}`;
+  });
+
   // ---------------------------------------------------------------- Task 8
-  await step(T, '8.1 Export › 🗎 Export uncropped originals (S1)… → ⬇ PDF (one page per panel): one page per scan', async () => {
+  await step(T, '10.1 Export › 🗎 Export uncropped originals (S1)… → ⬇ PDF (one page per panel): one page per scan', async () => {
     await L.openSection(T, 'Export');
     await p.locator('button:visible', { hasText: '🗎 Export uncropped originals (S1)…' }).last().click();
     const s1 = p.locator('#s1-modal-bg'); await s1.waitFor({ state: 'visible' });
@@ -359,7 +428,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
   });
 
   // ---------------------------------------------------------------- Task 9
-  await step(T, '9.1 Right-click strip A › ⇄ Replace image… → pick the re-run scan; crop, letter, lane table, MW labels and analysis kept', async () => {
+  await step(T, '11.1 Right-click strip A › ⇄ Replace image… → pick the re-run scan; crop, letter, lane table, MW labels and analysis kept', async () => {
     await p.keyboard.press('Escape');
     const q = await panelPoint(0, 0.75, 0.5);
     await p.mouse.click(q.x, q.y, { button: 'right' }); await p.waitForTimeout(300);
@@ -371,9 +440,11 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(/rerun/.test(st.name) && st.label === 'A', JSON.stringify(st));
     expect(st.laneRows > 0, 'lane table lost: ' + JSON.stringify(st));
     expect(st.marks > 0, 'MW labels lost: ' + JSON.stringify(st));
-    return JSON.stringify(st) + ' ' + (await L.toasts(T)).slice(0, 100);
+    const rt = (await L.toasts(T)).split(' | ').find(x => /^Panel A: /.test(x)) || '';
+    expect(/kept/.test(rt), 'replace toast: ' + rt);
+    return JSON.stringify(st) + '; toast "' + rt + '"';
   });
-  await step(T, '9.2 The kept tilt is wrong for the new scan: right-click › ⚙ Open settings › ✂ Open Crop Editor › 📐 Level › ✓ Apply Crop', async () => {
+  await step(T, '11.2 The kept tilt is wrong for the new scan: right-click › ⚙ Open settings › ✂ Open Crop Editor › 📐 Level › ✓ Apply Crop', async () => {
     const q = await panelPoint(0, 0.75, 0.5);
     await p.mouse.click(q.x, q.y, { button: 'right' }); await p.waitForTimeout(300);
     await p.getByText('⚙ Open settings').last().click(); await p.waitForTimeout(400);
@@ -385,7 +456,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     await m.locator('button', { hasText: '✓ Apply Crop' }).click(); await p.waitForTimeout(800);
     return 'kept tilt ' + before + '° → levelled ' + a + '° (true −2.0°)';
   });
-  await step(T, '9.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry re-analyses strip A and updates it; Apply keeps the link', async () => {
+  await step(T, '11.3 The chart panel is marked out of date; its dialog\'s ↻ Update from densitometry re-analyses strip A and updates it; Apply keeps the link', async () => {
     const onFig = await p.evaluate(() => _chartLinkState(images.find(i => i.type === 'chart')).stale);
     expect(onFig, 'chart not marked stale after the re-crop');
     const q = await panelPoint(4); await p.mouse.dblclick(q.x, q.y);
@@ -403,7 +474,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     expect(st.link && !st.stale, JSON.stringify(st));
     return 'note: "' + nt.slice(0, 120) + '"; Update → toast "' + t.slice(0, 120) + '"; after Apply: linked, up to date';
   });
-  await step(T, '9.4 ⫼ Lanes & bands on strip A shows the re-analysis (same reference, loading control, ladder; the chart holds its values); ⬇ CSV saves the new numbers', async () => {
+  await step(T, '11.4 ⫼ Lanes & bands on strip A shows the re-analysis (same reference, loading control, ladder; the chart holds its values); ⬇ CSV saves the new numbers', async () => {
     await L.toasts(T);
     const title = await openGel(0);
     const t = await g.innerText();
@@ -422,7 +493,7 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     return path.basename(csv) + '; re-run PhoA: ' + tab.map(v => v.toFixed(3)).join(' / ') + '; ' + ((t.match(/tilted crop [^,]*/) || [''])[0]);
   });
 
-  await step(T, '10. Export › 📦 Export submission package (ZIP) carries the S1 originals and each analysed blot\'s densitometry', async () => {
+  await step(T, '10.2 Export › 📦 Export submission package (ZIP) carries the S1 originals and each analysed blot\'s densitometry', async () => {
     await L.openSection(T, 'Export');
     const f = await L.download(T, () => L.btn(T, '📦 Export submission package (ZIP)').click(), /\.zip$/, 120000);
     const list = L.zipList(f);
@@ -430,6 +501,194 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const s1 = list.filter(e => /S1/.test(e));
     expect(dens.length >= 1 && s1.length >= 1, 'entries: ' + list.join(', '));
     return dens.concat(s1).join(', ');
+  });
+
+
+  // ---------------------------------------------------------------- A second figure: replicate lanes (round 3)
+  // One Parkin blot with three WT and three R42P lanes (band amounts below) and a loading
+  // control, no tilt. Used for: "Which panel?" and ✕ Remove analysis (task 3), pooling
+  // replicates by shown-as names and by lane-table names (task 7), a chart typed by hand
+  // through a replaced scan (task 11) and the Widen fix for long lane names (task 9).
+  const REP = [1.0, 0.85, 1.15, 0.4, 0.5, 0.45];          // lanes 2–4 WT, 5–7 R42P
+  const REP2 = [1.0, 1.4, 1.15, 0.4, 0.5, 0.45];          // the re-probe: lane 3 changed
+  const repA = I.blotTiff(f('2026-11-14_Parkin_reps.tif'), { amounts: REP, tiltDeg: 0, seed: 21, bandY: 0.5 });
+  const repLC = I.blotTiff(f('2026-11-14_tubulin_reps.tif'), { amounts: [1, 1, 1, 1, 1, 1], tiltDeg: 0, seed: 22, bandY: 0.6 });
+  const repA2 = I.blotTiff(f('2026-11-15_Parkin_reprobe.tif'), { amounts: REP2, tiltDeg: 0, seed: 23, bandY: 0.5 });
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const sdev = a => { const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1)); };
+  const chartNow = () => p.evaluate(() => { const el = images.find(i => i && i.type === 'chart'); if (!el) return null; el._chartStat = null; el._chartKey = ''; const S = _chartStatsCached(el);
+    return { link: !!el.chart.link, state: _chartSourceState(el).state, rows: el.chart.data.rows, err: el.chart.error, pts: !!(el.chart.style && el.chart.style.showPoints),
+      cats: S.categories.map(c => _rtText(c)), bars: S.groups.map(g => [g.bars[0].value, g.bars[0].err, g.bars[0].n]), key: _keyText(_figureKey()) }; });
+  const chartIdx = () => p.evaluate(() => images.findIndex(i => i && i.type === 'chart'));
+  const openChartDlg = async () => {
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(300);
+    const q = await panelPoint(await chartIdx()); await p.mouse.dblclick(q.x, q.y);
+    await chartDlg.waitFor({ state: 'visible' }); await p.waitForTimeout(300);
+  };
+  const linkNote = async () => (await chartDlg.locator('#chart-link-note').innerText()).replace(/\s+/g, ' ');
+  const closeGel = async () => { if (await g.isVisible().catch(() => false)) { await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300); } };
+
+  await step(T, '3.6 (second figure) ✕ New, add a blot and its loading control; with no panel picked ⌘K "densitometry" asks "Which panel?"; a wrong pick is taken off with ✕ Remove analysis', async () => {
+    await p.keyboard.press('Escape');
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [repA, repLC]);
+    await p.waitForFunction(() => images.filter(Boolean).length === 2, null, { timeout: 20000 });
+    await p.waitForTimeout(800); await dismissTip();
+    await L.cmdk(T, 'densitometry'); await p.waitForTimeout(500);
+    const pick = p.locator('#panelpick-modal-bg');
+    await pick.waitFor({ state: 'visible' });
+    const ask = (await pick.innerText()).replace(/\s+/g, ' ');
+    expect(/Which panel\?/.test(ask) && /No panel is selected\. Pick the panel for lanes & bands/.test(ask), ask);
+    await pick.locator('button', { hasText: 'tubulin' }).click(); await p.waitForTimeout(800);
+    const t1 = await g.locator('text=/Lanes & bands — panel/').first().innerText();
+    await L.toasts(T);
+    await g.locator('button', { hasText: '✕ Remove analysis' }).click(); await p.waitForTimeout(600);
+    const tr = await L.toasts(T);
+    const gone = await p.evaluate(() => !images[1].gelAnalysis);
+    expect(/panel B/.test(t1) && gone && /^Lane analysis removed from panel B \(Ctrl\/⌘\+Z brings it back\)/.test(tr), `${t1} | ${tr} | removed ${gone}`);
+    await closeGel();
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(300);
+    const t2 = await openGel(0);
+    expect(/panel A/.test(t2), t2);
+    return `"${ask.slice(0, 120)}…" → picked B by mistake → "${tr}" → click strip A, ⌘K: ${t2}`;
+  });
+
+  await step(T, '7.1 Replicate lanes by shown-as name: lanes 2–4 "WT", 5–7 "R42P" → two bars, mean ± SD (n = 3) with the points, still linked; the names are this chart\'s own', async () => {
+    await g.locator('#gel-ladder-lane').selectOption({ label: 'lane 1' }); await p.waitForTimeout(300);
+    await g.locator('#gel-ladder-sizes').fill('75, 50, 37, 25');
+    await g.locator('button', { hasText: /^Fit$/ }).click(); await p.waitForTimeout(500);
+    await g.locator('#gel-ref').selectOption({ label: 'lane 2' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc').selectOption({ label: 'panel B' }); await p.waitForTimeout(300);
+    await g.locator('#gel-lc-mode').selectOption({ label: 'Loading band(s)' }); await p.waitForTimeout(1200);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1200);
+    await L.toasts(T);
+    await openChartDlg();
+    const lanes = (await chartDlg.locator('#chart-data-ta').inputValue()).split('\n').slice(1).map(l => +l.split('\t')[1]);
+    const names = { 'Lane 2': 'WT', 'Lane 3': 'WT', 'Lane 4': 'WT', 'Lane 5': 'R42P', 'Lane 6': 'R42P', 'Lane 7': 'R42P' };
+    for (const [k, v] of Object.entries(names)) await chartDlg.locator(`[data-key="${k}"] input[placeholder^="shown as"]`).fill(v);
+    await p.waitForTimeout(400);
+    const note = (await chartDlg.locator('#chart-merge-note').innerText()).replace(/\s+/g, ' ');
+    expect(/^One name, one sample — WT: Lane 2, Lane 3, Lane 4 \(n = 3\); R42P: Lane 5, Lane 6, Lane 7 \(n = 3\): drawn as one group, mean ± SD, with the points\. The chart stays linked to the densitometry\./.test(note), note);
+    expect(await chartDlg.locator('#chart-err').inputValue() === 'sd' && await chartDlg.locator('#chart-points').isChecked(), 'error bars / points not switched on');
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const c = await chartNow();
+    expect(c.link && c.state === 'linked' && c.cats.join(',') === 'WT,R42P' && c.bars.map(b => b[2]).join(',') === '3,3', JSON.stringify(c));
+    [lanes.slice(0, 3), lanes.slice(3, 6)].forEach((v, k) => expect(Math.abs(c.bars[k][0] - mean(v)) < 1e-9 && Math.abs(c.bars[k][1] - sdev(v)) < 1e-9, `bar ${k}: ${c.bars[k]} vs lanes ${v}`));
+    expect(Math.abs(c.bars[0][0] - mean(REP.slice(0, 3))) < 0.03 && Math.abs(c.bars[1][0] - mean(REP.slice(3))) < 0.02, 'vs truth ' + JSON.stringify(c.bars));
+    const own = await p.evaluate(() => _sampleNames());
+    expect(!Object.keys(own).length, 'lane names reached the figure-wide names: ' + JSON.stringify(own));
+    return `"${note.slice(0, 150)}…"; WT ${c.bars[0][0].toFixed(3)} ± ${c.bars[0][1].toFixed(3)}, R42P ${c.bars[1][0].toFixed(3)} ± ${c.bars[1][1].toFixed(3)} (truth 1.00 ± 0.15, 0.45 ± 0.05); key "${c.key}"`;
+  });
+
+  await step(T, '7.2 Replicate lanes by lane table: remove the chart (× in Images), type "WT, WT, WT, R42P, R42P, R42P" in a lane-table row, 📊 Chart these values → pooled at once, linked; a click on a cell with text edits it', async () => {
+    const row = p.locator('#img-list .img-item').nth(await chartIdx());
+    await L.toasts(T);
+    await row.locator('button[title="Remove"]').click(); await p.waitForTimeout(600);
+    const dt = await L.toasts(T);
+    expect(await chartIdx() === -1, 'chart still there: ' + dt);
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(300);
+    await openGel(0);
+    await g.locator('button', { hasText: '⊞ Lane table…' }).click();
+    await lt.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+    const cells = lt.locator('.lt-cell');
+    await lt.locator('.lt-name').nth(0).fill('Parkin');
+    await cells.nth(1).click(); await p.keyboard.type('WT, WT, WT, R42P, R42P, R42P'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    const vals = await cells.evaluateAll(cs => cs.map(c => c.value));
+    expect(vals.slice(1).join(',') === 'WT,WT,WT,R42P,R42P,R42P', 'row: ' + vals);
+    await cells.nth(3).click(); await p.waitForTimeout(200);
+    const v3 = await cells.nth(3).inputValue(), focused = await cells.nth(3).evaluate(c => c === document.activeElement);
+    expect(v3 === 'WT' && focused, `a click on "WT" gave "${v3}", focused ${focused}`);
+    await lt.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1200);
+    const t = await L.toasts(T);
+    expect(/lanes named from the lane table — WT: Lane 2, Lane 3, Lane 4; R42P: Lane 5, Lane 6, Lane 7 pooled as one sample each \(mean ± SD with the points\)\. Linked/.test(t), t);
+    const c = await chartNow();
+    expect(c.link && c.cats.join(',') === 'WT,R42P' && c.bars.map(b => b[2]).join(',') === '3,3' && c.err === 'sd' && c.pts, JSON.stringify(c));
+    await closeGel();
+    return `removed: "${dt}"; toast "…${t.slice(t.indexOf('lanes named'), t.indexOf('lanes named') + 150)}…"; WT ${c.bars[0][0].toFixed(3)} ± ${c.bars[0][1].toFixed(3)}, R42P ${c.bars[1][0].toFixed(3)} ± ${c.bars[1][1].toFixed(3)}`;
+  });
+
+  await step(T, '11.5 Typing over a linked chart\'s numbers: "Apply unlinks…" with Undo my edit (puts the linked values back); typed again and applied, the chart is typed by hand', async () => {
+    await openChartDlg();
+    const ta = chartDlg.locator('#chart-data-ta');
+    const d0 = await ta.inputValue();
+    await ta.fill(d0.replace(/^(Lane 3\t)[\d.]+/m, '$10.9')); await p.waitForTimeout(500);
+    const n1 = await linkNote();
+    expect(/^⚠ You edited the data: Apply unlinks this chart from the densitometry of panel A — a re-analysis will no longer update it, and the chart, caption and compliance check will say it is typed by hand\. Undo my edit$/.test(n1), n1);
+    await chartDlg.locator('#chart-link-note').locator('button', { hasText: 'Undo my edit' }).click(); await p.waitForTimeout(400);
+    expect(await ta.inputValue() === d0 && /^Linked to the densitometry of panel A/.test(await linkNote()), 'Undo my edit did not put the linked values back');
+    await ta.fill(d0.replace(/^(Lane 3\t)[\d.]+/m, '$10.9')); await p.waitForTimeout(500);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const c = await chartNow();
+    expect(!c.link && c.state === 'unlinked', JSON.stringify(c));
+    await openChartDlg();
+    const n2 = await linkNote();
+    await chartDlg.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
+    expect(/^⚠ Not linked: typed by hand and no longer linked to the densitometry of panel A/.test(n2) && /↻ Link again These are my own values$/.test(n2), n2);
+    return `"${n1.slice(0, 90)}…"; after Apply the dialog reads "${n2}"`;
+  });
+
+  await step(T, '11.6 ⇄ Replace image on the strip under a typed chart: the toast, the chart on the figure, the caption, ✓ Check journal compliance (Charts from densitometry ✗) and the package CSV all say the typed values are not current', async () => {
+    await p.keyboard.press('Escape');
+    const qa = await panelPoint(0, 0.75, 0.5);
+    await p.mouse.click(qa.x, qa.y, { button: 'right' }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await L.pickFiles(T, p.locator('text=⇄ Replace image…').locator('visible=true').first(), [repA2]);
+    await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    expect(/a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values/.test(t), t);
+    const drawn = await p.evaluate(() => { const el = images.find(i => i && i.type === 'chart'); const T = []; el._chartKey = ''; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s) { T.push(String(s)); } }); return T.filter(x => /⚠/.test(x)); });
+    expect(drawn.join('|') === '⚠ typed values — the densitometry of panel A has changed since', 'drawn: ' + drawn);
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(500);
+    const cap = await p.locator('#caption-out').inputValue();
+    expect(/Values entered by hand\. \[⚠ Not current: the densitometry of panel A has changed since these values were entered — check them before submitting\.\]/.test(cap), cap);
+    const R = await check();
+    const cr = rowOf(R, 'Charts from densitometry');
+    expect(cr.icon === '✗' && /double-click it › ↻ Link again, or check the typed values/.test(cr.note), JSON.stringify(cr));
+    await L.openSection(T, 'Export');
+    const zf = await L.download(T, () => L.btn(T, '📦 Export submission package (ZIP)').click(), /\.zip$/, 120000);
+    const csvName = L.zipList(zf).find(e => /^source-data\/C\.csv$/.test(e));
+    const head = csvName ? L.zipRead(zf, csvName).toString('utf8').split('\n').find(l => /^# WARNING/.test(l)) || '' : '(no source-data/C.csv)';
+    expect(/^# WARNING: Values entered by hand; typed by hand and no longer linked to the densitometry of panel A, which has changed since/.test(head), head);
+    return `toast "…${t.slice(t.indexOf('a chart typed'))}"; on the chart "${drawn[0]}"; caption "…${cap.slice(cap.indexOf('Values entered'), cap.indexOf('Values entered') + 150)}"; compliance ✗ "${cr.note.slice(0, 60)}…"; ${csvName}: "${head.slice(0, 80)}…"`;
+  });
+
+  await step(T, '11.7 The chart\'s dialog › ↻ Link again reads the re-probe and links the chart again (These are my own values is the other choice)', async () => {
+    await openChartDlg();
+    expect(await chartDlg.locator('#chart-link-note').locator('button', { hasText: 'These are my own values' }).count() === 1, 'no "These are my own values"');
+    await chartDlg.locator('#chart-link-note').locator('button', { hasText: /Link again/ }).click(); await p.waitForTimeout(500);
+    const n = await linkNote();
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const c = await chartNow();
+    expect(c.link && c.state === 'linked' && /^Linked to the densitometry of panel A/.test(n), JSON.stringify(c));
+    expect(Math.abs(c.rows[1][1] - REP2[1]) < 0.05, 'lane 3 after the re-probe: ' + c.rows[1][1]);
+    const R = await check();
+    expect(rowOf(R, 'Charts from densitometry').icon === '✓', JSON.stringify(rowOf(R, 'Charts from densitometry')));
+    return `lane 3 now ${(+c.rows[1][1]).toFixed(3)} (re-probe truth 1.4); WT ${c.bars[0][0].toFixed(3)} ± ${c.bars[0][1].toFixed(3)}; Charts from densitometry ✓`;
+  });
+
+  await step(T, '9.4 (second figure, Nature) Long lane names cut to fit fail Text size, whose "Widen A" button gives the strip the whole row', async () => {
+    await L.cmdk(T, 'nature'); await p.waitForTimeout(800);
+    await clickPanel(0);
+    await L.cmdk(T, 'lane table');
+    await lt.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+    const cells = lt.locator('.lt-cell');
+    await cells.nth(1).click(); await p.keyboard.press('ControlOrMeta+a');
+    await p.keyboard.type('Parkin WT, Parkin WT, Parkin WT, Parkin R42P, Parkin R42P, Parkin R42P'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    await lt.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click(); await p.waitForTimeout(800);
+    const ts = rowOf(await readReport(), 'Text size');
+    expect(ts.icon === '✗' && /drawn smaller than its table’s size to fit its lanes/.test(ts.note) && ts.buttons.includes('Widen A'), JSON.stringify(ts));
+    await L.toasts(T);
+    await p.locator('#info-modal-bg .compliance-row', { hasText: 'Text size' }).locator('button', { hasText: 'Widen A' }).click(); await p.waitForTimeout(800);
+    const wt = await L.toasts(T);
+    const ts2 = rowOf(await readReport(), 'Text size');
+    await p.keyboard.press('Escape');
+    expect(/^Panel A now spans all \d columns, so its lanes are wider — Ctrl\+Z undoes it/.test(wt) && ts2.icon === '✓', wt + ' | ' + JSON.stringify(ts2));
+    return `before: "${ts.note.slice(0, 90)}…"; Widen A → "${wt}"; after: "${ts2.note.slice(0, 90)}…"`;
   });
 
   await L.finish(T);

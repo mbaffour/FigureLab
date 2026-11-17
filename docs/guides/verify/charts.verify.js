@@ -19,6 +19,15 @@ const CSV = {
   'swim_semicolon.csv': 'Stamm;Durchmesser\n;mm\nWT;12,5\nWT;13,1\nWT;12,8\ndfliC;3,2\ndfliC;3,6\ndfliC;3,4\n',
   // a tidy German file: strain, replicate number, value, a units row and decimal commas
   'biofilm_de.csv': 'Stamm;Replikat;Biofilm\n;;A550\nWT;1;1,20\nWT;2;1,31\nWT;3;1,25\nΔpelA;1;0,40\nΔpelA;2;0,38\nΔpelA;3;0,45\n',
+  // ux3 (charts3-01): a tidy table with two text columns (antibiotic × strain), MICs from 0.03 to 2
+  'mic_tidy.csv': 'antibiotic,strain,replicate,MIC_ug_per_ml\n' + [['tobramycin', { PA14: [0.5, 1, 1], dlasR: [0.5, 0.5, 0.5], dmexB: [0.125, 0.25, 0.25] }],
+    ['ciprofloxacin', { PA14: [0.06, 0.125, 0.125], dlasR: [0.03, 0.06, 0.06], dmexB: [1, 2, 2] }]]
+    .flatMap(([a, o]) => Object.entries(o).flatMap(([st, v]) => v.map((x, i) => `${a},${st},${i + 1},${x}`))).join('\n') + '\n',
+  // several files at once
+  'growth_A.csv': 'strain,replicate,OD600\nWT,1,1.10\nWT,2,1.20\nWT,3,1.15\nKO,1,0.60\nKO,2,0.55\nKO,3,0.65\n',
+  'growth_B.csv': 'strain,replicate,OD600\nWT,1,0.90\nWT,2,0.95\nWT,3,1.00\nKO,1,0.40\nKO,2,0.45\nKO,3,0.35\n',
+  // two text columns besides the x: the guess cannot place the medium
+  'mic_media.csv': 'antibiotic,strain,medium,MIC\n' + ['LB', 'M9'].flatMap(md => ['PA14', 'dlasR'].flatMap(st => ['tobramycin', 'ciprofloxacin'].map((a, k) => `${a},${st},${md},${k + 1 + (md === 'M9' ? 2 : 0)}`))).join('\n') + '\n',
 };
 const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 const sd = a => { const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1)); };
@@ -27,6 +36,8 @@ const TRUTH = {
   B: { 'MOI_0@60': [0.40, 0.44, 0.48], 'MOI_1@120': [0.05, 0.08, 0.11] },
   E: { Untreated: [36.1, 38.5, 41.2, 35.9, 38.1], 'Phage-treated': [26.0, 27.9, 24.8, 28.1, 26.8] },
   F: { WT: [12.5, 13.1, 12.8], dfliC: [3.2, 3.6, 3.4] },
+  MIC: { 'tobramycin|PA14': [0.5, 1, 1], 'tobramycin|dlasR': [0.5, 0.5, 0.5], 'tobramycin|dmexB': [0.125, 0.25, 0.25],
+    'ciprofloxacin|PA14': [0.06, 0.125, 0.125], 'ciprofloxacin|dlasR': [0.03, 0.06, 0.06], 'ciprofloxacin|dmexB': [1, 2, 2] },
 };
 
 (async () => {
@@ -71,19 +82,27 @@ const TRUTH = {
   });
 
   // ---- Task 1: tidy table → bar chart panel ----------------------------------------------
-  await step(T, 'T1.1 Drop or click to add images → a tidy CSV opens the Chart dialog with a guessed mapping', async () => {
+  // ux3 (charts3-19, newcomer3-11): the chart is panel A as soon as the file is dropped (that
+  // toast); Apply says "Chart updated". The Y title starts as the value column's name.
+  await step(T, 'T1.1 Drop or click to add images → a tidy CSV is chart panel A at once and opens the Chart dialog with a guessed mapping; Y title is the value column', async () => {
+    await L.toasts(T);
     const d = await importCsv('cfu_24h.csv');
-    expect(d.kind === 'Bar' && d.x === 'strain' && d.ycols.join() === 'cfu_per_ml' && d.err === 'SD (n−1)', JSON.stringify(d));
+    const t = await L.toasts(T);
+    expect(d.kind === 'Bar' && d.x === 'strain' && d.ycols.join() === 'cfu_per_ml' && d.err === 'SD (n−1)' && d.ytitle === 'cfu_per_ml', JSON.stringify(d));
+    expect(/Imported 9 rows from cfu_24h\.csv — chart panel A in the grid/.test(t), 'toast: ' + t);
     expect(await chart.locator('#chart-points').isChecked(), 'points not ticked');
-    return `${d.status}; ${d.kind}, X ${d.x}, Y ${d.ycols}, error bars ${d.err}`;
+    return `toast "${t}"; ${d.status}; ${d.kind}, X ${d.x}, Y ${d.ycols}, error bars ${d.err}, Y title "${d.ytitle}"`;
   });
-  await step(T, 'T1.2 Y title and log Y, Apply → lettered chart panel A in the grid', async () => {
+  await step(T, 'T1.2 Y title and log Y, Apply ("Chart updated") → lettered chart panel A in the grid', async () => {
     await chart.locator('#chart-ytitle').fill('CFU/mL');
     await chart.getByLabel('log Y').check();
     await apply();
+    const t = await L.toasts(T);
     const c = await charts();
     expect(c.length === 1 && c[0].type === 'chart' && c[0].label === 'A', JSON.stringify(c));
+    expect(/Chart updated/.test(t), 'toast: ' + t);
     expect(await p.locator('#layout-mode').inputValue() === 'grid', 'figure left the grid');
+    return 'toast "' + t + '"';
   });
 
   // ---- Task 2: replicate columns → line with SD --------------------------------------------
@@ -116,6 +135,10 @@ const TRUTH = {
       expect(st.n === 6 && st.kinds.join() === want && st.series.length === 2, JSON.stringify(st));
       got.push(`${lab}: ${st.n} clouds (${st.series.join(', ')} side by side at each time), whisker ${want}`);
     }
+    // ux3 (charts3-02, charts3-20): a beeswarm draws its mean as a short line, and the caption says so
+    const cap = await p.evaluate(() => _dataCaption({ type: 'chart', name: 'lysis_tidy.csv', chart: _chartDraft }));
+    expect(/the line marks the mean, whiskers ± SD/.test(cap), 'caption: ' + cap);
+    got.push('caption "' + cap + '"');
     for (const k of ['Box & whisker', 'Violin']) {
       await chart.locator('#chart-kind').selectOption({ label: k }); await p.waitForTimeout(300);
       const st = await p.evaluate(() => { const s = _chartStats({ chart: _chartDraft, w: 300, h: 200 }); return { n: s.boxes.length, series: [...new Set(s.boxes.map(b => b.name))] }; });
@@ -279,7 +302,14 @@ const TRUTH = {
     await apply();
     const k1 = await keyText();
     expect(!/MOI_0/.test(k1) && (k1.match(/MOI 0 \(/g) || []).length === 1, 'after: ' + k1);
-    return `before: MOI_0 (${c0}) and MOI 0 (${c1}); after: ${(k1.match(/MOI 0 \([^)]*\)/) || [''])[0]} once`;
+    // the chart made from "… mean" columns has its own shown-as box, filled in without " mean"
+    const ptD = await panelPoint('D');
+    await p.mouse.dblclick(ptD.x, ptD.y);
+    await chart.waitFor({ state: 'visible' });
+    const dBox = await chart.locator('#chart-names input[placeholder="shown as MOI 0 mean"]').inputValue();
+    await chart.getByRole('button', { name: 'Cancel' }).click(); await p.waitForTimeout(300);
+    expect(dBox === 'MOI 0', 'panel D shown as: ' + dBox);
+    return `before: MOI_0 (${c0}) and MOI 0 (${c1}); after: ${(k1.match(/MOI 0 \([^)]*\)/) || [''])[0]} once; panel D's own box reads "${dBox}"`;
   });
 
   // ---- Look › Sample colours, lab style -----------------------------------------------------
@@ -298,6 +328,11 @@ const TRUTH = {
     const pal = js.settings.sample_palette;
     const t = await L.toasts(T);
     expect(pal.WT.toLowerCase() === '#0072b2' && pal.dmotA && pal.dfliC && pal.Untreated && /paper_style\.json saved with \d+ sample colours \(1 set by hand, \d+ from the palette/.test(t), JSON.stringify(js) + ' | ' + t);
+    // ux3 (charts3-10): the counts are of samples, so they add up
+    const [, n, hand, pl] = t.match(/saved with (\d+) sample colours \((\d+) set by hand, (\d+) from the palette/);
+    expect(+n === +hand + +pl, 'counts do not add up: ' + t);
+    // the file holds colours by data name only: no shown-as names
+    expect(!/ΔfliC|Δ\*fliC\*/.test(fs.readFileSync(styleFile, 'utf8')), 'shown-as name in the file');
     const h = p.locator('.sec-lbl', { hasText: /^Sample colours/i });
     await h.scrollIntoViewIfNeeded();
     const b1 = await h.boundingBox(), b2 = await btn(T, '⬇ Save as paper_style.json').boundingBox();
@@ -328,7 +363,8 @@ const TRUTH = {
     expect(list.dfliC === '#cc79a7' && list.dmotA === '#009e73' && /Arial/.test(await p.locator('#label-font').inputValue()), JSON.stringify(list));
     const untreated = await p.evaluate(() => document.querySelector('#sample-colours-list [data-name="Untreated"]').innerText);
     expect(/palette/.test(untreated), 'Untreated kept its hand-picked colour: ' + untreated);
-    return title + ' — dfliC ' + list.dfliC + ', dmotA ' + list.dmotA;
+    const rowsAfter = await p.evaluate(() => [...document.querySelectorAll('#sample-colours-list [data-name]')].map(r => r.innerText.replace(/\s+/g, ' ').trim()).join(' | '));
+    return title + ' — dfliC ' + list.dfliC + ', dmotA ' + list.dmotA + '; rows: ' + rowsAfter;
   });
 
   // ---- Typography ------------------------------------------------------------------------
@@ -362,6 +398,22 @@ const TRUTH = {
     await p.keyboard.press('Escape');
     expect(/charts/.test(row) && /Superscripts and subscripts print at 70%/.test(row), row);
     return row.slice(0, 400);
+  });
+
+  // ux3 (charts3-06): superscripts under 5 pt get a "Text to N pt" button on the row
+  await step(T, 'Y3b The Text size row\'s "Text to 7.5 pt" button raises Text size so the 10⁸ superscripts reach 5 pt', async () => {
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const b = rep.locator('button', { hasText: /^Text to [\d.]+ pt/ }).first();
+    const label = (await b.innerText()).trim();
+    await b.click(); await p.waitForTimeout(800);
+    if (!(await rep.isVisible())) { await btn(T, '✓ Check journal compliance').click(); await rep.waitFor({ state: 'visible' }); }
+    const row = ((await rep.innerText()).match(/Text size\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape');
+    const pt = await p.locator('#text-pt').inputValue();
+    expect(label === 'Text to 7.5 pt' && pt === '7.5' && !/below 5 pt/.test(row), `${label} → ${pt} pt; row: ${row}`);
+    return `"${label}" → Text size ${pt} pt; row: ${row.slice(0, 160)}`;
   });
 
   // ---- Source data -----------------------------------------------------------------------
@@ -434,6 +486,148 @@ const TRUTH = {
     const bad = rowsP.filter(r => { const tr = TRUTH.A[r.k]; return !tr || !close(r.mean, mean(tr)) || !close(r.err, sd(tr)) || r.n !== 3; });
     expect(d.kind === 'Bar' && d.x === 'strain' && rowsP.length === 3 && !bad.length, JSON.stringify({ d, rowsP }));
     return `${d.kind}, X ${d.x}, Y ${d.ycols}; toast "${t.split(' | ').find(x => /Imported/.test(x))}"`;
+  });
+
+  // ---- ux3: brackets that share a group stack ----------------------------------------------
+  await step(T, 'T5.3 Two brackets sharing a group (A: 1st–2nd and 2nd–3rd) → Apply: drawn at two heights (checked in the SVG, X1)', async () => {
+    const pt = await panelPoint('A');
+    await p.mouse.dblclick(pt.x, pt.y);
+    await chart.waitFor({ state: 'visible' });
+    const sec = chart.locator('.sec-lbl', { hasText: 'Significance brackets' }).locator('xpath=..');
+    for (const [a, b, lab] of [[0, 1, 'p = 0.011'], [1, 2, 'p = 0.022']]) {
+      await sec.getByRole('button', { name: '+ Add' }).click(); await p.waitForTimeout(200);
+      const row = sec.locator('input[type=text]').last().locator('xpath=..');
+      const sels = row.locator('select');
+      await sels.nth(0).selectOption({ index: a });
+      await sels.nth(1).selectOption({ index: b });
+      await row.locator('input[type=text]').fill(lab);
+    }
+    await p.waitForTimeout(300);
+    await apply();
+    const annos = await p.evaluate(() => images.find(im => im && im.label === 'A').chart.annos.map(a => [a.a, a.b, a.text]));
+    expect(annos.length === 2 && annos[0][1] === annos[1][0], JSON.stringify(annos));
+    return JSON.stringify(annos);
+  });
+
+  // ---- ux3: tidy with two text columns → grouped bar, series from the second -------------------
+  await step(T, 'T7 Tidy table with two text columns (antibiotic, strain): Grouped bar, X antibiotic, Series strain; Series none names what it averages; log Y', async () => {
+    const d = await importCsv('mic_tidy.csv');
+    expect(d.kind === 'Grouped bar' && d.x === 'antibiotic' && d.series === 'strain' && d.ycols.join() === 'MIC_ug_per_ml' && d.ytitle === 'MIC_ug_per_ml' && !/not used/.test(d.status), JSON.stringify(d));
+    await chart.locator('#chart-seriescol').selectOption({ label: '— none —' }); await p.waitForTimeout(300);
+    const pooled = await chart.locator('#chart-delim-info').innerText();
+    expect(/⚠ strain not used: 3 strain values \(PA14, dlasR, dmexB\) averaged together per group — pick strain as Series to show them apart/.test(pooled), pooled);
+    await chart.locator('#chart-seriescol').selectOption({ label: 'strain' }); await p.waitForTimeout(300);
+    await chart.locator('#chart-ytitle').fill('MIC (µg/mL)');
+    await chart.getByLabel('log Y').check();
+    await apply();
+    const c = (await charts()).pop();
+    expect(c.type === 'chart' && c.name === 'mic_tidy.csv', JSON.stringify(c));
+    return `${d.status}; guessed ${d.kind}, X ${d.x}, Series ${d.series}, Y title "${d.ytitle}"; with Series none: "${pooled.split(' · ').pop()}"; panel ${c.label}`;
+  });
+
+  // ---- ux3: several files at once ------------------------------------------------------------
+  await step(T, 'T8a Two CSVs picked at once: each becomes a chart panel; the dialog opens on the last one', async () => {
+    const n0 = (await charts()).length;
+    await L.toasts(T);
+    await L.pickFiles(T, dropZone(), [file('growth_A.csv'), file('growth_B.csv')]);
+    await chart.waitFor({ state: 'visible', timeout: 8000 }); await p.waitForTimeout(500);
+    const d = await draft();
+    const t = await L.toasts(T);
+    expect(/growth_B\.csv/.test(d.status) && /growth_A\.csv — chart panel \w in the grid/.test(t) && /growth_B\.csv — chart panel \w in the grid/.test(t), d.status + ' | ' + t);
+    await apply();
+    const n1 = (await charts()).length;
+    expect(n1 === n0 + 2, `${n0} → ${n1}`);
+    return `toasts "${t}"; dialog: ${d.status}`;
+  });
+  await step(T, 'T8b An image and a CSV picked together: the toast says what the chart was guessed as; the dialog opens when the guess averaged a text column together', async () => {
+    const img = await L.canvasImage(T, path.join(inp, 'plate.png'), 240, 180, (c, w, h) => { c.fillStyle = '#d8d0b0'; c.fillRect(0, 0, w, h); c.fillStyle = '#7a6a40'; c.beginPath(); c.arc(w / 2, h / 2, 60, 0, 7); c.fill(); });
+    await L.toasts(T);
+    await L.pickFiles(T, dropZone(), [img, file('mic_media.csv')]);
+    await p.waitForTimeout(1200);
+    const t = await L.toasts(T);
+    const open = await chart.isVisible();
+    const info = open ? await chart.locator('#chart-delim-info').innerText() : '';
+    expect(/1 image and 1 chart added to the grid as panels — \w: grouped bar chart of MIC by antibiotic and strain\. Check this chart: \w — medium not used \(2 values averaged together\)/.test(t) && open && /⚠ medium not used: 2 medium values \(LB, M9\) averaged together per group/.test(info), t + ' | dialog ' + open + ' ' + info);
+    await apply();
+    return `toast "${t.split(' | ').pop()}"; dialog: "${info.split(' · ').pop()}"`;
+  });
+
+  // ---- ux3: captions describe what each chart draws ---------------------------------------
+  await step(T, 'C1 Export › ✦ Generate Caption describes each chart as drawn: bars with dots, the averaged series of a line chart, grouped bars by series', async () => {
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600);
+    const dlg = p.locator('.modal-bg.open', { hasText: 'Replace your caption?' });
+    if (await dlg.count()) await dlg.getByRole('button', { name: 'Replace' }).click();
+    const cap = await p.locator('#caption-out').inputValue();
+    const need = [/\(A\) Bar chart of CFU\/mL for ΔfliC, WT and dmotA, on a log scale\. Bars show the mean ± SD \(n−1\); dots, individual replicates; n = 3 per bar\./,
+      /Brackets: p = 0\.011 \(ΔfliC vs WT\); p = 0\.022 \(WT vs dmotA\), from the author’s own statistical test/, /Bars show the mean ± SD \(n−1\); dots, individual replicates; n = 3 per bar/, /Line chart of OD₆₀₀ against Time \(min\) \(series: MOI 0 and MOI_1\)/, /Grouped bar chart of MIC \(µg\/mL\)[^.]*\(bars: PA14, dlasR and dmexB\)/];
+    const miss = need.filter(r => !r.test(cap));
+    expect(!miss.length && !/MOI_0_r1/.test(cap), 'missing ' + miss.join(', ') + ' in: ' + cap);
+    return cap.split(/ (?=\([A-Z]\) )/).filter(x => /^\((A|B|H)\)/.test(x)).join(' … ').slice(0, 700);
+  });
+
+  // ---- ux3: the SVG — log axis below 1, stacked brackets --------------------------------------
+  await step(T, 'X1 ↓ SVG: the MIC log axis reads 0.01, 0.1, 1, 10; the two brackets on A sit at two heights', async () => {
+    const r = await L.exportVia(T, 'SVG', { name: 'Fig2_charts_more' });
+    const s = fs.readFileSync(r.file, 'utf8');
+    const txt = [...s.matchAll(/<text([^>]*)>([^<]*)<\/text>/g)].map(m => ({ a: m[1], s: m[2] }));
+    const ticks = ['0.01', '0.1', '1', '10'].filter(v => txt.some(t => t.s === v));
+    const y = lab => { const t = txt.find(t => t.s === lab); return t ? +(t.a.match(/ y="([\d.]+)"/) || [])[1] : NaN; };
+    const y1 = y('p = 0.011'), y2 = y('p = 0.022');
+    const fsz = +((txt.find(t => t.s === 'p = 0.011') || { a: '' }).a.match(/font-size="([\d.]+)"/) || [])[1];
+    expect(ticks.length === 4 && isFinite(y1) && isFinite(y2) && Math.abs(y1 - y2) >= fsz, JSON.stringify({ ticks, y1, y2, fsz }));
+    return `log ticks ${ticks.join(', ')}; bracket labels at y ${y1.toFixed(1)} and ${y2.toFixed(1)} (font ${fsz})`;
+  });
+
+  // ---- ux3: source data of the grouped bars, a zero error written as 0 --------------------------
+  await step(T, 'D3 📦 package: the grouped-bar source data match the truth, and dlasR (0.5, 0.5, 0.5) has error 0, not a blank', async () => {
+    await L.openSection(T, 'Export');
+    const zip = await L.download(T, () => btn(T, '📦 Export submission package (ZIP)').click(), /submission-package\.zip$/, 180000);
+    const letter = (await charts()).find(c => c.name === 'mic_tidy.csv').label;
+    const t = L.zipRead(zip, `source-data/${letter}.csv`).toString('utf8');
+    const [hdr, ...rows] = t.split(/# Plotted values[^\n]*\n/)[1].trim().split('\n');
+    const H = hdr.split(',');
+    const R = rows.map(r => Object.fromEntries(r.split(',').map((v, i) => [H[i], v])));
+    const close = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+    const bad = [];
+    for (const [k, v] of Object.entries(TRUTH.MIC)) {
+      const [cat, ser] = k.split('|');
+      const r = R.find(r => r.category === cat && r.series === ser);
+      if (!r || !close(+r.mean, mean(v)) || !close(+r.error, sd(v)) || +r.n !== 3 || r.error === '') bad.push(k + ' ' + JSON.stringify(r));
+    }
+    const z = R.find(r => r.category === 'tobramycin' && r.series === 'dlasR');
+    expect(!bad.length && z && z.error === '0', bad.join('; ') + ' | ' + JSON.stringify(z));
+    return `${R.length} rows match; tobramycin dlasR: mean ${z.mean}, error ${z.error} (${z.error_type})`;
+  });
+
+  // ---- ux3: under a journal the Text size row offers a raise, or says why it cannot ------------------
+  await step(T, 'J1 ⌘K "plos" → Journal: PLOS ONE; the Text size row: the 10⁸ superscripts print 5.6 pt, no Text to button, "no text size clears both"', async () => {
+    await L.cmdk(T, 'plos');
+    await p.waitForTimeout(600);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const txt = await rep.innerText();
+    const row = (txt.match(/Text size[^\n]*\n([^\n]*)/) || [])[1] || '';
+    const fix = await rep.locator('button', { hasText: /^Text to [\d.]+ pt/ }).count();
+    await p.keyboard.press('Escape');
+    expect(/PLOS ONE/.test(txt) && /is 5\.6 pt, below 8 pt/.test(row) && fix === 0 && /no text size clears both/.test(row), row);
+    return (fix ? 'button offered; ' : 'no button; ') + row.slice(row.indexOf('Superscripts'), row.indexOf('Superscripts') + 420);
+  });
+
+  // ISSUES "A shown-as name that equals another file's data name gives two colours": still open
+  await step(T, 'Troubleshooting: dfliC shown as Δ*fliC* (A) beside a file whose data say ΔfliC: still two colours, and the key lists ΔfliC twice', async () => {
+    fs.writeFileSync(path.join(inp, 'swim_delta.csv'), 'strain,replicate,swim_mm\nWT,1,30\nWT,2,32\nΔfliC,1,5\nΔfliC,2,6\n');
+    await L.pickFiles(T, dropZone(), [path.join(inp, 'swim_delta.csv')]);
+    await chart.waitFor({ state: 'visible', timeout: 8000 }); await p.waitForTimeout(400);
+    await apply();
+    const label = (await charts()).pop().label;
+    const a = await drawn('A'), n = await drawn(label);
+    await L.openSection(T, 'Export');
+    const key = await p.evaluate(() => document.getElementById('key-text').value);
+    const twice = (key.match(/ΔfliC \(/g) || []).length;
+    expect(a.dfliC.color !== n['ΔfliC'].color && twice === 2, JSON.stringify({ a: a.dfliC, n: n['ΔfliC'], key }));
+    return `A dfliC "${a.dfliC.name}" ${a.dfliC.color}; ${label} ΔfliC ${n['ΔfliC'].color}; key lists ΔfliC ${twice}×`;
   });
 
   await L.finish(T);

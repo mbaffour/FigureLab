@@ -126,7 +126,13 @@ async function card(T, i, { open = false } = {}) {
     const t2 = await L.toasts(T);
     await p.keyboard.press('Escape');
     expect(/^Journal: no preset for Nature Communications/.test(h2[0]) && /no Nature Communications preset/.test(t2) && await p.locator('#target-journal').inputValue() === 'plos', h2[0] + ' | ' + t2);
-    return `plos → ${hits[0]} (${t}); nat comms → "${t2.slice(0, 70)}…"`;
+    // ux3 (newcomer3-06): "scientific reports" used to apply the ASM preset
+    const h3 = await L.cmdk(T, 'scientific reports');
+    await p.waitForTimeout(300);
+    const t3 = await L.toasts(T);
+    await p.keyboard.press('Escape');
+    expect(/^Journal: no preset for Scientific Reports/.test(h3[0]) && /no Scientific Reports preset/.test(t3) && await p.locator('#target-journal').inputValue() === 'plos', h3[0] + ' | ' + t3);
+    return `plos → ${hits[0]} (${t}); nat comms → "${t2.slice(0, 70)}…"; scientific reports → ${h3[0]}`;
   });
 
   // ux2 (was ISSUES.md): the Nature preset kept 183 mm on this 2 × 2 figure although it then
@@ -194,6 +200,22 @@ async function card(T, i, { open = false } = {}) {
     return `${R.title}; ${infos} ℹ rows (e.g. ${R.rows.filter(r => r.icon === 'ℹ').map(r => r.label).join(', ')})`;
   });
 
+  // ux3 (newcomer3-22): Check against … used to switch the target journal
+  await step(T, '2.1b ⌘K "check against nature" reports against Nature, keeps PLOS ONE as the target, and offers "Switch the target to Nature"', async () => {
+    await p.keyboard.press('Escape');
+    const hits = await L.cmdk(T, 'check against nature');
+    expect(/^Check against Nature/.test(hits[0]), hits[0]);
+    const m = p.locator('#info-modal-bg');
+    await m.waitFor({ state: 'visible' });
+    await p.waitForTimeout(400);
+    const R = await readReport(T);
+    const note = ((await p.locator('#ck-as-note').textContent().catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+    await closeReport(T);
+    const j = await p.locator('#target-journal').inputValue();
+    expect(/^Nature compliance — \d+\/\d+ passed.* · report only/.test(R.title) && /Switch the target to Nature/.test(note) && j === 'plos', R.title + ' | ' + note + ' | target ' + j);
+    return `${R.title} | ${note} | target still ${j}`;
+  });
+
   await step(T, '2.2 Text size: Typography › Text size 3 pt fails; "Fit 8–12 pt" raises it', async () => {
     await L.openSection(T, 'Look');
     await p.locator('#text-pt').fill('3'); await p.locator('#text-pt').press('Tab');
@@ -253,7 +275,8 @@ async function card(T, i, { open = false } = {}) {
     const after = row(R, 'Text contrast');
     await closeReport(T);
     expect(after.icon === '✓' && await p.locator('#label-bg').isChecked(), after.icon + ' ' + after.note.slice(0, 120));
-    return `before ${before.icon} ${before.note.split(' — ')[0]} → after ${after.icon}; toast: ${t.slice(0, 120)}`;
+    expect(/^Auto contrast on — the chips behind the letters are darker and the letters white — every text over a picture now reads at 4\.5:1 or better/.test(t), 'toast: ' + t);
+    return `before ${before.icon} ${before.note.split(' — ')[0]} → after ${after.icon}; toast: ${t.slice(0, 160)}`;
   });
 
   await step(T, '2.6 "Select panel" on Panel resolution selects the low-ppi panel', async () => {
@@ -268,12 +291,18 @@ async function card(T, i, { open = false } = {}) {
   });
 
   // ------------------------------------------------------------------ 3. legend key
-  await step(T, '3.1 Export › Legend key: Place the key on the figure, rename a channel, Copy the text starter', async () => {
+  await step(T, '3.1 ⌘K "legend key" places the key (Place the key on the figure ticked, a margin grown); rename a channel; Copy the text starter', async () => {
     await L.openSection(T, 'Export');
     await L.toasts(T);
-    await p.locator('#key-on-figure').check();
+    // ux3 (newcomer3-05): ⌘K "legend key" + Enter places the key (it used to arm a click tool)
+    const kh = await L.cmdk(T, 'legend key');
     await p.waitForTimeout(600);
     const placed = await L.toasts(T);
+    expect(await p.locator('#key-on-figure').isChecked() && /Legend key placed on the figure/.test(placed), kh[0] + ' | ' + placed);
+    await L.openSection(T, 'Export');
+    const names = await p.locator('.key-name-in').evaluateAll(a => a.map(i => i.getAttribute('aria-label') + '=' + i.value));
+    const mb = await p.locator('#m-btm').inputValue();
+    expect(+mb > 16, 'bottom margin ' + mb);
     const where = await p.locator('#key-where').evaluate(s => [...s.options].map(o => o.text));
     expect(where.join('|') === 'Free space|Top right|Top left|Bottom right|Bottom left|Right edge|Below', where.join('|'));
     let R = await report(T);
@@ -290,7 +319,7 @@ async function card(T, i, { open = false } = {}) {
     await p.waitForTimeout(300);
     const clip = await p.evaluate(() => navigator.clipboard.readText());
     expect(clip === kt, 'clipboard: ' + clip);
-    return `${kt} (copied) | placed: ${placed || '(no toast)'} | row: ${kr.note.slice(0, 70)}`;
+    return `${kt} (copied) | ⌘K top hit: ${kh[0]} | placed: ${placed || '(no toast)'} | bottom margin 16 → ${mb} px | Channel names: ${names.join(', ')} | row: ${kr.note.slice(0, 70)}`;
   });
 
   // ux2: a key dragged by hand stays where it is put; the check flags it if it covers
@@ -333,6 +362,8 @@ async function card(T, i, { open = false } = {}) {
   // ------------------------------------------------------------------ 4. caption, Methods
   await step(T, '4.1 ⚙ › Caption note (not rendered) on C and D, then ✦ Generate Caption names them', async () => {
     const c = await card(T, 2, { open: true });
+    const lbls = (await c.locator('.sec-lbl').allTextContents()).map(x => x.trim());
+    expect(lbls.includes('Caption note (not rendered)') && lbls.includes('Metadata note (records only, not the caption)'), lbls.join(' | '));
     await c.locator('input.f-cap').fill('PhoA western blot; WT and ΔphoA, ± IPTG');
     await c.locator('input.f-cap').press('Enter');
     const d = await card(T, 3, { open: true });
@@ -394,6 +425,19 @@ async function card(T, i, { open = false } = {}) {
     const cap = await p.locator('#caption-out').inputValue();
     expect(/1e-6 dilution/.test(cap) && !/three experiments/.test(cap) && !(await p.locator('#caption-stale').isVisible()), cap.slice(-120));
     return ask.slice(0, 150);
+  });
+
+  // ISSUES.md "A caption note does not reach the untouched caption until the figure is
+  // re-rendered" (fixed in ux3, newcomer3-02): it arrives within a second, no ⟳ Render.
+  await step(T, '4.5 An untouched caption takes a new caption note within a second, without ⟳ Render', async () => {
+    const d = await card(T, 3, { open: true });
+    await d.locator('input.f-cap').fill('Plaques of phiGuide on E. coli MG1655 (10^{-6} dilution)');
+    await d.locator('input.f-cap').press('Enter');
+    const t0 = Date.now();
+    await p.waitForFunction(() => /10\^\{-6\} dilution|10⁻⁶ dilution/.test(document.getElementById('caption-out').value), null, { timeout: 2000 });
+    const ms = Date.now() - t0;
+    const cap = await p.locator('#caption-out').inputValue();
+    return `in ${ms} ms: …${(cap.match(/\(D\)[^.]*\./) || [''])[0]}`;
   });
 
   // ------------------------------------------------------------------ 5. reuse checks
@@ -471,7 +515,11 @@ async function card(T, i, { open = false } = {}) {
   await step(T, '6.2 The key button now says (TIFF): the key follows the last export format', async () => {
     const label = await p.locator('#key-dl-btn').innerText();
     expect(/\(TIFF\)/.test(label), label);
-    return label;
+    const R = await report(T);
+    const ef = row(R, 'Export format');
+    await closeReport(T);
+    expect(ef.icon === '✓' && /exported as TIFF since the figure last changed/.test(ef.note), ef.icon + ' ' + ef.note);
+    return label + ' | Export format: ' + ef.icon + ' ' + ef.note.split(' · ')[0] + ' | ' + R.title;
   });
 
   let pkg;
@@ -512,10 +560,10 @@ async function card(T, i, { open = false } = {}) {
     await fc.setFiles(session);
     await p2.waitForFunction(() => images.filter(Boolean).length === 4, null, { timeout: 20000 });
     await p2.waitForTimeout(800);
-    const st = await p2.evaluate(() => ({ labels: images.filter(Boolean).map(i => i.label).join(''), j: document.getElementById('target-journal').value,
+    const st = await p2.evaluate(() => ({ labels: images.filter(Boolean).map(i => i.label).join(''), j: document.getElementById('target-journal').value, w: document.getElementById('export-width-mm').value,
       name: document.getElementById('export-name').value, key: document.getElementById('key-text').value,
       notes: images.filter(Boolean).map(i => i.captionNote || '').filter(Boolean).length }));
-    expect(st.labels === 'ABCD' && st.j === 'plos' && st.name === 'Fig2' && /GFP-LC3/.test(st.key) && st.notes === 2, JSON.stringify(st));
+    expect(st.labels === 'ABCD' && st.j === 'plos' && st.w === '173' && st.name === 'Fig2' && /GFP-LC3/.test(st.key) && st.notes === 2, JSON.stringify(st));
     await T.page.close();
     T.page = p2;
     await p2.evaluate(() => { window.__toasts = []; const el = document.getElementById('toast');
@@ -539,6 +587,19 @@ async function card(T, i, { open = false } = {}) {
   });
 
   // ------------------------------------------------------------------ 8. revision
+  // The figure as submitted: a TIFF exported in the reopened session, so the Export format
+  // row has a file to compare with when the revision changes the figure.
+  await step(T, '8.0 Before the revision: ↓ TIFF → Save TIF; the Export format row passes', async () => {
+    const q = T.page;
+    await q.getByRole('button', { name: /Dismiss/ }).click({ timeout: 1500 }).catch(() => {});
+    const r = await L.exportVia(T, 'TIFF');
+    const R = await report(T);
+    const ef = row(R, 'Export format');
+    await closeReport(T);
+    expect(path.basename(r.file) === 'Fig2.tif' && ef.icon === '✓', path.basename(r.file) + ' | ' + ef.icon + ' ' + ef.note);
+    return path.basename(r.file) + ' | ' + ef.note.split(' · ')[0];
+  });
+
   await step(T, '8.1 Right-click panel C › ⇄ Replace image… keeps label, caption note and settings', async () => {
     const q = T.page;
     await q.getByRole('button', { name: /Dismiss/ }).click({ timeout: 1500 }).catch(() => {});
@@ -551,7 +612,30 @@ async function card(T, i, { open = false } = {}) {
     await q.waitForTimeout(800);
     const st = await q.evaluate(() => [images[2].label, images[2].name, images[2].captionNote]);
     expect(st[0] === 'C' && st[1] === 'PhoA_blot_rerun.tif' && /PhoA/.test(st[2]), JSON.stringify(st));
-    return (await L.toasts(T)) + ' | menu: ' + menu.replace(/\n/g, ' · ');
+    const tt = await L.toasts(T);
+    expect(/caption note kept: “PhoA western blot/.test(tt), 'toast: ' + tt);   // the toast names the kept note
+    return tt + ' | menu: ' + menu.replace(/\n/g, ' · ');
+  });
+
+  // ux3 (newcomer3-04 / charts3-13): an export made before the figure changed used to pass
+  await step(T, '8.1b After the replace, the Export format row is ℹ "not checked — the figure changed after it was last exported"; its Save as TIFF button exports again and the row passes', async () => {
+    const q = T.page;
+    let R = await report(T);
+    const ef = row(R, 'Export format');
+    expect(ef.icon === 'ℹ' && /^not checked — the figure changed after it was last exported \(as TIFF\)/.test(ef.note), ef.icon + ' ' + ef.note);
+    const b = q.locator('#info-modal-bg .compliance-row', { hasText: 'Export format' }).getByRole('button');
+    const bt = (await b.first().innerText()).trim();
+    expect(/^Save as TIFF/.test(bt), 'button: ' + bt);
+    await b.first().click();
+    const m = q.locator('#preflight-modal');
+    await m.waitFor({ state: 'visible' });
+    const f = await L.download(T, () => m.locator('button', { hasText: /^Save / }).first().click(), /\.tif$/, 60000);
+    await q.waitForTimeout(400);
+    R = await report(T);
+    const ef2 = row(R, 'Export format');
+    await closeReport(T);
+    expect(ef2.icon === '✓', ef2.icon + ' ' + ef2.note);
+    return `${ef.icon} ${ef.note.split(' · ')[0]} → ${bt} → ${path.basename(f)} → ${ef2.icon} ${ef2.note.split(' · ')[0]}`;
   });
 
   await step(T, '8.2 Drag panel A onto panel B on the canvas: they swap, the letters follow position, the untouched caption follows, the edited Methods and alt text are flagged', async () => {
@@ -590,6 +674,41 @@ async function card(T, i, { open = false } = {}) {
     return (await L.toasts(T)) + ' — ' + st.join(', ') + ' | caption now: ' + cap.slice(0, 60) + '… | Methods: ' + mtxt + ' | alt text: ' + atxt.slice(0, 60) + '… | ✎ Write Methods paragraph asks "' + ask + '"';
   });
 
+  await step(T, '8.2b Rename a sample: Export › Legend key › Channel names, green GFP-LC3 → LC3: the key text and the untouched caption follow', async () => {
+    const q = T.page;
+    await L.openSection(T, 'Export');
+    const f = q.getByLabel('Name of the green channel');
+    await f.fill('LC3'); await f.press('Tab');
+    await q.waitForFunction(() => /\(A\) LC3 \(green\)/.test(document.getElementById('caption-out').value), null, { timeout: 2000 });
+    const kt = await q.locator('#key-text').inputValue();
+    const cap = await q.locator('#caption-out').inputValue();
+    expect(/LC3 \(green\)/.test(kt) && /DAPI \(blue\)/.test(kt) && !/GFP-LC3/.test(kt) && !(await q.locator('#caption-stale').isVisible()), kt);
+    return `key text: ${kt} | caption: ${(cap.match(/\(A\)[^.]*\./) || [''])[0]}`;
+  });
+
+  await step(T, '8.2c Right-click panel A › ✕ Remove panel: the toast says the letters now skip A and offers 🔤 Relabel A, B, C…; Ctrl/⌘+Z brings A back', async () => {
+    const q = T.page;
+    await L.toasts(T);
+    const cr = await q.locator('#fig-canvas').boundingBox();
+    const b = await q.evaluate(() => panelBounds.find(x => (x.idx ?? x.i) === 0));
+    await q.mouse.click(cr.x + b.x + b.w / 2, cr.y + b.y + b.h / 2, { button: 'right' });
+    await q.locator('#panel-ctx-menu').waitFor({ state: 'visible' });
+    await q.locator('#panel-ctx-menu').getByText('Remove panel').click();
+    const conf = q.locator('#confirm-modal-bg');
+    if (await conf.isVisible().catch(() => false)) await conf.locator('button', { hasText: 'Confirm' }).click();
+    await q.waitForTimeout(500);
+    const t = ((await q.locator('#toast').textContent()) || '').trim();
+    const bt = await q.locator('#toast button').allInnerTexts();
+    const n1 = await q.evaluate(() => images.filter(Boolean).filter(i => !i.excluded).length);
+    expect(/The letters now skip A/.test(t) && bt.some(x => /Relabel A, B, C/.test(x)) && n1 === 3, t + ' | ' + bt.join('|') + ' | ' + n1);
+    await q.locator('#canvas-wrap').click({ position: { x: 5, y: 5 } }).catch(() => {});
+    await q.keyboard.press('Escape');
+    await q.keyboard.press('ControlOrMeta+z'); await q.waitForTimeout(600);
+    const st = await q.evaluate(() => images.filter(Boolean).filter(i => !i.excluded).map(i => i.label).join(''));
+    expect(st === 'ABCD', 'after undo: ' + st);
+    return `${t} [${bt.join('|')}] → Ctrl/⌘+Z: ${st}`;
+  });
+
   await step(T, '8.3 Change journal with ⌘K "Journal: eLife", re-check, re-export the package', async () => {
     const q = T.page;
     await L.cmdk(T, 'Journal: eLife');
@@ -601,7 +720,10 @@ async function card(T, i, { open = false } = {}) {
     const f = await L.download(T, () => btn(T, '📦 Export submission package (ZIP)').click(), /submission-package\.zip$/, 90000);
     const list = L.zipList(f);
     const hist = L.zipRead(f, 'PANEL_HISTORY.txt').toString('utf8');
-    expect(/PhoA_blot_rerun/.test(hist), 'PANEL_HISTORY does not record the replacement');
+    expect(/PhoA_blot_rerun/.test(hist) && /PhoA_blot\.tif/.test(hist), 'PANEL_HISTORY does not record the first import and the replacement');
+    const histC = hist.split('\n').filter(l => /PhoA_blot|pixel size|calibrat/i.test(l)).slice(0, 6).map(l => l.trim()).join(' ¶ ');
+    const dashy = list.filter(x => /[\u2010-\u2015]/.test(x));
+    expect(!dashy.length, 'ZIP names with a typographic dash: ' + dashy.join(', '));
     // the edited Methods (7.3) is kept, with FigureLab's current text beside it, and a note says so
     const title = q.getByText(/^⚠ Check the Methods/);
     await title.waitFor({ state: 'visible', timeout: 5000 });
@@ -611,7 +733,29 @@ async function card(T, i, { open = false } = {}) {
     await q.keyboard.press('Escape'); await q.waitForTimeout(300);
     if (await title.isVisible().catch(() => false)) await note.locator('button', { hasText: '×' }).first().click();
     expect(!(await title.isVisible().catch(() => false)), 'note did not close');
-    return `${t} | ${R.title} | ${path.basename(f)}: ${list.length} files, PANEL_HISTORY names the re-run blot; ${list.filter(x => /generated/.test(x)).join(', ')} | note: ${nt.slice(0, 200)}`;
+    return `${t} | ${R.title} | ${path.basename(f)}: ${list.length} files, ${list.filter(x => /generated/.test(x)).join(', ')} | note: ${nt.slice(0, 200)} | PANEL_HISTORY: ${histC.slice(0, 600)}`;
+  });
+
+  await step(T, '8.3b Export › Printed width 183 → 89 mm: the toast says how much larger the text is against the pictures; back to 183 mm', async () => {
+    const q = T.page;
+    await L.openSection(T, 'Export');
+    await L.toasts(T);
+    const opts = await q.locator('#export-width-mm').evaluate(s => [...s.options].map(o => o.text));
+    const o89 = opts.find(o => /^89 mm/.test(o)), o183 = opts.find(o => /^183 mm/.test(o));
+    await q.locator('#export-width-mm').focus();
+    await q.locator('#export-width-mm').selectOption({ label: o89 });
+    await q.waitForTimeout(700);
+    const t = await L.toasts(T);
+    expect(/^Printed width 183 → 89 mm: text keeps its point size, so it is [\d.]+× larger against the pictures now/.test(t), 'toast: ' + t);
+    const R = await report(T);
+    await closeReport(T);
+    await L.openSection(T, 'Export');
+    await q.locator('#export-width-mm').focus();
+    await q.locator('#export-width-mm').selectOption({ label: o183 });
+    await q.waitForTimeout(600);
+    const back = await q.locator('#export-width-mm').inputValue();
+    expect(back === '183', back);
+    return `${o89}: ${t} | ${R.title} | back to ${back} mm`;
   });
 
   // ux2 (was ISSUES.md): the placed key went into the top-left corner over panel letter A,
@@ -643,6 +787,36 @@ async function card(T, i, { open = false } = {}) {
     await q.locator('#canvas-wrap').click({ position: { x: 20, y: 20 } }); await q.keyboard.press('Escape');   // deselect
     await btn(T, '⟳ Render').click(); await q.waitForTimeout(600);
     await L.shot(T, 'journal-figure', q.locator('#canvas-container'), { doc: true });
+  });
+
+  // ux3 (charts2-14 / newcomer3-07): a picture that looks like a micrograph, with no calibration
+  // and no bar, is asked about; a picture with no lookup table is listed under Channel names.
+  await step(T, '9.1 An uncalibrated phase-contrast file: Scale-bar calibration ⚠ with Calibrate… and No scale needed; it is listed under Channel names (as BF) and renamed there', async () => {
+    const q = T.page;
+    const phase = I.fluorTiff(path.join(inp, 'HeLa_DMSO_phase.tif'), 'CellMask', { umPerPx: 0, seed: 21 });
+    await L.openSection(T, 'Images');
+    await L.pickFiles(T, q.getByText('Drop or click to add images'), [phase]);
+    await q.waitForFunction(() => images.filter(Boolean).length === 5, null, { timeout: 15000 });
+    await q.waitForTimeout(600);
+    await L.openSection(T, 'Export');
+    const names = await q.locator('.key-name-in').evaluateAll(a => a.map(i => i.getAttribute('aria-label') + '=' + i.value));
+    const kt = await q.locator('#key-text').inputValue();
+    let R = await report(T);
+    const sc = row(R, 'Scale-bar calibration');
+    expect(sc.icon === '⚠' && R.buttons.includes('Calibrate…') && R.buttons.includes('No scale needed'), sc.icon + ' ' + sc.note + ' | ' + R.buttons.join('|'));
+    await q.locator('#info-modal-bg button', { hasText: 'No scale needed' }).click();
+    await q.waitForTimeout(500);
+    R = await readReport(T);
+    const sc2 = row(R, 'Scale-bar calibration');
+    await closeReport(T);
+    expect(sc2.icon !== '⚠' && sc2.icon !== '✗', sc2.icon + ' ' + sc2.note);
+    // the greyscale picture is renamed in Channel names like a channel
+    await L.openSection(T, 'Export');
+    const bf = q.locator('.key-name-in[data-lut="grey"]').first();
+    await bf.fill('Phase contrast'); await bf.press('Tab'); await q.waitForTimeout(600);
+    const kt2 = await q.locator('#key-text').inputValue();
+    expect(/Phase contrast \(greyscale\)/.test(kt2), kt2);
+    return `${sc.icon} ${sc.note.slice(0, 220)} → No scale needed → ${sc2.icon} ${sc2.note.slice(0, 100)} | Channel names: ${names.join(', ')} | key text: ${kt} → ${kt2}`;
   });
 
   await L.finish(T);

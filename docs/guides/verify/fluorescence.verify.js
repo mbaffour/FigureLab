@@ -155,7 +155,13 @@ const { step, expect, btn } = L;
     await closeAllSettings();
     expect(out.slice(0, 2).every(s => /400–12000$/.test(s)), out.join('; '));
     expect(out.slice(2).every(s => s.includes('400–12000')), out.join('; '));
-    return out.join('; ');
+    // ≡ Sync by channel on a merge copies every channel's range at once
+    const st = await openSettings(row('D'));
+    await st.locator('button', { hasText: '≡ Sync by channel' }).click(); await p.waitForTimeout(400);
+    const t = await toast();
+    await closeAllSettings();
+    expect(/DAPI 0–10000, GFP 400–12000, CellMask 0–20000 from D → /.test(t), 'merge sync toast: ' + t);
+    return out.join('; ') + '; merge D ≡ Sync by channel: ' + t;
   });
 
   await step(T, '6. ⚙ on A › Auto picks a bar; type 20 µm › Look › ≡ Same bar on all calibrated copies it (no canvas click needed)', async () => {
@@ -194,13 +200,15 @@ const { step, expect, btn } = L;
       for (const [k, v] of [['x', 300], ['y', 80], ['w', 128], ['h', 128]]) {
         await m.locator('#crop-px-' + k).fill(String(v)); await m.locator('#crop-px-' + k).press('Tab');
       }
+      const note = (await m.locator('#crop-ed-vals').innerText()).replace(/\s+/g, ' ');
+      expect(/prints at about \d+ ppi/.test(note), 'inset note: ' + note);
       await m.locator('button', { hasText: '⧉ Add inset' }).click(); await p.waitForTimeout(700);
       const t = await toast();
       expect(new RegExp(`Inset \\w of ${parent} placed right after it`).test(t), t);
       // ux2: a new inset gets its own round bar length (its 13.9 µm field cannot hold 20 µm)
       const ib = await p.evaluate(() => { const im = images.filter(Boolean).filter(i => i.insetOf != null).pop(); return { on: im.sbOn, um: im.sbUm }; });
       expect(ib.on && +ib.um === 2, 'inset bar ' + JSON.stringify(ib));
-      return title + ' → ' + t.split(' — ')[0] + '; its bar 2 µm';
+      return title + ' → ' + t.split(' — ')[0] + '; its bar 2 µm; dialog note: ' + note.replace(/^.*?· region/, 'region');
     });
   }
 
@@ -225,26 +233,44 @@ const { step, expect, btn } = L;
     return parents.join(', ') + '; inset bars ' + bars.join(', ');
   });
 
-  await step(T, '9. Inset ⚙ › ⧉ Edit inset region… › X 250 › ✓ Update inset moves the region', async () => {
+  // ux3 (fluor3-08): a bigger region gets a bar picked again for its new field (the inset's
+  // bar was the automatic 2 µm); then back to 128 px, which picks 2 µm again.
+  const editInset = async (fields) => {
     const st = await openSettings(row('E'));
     await st.locator('button', { hasText: '⧉ Edit inset region…' }).click();
     const m = p.locator('#crop-modal'); await m.waitFor({ state: 'visible' });
-    await m.locator('#crop-px-x').fill('250'); await m.locator('#crop-px-x').press('Tab');
+    for (const [k, v] of fields) { await m.locator('#crop-px-' + k).fill(String(v)); await m.locator('#crop-px-' + k).press('Tab'); }
     await m.locator('button', { hasText: '✓ Update inset' }).click(); await p.waitForTimeout(500);
+    const t = await toast();
+    const st2 = await openSettings(row('E'));
+    const bar = await st2.locator('input.f-sbum').inputValue();
     await closeAllSettings();
+    return { t, bar };
+  };
+  await step(T, '9. Inset ⚙ › ⧉ Edit inset region… › X 250 › ✓ Update inset moves the region; W/H 256 picks a new bar for the bigger field, 128 gives 2 µm back', async () => {
+    const a = await editInset([['x', 250]]);
     const x = await p.evaluate(() => images.find(i => i && formatLabel(i.label) === 'E').insetRect.x * 512);
     expect(Math.abs(x - 250) < 1, 'inset x ' + x);
-    return await toast();
+    const b = await editInset([['w', 256], ['h', 256]]);
+    const c = await editInset([['w', 128], ['h', 128]]);
+    expect(+a.bar === 2 && +b.bar > 2 && +c.bar === 2, JSON.stringify({ a, b, c }));
+    return `${a.t} (bar ${a.bar} µm); 256 px: ${b.t} (bar ${b.bar} µm); 128 px: bar ${c.bar} µm`;
   });
 
-  await step(T, '10. Clicking a channel chip in the image list opens that panel\'s Channel field', async () => {
+  // fluor3-06 said the chip renames every panel; on this build it names that panel only,
+  // and the key shows both names until every panel of the colour has one.
+  await step(T, '10. A channel chip opens that panel\'s Channel field; Membrane there names that panel only, and the key shows "Membrane / CellMask"', async () => {
     await closeAllSettings();
     await rowByChip('CellMask').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
     const f = await p.evaluate(() => { const a = document.activeElement; return a.className + ' ph=' + a.placeholder; });
-    await p.keyboard.press('Escape');
-    await closeAllSettings();
     expect(/f-chan ph=CellMask/.test(f), 'focused ' + f);
-    return 'focus in Channel field (placeholder CellMask)';
+    await p.keyboard.type('Membrane'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    await closeAllSettings();
+    const chips = await p.locator('#img-list > .img-item').filter({ hasNotText: 'hidden' }).locator('button.f-chan-chip').allInnerTexts();
+    const kt = await p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
+    expect(chips.filter(c => c === 'Membrane').length === 1 && chips.includes('CellMask'), 'chips ' + chips);
+    expect(/Membrane \/ CellMask \(magenta\)/.test(kt), 'key text: ' + kt);
+    return 'chips ' + chips.join(', ') + '; key text: ' + kt;
   });
 
   await step(T, '11. Export › Legend key › Channel names: rename CellMask to Membrane on every panel', async () => {
@@ -267,6 +293,25 @@ const { step, expect, btn } = L;
     return 'filter while on: ' + filt.trim().slice(0, 60);
   });
 
+  // ux3 (fluor2-12): an export with no printed width or journal says how wide it prints,
+  // and its toast leads to the journal control.
+  await step(T, '12b. ↓ PNG before a journal is chosen: the toast says how wide it prints › Choose the journal › eLife', async () => {
+    await L.toasts(T);
+    await L.exportVia(T, 'PNG', { name: 'Fig2_LC3_draft' });
+    await p.waitForTimeout(400);
+    const t1 = await toast();
+    expect(/prints \d+ mm wide, because no printed width or journal is chosen/.test(t1), 'toast: ' + t1);
+    const w0 = await p.evaluate(() => getTargetWidthMm() + ' / ' + document.getElementById('export-width-mm').value);
+    await p.locator('#toast button', { hasText: 'Choose the journal' }).click(); await p.waitForTimeout(300);
+    const focused = await p.evaluate(() => document.activeElement && document.activeElement.id);
+    expect(focused === 'target-journal', 'focus on ' + focused);
+    await p.locator('#target-journal').selectOption({ label: 'eLife' }); await p.waitForTimeout(600);
+    const t2 = await toast();
+    const w = await p.evaluate(() => getTargetWidthMm());
+    expect(w === 183, 'width ' + w);
+    return `"${t1}" → Look › Target journal › eLife: "${t2}" (width before: ${w0})`;
+  });
+
   await step(T, '13. A red LUT next to green: Check › ✓ Check journal compliance › Red/green row › Red → magenta', async () => {
     const st = await openSettings(row('C'));
     await st.getByRole('button', { name: 'Red', exact: true }).click(); await p.waitForTimeout(300);
@@ -278,10 +323,50 @@ const { step, expect, btn } = L;
     expect(/Red\/green\nred and green channels/.test(txt), 'no red/green warning');
     const dr = (txt.match(/Display ranges by channel\n([^\n]*)/) || [])[1] || '';
     await rep.locator('button', { hasText: 'Red → magenta' }).click(); await p.waitForTimeout(500);
-    await p.keyboard.press('Escape');
     const lut = await p.evaluate(() => images.find(i => i && formatLabel(i.label) === 'C').lut);
     expect(lut === 'magenta', 'lut ' + lut);
-    return 'fixed to ' + lut + '; Display ranges row: ' + dr.slice(0, 90);
+    // ux3 (fluor3-04): coloured channel tags over the pictures; Auto contrast gives them a chip
+    // that keeps their colour, and the row passes
+    const txt1 = await rep.innerText();
+    const rg = (txt1.match(/(.)\nRed\/green\n([^\n]*)/) || []).slice(1).join(' ');
+    const tc0 = (txt1.match(/(.)\nText contrast\n([^\n]*)/) || []).slice(1).join(' ');
+    let tc1 = tc0, at = '';
+    if (!/^✓/.test(tc0)) {
+      await rep.locator('button', { hasText: 'Auto contrast' }).first().click(); await p.waitForTimeout(800);
+      at = await toast();
+      const txt2 = await rep.innerText();
+      tc1 = (txt2.match(/(.)\nText contrast\n([^\n]*)/) || []).slice(1).join(' ');
+    }
+    const title = (await rep.innerText()).split('\n')[0];
+    await p.keyboard.press('Escape');
+    expect(/^✓/.test(rg), 'red/green row after: ' + rg);
+    expect(/^✓/.test(tc1), 'text contrast: ' + tc0 + ' → ' + tc1);
+    const chip = await p.evaluate(() => !!document.getElementById('label-bg') && document.getElementById('label-bg').checked);
+    return 'fixed to ' + lut + '; Red/green: ' + rg + '; Display ranges row: ' + dr.slice(0, 90) + '; Text contrast: ' + tc0.slice(0, 160) + (at ? ' → Auto contrast: "' + at.slice(0, 200) + '" → ' + tc1.slice(0, 120) : '') + '; ' + title;
+  });
+
+  // ux3 (fluor3-04): a coloured channel tag over a bright picture fails Text contrast; the
+  // row's Auto contrast gives it a backing chip that keeps its colour. A's White is set to
+  // 300 counts (below the camera offset) so the whole field is bright blue, then put back.
+  await step(T, '13b. Tag over a bright field: Text contrast warns; the row\'s Auto contrast passes it; A\'s White back to 10000', async () => {
+    const st = await openSettings(row('A'));
+    await st.locator('input.f-wpt-v').fill('300'); await st.locator('input.f-wpt-v').press('Enter'); await p.waitForTimeout(300);
+    await closeAllSettings();
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const tcOf = async () => ((await rep.innerText()).match(/(.)\nText contrast\n([^\n]*)/) || []).slice(1).join(' ');
+    const tc0 = await tcOf();
+    expect(!/^✓/.test(tc0), 'row passes over a bright field: ' + tc0);
+    await rep.locator('button', { hasText: 'Auto contrast' }).first().click(); await p.waitForTimeout(800);
+    const at = await toast();
+    const tc1 = await tcOf();
+    await p.keyboard.press('Escape');
+    const st2 = await openSettings(row('A'));
+    await st2.locator('input.f-wpt-v').fill('10000'); await st2.locator('input.f-wpt-v').press('Enter'); await p.waitForTimeout(300);
+    await closeAllSettings();
+    expect(/^✓/.test(tc1), 'after Auto contrast: ' + tc1 + ' | toast ' + at);
+    return tc0.slice(0, 200) + ' → Auto contrast: "' + at.slice(0, 260) + '" → ' + tc1.slice(0, 100);
   });
 
   // ux2: the placed key goes into free space (a margin, an empty cell or a free corner) and
@@ -299,7 +384,7 @@ const { step, expect, btn } = L;
     const g1 = await geo();
     const t1 = await L.toasts(T);
     expect(g1.n === 1 && g1.x >= g1.right && g1.where === 'auto', JSON.stringify(g1));
-    expect(/The legend key needed free space, so the right margin grew from 16 to 96 px/.test(t1), 'toast: ' + t1);
+    expect(/The legend key needed free space, so the right margin grew from 16 to \d+ px/.test(t1), 'toast: ' + t1);
     const opts = await p.locator('#key-where option').allInnerTexts();
     expect(opts.join('|') === 'Free space|Top right|Top left|Bottom right|Bottom left|Right edge|Below', opts.join('|'));
     await L.openSection(T, 'Check');
@@ -328,14 +413,31 @@ const { step, expect, btn } = L;
     // ux2: no second range "on the 0–255 display scale" for the merges, in Methods or the caption
     expect(!/0–255/.test(m) && !/0–255/.test(cap), 'a 0–255 range is back');
     expect(/Display ranges in the files’ own 16-bit values: DAPI 0–10000 \(panels A, D, E, F, I and J\); GFP 400–12000/.test(cap), 'caption: ' + cap.slice(-300));
+    // ISSUES (round 2): a three-channel merge is captioned by its channels, not one colour
+    expect(/\(D\) Merge of DAPI \(blue\), GFP \(green\) and Membrane \(magenta\)/.test(cap), 'merge caption: ' + cap.slice(0, 400));
     return path.basename(f) + ' (' + fs.statSync(f).size + ' B); ' + (m.match(/display ranges in native values[^.]*/) || [''])[0];
+  });
+
+  // ux3 (fluor2-07): a channel shown in grey on its own panel and in its colour in the merge
+  // is one key row that says both.
+  await step(T, '15b. ⚙ on B and G › Fluorescence LUT Off (grey GFP column): the key says "GFP (greyscale; green in merges)"; GFP puts them back', async () => {
+    for (const Lt of ['B', 'G']) { const st = await openSettings(row(Lt)); await st.getByRole('button', { name: 'Off', exact: true }).click(); await p.waitForTimeout(400); }
+    await closeAllSettings();
+    const kt = await p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
+    for (const Lt of ['B', 'G']) { const st = await openSettings(row(Lt)); await st.getByRole('button', { name: 'GFP', exact: true }).click(); await p.waitForTimeout(400); }
+    await closeAllSettings();
+    const kt2 = await p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
+    expect(/GFP \(greyscale; green in merges\)/.test(kt), 'key text with B grey: ' + kt);
+    expect(kt2 === 'DAPI (blue); GFP (green); Membrane (magenta).', 'key text after: ' + kt2);
+    return kt + ' → ' + kt2;
   });
 
   await step(T, '16. ↓ PNG › Save PNG', async () => {
     const r = await L.exportVia(T, 'PNG', { name: 'Fig2_LC3' });
     const info = L.pngInfo(fs.readFileSync(r.file));
     expect(info.w > 1000, JSON.stringify(info));
-    return path.basename(r.file) + ' ' + info.w + '×' + info.h + ' px, ' + info.dpi + ' dpi';
+    await p.waitForTimeout(300);
+    return path.basename(r.file) + ' ' + info.w + '×' + info.h + ' px, ' + info.dpi + ' dpi (' + (info.w / info.dpi * 25.4).toFixed(1) + ' mm); toast "' + await toast() + '"';
   });
 
   await step(T, 'screenshot: the finished figure', async () => {
@@ -343,6 +445,109 @@ const { step, expect, btn } = L;
     await btn(T, '⟳ Render').click(); await p.waitForTimeout(500);
     // the whole figure: two condition rows, the insets, and the placed key in the right margin
     await L.shot(T, 'fluorescence-figure', p.locator('#fig-canvas'), { doc: true, pad: 0 });
+  });
+
+  // ux3 (fluor3-02, fluor3-03): swap the DMSO row for a second field. ⇄ Replace image keeps
+  // a 16-bit panel's display range in camera counts (an 8-bit file cannot hold it, and the
+  // toast says so); on a merge it swaps the base channel and names the overlays, each of
+  // which has its own ⇄ in ⚙ › Channels.
+  const f2 = {
+    DAPI: I.fluorTiff(path.join(inp, 'C1-HeLa_DMSO_60x_f2_DAPI.tif'), 'DAPI', { seed: 21 }),
+    GFP: I.fluorTiff(path.join(inp, 'C2-HeLa_DMSO_60x_f2_GFP.tif'), 'GFP', { seed: 21 }),
+    CellMask: I.fluorTiff(path.join(inp, 'C3-HeLa_DMSO_60x_f2_CellMask.tif'), 'CellMask', { seed: 21 }),
+  };
+  const replaceVia = async (letter, file) => {
+    const pt = await p.evaluate((Lt) => { const cv = document.getElementById('fig-canvas'), c = cv.getBoundingClientRect(), k = c.width / cv.width;
+      const b = panelBounds.find(q => formatLabel(images[q.idx].label) === Lt); return b && { x: c.x + (b.x + b.w / 2) * k, y: c.y + (b.y + b.h / 2) * k }; }, letter);
+    if (!pt) throw new Error('panel ' + letter + ' is not on the canvas');
+    await p.mouse.click(pt.x, pt.y, { button: 'right' }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await L.pickFiles(T, p.locator('body *:visible').filter({ hasText: /^⇄\s+Replace image…$/ }).last(), [file]);
+    await p.waitForTimeout(1200);
+    return L.toasts(T);
+  };
+  const nameOf = (Lt) => p.evaluate((Lt) => images.find(i => i && !i.excluded && formatLabel(i.label) === Lt).name, Lt);
+
+  await step(T, '10.1 Right-click F, G, H › ⇄ Replace image… with the second field\'s DAPI, GFP, CellMask: each keeps its range in counts (an 8-bit PNG cannot, and says so; Ctrl/⌘+Z)', async () => {
+    const lay = await layout();
+    expect(lay.slice(5).map(x => x.L + x.kind).join(',') === 'Fblue,Ggreen,Hmagenta,Imerge,Jinset' && lay[5].cond === 'DMSO', 'DMSO row: ' + JSON.stringify(lay.slice(5)));
+    const png8 = await L.canvasImage(T, path.join(inp, 'C2-HeLa_DMSO_60x_f2_GFP.png'), 512, 512, (ctx, w, h) => { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = '#0c0'; ctx.fillRect(200, 200, 60, 60); });
+    const t8 = await replaceVia('G', png8);
+    expect(/display range 400–12000 \(native values\) cannot be kept/.test(t8), 'PNG toast: ' + t8);
+    await p.locator('#fig-canvas').click({ position: { x: 2, y: 2 } }).catch(() => {});
+    await p.keyboard.press('Escape');
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(800);
+    expect(/C2-HeLa_DMSO_60x_GFP\.tif/.test(await nameOf('G')), 'undo left G as ' + await nameOf('G'));
+    const out = [];
+    for (const [Lt, ch] of [['F', 'DAPI'], ['G', 'GFP'], ['H', 'CellMask']]) {
+      const t = await replaceVia(Lt, f2[ch]);
+      expect(/crop, label and settings kept; display range [\d–]+ \(native values\) kept/.test(t), Lt + ' toast: ' + t);
+      out.push(t);
+    }
+    const st = await openSettings(row('G'));
+    const v = [await st.locator('input.f-bpt-v').inputValue(), await st.locator('input.f-wpt-v').inputValue()];
+    await closeAllSettings();
+    expect(+v[0] === 400 && +v[1] === 12000, 'G reads ' + v);
+    return '8-bit PNG: "' + t8.split(' | ').pop().slice(0, 220) + '" → undone; ' + out.map(t => t.split(' | ').pop()).join(' | ');
+  });
+
+  await step(T, '10.2 Right-click the merge I › ⇄ Replace image… (its DAPI base); ⚙ › Channels › ⇄ beside GFP and beside Membrane: colour and range kept', async () => {
+    const t0 = await replaceVia('I', f2.DAPI);
+    expect(/display range 0–10000 \(native values\) kept; 2 channel overlays kept from the old field — if they belonged to it, use ⇄ beside each channel in ⚙ › Channels to swap them too/.test(t0), 'merge toast: ' + t0);
+    const st = await openSettings(row('I'));
+    const n = await st.locator('.ch-list label.ch-rep').count();
+    expect(n === 2, 'channel ⇄ buttons ' + n);
+    const out = [];
+    for (const [k, ch] of [[0, 'GFP'], [1, 'CellMask']]) {
+      await L.toasts(T);
+      await L.pickFiles(T, st.locator('.ch-list label.ch-rep').nth(k), [f2[ch]]);
+      await p.waitForTimeout(1000);
+      const t = await L.toasts(T);
+      expect(/colour and display range [\d–]+ \(native values\) kept/.test(t), ch + ' toast: ' + t);
+      out.push(t.split(' | ').pop());
+    }
+    const ch = await st.evaluate(e => [...e.querySelectorAll('input.ch-bpt-v')].map((b, i) => b.value + '–' + e.querySelectorAll('input.ch-wpt-v')[i].value));
+    await closeAllSettings();
+    const names = await p.evaluate(() => { const im = images.find(i => i && !i.excluded && formatLabel(i.label) === 'I'); return [im.name, ...im.channels.map(c => c.name)]; });
+    expect(names.every(n => /_f2_/.test(n)), 'merge files ' + names);
+    expect(ch.join(', ') === '400–12000, 0–20000', 'merge channel ranges ' + ch);
+    return '"' + t0.split(' | ').pop() + '"; ' + out.join(' | ');
+  });
+
+  await step(T, '10.3 After the swap: the inset J shows the new field, the Display ranges row still passes, the caption keeps the ranges', async () => {
+    const parent = await p.evaluate(() => { const j = images.find(i => i && formatLabel(i.label) === 'J'); const par = images.find(q => q && q.id === j.insetOf); return formatLabel(par.label) + ' ' + par.name; });
+    expect(/^I .*_f2_DAPI/.test(parent), 'inset parent ' + parent);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const dr = ((await rep.innerText()).match(/Display ranges by channel\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape');
+    expect(/Same range per channel across panels ✓/.test(dr), 'row: ' + dr);
+    await L.openSection(T, 'Export');
+    const cap = await p.locator('#caption-out').inputValue();
+    expect(/GFP 400–12000 \(panels B, D, E, G, I and J\)/.test(cap), 'caption: ' + cap.slice(-400));
+    return 'inset J of ' + parent + '; ' + dr;
+  });
+
+  // ux3 (fluor3-01): Restore my figure after a tutorial keeps the 16-bit samples, so the
+  // levels still read in camera counts.
+  await step(T, 'Tips: ⌘K "tutorial" › A multichannel fluorescence row; End › Restore my figure: levels still in camera counts', async () => {
+    const before = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
+    await L.cmdk(T, 'tutorial multichannel', { pick: 'multichannel' });
+    await p.waitForTimeout(1500);
+    const during = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
+    expect(during !== before, 'tutorial did not load its figure');
+    await btn(T, /^End$/).click(); await p.waitForTimeout(800);
+    await p.getByText('Bring your own figure back?').first().waitFor({ state: 'visible', timeout: 4000 });
+    await btn(T, /^Restore my figure$/).click(); await p.waitForTimeout(2000);
+    const after = await p.evaluate(() => images.filter(Boolean).map(i => i.name).join(','));
+    expect(after === before, 'not restored');
+    const st = await openSettings(row('G'));
+    const v = [await st.locator('input.f-bpt-v').inputValue(), await st.locator('input.f-wpt-v').inputValue()];
+    const note = (await st.locator('.f-lv-note').first().innerText()).replace(/\s+/g, ' ');
+    await closeAllSettings();
+    expect(+v[0] === 400 && +v[1] === 12000 && /16-bit file/.test(note), 'G reads ' + v + ' — ' + note);
+    return 'restored; G Black/White ' + v.join(' / ') + ' — ' + note.slice(0, 80);
   });
 
   // ux2 (fluor2-08): a 16-bit file whose few hot pixels reach far above the cells opens

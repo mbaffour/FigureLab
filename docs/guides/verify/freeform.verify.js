@@ -309,6 +309,9 @@ const { step, expect, btn } = L;
     await p.keyboard.type('Δ*ompC* H_{2}O'); await p.keyboard.press('Enter'); await p.waitForTimeout(250);
     const a = await anns();
     expect(a.some(x => x.type === 'arrow') && a.some(x => x.type === 'text' && x.text === 'Δ*ompC* H_{2}O'), JSON.stringify(a));
+    // ux3: until a Color is picked by hand, a freeform mark is dark or white by what is under
+    // the point where it starts; these start on two dark pictures, so they are white
+    expect(a.every(x => x.color === '#ffffff'), 'colours ' + JSON.stringify(a));
     return a.map(x => x.type + (x.text ? ` "${x.text}" ${x.color}` : ' ' + x.color)).join('; ');
   });
 
@@ -447,6 +450,142 @@ const { step, expect, btn } = L;
     return `arrow tail ${x0.toFixed(1)} → ${x1.toFixed(1)}`;
   });
 
+
+  // =============================================================== Part 1b: caption, replace, width, keep
+  // A square stand-in for a re-imaged field (the 4:3 phase photo B is replaced by it).
+  const rerun = await L.canvasImage(T, path.join(inp, 'phase_rods_rerun.png'), 600, 600, (ctx, w, h, rnd) => {
+    ctx.fillStyle = '#7d7d7d'; ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 50; i++) { ctx.save(); ctx.translate(rnd() * w, rnd() * h); ctx.rotate(rnd() * Math.PI);
+      ctx.fillStyle = '#d9d9d9'; ctx.beginPath(); ctx.ellipse(0, 0, 22, 7, 0, 0, 2 * Math.PI); ctx.fill(); ctx.restore(); }
+  }, { seed: 77 });
+  const NOTE = 'Phase contrast of strain MG1655';
+
+  await step(T, 'C1 Props › Caption note on B; Export › ✦ Generate Caption writes a lettered caption, (A)–(F), with the note under B', async () => {
+    await pickRow('phase_rods.png');
+    await p.locator('#ep-capnote').fill(NOTE); await p.locator('#ep-capnote').press('Tab');
+    await beside();
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(500);
+    const cap = await p.locator('#caption-out').inputValue();
+    expect(/^\(A\)/.test(cap) && cap.includes('(B) ' + NOTE) && /\(E\) Line chart/.test(cap) && /\(F\)/.test(cap), cap);
+    return cap.slice(0, 260) + '…';
+  });
+
+  await step(T, 'R1 Right-click picture B › ⇄ Replace image… with a square file: place, width, letter and caption note kept; the height follows the new shape', async () => {
+    await beside(); await btn(T, '↖ Select').click().catch(() => {});
+    const b0 = await byName(/phase_rods/);
+    await L.toasts(T);
+    await p.mouse.click(...await at(...centreOf(b0)), { button: 'right' }); await p.waitForTimeout(250);
+    const items = (await p.locator('#panel-ctx-menu > div').allInnerTexts()).map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    await L.pickFiles(T, p.locator('#panel-ctx-menu > div', { hasText: 'Replace image' }), [rerun]);
+    await p.waitForFunction(() => freeformElements.some(e => e.name === 'phase_rods_rerun.png'), null, { timeout: 10000 });
+    await p.waitForTimeout(400);
+    const b1 = await byName(/phase_rods_rerun/);
+    const note = await p.evaluate(() => freeformElements.find(e => e.name === 'phase_rods_rerun.png').captionNote);
+    const t = await L.toasts(T);
+    expect(items.some(i => /Replace image/.test(i)) && b1.x === b0.x && b1.y === b0.y && b1.w === b0.w && near(b1.h, b1.w, 0.6) && b1.label === 'B' && note === NOTE,
+      JSON.stringify({ items, b0, b1, note, t }));
+    expect(/Picture B: phase_rods\.png → phase_rods_rerun\.png/.test(t) && /box height 300 → 400 px/.test(t), 'toast: ' + t);
+    return `menu: ${items.join(' / ')}; B ${b0.w}×${b0.h} → ${b1.w}×${b1.h} at ${b1.x}, ${b1.y}; toast "${t}"`;
+  });
+
+  await step(T, 'R2 📦 Export submission package (ZIP) of the freeform figure: lettered caption, PANEL_HISTORY names the new file, metadata.csv, panels/ by letter', async () => {
+    await L.openSection(T, 'Export');
+    const f = await L.download(T, () => btn(T, '📦 Export submission package (ZIP)').click(), /submission-package\.zip$/, 90000);
+    await p.keyboard.press('Escape').catch(() => {});
+    const list = L.zipList(f);
+    const read = re => { const n = list.find(x => re.test(x)); return n ? L.zipRead(f, n).toString('utf8') : ''; };
+    const hist = read(/PANEL_HISTORY\.txt$/), cap = read(/-caption\.txt$/), meta = read(/metadata\.csv$/);
+    const panels = list.filter(n => n.startsWith('panels/'));
+    expect(/── B ── \(source: phase_rods_rerun\.png\)/.test(hist) && cap.includes('(B) ' + NOTE) && meta.trim().split('\n').length >= 7 &&
+      panels.length === 6 && /panel_\d+_A\.png/.test(panels.join()) && /panel_\d+_F\.png/.test(panels.join()), JSON.stringify({ panels, hist: hist.slice(0, 300), meta: meta.slice(0, 200) }));
+    return `${list.length} files; panels/: ${panels.join(', ')}; PANEL_HISTORY "${(hist.match(/── B ──[^\n]*/) || [''])[0]}"`;
+  });
+
+  await step(T, 'R3 One Ctrl/⌘+Z puts the old picture back in B, at its old shape', async () => {
+    await beside();
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(500);
+    const b = await byName(/phase_rods/);
+    expect(b.name === 'phase_rods.png' && b.w === 400 && b.h === 300 && b.label === 'B', JSON.stringify(b));
+    return `B ${b.name} ${b.w}×${b.h}`;
+  });
+
+  await step(T, 'W1 Export › Printed width 183 → 89 mm: the toast says how much larger the text now is against the pictures; back to 183 mm', async () => {
+    await L.openSection(T, 'Export');
+    const sel = p.locator('#export-width-mm');
+    await L.toasts(T);
+    await sel.click().catch(() => {}); await sel.selectOption('89'); await p.waitForTimeout(600);
+    const t = await L.toasts(T);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const row = ((await rep.innerText()).match(/Text size\n([^\n]*)/) || [])[1] || '';
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    await L.openSection(T, 'Export');
+    await sel.click().catch(() => {}); await sel.selectOption('183'); await p.waitForTimeout(500);
+    const back = await L.toasts(T);
+    expect(/Printed width 183 → 89 mm: text keeps its point size, so it is 2\.06× larger against the pictures now/.test(t) && !/Printed width 89 →/.test(back) &&
+      (await sel.inputValue()) === '183', JSON.stringify({ t, back }));
+    return `toast "${t}"; at 89 mm Text size: "${row.slice(0, 160)}"`;
+  });
+
+  let sessionFile;
+  await step(T, 'K1 Ctrl/⌘+S saves the freeform figure as a session file with its pictures inside', async () => {
+    await beside(); await L.toasts(T);
+    sessionFile = await L.download(T, () => p.keyboard.press('ControlOrMeta+s'), /\.json$/, 60000);
+    const s = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+    const ff = s.freeformElements || (s.layout && s.layout.freeformElements) || [];
+    const t = await L.toasts(T);
+    expect(fs.statSync(sessionFile).size > 100000 && /Session saved/.test(t), JSON.stringify({ size: fs.statSync(sessionFile).size, t, keys: Object.keys(s) }));
+    return `${path.basename(sessionFile)}, ${(fs.statSync(sessionFile).size / 1e6).toFixed(1)} MB; toast "${t}"`;
+  });
+
+  // The library asks for a name with the browser's own prompt: answer it as a user would.
+  const answerPrompt = async (text, action) => {
+    const ls = p.listeners('dialog'); p.removeAllListeners('dialog');
+    p.once('dialog', d => d.accept(text));
+    try { await action(); await p.waitForTimeout(600); } finally { for (const l of ls) p.on('dialog', l); }
+  };
+  await step(T, 'K2 Export › Session library › ＋ Save current to library "Fig2 v1"; move B; save "Fig2 v2"; Open on v1 brings B back; Ctrl/⌘+Z returns to v2', async () => {
+    await L.openSection(T, 'Export');
+    const lib = p.locator('#session-library');
+    await answerPrompt('Fig2 v1', () => btn(T, '＋ Save current to library').click());
+    await lib.locator('.sess-row', { hasText: 'Fig2 v1' }).waitFor({ timeout: 5000 });
+    const t1 = await L.toasts(T);
+    await pickRow('phase_rods.png'); await typeGeo({ y: 60 }); await beside();
+    await L.openSection(T, 'Export');
+    await answerPrompt('Fig2 v2', () => btn(T, '＋ Save current to library').click());
+    await lib.locator('.sess-row', { hasText: 'Fig2 v2' }).waitFor({ timeout: 5000 });
+    await lib.locator('.sess-row', { hasText: 'Fig2 v1' }).locator('button', { hasText: 'Open' }).click(); await p.waitForTimeout(800);
+    const t2 = await L.toasts(T);
+    const y1 = (await byName(/phase_rods/)).y;
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(600);
+    const y2 = (await byName(/phase_rods/)).y;
+    // leave the figure at v1 for the steps after
+    await L.openSection(T, 'Export');
+    await lib.locator('.sess-row', { hasText: 'Fig2 v1' }).locator('button', { hasText: 'Open' }).click(); await p.waitForTimeout(800);
+    const y3 = (await byName(/phase_rods/)).y;
+    const rows = (await lib.locator('.sess-row').allInnerTexts()).map(r => r.split('\n')[0]);
+    expect(y1 === 20 && y2 === 60 && y3 === 20 && /Saved "Fig2 v1" to your sessions/.test(t1) && /Opened "Fig2 v1"/.test(t2), JSON.stringify({ y1, y2, y3, t1, t2, rows }));
+    return `library: ${rows.join(', ')}; toasts "${t1}", "${t2}"; B at Y ${y1} after Open v1, ${y2} after Ctrl+Z`;
+  });
+
+  await step(T, 'K3 ✕ New, then Export › 📂 Load the Ctrl/⌘+S file: every object comes back in place with its letter and caption note', async () => {
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    const n0 = (await els()).length;
+    await L.openSection(T, 'Export');
+    await L.pickFiles(T, p.locator('label:has(#session-load-input)'), [sessionFile]);
+    await p.waitForFunction(() => freeformElements.length === 6, null, { timeout: 15000 });
+    await p.waitForTimeout(500);
+    const e = await els();
+    const b = e.find(x => /phase_rods/.test(x.name));
+    const note = await p.evaluate(() => (freeformElements.find(e => /phase_rods/.test(e.name || '')) || {}).captionNote);
+    const mode = await p.locator('#layout-mode').inputValue();
+    expect(n0 === 0 && mode === 'freeform' && b.x === 538 && b.y === 20 && b.label === 'B' && note === NOTE &&
+      e.filter(x => x.type === 'image').map(x => x.label).sort().join('') === 'ABCD' && e.some(x => x.type === 'chart') && e.some(x => x.type === 'genemap'), JSON.stringify({ n0, mode, e, note }));
+    return `${n0} → ${e.length} objects (pictures ${e.filter(x => x.type === 'image').map(x => x.label).sort().join('')}, a chart, a gene map); B at ${b.x}, ${b.y}; ${(await L.toasts(T)).split(' | ').pop()}`;
+  });
+
   // =============================================================== Part 2: Pop out from a grid
   await step(T, '6.1 ✕ New → Confirm; a 2 × 2 grid; panel C ⚙ › Circle clip; panel A ⚙ › Intensity bar', async () => {
     await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
@@ -514,7 +653,9 @@ const { step, expect, btn } = L;
     return 'icons arrived with no letter; Elements list: ' + rows.map(r => r.replace(/\s*×\s*$/, '')).join(', ');
   });
 
-  await step(T, '7.3 Phage icon H 220, X 80; bacterium W 220, X 1028; plate W 300 + Clip ◯; Ctrl+A → ↕ → ←→ → Y 116', async () => {
+  // Round 3 (freeform3-09): Y 116 centres the row on the whole canvas, which leaves it high
+  // under an 80 px title band; the row's box is 300 px tall (the plate), so Y 156 centres it in the 451 px below the band (80–531).
+  await step(T, '7.3 Phage icon H 220, X 80; bacterium W 220, X 1028; plate W 300 + Clip ◯; Ctrl+A → ↕ → ←→ → Y 156 (centred under the title band)', async () => {
     // The Elements list is newest first: the phage was inserted first, so it is the last row.
     const rows = p.locator('.tpl-saved');
     const n = await rows.count(); const names = []; for (let i = 0; i < n; i++) names.push(await rows.nth(i).innerText());
@@ -524,10 +665,10 @@ const { step, expect, btn } = L;
     await beside(); await p.keyboard.press('ControlOrMeta+a');
     await barBtn('↕').click(); await barBtn('←→').click();
     const distributed = (await L.toasts(T)).split(' | ').pop();
-    await typeGeo({ y: 116 });
+    await typeGeo({ y: 156 });
     const e = (await els()).sort((a, b) => a.x - b.x);
     const cy = e.map(x => x.y + x.h / 2), gaps = [e[1].x - (e[0].x + e[0].w), e[2].x - (e[1].x + e[1].w)];
-    expect(cy.every(v => near(v, 266, 0.6)) && near(gaps[0], gaps[1], 0.1), JSON.stringify({ cy, gaps, names }));
+    expect(cy.every(v => near(v, 306, 0.6)) && near(gaps[0], gaps[1], 0.1), JSON.stringify({ cy, gaps, names }));
     return `centres at y ${cy.map(v => v.toFixed(1)).join(', ')}; gaps ${gaps.map(g => g.toFixed(2)).join(' and ')} px; toast "${distributed}"`;
   });
 
@@ -544,6 +685,7 @@ const { step, expect, btn } = L;
     await beside();
     await btn(T, '⬜ TextBox').click();
     await drag([300, 20], [900, 80]);
+    const made = (await anns()).find(x => x.type === 'textbox');
     await btn(T, '↖ Select').click();
     await beside(); await clickAt(600, 50);
     await typeGeo({ x: 80, y: 16, w: 1168, h: 64 });
@@ -557,22 +699,23 @@ const { step, expect, btn } = L;
     await p.locator('#ann-float-fill').uncheck(); await p.waitForTimeout(200);
     const tb = (await anns()).find(x => x.type === 'textbox');
     expect(tb && tb.fontSize === 32 && tb.fill === false && /\*E\. coli\*/.test(tb.text), JSON.stringify(tb));
+    expect(made && made.color === '#ffffff' && made.fillColor === '#000000', 'new TextBox ' + JSON.stringify(made));   // ux3 (freeform3-03)
     // what is drawn: a corner of the box, away from the text, is the white canvas
     await beside(); await btn(T, '⟳ Render').click(); await p.waitForTimeout(400);
     const px = await p.evaluate(() => { const c = document.getElementById('fig-canvas'), W = +document.getElementById('fm-canvas-w').value, k = c.width / W;
       return [[84, 20], [1244, 76]].map(([x, y]) => [...c.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data].slice(0, 3)); });
     expect(px.every(v => v.every(c => c > 245)), 'box corners drawn ' + JSON.stringify(px));
-    return `new TextBox: Fill ${fill0.ticked ? 'ticked' : 'unticked'} (${fill0.colour}); unticked: box corners ${JSON.stringify(px)}`;
+    return `new TextBox: text ${made.color} on Fill ${fill0.ticked ? 'ticked' : 'unticked'} (${fill0.colour}); unticked: box corners ${JSON.stringify(px)}`;
   });
 
   await step(T, '7.5 Annotate & Draw › Fnt 26, then two ↗ Arrows and two T Text labels (dark on the white canvas by default)', async () => {
     await beside();
     await p.locator('#ann-font').fill('26'); await p.locator('#ann-font').press('Tab');
     await btn(T, '↗ Arrow').click();
-    await drag([260, 266], [455, 266]); await drag([805, 266], [1005, 266]);
+    await drag([260, 306], [455, 306]); await drag([805, 306], [1005, 306]);
     await btn(T, 'T Text').click();
     for (const [x, t] of [[305, 'infects'], [845, 'Δ*ompC* resists']]) {
-      await clickAt(x, 225); await p.locator('#ann-text-input').waitFor({ state: 'visible', timeout: 5000 });
+      await clickAt(x, 265); await p.locator('#ann-text-input').waitFor({ state: 'visible', timeout: 5000 });
       await p.keyboard.type(t); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
     }
     await btn(T, '↖ Select').click(); await beside();
