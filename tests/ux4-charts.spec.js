@@ -376,8 +376,9 @@ test('charts4-05: stacked brackets that squeeze a small dot plot to a sliver are
   await drop(page, ['cfu_cipro_24h.csv']);
   await modal(page).locator('#chart-kind').selectOption('beeswarm');
   await apply(page);
-  const before = await page.evaluate(() => { sv('panel-h', '150'); sv('panel-w', '150'); onLayoutChange(); render(); checkCompliance(); return __rows().some(r => r.label === 'Chart room'); });
-  expect(before).toBe(false);
+  const before = await page.evaluate(() => { sv('panel-h', '150'); sv('panel-w', '150'); onLayoutChange(); render(); checkCompliance(); const r = __rows().find(r => r.label === 'Chart room'); return r ? r.text : ''; });
+  console.log('[charts4-05 before]', JSON.stringify(before));
+  expect(before).not.toMatch(/under its brackets/);   // without brackets the plot is not squeezed by them (a cut legend name may still be listed on another platform's fonts)
   await page.evaluate(() => { const el = images.find(p => p && p.type === 'chart');
     el.chart.annos = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]].map(([a, b]) => ({ kind: 'sig', a, b, text: 'p < 0.01' }));
     el._chartKey = ''; render(); });
