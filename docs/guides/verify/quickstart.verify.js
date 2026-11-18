@@ -243,5 +243,45 @@ const { step, expect, btn } = L;
     return JSON.stringify(T._lf);
   });
 
+  // round 5 (newcomer5-03): a CSV picked with the pictures becomes a chart panel; replicate
+  // columns are averaged and said so, and a file name ending in its unit gives the Y title.
+  await step(T, '1d. (fresh page) Four pictures and swim_diameters_mm.csv (Strain, Rep 1–3) in one pick: a chart panel, the toast says "the mean of Rep 1, Rep 2, Rep 3", and a double-click shows the Y title "swim diameters (mm)"', async () => {
+    const csv = path.join(inp, 'swim_diameters_mm.csv');
+    fs.writeFileSync(csv, '\ufeffStrain,Rep 1,Rep 2,Rep 3\r\nWT,40.5,44.2,40.3\r\nfliC,6.1,5.5,6.4\r\nmotA,31.0,35.3,32.2\r\n,,,\r\n');
+    const pics = [];
+    for (let i = 0; i < 4; i++) pics.push(await L.canvasImage(T, path.join(inp, `IMG_77${i}.png`), 400, 300, (ctx, w, h, rnd) => {
+      ctx.fillStyle = '#222'; ctx.fillRect(0, 0, w, h); for (let k = 0; k < 60; k++) { ctx.fillStyle = `hsl(${rnd() * 360},60%,60%)`; ctx.fillRect(rnd() * w, rnd() * h, 12, 12); } }, { seed: 70 + i }));
+    const q = await T.context.newPage();
+    q.setDefaultTimeout(90000);
+    q.on('pageerror', e => T.errors.push('pageerror (CSV page): ' + e.message));
+    const keep = { page: T.page, seen: T._toastSeen };
+    T.page = q; T._toastSeen = 0;
+    try {
+      await q.goto(L.APP_URL);
+      await q.waitForFunction(() => typeof render === 'function');
+      await q.evaluate(() => { window.__toasts = []; const el = document.getElementById('toast');
+        new MutationObserver(() => { const t = el.textContent.trim(); if (t) window.__toasts.push(t); }).observe(el, { childList: true, characterData: true, subtree: true }); });
+      await q.getByRole('button', { name: /Dismiss/ }).click({ timeout: 1500 }).catch(() => {});
+      await L.pickFiles(T, q.getByText('Drop or click to add images'), [...pics, csv]);
+      await q.waitForFunction(() => images.filter(Boolean).length === 5 && images.some(p => p && p.type === 'chart'), null, { timeout: 20000 });
+      await q.waitForTimeout(1000);
+      const t = await L.toasts(T);
+      const grid = await q.evaluate(() => [document.getElementById('cols').value, document.getElementById('rows').value].join(' × '));
+      expect(/bar chart of the mean of Rep 1, Rep 2, Rep 3 by Strain/.test(t), 'toast: ' + t);
+      await q.keyboard.press('Escape');
+      await q.locator('#canvas-wrap').click({ position: { x: 5, y: 5 } }).catch(() => {});
+      await q.evaluate(() => render());
+      const ci = await q.evaluate(() => images.findIndex(p => p && p.type === 'chart'));
+      const cr = await q.locator('#fig-canvas').boundingBox();
+      const b = await q.evaluate(i => panelBounds.find(x => (x.idx ?? x.i) === i), ci);
+      await q.mouse.dblclick(cr.x + b.x + b.w / 2, cr.y + b.y + b.h / 2);
+      await q.locator('#chart-ytitle').waitFor({ state: 'visible', timeout: 15000 });
+      const yt = await q.locator('#chart-ytitle').inputValue();
+      await q.keyboard.press('Escape');
+      expect(yt === 'swim diameters (mm)', 'Y title "' + yt + '"');
+      return `grid ${grid}; Y title "${yt}"; toast: ${t.slice(0, 300)}`;
+    } finally { T.page = keep.page; T._toastSeen = keep.seen; await q.close().catch(() => {}); }
+  });
+
   await L.finish(T);
 })();

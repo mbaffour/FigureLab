@@ -30,6 +30,12 @@ async function readReport(T) {
   }));
 }
 const row = (R, label) => R.rows.find(r => r.label === label) || { icon: '', note: '(no row)' };
+// The figure's size, margins and the placed key's place, as drawn (run in the page).
+function figState() {
+  const k = (typeof annotations !== 'undefined' ? annotations : []).find(x => x && x.type === 'legend');
+  return { m: ['m-top', 'm-right', 'm-btm', 'm-left'].map(id => +document.getElementById(id).value), W: canvasLogicalW, H: canvasLogicalH,
+    key: k ? `${k.where || 'free'} ${(+k.xf).toFixed(3)},${(+k.yf).toFixed(3)}` : 'none' };
+}
 async function closeReport(T) { await T.page.keyboard.press('Escape'); await T.page.waitForTimeout(250); }
 
 // A panel's card in the image list (0-based), opening its ⚙ settings if asked.
@@ -308,6 +314,9 @@ async function card(T, i, { open = false } = {}) {
     expect(+mb > 16, 'bottom margin ' + mb);
     const where = await p.locator('#key-where').evaluate(s => [...s.options].map(o => o.text));
     expect(where.join('|') === 'Free space|Top right|Top left|Bottom right|Bottom left|Right edge|Below', where.join('|'));
+    // round 5: the place menu has a visible "Where" label
+    const whereLbl = await p.locator('label[for="key-where"]').innerText().catch(() => '');
+    expect(whereLbl.trim() === 'Where' && await p.locator('label[for="key-where"]').isVisible(), 'Where label: "' + whereLbl + '"');
     let R = await report(T);
     const kr = row(R, 'Legend key on the figure');
     await closeReport(T);
@@ -322,7 +331,7 @@ async function card(T, i, { open = false } = {}) {
     await p.waitForTimeout(300);
     const clip = await p.evaluate(() => navigator.clipboard.readText());
     expect(clip === kt, 'clipboard: ' + clip);
-    return `${kt} (copied) | ⌘K top hit: ${kh[0]} | placed: ${placed || '(no toast)'} | bottom margin 16 → ${mb} px | Channel names: ${names.join(', ')} | row: ${kr.note.slice(0, 70)}`;
+    return `${kt} (copied) | ⌘K top hit: ${kh[0]} | placed: ${placed || '(no toast)'} | bottom margin 16 → ${mb} px | menu labelled "${whereLbl.trim()}" | Channel names: ${names.join(', ')} | row: ${kr.note.slice(0, 70)}`;
   });
 
   // ux2: a key dragged by hand stays where it is put; the check flags it if it covers
@@ -547,6 +556,7 @@ async function card(T, i, { open = false } = {}) {
   let session;
   await step(T, '7.1 Ctrl/⌘+S saves the session (images bundled)', async () => {
     await p.locator('#fig-canvas').click({ position: { x: 5, y: 5 } }).catch(() => {});
+    T._saved = await p.evaluate(figState);
     session = await L.download(T, () => p.keyboard.press('ControlOrMeta+s'), /session\.json$/);
     const kb = fs.statSync(session).size / 1024;
     return `${path.basename(session)} ${kb.toFixed(0)} KB — ${await L.toasts(T)}`;
@@ -575,12 +585,17 @@ async function card(T, i, { open = false } = {}) {
       name: document.getElementById('export-name').value, key: document.getElementById('key-text').value,
       notes: images.filter(Boolean).map(i => i.captionNote || '').filter(Boolean).length }));
     expect(st.labels === 'ABCD' && st.j === 'plos' && st.w === '173' && st.name === 'Fig2' && /GFP-LC3/.test(st.key) && st.notes === 2, JSON.stringify(st));
+    // round 5 (newcomer5-02): the figure reopens exactly as saved — margins, size and the key's place
+    await p2.waitForTimeout(600);
+    const again = await p2.evaluate(figState);
+    T._reopen = { saved: T._saved, again };
+    expect(JSON.stringify(again) === JSON.stringify(T._saved), 'reopened ' + JSON.stringify(again) + ' vs saved ' + JSON.stringify(T._saved));
     await T.page.close();
     T.page = p2;
     await p2.evaluate(() => { window.__toasts = []; const el = document.getElementById('toast');
       new MutationObserver(() => { const t = el.textContent.trim(); if (t) window.__toasts.push(t); }).observe(el, { childList: true, characterData: true, subtree: true }); });
     T._toastSeen = 0;
-    return JSON.stringify(st) + '; recovery bar first: "' + T._bar + '"';
+    return JSON.stringify(st) + '; as saved: ' + JSON.stringify(T._reopen.again) + '; recovery bar first: "' + T._bar + '"';
   });
 
   await step(T, '7.3 In the reopened session, edit the Methods paragraph and the alt text (add a sentence to each)', async () => {
@@ -700,6 +715,7 @@ async function card(T, i, { open = false } = {}) {
   await step(T, '8.2c Right-click panel A › ✕ Remove panel: the toast says the letters now skip A and offers 🔤 Relabel A, B, C…; Ctrl/⌘+Z brings A back', async () => {
     const q = T.page;
     await L.toasts(T);
+    const m0 = await q.evaluate(figState);
     const cr = await q.locator('#fig-canvas').boundingBox();
     const b = await q.evaluate(() => panelBounds.find(x => (x.idx ?? x.i) === 0));
     await q.mouse.click(cr.x + b.x + b.w / 2, cr.y + b.y + b.h / 2, { button: 'right' });
@@ -712,12 +728,17 @@ async function card(T, i, { open = false } = {}) {
     const bt = await q.locator('#toast button').allInnerTexts();
     const n1 = await q.evaluate(() => images.filter(Boolean).filter(i => !i.excluded).length);
     expect(/The letters now skip A/.test(t) && bt.some(x => /Relabel A, B, C/.test(x)) && n1 === 3, t + ' | ' + bt.join('|') + ' | ' + n1);
+    await q.waitForTimeout(400);
+    const m1 = await q.evaluate(figState);
     await q.locator('#canvas-wrap').click({ position: { x: 5, y: 5 } }).catch(() => {});
     await q.keyboard.press('Escape');
     await q.keyboard.press('ControlOrMeta+z'); await q.waitForTimeout(600);
     const st = await q.evaluate(() => images.filter(Boolean).filter(i => !i.excluded).map(i => i.label).join(''));
     expect(st === 'ABCD', 'after undo: ' + st);
-    return `${t} [${bt.join('|')}] → Ctrl/⌘+Z: ${st}`;
+    const m2 = await q.evaluate(figState);
+    const mg = m => `T/R/B/L ${m.m.join('/')}`;
+    expect(m1.m[1] + m1.m[2] <= m0.m[1] + m0.m[2], 'the key took more room after the removal: ' + mg(m0) + ' → ' + mg(m1));
+    return `${t} [${bt.join('|')}] | margins ${mg(m0)} → after the removal ${mg(m1)} (key at ${m1.key}) → Ctrl/⌘+Z: ${st}, ${mg(m2)}`;
   });
 
   await step(T, '8.3 Change journal with ⌘K "Journal: eLife", re-check, re-export the package', async () => {
@@ -800,6 +821,30 @@ async function card(T, i, { open = false } = {}) {
     await L.shot(T, 'journal-figure', q.locator('#canvas-container'), { doc: true });
   });
 
+  // round 5 (newcomer5-01): at a single-column width a key at the right edge keeps its point
+  // size and takes a larger share of the figure; Where › Below gives that width back.
+  await step(T, '8.4b Printed width 183 → 89 mm with the key at the right edge: its margin takes a larger share of the width; Where › Below gives the right margin back', async () => {
+    const q = T.page;
+    await L.openSection(T, 'Export');
+    const a = await q.evaluate(figState);
+    const opts = await q.locator('#export-width-mm').evaluate(s => [...s.options].map(o => o.text));
+    await L.toasts(T);
+    await q.locator('#export-width-mm').focus();
+    await q.locator('#export-width-mm').selectOption({ label: opts.find(o => /^89 mm/.test(o)) });
+    await q.waitForTimeout(700);
+    const t1 = await L.toasts(T);
+    const b = await q.evaluate(figState);
+    await q.locator('#key-where').selectOption({ label: 'Below' });
+    await q.waitForTimeout(700);
+    const t2 = await L.toasts(T);
+    const c = await q.evaluate(figState);
+    const pc = s => (100 * s.m[1] / s.W).toFixed(0) + ' %';
+    T._narrow = { a, b, c };
+    expect(b.m[1] / b.W > a.m[1] / a.W, `right margin ${a.m[1]}/${a.W} → ${b.m[1]}/${b.W}`);
+    expect(c.m[1] < b.m[1] && c.m[2] > 16 && /^(below|bottom)/.test(c.key), 'after Below: ' + JSON.stringify(c));
+    return `183 mm: right margin ${a.m[1]} of ${a.W} px (${pc(a)}) → 89 mm: ${b.m[1]} of ${b.W} px (${pc(b)}) — ${t1.slice(0, 260)} → Where › Below: right ${c.m[1]} px, bottom ${c.m[2]} px, figure ${c.W} × ${c.H} px — ${t2.slice(0, 260)}`;
+  });
+
   // ux3 (charts2-14 / newcomer3-07): a picture that looks like a micrograph, with no calibration
   // and no bar, is asked about; a picture with no lookup table is listed under Channel names.
   await step(T, '9.1 An uncalibrated phase-contrast file: Scale-bar calibration ⚠ with Calibrate… and No scale needed; it is listed under Channel names (as BF) and renamed there', async () => {
@@ -857,6 +902,171 @@ async function card(T, i, { open = false } = {}) {
     expect(!b.um && /calibration cleared: the new file is 400×400 px and the old one 512×512, so 0\.1083 µm\/px may be wrong — calibrate it again/.test(b.t), 'other size: ' + JSON.stringify(b));
     expect(Math.abs(back - um0) < 1e-9, 'Ctrl+Z did not bring the calibration back: ' + back);
     return `same size: ${a.um.toFixed(5)} µm/px kept, toast "${a.t.slice(0, 160)}"; 400 px: cleared, toast "${b.t.slice(0, 260)}"`;
+  });
+
+  // round 5 (phage5-01): a pixel size measured on the old picture is cleared by ⇄ Replace
+  // image, the toast and the compliance row say so, and the new picture's bar is one click away.
+  await step(T, '9.3 A TEM calibrated with 🔍 Auto-detect (400 px = 200 nm), then ⚙ › ⇄ Replace image… with a TEM at twice the magnification: calibration cleared, toast with 🔍 Calibrate on its bar…, Scale-bar calibration ✗ "calibration predates the replaced image"; Calibrate the new picture… → 100 nm fixes it', async () => {
+    const q = T.page;
+    const tem1 = I.temTiff(path.join(inp, 'phiGuide_TEM_2241.tif'), { seed: 11 });
+    const tem2 = I.temTiff(path.join(inp, 'phiGuide_TEM_2263_hiMag.tif'), { seed: 19, nmPerPx: 0.25, barPx: 400 });
+    await L.openSection(T, 'Images');
+    const n0 = await q.evaluate(() => images.filter(Boolean).length);
+    await L.pickFiles(T, q.getByText('Drop or click to add images'), [tem1]);
+    await q.waitForFunction(n => images.filter(Boolean).length === n + 1, n0, { timeout: 15000 });
+    const idx = await q.evaluate(() => images.findIndex(im => im && /phiGuide_TEM_2241/.test(im.name)));
+    const it = await card(T, idx, { open: true });
+    await it.locator('button', { hasText: '🔍 Auto-detect scale bar' }).click();
+    const det = q.locator('#sbdetect-modal');
+    await det.waitFor({ state: 'visible', timeout: 15000 });
+    await det.locator('.sbd-pick', { hasText: '200 nm' }).click();
+    await q.waitForTimeout(400);
+    const um0 = await q.evaluate(i => images[i].umPerPx, idx);
+    expect(Math.abs(um0 * 1000 - 0.5) < 0.01, 'nm/px ' + um0 * 1000);
+    await L.toasts(T);
+    const it2 = await card(T, idx, { open: true });
+    await L.pickFiles(T, it2.locator('button', { hasText: /Replace image/ }).first(), [tem2]);
+    await q.waitForFunction(i => /hiMag/.test(images[i].name), idx, { timeout: 15000 });
+    await q.waitForTimeout(600);
+    const tBtns = await q.locator('#toast button').allInnerTexts().catch(() => []);
+    const t = (await L.toasts(T)).split(' | ').find(x => / → /.test(x)) || '';
+    const um1 = await q.evaluate(i => images[i].umPerPx || 0, idx);
+    expect(!um1 && /crop and label kept, but calibration cleared: 0\.5 nm\/px was measured on the scale bar burned into the image \(400 px = 200 nm\) of the old file, which says nothing about the new one — the new picture has a 400 px bar/.test(t), 'toast: ' + t + ' | µm/px ' + um1);
+    expect(tBtns.some(x => /Calibrate on its bar/.test(x)), 'toast buttons: ' + tBtns.join('|'));
+    let R = await report(T);
+    const sc = row(R, 'Scale-bar calibration');
+    expect(sc.icon === '✗' && /^calibration predates the replaced image/.test(sc.note) && R.buttons.includes('Calibrate the new picture…') && R.buttons.includes('No scale needed'), sc.icon + ' ' + sc.note + ' | ' + R.buttons.join('|'));
+    await q.locator('#info-modal-bg .compliance-row', { hasText: 'Scale-bar calibration' }).getByRole('button', { name: 'Calibrate the new picture…' }).click();
+    await det.waitFor({ state: 'visible', timeout: 15000 });
+    const said = ((await det.textContent()).match(/([\d.]+) px/) || [])[1];
+    await det.locator('.sbd-pick', { hasText: '100 nm' }).click();
+    await q.waitForTimeout(400);
+    const um2 = await q.evaluate(i => images[i].umPerPx, idx);
+    if (await q.locator('#info-modal-bg').isVisible().catch(() => false)) await closeReport(T);
+    R = await report(T);
+    const sc2 = row(R, 'Scale-bar calibration');
+    await closeReport(T);
+    expect(Math.abs(um2 * 1000 - 0.25) < 0.01 && !/predates/.test(sc2.note), um2 * 1000 + ' nm/px; ' + sc2.icon + ' ' + sc2.note);
+    return `toast "${t.slice(0, 330)}" [${tBtns.join('|')}] | ${sc.icon} ${sc.note.slice(0, 200)} | Calibrate the new picture… → ${said} px bar → 100 nm → ${(um2 * 1000).toFixed(3)} nm/px, row ${sc2.icon} ${sc2.note.slice(0, 60)}`;
+  });
+
+  // round 5 (newcomer5-09): the cross-figure check finds a panel FigureLab exported for another
+  // figure, at a far smaller scale than its source (0.1–10× is searched across figures).
+  const drawPlate = (ctx, w, h, rnd) => {
+    ctx.fillStyle = '#2a2622'; ctx.fillRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2, R = h * 0.44, k = w / 3200;
+    ctx.fillStyle = '#d6c79b'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#efe9da'; ctx.lineWidth = 18 * k; ctx.stroke();
+    for (let i = 0; i < 70; i++) {
+      let x, y; do { x = cx + (rnd() * 2 - 1) * R; y = cy + (rnd() * 2 - 1) * R; } while (Math.hypot(x - cx, y - cy) > R * 0.85);
+      ctx.fillStyle = '#7d7258'; ctx.beginPath(); ctx.arc(x, y, (14 + rnd() * 22) * k, 0, 7); ctx.fill();
+    }
+    const im = ctx.getImageData(0, 0, w, h);
+    for (let i = 0; i < im.data.length; i += 4) { const n = (rnd() - 0.5) * 30; im.data[i] += n; im.data[i + 1] += n; im.data[i + 2] += n; }
+    ctx.putImageData(im, 0, 0);
+  };
+  const photo = await L.canvasImage(T, path.join(inp, 'IMG_5531.jpg'), 3200, 2400, drawPlate, { type: 'image/jpeg', seed: 55 });
+  const thumb = await L.canvasImage(T, path.join(inp, 'IMG_5531_thumb.png'), 240, 180, drawPlate, { seed: 56 });
+  let fig1Panel;
+  // A second figure of the paper on its own page, as another day's work.
+  async function onPage(pg, fn) {
+    const keep = { page: T.page, seen: T._toastSeen };
+    T.page = pg; T._toastSeen = 0;
+    try { return await fn(pg); } finally { T.page = keep.page; T._toastSeen = keep.seen; }
+  }
+  const p3 = await T.context.newPage();
+  p3.setDefaultTimeout(90000);
+  p3.on('download', async d => { const f = path.join(T.out, 'downloads', 'fig1-' + d.suggestedFilename()); await d.saveAs(f); T.downloads.push(f); });
+  p3.on('pageerror', e => T.errors.push('pageerror (Figure 1 page): ' + e.message));
+  p3.on('dialog', d => d.accept());
+
+  await step(T, '9.4 Figure 1 on a fresh page: a 3200 px plate photo, ⌘K Journal: Nature, 📦 Export submission package (ZIP) — its panels/ PNG is the photo at under 0.45× its size', async () => onPage(p3, async q => {
+    await q.goto(L.APP_URL);
+    await q.waitForFunction(() => typeof render === 'function');
+    await q.evaluate(() => { window.__toasts = []; const el = document.getElementById('toast');
+      new MutationObserver(() => { const t = el.textContent.trim(); if (t) window.__toasts.push(t); }).observe(el, { childList: true, characterData: true, subtree: true }); });
+    await q.getByRole('button', { name: /Dismiss/ }).click({ timeout: 1500 }).catch(() => {});
+    await L.pickFiles(T, q.getByText('Drop or click to add images'), [photo]);
+    await q.waitForFunction(() => images.filter(Boolean).length === 1, null, { timeout: 20000 });
+    await L.openSection(T, 'Export');
+    await q.locator('#export-name').fill('Fig1'); await q.locator('#export-name').press('Tab');
+    await L.cmdk(T, 'Journal: Nature');
+    await q.waitForTimeout(500);
+    await L.openSection(T, 'Export');
+    const pkg1 = await L.download(T, () => btn(T, '📦 Export submission package (ZIP)').click(), /submission-package\.zip$/, 120000);
+    const pn = L.zipList(pkg1).find(f => /^panels\/.*\.png$/.test(f));
+    expect(pn, 'no panels/*.png in ' + L.zipList(pkg1).join(', '));
+    fig1Panel = path.join(inp, path.basename(pn));
+    fs.writeFileSync(fig1Panel, L.zipRead(pkg1, pn));
+    const info = L.pngInfo(fs.readFileSync(fig1Panel));
+    expect(info.w / 3200 < 0.45, 'panel ' + info.w + ' px');
+    return `${path.basename(pkg1)}: ${pn} ${info.w}×${info.h} px (${(info.w / 3200).toFixed(2)}× the 3200 px photo)`;
+  }));
+
+  // round 5: a colour photo named with a channel word gets no key row (charts5-08); the first
+  // calibration of a light picture switches the scale bar's Auto contrast on (newcomer4-03).
+  await step(T, '9.5 Same page: an RGB photo named …PA14-GFP… gets no key row; a light bright-field picture given a µm/px in ⚙ switches Look › Scale bar appearance › Auto contrast on, and the toast says so', async () => onPage(p3, async q => {
+    const rgb = await L.canvasImage(T, path.join(inp, 'A549_PA14-GFP_4hpi_63x_0007.png'), 600, 450, (ctx, w, h, rnd) => {
+      ctx.fillStyle = '#101418'; ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 40; i++) { ctx.fillStyle = `rgb(${60 + rnd() * 60},${150 + rnd() * 100},${70 + rnd() * 60})`; ctx.beginPath(); ctx.arc(rnd() * w, rnd() * h, 6 + rnd() * 14, 0, 7); ctx.fill(); }
+    }, { seed: 61 });
+    const gram = await L.canvasImage(T, path.join(inp, 'WT_gram_100x_01.png'), 800, 600, (ctx, w, h, rnd) => {
+      ctx.fillStyle = '#e6e1d6'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#c84a78'; for (let k = 0; k < 40; k++) ctx.fillRect(rnd() * (w - 40), rnd() * (h - 10), 30, 8);
+    }, { seed: 62 });
+    await L.openSection(T, 'Images');
+    await L.pickFiles(T, q.getByText('Drop or click to add images'), [rgb, gram]);
+    await q.waitForFunction(() => images.filter(Boolean).length === 3, null, { timeout: 20000 });
+    await q.waitForTimeout(600);
+    const kt = await q.locator('#key-text').inputValue();
+    expect(!/PA14|GFP/.test(kt), 'key text: ' + kt);
+    const auto0 = await q.locator('#sb-auto-color').isChecked();
+    const gi = await q.evaluate(() => images.findIndex(im => im && /WT_gram/.test(im.name)));
+    const c = await card(T, gi, { open: true });
+    await L.toasts(T);
+    const f = c.locator('.f-umppx');
+    await f.fill('0.065'); await f.press('Enter'); await f.blur();
+    await q.waitForTimeout(500);
+    const t = await L.toasts(T);
+    const auto1 = await q.locator('#sb-auto-color').isChecked();
+    expect(!auto0 && auto1 && /scale bars follow the picture now \(Look › Scale bar › Auto contrast is on\): a white bar would not read on it/.test(t), `Auto contrast ${auto0} → ${auto1}; toast ${t}`);
+    return `key text "${kt || '(empty)'}" — no row for the RGB photo | Auto contrast ${auto0} → ${auto1}; toast "${t}"`;
+  }));
+  await p3.close().catch(() => {});
+
+  await step(T, '9.6 Figure 2: Arrange 3 × 3, the same photo added as a panel; 🧬 Check against other figures… with Figure 1\'s exported panel and a 240 px thumbnail: the panel is found at its scale, the thumbnail is "not checked at its scale"', async () => {
+    const q = T.page;
+    await L.openSection(T, 'Arrange');
+    await q.locator('#cols').fill('3'); await q.locator('#cols').press('Tab');
+    await q.locator('#rows').fill('3'); await q.locator('#rows').press('Tab');
+    await L.openSection(T, 'Images');
+    const n0 = await q.evaluate(() => images.filter(Boolean).length);
+    await L.pickFiles(T, q.getByText('Drop or click to add images'), [photo]);
+    await q.waitForFunction(n => images.filter(Boolean).length === n + 1, n0, { timeout: 20000 });
+    await q.waitForTimeout(500);
+    const lbl = await q.evaluate(() => formatLabel(images.find(im => im && im.name === 'IMG_5531.jpg').label));
+    await L.openSection(T, 'Check');
+    await btn(T, '🧬 Check against other figures…').click();
+    const m = q.locator('#xdup-modal-bg');
+    await m.waitFor({ state: 'visible' });
+    await L.pickFiles(T, m.getByText('choose files…'), [fig1Panel, thumb]);
+    const nP = await q.evaluate(() => images.filter(im => im && !im.excluded && !im.hidden).length);
+    await m.locator('button', { hasText: /^Compare$/ }).click();
+    // the summary of the run before (5.2, kept with the session) shows until this one ends
+    await q.waitForFunction(n => { const t = document.getElementById('xdup-modal-bg').innerText;
+      const c = t.match(/Compared (\d+) of (\d+) panels/); return !/Comparing with/.test(t) && c && +c[2] >= n - 1; }, nP, { timeout: 180000 });
+    await q.waitForTimeout(500);
+    const t = await m.innerText();
+    const re = new RegExp('Panel ' + lbl + ' ↔ ' + path.basename(fig1Panel).replace(/\./g, '\\.') + '[^\\n]*');
+    const hit = (t.match(re) || [])[0];
+    const oos = (t.match(/\d+ pairs? (was|were) not checked at (its|their) scale — the other image is outside 0\.1–10× the panel's size[^\n]*/) || [])[0];
+    expect(hit && !/similar layout/.test(hit), 'no finding for the exported panel: ' + t.slice(0, 1500));
+    expect(oos && /IMG_5531_thumb\.png/.test(oos), 'no "not checked at its scale" line: ' + t.slice(0, 1500));
+    await m.locator('button', { hasText: /^Close$/ }).last().click().catch(() => q.keyboard.press('Escape'));
+    const R = await report(T);
+    const rr = row(R, 'Image reuse across figures');
+    await closeReport(T);
+    return `${hit} | ${oos.slice(0, 260)} | report: ${rr.icon} ${rr.note.slice(0, 140)}`;
   });
 
   await L.finish(T);
