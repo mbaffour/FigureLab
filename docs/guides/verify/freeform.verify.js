@@ -37,7 +37,7 @@ const { step, expect, btn } = L;
   const pickRow = async (text) => { await listRow(text).click(); await p.waitForTimeout(150); };
   const typeGeo = async (o) => { for (const [k, v] of Object.entries(o)) { await p.locator('#geo-' + k).fill(String(v)); await p.locator('#geo-' + k).press('Enter'); } await p.waitForTimeout(150); };
   const geoVals = () => p.evaluate(() => ['x', 'y', 'w', 'h', 'a'].map(k => document.getElementById('geo-' + k).value));
-  const barBtn = (t) => p.locator('button:visible', { hasText: t instanceof RegExp ? t : new RegExp('^' + L.esc(t) + '$') }).first();
+  const barBtn = (t) => p.locator('#align-bar button:visible', { hasText: t instanceof RegExp ? t : new RegExp('^' + L.esc(t) + '$') }).first();
   const setColour = (sel, v) => p.locator(sel).evaluate((e, v) => { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }, v);
   const drag = async (a, b) => { await p.mouse.move(...await at(...a)); await p.mouse.down(); await p.mouse.move(...await at((a[0] + b[0]) / 2, (a[1] + b[1]) / 2), { steps: 5 }); await p.mouse.move(...await at(...b), { steps: 5 }); await p.mouse.up(); await p.waitForTimeout(250); };
   const anns = () => p.evaluate(() => annotations.map(a => ({ type: a.type, text: a.text, z: a.z || 0, fill: a.fill, fillColor: a.fillColor, radius: a.radius, color: a.color, bold: a.bold, fontSize: a.fontSize })));
@@ -195,6 +195,37 @@ const { step, expect, btn } = L;
     return (await L.toasts(T)).split(' | ').pop();
   });
 
+  // ux5 (freeform5-05): a circle clip on a calibrated picture keeps its scale bar inside the clip,
+  // and a label too wide for a small circle is not drawn, with the toast and Scale bar drawn saying so.
+  await step(T, '2.7b Props › Clip ◯ on A (it has a scale bar): the toast adds "its scale bar moved inside the clip"; Ctrl/⌘+Z', async () => {
+    await pickRow('C2-HeLa_GFP.tif'); await L.toasts(T);
+    const sb = await p.evaluate(() => { const a = freeformElements.find(x => x.name === 'C2-HeLa_GFP.tif'); return [!!a.sbOn, +a.umPerPx]; });
+    await p.locator('button:visible[title="Circle clip"]').click(); await p.waitForTimeout(300);
+    const t = (await L.toasts(T)).split(' | ').pop();
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);
+    const a = await byName(/C2-HeLa_GFP/);
+    expect(sb[0] && sb[1] > 0 && /^Circle clip — it carries into every export — its scale bar moved inside the clip/.test(t) && (a.clip || 'rect') === 'rect', JSON.stringify({ sb, t, clip: a.clip }));
+    return `"${t}"; Ctrl/⌘+Z: clip ${a.clip || 'rect'}`;
+  });
+
+  await step(T, '2.7c A small calibrated picture (W 60) given Clip ◯: its bar is not drawn, the toast says why, and Scale bar drawn fails; Ctrl/⌘+Z twice', async () => {
+    await pickRow('C2-HeLa_GFP.tif'); const g0 = await geoVals();
+    await typeGeo({ w: 60 }); await L.toasts(T);
+    await p.locator('button:visible[title="Circle clip"]').click(); await p.waitForTimeout(300);
+    const t = (await L.toasts(T)).split(' | ').pop();
+    await beside();
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const row = (await rep.locator('.compliance-row', { hasText: 'Scale bar drawn' }).first().innerText()).replace(/\s+/g, ' ');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(250); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);
+    const d = await byName(/C2-HeLa_GFP/);
+    expect(/its scale bar is not drawn: its label “[^”]+” is wider than the circle clip leaves room for at this text size/.test(t) && /✗/.test(row) &&
+      (d.clip || 'rect') === 'rect' && d.w === +g0[2], JSON.stringify({ t, row, d }));
+    return `"${t.slice(0, 200)}"; row "${row.slice(0, 160)}"; after two Ctrl/⌘+Z: W ${d.w}, clip ${d.clip || 'rect'}`;
+  });
+
   await step(T, '2.8 Rotation: ] ] Shift+] turns D to 7°; [ [ Shift+[ turns it back', async () => {
     await beside(); await clickAt(...centreOf(await byName(/TEM/)));
     await p.keyboard.press(']'); await p.keyboard.press(']'); await p.keyboard.press('Shift+]');
@@ -221,6 +252,16 @@ const { step, expect, btn } = L;
     await p.keyboard.press('Escape'); await beside();
     expect(f === 'geo-x', 'focus ' + f + ' / ' + hits[0]);
     return hits[0];
+  });
+
+  await step(T, '2.10b Units menu › mm: A\'s W 506 reads 96.66 mm (958 px printed at 183 mm); px again', async () => {
+    await pickRow('C2-HeLa_GFP.tif');
+    await p.locator('#geo-unit').selectOption('mm'); await p.waitForTimeout(150);
+    const w = (await geoVals())[2];
+    await p.locator('#geo-unit').selectOption('px'); await p.waitForTimeout(150);
+    const wpx = (await geoVals())[2]; await beside();
+    expect(near(+w, 96.66, 0.01) && +wpx === 506, `W ${w} mm, then ${wpx} px`);
+    return `W ${w} mm, then ${wpx} px`;
   });
 
   await step(T, '3.1 A CSV dropped on the freeform canvas → 📊 Chart → Apply; untick ⛓ and type X 20, Y 538, W 460, H 240', async () => {
@@ -361,6 +402,31 @@ const { step, expect, btn } = L;
     const front = await p.locator('#ann-float-front').isVisible().catch(() => false);
     expect(r && r.fill && r.fillColor === '#dbe9ff' && r.radius === 12 && r.z === 1 && ticked, JSON.stringify(r));
     return `Fill ticked by the colour: ${ticked}; ⬆ Front shown: ${front}; toast "${toast}"; toolbar right edge ${tb ? (tb.x + tb.width).toFixed(0) : '?'} of ${vw} px`;
+  });
+
+  // ux5 (freeform round 5): connectors, by ⌘K and by the ⇢ button that floats beside a two-object selection
+  await step(T, '4.4 Connectors: A and B selected → ⌘K "Connect two objects", Ctrl/⌘+Z; again with ⇢; the line follows B when it moves; listed as "↳ connector"', async () => {
+    const selAB = async () => { await btn(T, '↖ Select').click().catch(() => {}); await beside(); await clickAt(400, 430); await clickAt(860, 100, 'Shift'); };
+    const conns = () => p.evaluate(() => freeformElements.filter(e => e.type === 'connector').map(e => ({ x: +e.x, y: +e.y, w: +e.w, h: +e.h })));
+    await selAB(); await L.toasts(T);
+    const hits = await L.cmdk(T, 'Connect two objects');
+    const t1 = (await L.toasts(T)).split(' | ').pop(); const n1 = (await conns()).length;
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);
+    const n0 = (await conns()).length;
+    await selAB();
+    const tip = await p.locator('#ctx-connect').getAttribute('title');
+    await p.locator('#ctx-connect').click(); await p.waitForTimeout(300);
+    const t2 = (await L.toasts(T)).split(' | ').pop();
+    const rows = await p.locator('.tpl-saved').allInnerTexts();
+    const c0 = (await conns())[0];
+    await pickRow('phase_rods.png'); const b0 = await geoVals(); await typeGeo({ y: +b0[1] + 40 }); await p.waitForTimeout(300);
+    const c1 = (await conns())[0];
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(400);
+    const left = (await conns()).length, b = await byName(/phase_rods/);
+    expect(/^Connect two objects/.test(hits[0]) && n1 === 1 && n0 === 0 && tip === 'Connect the two selected objects' &&
+      t1 === 'Connected — the line follows both objects as they move' && t2 === t1 && rows.some(r => /^↳ connector/.test(r.trim())) &&
+      c0 && c1 && (c1.y !== c0.y || c1.h !== c0.h) && left === 0 && b.y === +b0[1], JSON.stringify({ hits: hits[0], n1, n0, tip, t1, t2, rows, c0, c1, left, by: b.y }));
+    return `⌘K top hit "${hits[0]}"; toast "${t2}"; Elements "${rows.find(r => /connector/.test(r)).replace(/\s*×\s*$/, '').trim()}"; line box y ${c0.y.toFixed(0)}/h ${c0.h.toFixed(0)} → y ${c1.y.toFixed(0)}/h ${c1.h.toFixed(0)} after B moved 40 px down; two Ctrl/⌘+Z: no connector, B back`;
   });
 
   await step(T, 'screenshot: the results figure and the position bar', async () => {
@@ -552,13 +618,78 @@ const { step, expect, btn } = L;
     return `toast "${t}"; at 89 mm Text size: "${row.slice(0, 160)}"; ${T._raise}`;
   });
 
+  // ux5 (freeform5-01): text past the edge gets its own row with Move inside; Raise to 6 pt lifts a
+  // superscript further and moves text it pushed past the edge back in
+  await step(T, 'W1c At 89 mm: T Text "10^{8} PFU/mL" at Fnt 16 at the right edge → ⚠ Text past the edge › Move inside; Raise to 6 pt lifts it to about 7 pt and keeps it inside; Ctrl/⌘+Z back', async () => {
+    await L.openSection(T, 'Export');
+    const sel = p.locator('#export-width-mm');
+    await sel.click().catch(() => {}); await sel.selectOption('89'); await p.waitForTimeout(500);
+    const n0 = (await anns()).length;
+    await L.openSection(T, 'Annotate & Draw');
+    await p.locator('#ann-font').fill('16'); await p.locator('#ann-font').press('Tab');
+    await btn(T, 'T Text').click();
+    await clickAt(915, 745); await p.locator('#ann-text-input').waitFor({ state: 'visible', timeout: 5000 });
+    await p.keyboard.type('10^{8} PFU/mL'); await p.keyboard.press('Enter'); await p.waitForTimeout(400);
+    await btn(T, '↖ Select').click(); await beside();
+    const added = (await anns()).length === n0 + 1;
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    // the row of its own (the Text size row mentions "(Text past the edge)" in its note too)
+    const edgeRows = () => rep.locator('.compliance-row').filter({ has: p.locator('.c-label', { hasText: /^\s*Text past the edge\s*$/ }) });
+    const edgeRow = edgeRows().first();
+    const edge1 = (await edgeRow.innerText().catch(() => '')).replace(/\s+/g, ' ');
+    await edgeRow.getByRole('button', { name: 'Move inside' }).click(); await p.waitForTimeout(600);
+    const edge2 = await edgeRows().count();
+    await L.toasts(T);
+    await rep.locator('.compliance-row').filter({ has: p.locator('.c-label', { hasText: /^\s*Text size\s*$/ }) }).getByRole('button', { name: 'Raise to 6 pt' }).click(); await p.waitForTimeout(600);
+    const rt = (await L.toasts(T)).split(' | ').pop();
+    const edge3 = await edgeRows().count();
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+    const t = (await anns()).find(x => x.type === 'text' && x.text === '10^{8} PFU/mL');
+    const right = await p.evaluate(() => { const a = annotations.find(x => x.type === 'text' && x.text === '10^{8} PFU/mL'); const b = _annBox(a, canvasLogicalW, canvasLogicalH); return b ? b.x + b.w : null; }).catch(() => null);
+    // back: undo until the label is gone, then 183 mm
+    await beside();
+    for (let i = 0; i < 4 && (await anns()).some(x => x.text === '10^{8} PFU/mL'); i++) { await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(350); }
+    const gone = !(await anns()).some(x => x.text === '10^{8} PFU/mL');
+    const om = (await anns()).find(x => x.text === 'Δ*ompC* cells');
+    await L.openSection(T, 'Export');
+    await sel.click().catch(() => {}); await sel.selectOption('183'); await p.waitForTimeout(500);
+    expect(added && /⚠ Text past the edge text “10⁸ PFU\/mL” runs \d+ px past the figure’s right edge — the export cuts it there/.test(edge1) && /Move inside/.test(edge1) && edge2 === 0 && edge3 === 0 &&
+      /^Text raised to 6 pt; .*“10⁸ PFU\/mL”.* to 7\.[0-9] pt, so (its|their) superscripts and subscripts print at 5 pt or more\. “10⁸ PFU\/mL” moved \d+ px left to stay inside the figure$/.test(rt) && (right == null || right <= 958) &&
+      gone && om && om.fontSize === 16 && (await sel.inputValue()) === '183', JSON.stringify({ added, edge1, edge2, edge3, rt, t, right, gone, om }));
+    return `row "${edge1.slice(0, 200)}"; after Move inside: no row; Raise to 6 pt → "${rt}"; label ${t && t.fontSize} px, right edge ${right == null ? '?' : right.toFixed(0)} of 958; undone`;
+  });
+
+  // ux5 (freeform round 5): make room before enlarging a box, or it runs off the canvas
+  await step(T, 'W1b At 89 mm: Arrange › Canvas size H 798 → 980 first, then the chart\'s H 240 → 340 stays inside; Ctrl/⌘+Z twice, back to 183 mm', async () => {
+    await L.openSection(T, 'Export');
+    const sel = p.locator('#export-width-mm');
+    await sel.click().catch(() => {}); await sel.selectOption('89'); await p.waitForTimeout(500);
+    await L.openSection(T, 'Arrange');
+    await p.locator('#fm-canvas-h').fill('980'); await p.locator('#fm-canvas-h').press('Enter'); await p.waitForTimeout(300);
+    await pickRow('lysis_OD600.csv'); const c0 = await geoVals();
+    await typeGeo({ h: 340 });
+    const c = await byName(/lysis_OD600/), H = await p.evaluate(() => +document.getElementById('fm-canvas-h').value);
+    await beside(); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300); await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(300);
+    const c2 = await byName(/lysis_OD600/), H2 = await p.evaluate(() => +document.getElementById('fm-canvas-h').value);
+    await L.openSection(T, 'Export');
+    await sel.click().catch(() => {}); await sel.selectOption('183'); await p.waitForTimeout(500);
+    expect(H === 980 && c.h === 340 && c.y + c.h <= H && c2.h === +c0[3] && H2 === 798 && (await sel.inputValue()) === '183', JSON.stringify({ H, c, c2, H2 }));
+    return `canvas H ${H}; chart ${c.w}×${c.h} at Y ${c.y} ends at ${c.y + c.h} (inside ${H}); after two Ctrl/⌘+Z: H ${H2}, chart H ${c2.h}`;
+  });
+
   // ux4 (freeform4-08): a key placed below follows later moves
   await step(T, 'W2 Export › Place the key on the figure, Below; then the gene map moved down 100 px, into the key\'s place: the key moves below it and covers nothing; untick it again', async () => {
     await beside();
     await L.openSection(T, 'Export');
     await L.toasts(T);
+    const ticked0 = await p.getByLabel('Place the key on the figure').isChecked();
     await p.locator('#key-where').selectOption({ label: 'Below' }); await p.waitForTimeout(800);
     const t1 = await L.toasts(T);
+    // ux5: choosing a place in the menu ticks Place the key on the figure by itself
+    const ticked1 = await p.getByLabel('Place the key on the figure').isChecked();
+    expect(!ticked0 && ticked1, `Place the key on the figure: ${ticked0} → ${ticked1}`);
     const keyBox = () => p.evaluate(() => { const k = annotations.find(a => a && a.type === 'legend'); const W = canvasLogicalW, H = canvasLogicalH; return k ? { y: Math.round(k.yf * H), H, W } : null; });
     const k1 = await keyBox();
     await pickRow('linear gene map'); const g0 = await geoVals();
@@ -576,7 +707,7 @@ const { step, expect, btn } = L;
     await pickRow('linear gene map'); await typeGeo({ y: +g0[1] }); await beside();
     await L.openSection(T, 'Export');
     await p.getByLabel('Place the key on the figure').uncheck(); await p.waitForTimeout(500);
-    return `"${t1.slice(0, 140)}"; key top ${k1.y} → ${k2.y} px (map bottom ${gm.y + gm.h}, canvas ${k2.H}); Legend key on the figure ${kr[1]} "${(kr[2] || '').slice(0, 100)}"`;
+    return `Below ticked Place the key on the figure (${ticked0} → ${ticked1}); "${t1.slice(0, 140)}"; key top ${k1.y} → ${k2.y} px (map bottom ${gm.y + gm.h}, canvas ${k2.H}); Legend key on the figure ${kr[1]} "${(kr[2] || '').slice(0, 100)}"`;
   });
 
   let sessionFile;
@@ -706,7 +837,10 @@ const { step, expect, btn } = L;
     const labels0 = (await els()).filter(e => /Bacteri/.test(e.name || '')).map(e => e.label || '');
     const rows = await p.locator('.tpl-saved').allInnerTexts();
     expect(labels0.length === 2 && labels0.every(l => !l) && rows.some(r => /Bacteriophage/.test(r)) && rows.some(r => /Bacterium/.test(r)), JSON.stringify({ labels0, rows }));
-    return 'icons arrived with no letter; Elements list: ' + rows.map(r => r.replace(/\s*×\s*$/, '')).join(', ');
+    const pl = await byName(/plate/), icons = (await els()).filter(e => /Bacteri/.test(e.name || ''));
+    // ux5 (freeform round 5): the photo does not land at the left edge (a tester saw X 430, Y 32); the guide says to type its X
+    expect(pl.x > 100, 'plate at ' + JSON.stringify(pl) + ' icons ' + JSON.stringify(icons));
+    return `icons arrived with no letter; the photo landed at X ${pl.x}, Y ${pl.y} (icons at ${icons.map(e => e.x + ',' + e.y).join(' and ')}); Elements list: ` + rows.map(r => r.replace(/\s*×\s*$/, '')).join(', ');
   });
 
   // Round 3 (freeform3-09): Y 116 centres the row on the whole canvas, which leaves it high
@@ -728,15 +862,6 @@ const { step, expect, btn } = L;
     // ux4 (freeform4): the photo typed at X 500 is the middle one, between the icons
     expect(e[1].w === 300 && /3 items, 247\.85 px apart/.test(distributed), 'middle ' + JSON.stringify(e[1]) + ' | ' + distributed);
     return `centres at y ${cy.map(v => v.toFixed(1)).join(', ')}; gaps ${gaps.map(g => g.toFixed(2)).join(' and ')} px; toast "${distributed}"`;
-  });
-
-  await step(T, '7.3b Units menu › mm: the plate\'s W reads in mm at the printed width (300 px → 25.39 mm at 112.4 mm)', async () => {
-    await pickRow('plate_MG1655.jpg');
-    await p.locator('#geo-unit').selectOption('mm'); await p.waitForTimeout(150);
-    const w = (await geoVals())[2];
-    await p.locator('#geo-unit').selectOption('px'); await beside();
-    expect(near(+w, 300 * 112.4 / 1328, 0.02), 'W ' + w);
-    return 'W ' + w + ' mm';
   });
 
   await step(T, '7.4 ⬜ TextBox title: X 80, Y 16, W 1168, H 64; text with *E. coli* and 10^{8}; Fnt 32; Color dark; untick Fill: no box', async () => {
@@ -834,6 +959,21 @@ const { step, expect, btn } = L;
     const e = await byName(/plate/);
     expect(near(e.x + e.w / 2, 664, 0.6), JSON.stringify(e));
     return `plate centre x ${(e.x + e.w / 2).toFixed(1)} of 1328`;
+  });
+
+  // ux5 (freeform5-04): Relabel letters pictures, not inserted icons; an icon given a letter is lettered with the rest
+  await step(T, '8.5 Arrange › 🔤 Relabel A, B, C… on the abstract: the photo gets A, the icons stay unlettered; a letter typed in the phage icon\'s Label puts it in the order', async () => {
+    await beside(); await L.openSection(T, 'Arrange');
+    await btn(T, '🔤 Relabel A, B, C').click(); await p.waitForTimeout(300);
+    const r1 = (await els()).filter(e => e.type === 'image').sort((a, b) => a.x - b.x).map(e => `${e.name}:${e.label || '—'}`);
+    const rows = p.locator('.tpl-saved'); const n = await rows.count();
+    await rows.nth(n - 1).locator('span').first().click();     // the phage, inserted first
+    await p.locator('#ep-label').fill('X'); await p.locator('#ep-label').press('Enter'); await p.waitForTimeout(200);
+    await beside(); await btn(T, '🔤 Relabel A, B, C').click(); await p.waitForTimeout(300);
+    const r2 = (await els()).filter(e => e.type === 'image').sort((a, b) => a.x - b.x).map(e => `${e.name}:${e.label || '—'}`);
+    expect(/plate_MG1655\.jpg:A$/.test(r1.find(x => /plate/.test(x))) && r1.filter(x => /Bacteri/.test(x)).every(x => /:—$/.test(x)) &&
+      r2[0] === 'Bacteriophage:A' && /plate_MG1655\.jpg:B$/.test(r2[1]) && /Bacterium:—$/.test(r2[2]), JSON.stringify({ r1, r2 }));
+    return `Relabel: ${r1.join(', ')}; with the phage's Label typed, Relabel: ${r2.join(', ')}`;
   });
 
   await step(T, '8.4 ⌘K "square graphical abstract" sets a square canvas and says it is a custom size', async () => {

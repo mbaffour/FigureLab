@@ -25,7 +25,7 @@ There are two ways in.
 1. Open **Arrange** and set **Canvas mode** to **✦ Freeform**.
 2. Under **Canvas size (px)** type **W** and **H** (here 958 × 798). Set the shape before you place anything.
 3. Open **Export** and choose the journal's **Printed width** (here **183 mm — double column (Nature; eLife preset)**) before you type any size in pt or mm. Until you do, **Look › Typography** says "no printed width chosen: 1 px prints at 1/96 in, so this figure prints 253 mm wide…", and 8 pt typed then is not 8 pt in the journal. Afterwards it reads "1 pt = 1.8 px here (183 mm printed width)".
-4. Click **Drop or click to add images** and pick your pictures. They arrive left to right, each up to 300 px wide, wrapping onto a new row, and each one appears in the **Elements** list under the canvas size.
+4. Click **Drop or click to add images** and pick your pictures. They arrive in rows, each up to 300 px wide (here three on the first row and one under them), and each one appears in the **Elements** list under the canvas size. Where they land does not matter: §2 places them.
 5. Click **⊡ Fit** to see the whole canvas.
 
 **From a grid you already built**
@@ -45,7 +45,7 @@ The bar above the canvas holds the selection's **X**, **Y**, **W**, **H** and **
 2. With **⛓** ticked, typing **W** sets **H** in proportion. A 4:3 photo given W 400 gets H 300; untick **⛓** to set both freely (charts and gene maps usually need this).
 3. Give each picture its width and a rough place: type a rough **X** and **Y**, or drag it by its middle. Step 3 lines them up exactly.
 4. Type the main panel's position exactly: here **X** 20, **Y** 20, **W** 506.
-5. Choose **mm** in the units menu to type sizes at the printed size (the **Printed width** from §1 sets the scale). On a 1328 px canvas printed at 112.4 mm, a 300 px picture reads 25.39 mm.
+5. Choose **mm** in the units menu to type sizes at the printed size (the **Printed width** from §1 sets the scale). Here (958 px printed at 183 mm) A's **W** 506 reads 96.66 mm. Choose **px** again to go on typing in canvas px.
 
 <kbd>⌘K</kbd> `position` jumps to the **X** field.
 
@@ -72,10 +72,10 @@ On the test figure the exported PNG has 11.97 px (logical) between A and B and b
 
 The **Props** bar under the position bar shows the selected picture's settings.
 
-1. **Clip**: **□** (none), **◯** circle, **⬭** ellipse, **▢** rounded rectangle (the number beside it is the corner radius). The toast says "Circle clip — it carries into every export". A clip set in the grid survives **⇱ Pop out**.
+1. **Clip**: **□** (none), **◯** circle, **⬭** ellipse, **▢** rounded rectangle (the number beside it is the corner radius). The toast says "Circle clip — it carries into every export". On a picture with a scale bar it adds "— its scale bar moved inside the clip": the bar and its label are drawn inside the circle. If the label is wider than the clip leaves room for, the bar is not drawn, the toast says so ("its scale bar is not drawn: its label “10 µm” is wider than the circle clip leaves room for at this text size …"), and the compliance check's **Scale bar drawn** row fails. Use a smaller text size, a larger picture, or no clip, as the toast says. A clip set in the grid survives **⇱ Pop out**.
 2. **Crop%**: type **T**, **L**, **B**, **R** in percent. The box shrinks with the crop, keeps its **X** and **Y**, and the picture keeps its proportions (Crop% L 10 on a 194 px square gives 174.6 × 194, still at X 744, Y 332).
 3. **Layer**: **⬆⬆** bring to front, **⬆** forward one step, **⬇** back one step, **⬇⬇** send to back.
-4. **Label**: the panel letter of that object. **Arrange › 🔤 Relabel A, B, C…** letters everything in reading order, charts and gene maps included (here pictures A–D, chart E, gene map F). Set the letter size in **Look › Panel Labels (A, B, C…) › Size** in pt (8 pt at 183 mm is 14.77 px).
+4. **Label**: the panel letter of that object. **Arrange › 🔤 Relabel A, B, C…** letters everything in reading order, charts and gene maps included (here pictures A–D, chart E, gene map F). Inserted icons are left without a letter; type one in an icon's **Label** if it really is a panel, and Relabel then letters it with the rest. Set the letter size in **Look › Panel Labels (A, B, C…) › Size** in pt (8 pt at 183 mm is 14.77 px).
 5. **Caption note**: what the caption says about this picture, after its letter (not drawn on the figure). See §9.
 
 ## 5. Add a chart and a gene map
@@ -97,6 +97,7 @@ All of these are in **Annotate & Draw › Tool**. Set **Color**, **Width** and *
 5. **□ Rect** and **○ Ellipse**: drag. Choosing a **Fill** colour ticks **Fill**. Rectangles have **Corner R** (radius in px).
 6. Selected marks show in the position bar too: here the box behind C and D is **X** 530, **Y** 326, **W** 418, **H** 206.
 7. **⬇ Behind** sends a mark behind every object ("The annotation is now behind every object — it is drawn there in the figure and every export"); **⬆ Front** brings it back. The tinted, rounded box behind C and D in the figure above is a Rect with a fill, Corner R 12, sent Behind.
+8. **Connectors** (a line from one object to another, for a model or a workflow): select two objects (click one, Shift-click the other) and click **⇢** in the small toolbar that floats beside the selection (tooltip "Connect the two selected objects"), or press <kbd>⌘K</kbd> and pick **Connect two objects**. The toast says "Connected — the line follows both objects as they move": move either object and the line follows. It is listed as "↳ connector" in **Elements**, where its **×** deletes it.
 
 Marks drawn over an object are pinned to it and move with it (Shift+→ on panel A moved its arrow 10 px).
 
@@ -108,7 +109,7 @@ Marks drawn over an object are pinned to it and move with it (Shift+→ on panel
 2. Press <kbd>⌘K</kbd>, type `graphical abstract`, and press <kbd>Enter</kbd> on **Canvas: graphical abstract (Elsevier)**. The canvas becomes 1328 × 531 px, exported at 300 DPI (112.4 mm wide), and a note gives Elsevier's rule and where it was read. Close it with <kbd>Esc</kbd>.
    - **Canvas: square graphical abstract (custom size — check your journal)** gives 1200 × 1200 px; it is not a checked specification. Switching an existing abstract to it keeps every object's place in px and names anything now past the edge, for example "Canvas 1200×1200: 1 object (Bacterium) reaches past the edge … — nothing was moved; drag them in or make the canvas larger".
 3. **Annotate & Draw › Insert icon**: click an icon (here Bacteriophage and Bacterium; **Show all 210 icons** lists the rest). Icons arrive with no letter, and the **Elements** list names them ("Bacteriophage", "Bacterium").
-4. Add a photo with **Drop or click to add images**, set its **W** (300) and **Clip ◯**, and type a rough **X** (500) so it sits between where the two icons will go. A new picture lands at the left; left there, Distribute (step 6) would keep it as an outer object and put an icon in the middle.
+4. Add a photo with **Drop or click to add images**, set its **W** (300) and **Clip ◯**, and type a rough **X** (500) so it sits between where the two icons will go. A new picture lands where the app finds a place, not where you need it (here X 430, Y 32, over the icons), so type its X: Distribute (step 6) keeps the leftmost and rightmost objects where they are and spaces the one in the middle.
 5. Size and place the outer two first: phage **H** 220, **X** 80; bacterium **W** 220, **X** 1028.
 6. Click beside the canvas, press <kbd>Ctrl/⌘+A</kbd>, then **↕** (centres in a line), **←→** (equal gaps; here "3 items, 247.85 px apart"), and type **Y** 156. With several selected, **Y** is the top of the box around them; that box is as tall as the tallest object (the 300 px plate), so Y 156 centres the row in the space under the 80 px title band (80 to 531). Y 116 would centre it on the whole canvas, high under the title.
 7. Title: **⬜ TextBox**, drag a box, select it, then type **X** 80, **Y** 16, **W** 1168, **H** 64 and the text, for example `Phage phiGuide lyses *E. coli* K-12 within 90 min at 10^{8} PFU/mL`. Set **Fnt** 32 and a dark **Color**, and untick **Fill** so no box is drawn. The compliance check measures text boxes too, superscripts included (they print at 70 % of the text), so keep the title's Fnt large enough for its 10⁸.
@@ -144,9 +145,10 @@ These work on the results figure from §1–§6.
 Freeform sizes are in canvas px, but text in charts, gene maps, letters and scale-bar labels keeps its size in points. Narrow the printed width and that text grows against the pictures; marks typed in px (**Fnt**) shrink with them.
 
 1. Change **Export › Printed width**. Narrowing it says by how much: "Printed width 183 → 89 mm: text keeps its point size, so it is 2.06× larger against the pictures now — check charts, gene maps and scale-bar labels for words that run together or past a panel’s edge".
-2. Enlarge the chart and gene-map boxes (W and H) until their words fit again; there is no "scale everything".
-3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**, or click the row's **Raise to 6 pt**, which raises every text under 6 pt in one undo step ("Text raised to 6 pt"; the label then read 6.0 pt).
-4. If the legend key is on the figure (**Export › Place the key on the figure**, with **Below** in the menu beside it), it keeps out of the way of what you move or enlarge. In the test, the key placed Below grew the canvas from 798 to 819 px ("The legend key needed free space, so the canvas height grew from 798 to 819 px — it sits there without covering anything"); moving the gene map 100 px down into the key's place moved the key below the map, the canvas grew to 839 px, and the compliance report's **Legend key on the figure** row still read "The placed key sits in free space, inside the figure ✓". Re-run the check after each revision: that row says whether the key covers anything.
+2. Enlarge the chart and gene-map boxes (W and H) until their words fit again; there is no "scale everything". Make room first: raise **Arrange › Canvas size (px) › H** (here 798 → 980), then enlarge the boxes, or a taller box runs off the bottom of the canvas. A taller box does not separate x-axis numbers that run together: widen the chart, or give it a row of its own.
+3. Run **Check › ✓ Check journal compliance** again. Its **Text size** row names text that is now too small: at 89 mm, the T Text label typed at Fnt 16 read "smallest text: annotation text “ΔompC cells” 4.2 pt". Raise its **Fnt**, or click the row's **Raise to 6 pt**, which raises every text under 6 pt in one undo step ("Text raised to 6 pt"; the label then read 6.0 pt). Text with a superscript or subscript is raised further, so that the small part prints at 5 pt: a label `10^{8} PFU/mL` went to 7.2 pt ("Text raised to 6 pt; “10⁸ PFU/mL” to 7.2 pt, so its superscripts and subscripts print at 5 pt or more"). Raised text grows to the right from where it starts; text that would then run past the canvas edge is moved back in, and the toast says by how much ("“10⁸ PFU/mL” moved 60 px left to stay inside the figure").
+4. Text that already runs past the edge of the figure (a label typed near the right edge, say) would be cut in the export. The report gives it a ⚠ **Text past the edge** row ("text “10⁸ PFU/mL” runs 47 px past the figure’s right edge — the export cuts it there"), and its **Move inside** button moves it in.
+5. If the legend key is on the figure (choose **Below** in the menu beside **Export › Place the key on the figure**; choosing a place ticks the box), it keeps out of the way of what you move or enlarge. In the test, the key placed Below grew the canvas from 798 to 819 px ("The legend key needed free space, so the canvas height grew from 798 to 819 px — it sits there without covering anything"); moving the gene map 100 px down into the key's place moved the key below the map, the canvas grew to 839 px, and the compliance report's **Legend key on the figure** row still read "The placed key sits in free space, inside the figure ✓". Re-run the check after each revision: that row says whether the key covers anything.
 
 Best of all, choose the printed width before you lay out (§1.3).
 
@@ -164,6 +166,8 @@ A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
 - Pick objects from the **Elements** list when they overlap; click them on the canvas for Shift/⌘-click selections.
 - Press <kbd>Esc</kbd> or click beside the canvas before <kbd>Ctrl/⌘+A</kbd>: with the cursor still in a field, Ctrl/⌘+A selects that field's text, and <kbd>Ctrl/⌘+Z</kbd> undoes typing in it.
 - Place the outermost objects first, then Distribute; set rough positions before Align.
+- Inserted icons are not lettered by **🔤 Relabel**; give an icon a **Label** only if it is a panel.
+- To join two objects with a line that follows them, select both and click **⇢** (or ⌘K `Connect two objects`).
 - Type sizes in **mm** when the journal gives panel sizes in mm.
 - Choose **Export › Printed width** before typing sizes in pt or mm, and keep annotation **Fnt** (px) large enough to print at 6 pt or more; the compliance check's **Text size** row tells you.
 - Replace a picture in place (right-click › **⇄ Replace image…**) rather than deleting it and adding the new file: the letter, crop and caption note stay. The toast says to edit the note in the Props bar › **Caption note** if it no longer fits.
@@ -178,7 +182,9 @@ A freeform layout cannot be rebuilt from its exports, so keep the figure itself.
 - **Distribute made the objects overlap.** The outer two stay put; move them apart first.
 - **An object is cut off after a canvas change.** The toast names what reaches past the edge; drag it in or make the canvas larger.
 - **A replaced picture overlaps what is below it.** A file of another shape takes the height it needs (the toast says by how much); move the objects below it, or crop the new picture.
-- **Chart or gene-map words run together after a narrower printed width.** Their text keeps its point size; enlarge the chart or map box (§11).
+- **Chart or gene-map words run together after a narrower printed width.** Their text keeps its point size; raise the canvas **H**, then enlarge the chart or map box (§11).
+- **A label is cut off at the edge of the export.** The compliance report's **Text past the edge** row names it; click **Move inside** (§11).
+- **A scale bar disappeared after a circle clip.** Its label did not fit inside the circle; the toast and the **Scale bar drawn** row say so. Use a smaller text size, a larger picture, or no clip (§4).
 - **The PDF fails a journal's "all fonts embedded" check.** FigureLab's PDF names its standard fonts without embedding them; send the TIFF, or finish the text in the SVG.
 - **The SVG's gaps read 11.5 px, not 12.** The layered SVG places each panel's picture up to 0.7 px off its box; the PNG, TIFF and PDF have the exact gap. **Export › SVG › Flat (one image)** writes the whole figure as one picture, drawn as the PNG is, with the text on top.
 - More: [troubleshooting.md](troubleshooting.md).
