@@ -4,6 +4,17 @@ Each guide in `docs/guides/` was followed step by step on this build by its scri
 
 Severity: **blocker** (the task cannot be done), **hard** (it can, but most people would not find the way), **annoying** (works with a workaround the guide states), **polish** (cosmetic or wording).
 
+**Round 5 (19 November 2026).** After the four round-5 fixer groups merged, every script was run again and each of the 12 issues still open after round 4 was re-checked: **4 fixed, 8 still open** (2 of those partly fixed). Each entry now starts with a round-5 status and its evidence. Verifying the round-5 guides found **7 new issues**, listed first under [New in round 5](#new-in-round-5). Several round-5 tester findings that had no entry here were also confirmed fixed by a guide step: a reopened session that regrew the key's margin (`journal-submission` 7.2, `tips`), a replaced micrograph that kept a pixel size measured on the old one (`journal-submission` 9.3, `phage-and-microbiology`), exported package panels missed by the reuse check (`journal-submission` 9.6), and an RGB photo given a greyscale key row by its file name (`journal-submission` 9.5). The guides no longer give workarounds for the fixed ones.
+
+Open issues by severity after round 5 (still open + new):
+
+| Severity | Still open | New | Open in all |
+|---|---|---|---|
+| blocker | 0 | 0 | 0 |
+| hard | 0 | 0 | 0 |
+| annoying | 3 | 1 | 4 |
+| polish | 5 | 6 | 11 |
+
 **Round 4 (17 November 2026).** After the four round-4 fixer groups merged, every script was run again and each of the 18 issues still open after round 3 was re-checked: **9 fixed, 9 still open** (2 of those partly fixed). Each entry now starts with a round-4 status and its evidence. Verifying the round-4 guides found **3 new issues**, listed first under [New in round 4](#new-in-round-4). The guides no longer give workarounds for the fixed ones.
 
 Open issues by severity after round 4 (still open + new):
@@ -30,25 +41,74 @@ Open issues by severity after round 3 (still open + new):
 
 The first verification logged 1 hard, 18 annoying and 25 polish issues.
 
-Sections: [New in round 4](#new-in-round-4) · [New in round 3](#new-in-round-3) · [New in round 2](#new-in-round-2) · [Across guides](#across-guides) · [Western blot](#western-blot) · [Fluorescence](#fluorescence) · [Phage and microbiology](#phage-and-microbiology) · [Charts](#charts) · [Journal submission](#journal-submission) · [Freeform](#freeform)
+Sections: [New in round 5](#new-in-round-5) · [New in round 4](#new-in-round-4) · [New in round 3](#new-in-round-3) · [New in round 2](#new-in-round-2) · [Across guides](#across-guides) · [Western blot](#western-blot) · [Fluorescence](#fluorescence) · [Phage and microbiology](#phage-and-microbiology) · [Charts](#charts) · [Journal submission](#journal-submission) · [Freeform](#freeform)
+
+## New in round 5
+
+Found while re-verifying the guides after the round-5 fixes.
+
+### ⌘K `span` hides the warning that a panel has lost its cell
+- **What I tried:** clicked panel A in a full 2 × 2 grid, ⌘K `span`, typed Col span 2 (`tips`, round-5 span step).
+- **What happened:** panel D lost its cell, but its "has no cell" toast never showed: ⌘K's own hint toast ("Panel A: Set Col span and Row span…") was still up, and the render skips the warning while a toast is showing. D's "⚠ outside the grid" marker in Images does not appear until the list is redrawn. The only sign is the status bar ("3 panel(s) · 1 not drawn (no cell)"). From the panel's ⚙ the toast does appear once the previous one has gone (`phage-and-microbiology` §4.1).
+- **Severity:** annoying (the tips page points to the status bar)
+- **Suggestion:** show the no-cell warning even over an information toast, and refresh the Images row markers on a span change.
+
+### The stale-analysis note calls an unlettered strip "panel 2"
+- **What I tried:** a pERK1/2 strip divided by an unlettered total ERK1/2 strip (row label "ERK1/2"), then ⇄ Replace image… on the ERK strip (`western-blot` D.8).
+- **What happened:** the chart dialog read "⚠ Linked to the densitometry of panel A, which has changed since: the other target's panel 2 has a different image now — …". "Panel 2" is the strip's place in the image list, shown nowhere. The toasts of the same step say "the ERK1/2 strip".
+- **Severity:** polish
+- **Suggestion:** name the strip as the toasts and compliance rows do (`formatLabel(lc.label)||li+1` near line 9654 of `figure_lab.html` is the likely place).
+
+### An unmerged grey channel is captioned "Panel D", not by its channel
+- **What I tried:** four 16-bit files ending `_DAPI`, `_GCaMP6s`, `_mCherry` and `_Cy5`, 🎨 Auto-channels, then ✦ Generate Caption before any merge (`fluorescence` 20).
+- **What happened:** "(D) Panel D." The coloured panels read "(B) GCaMP6s (green).", the chip and the key say Cy5, and Methods says "Panels … show Cy5 in greyscale". After Split fills its caption note it reads "(D) MAP2.".
+- **Severity:** polish
+- **Suggestion:** caption a grey panel by its channel name, as the coloured ones are ("(D) Cy5.").
+
+### The log-axis floor is written two ways
+- **What I tried:** a kill curve with a time point whose replicates are all 0, on log Y (`charts` R5.4).
+- **What happened:** the note on the chart reads "○ 1 mean ≤ 0 drawn at the axis floor (10¹), open", while the caption says "(10)".
+- **Severity:** polish
+- **Suggestion:** write the floor value the same way in the chart note, caption and source data.
+
+### The paper_style.json toast does not mention the font it saved
+- **What I tried:** Look › Sample colours › ⬇ Save as paper_style.json under ASM (`charts` R5.11).
+- **What happened:** the file holds `"font_family": "Arial"`, but the toast lists only "sample_palette and N shown-as names (sample_names)".
+- **Severity:** polish
+- **Suggestion:** add "and the font (Arial)" when it is written.
+
+### The Scale bar drawn row calls an unlettered freeform picture "object (unlabelled)"
+- **What I tried:** a calibrated GFP picture at W 60 with Clip ◯, then ✓ Check journal compliance, before any 🔤 Relabel (`freeform` 2.7c).
+- **What happened:** "✗ Scale bar drawn 1 scale bar(s) enabled but NOT drawn — object (unlabelled): its label “10 µm” is wider than the circle clip…". Freeform pictures arrive without letters, so the row does not say which picture.
+- **Severity:** polish
+- **Suggestion:** name an unlettered object by its file (`C2-HeLa_GFP.tif`), as other rows do for unlettered strips.
+
+### A freeform gene map's labels overprint after a narrower printed width (not confirmed whether the check names it)
+- **What I tried:** the freeform results figure with its 446 × 160 gene map (12 features), then Export › Printed width 183 → 89 mm (`freeform` W1c; seen in a failure screenshot of an earlier run of that step).
+- **What happened:** the gene names ran into each other ("portal", "scaffold", "tape measure" drawn over one another). The part of the **Text size** row on screen did not mention it; whether another row names it was not checked.
+- **Severity:** polish (freeform §11.2 says to raise the canvas H and enlarge the map box)
+- **Suggestion:** give freeform gene-map labels rows, as grid gene maps now get, or name overprinting map labels in the Chart room or Text size row.
 
 ## New in round 4
 
 Found while re-verifying the guides after the round-4 fixes.
 
 ### Typing a colour's own name under Channel names does not bring back a panel named on its own
+- **Status (round 5):** fixed — `Membrane` typed under Channel names gives "DAPI (blue); GFP (green); Membrane (magenta)." and the caption reads "(C) Membrane (magenta)" again (`fluorescence` 11b).
 - **What I tried:** the magenta channel named `Membrane` under **Export › Legend key › Channel names**; then one magenta panel's chip › `CellMask` (the toast says "this panel only"); then `Membrane` typed again in the magenta **Channel names** field, which read "CellMask / Membrane" (`fluorescence` 11b).
 - **What happened:** nothing changed: the key still read "CellMask / Membrane (magenta)" and the panel kept CellMask. A different name typed there ("Cell membrane", in a scratch check) renamed every magenta panel, and `Membrane` typed in the panel's own chip brought it back.
 - **Severity:** annoying (the fluorescence guide gives the chip way back)
 - **Suggestion:** treat Enter in a Channel names field as "every panel of this colour takes this name", also when the name is the colour's current one.
 
 ### The legend key's place menu has no label on screen, while toasts call it "Where"
+- **Status (round 5):** fixed — a visible "Where" label sits before the menu, and the place toast says "Choose another place in Export › Legend key › Where" (`journal-submission` 3.1; also `fluorescence` 14, `phage-and-microbiology` "Export › Legend key › Where › Below…", `tips`); choosing a place also ticks **Place the key on the figure**.
 - **What I tried:** placing the key with the menu beside **Place the key on the figure** (`phage-and-microbiology` §11, `journal-submission` 3.1).
 - **What happened:** the menu shows only its choice (Free space, Top right … Below); its name, "Where the key goes on the figure", is for screen readers only. The toasts say "Choose another place in Export › Legend key › Where". A round-4 tester looked for a "Where" label and did not find one.
 - **Severity:** polish
 - **Suggestion:** show a short "Where" label before the menu.
 
 ### A journal preset leaves a lane table between the text and heading sizes
+- **Status (round 5):** still open — the spot assay's dilution row still prints at 8.9 pt under ASM (text 8 pt, headings 9.75 pt) (`phage-and-microbiology`, "Check › ✓ Check journal compliance…").
 - **What I tried:** the spot assay's dilution row (Col span 2) under ⌘K `asm`, then measured on the drawn figure (`phage-and-microbiology`, compliance step).
 - **What happened:** the dilution row prints at 8.9 pt, while ASM's text is 8 pt and its headings 9.75 pt: the preset scales the lane table by the headings' factor (13 → 30.9 px) instead of giving it a size of the journal's. A round-4 tester measured 9.3 pt and 9.7 pt in another layout. Nothing fails, but the row does not match either size, and the guide used to say it took the journal's type size.
 - **Severity:** polish
@@ -66,6 +126,7 @@ Found while re-verifying the guides after the round-3 fixes.
 - **Suggestion:** compare with the width before the preset ran, and say "kept" only when it did not change.
 
 ### Narrowing the printed width drops a lane table under 5 pt although the toast says text keeps its size
+- **Status (round 5):** still open — at 87 mm under EMBO J the lane table still prints at 4.3 pt and **Text size** fails ("lane labels “ΔphoA” 4.3 pt"); **Lane tables to 7 pt** still fixes it (`western-blot` 9.3).
 - **Status (round 4):** still open — at 87 mm the lane table prints at 4.3 pt and **Text size** fails ("lane labels “ΔphoA” 4.3 pt"); **Lane tables to 7 pt** still fixes it (`western-blot` 9.3).
 - **What I tried:** the blot stack under EMBO J at 180 mm, then Export › Printed width 87 mm (`western-blot` 9.2–9.3).
 - **What happened:** the toast says "text keeps its point size, so it is 2.07× larger against the pictures", but the lane table now prints at 4.3 pt and **Text size** fails. Its **Lane tables to 7 pt** button fixes it.
@@ -73,6 +134,7 @@ Found while re-verifying the guides after the round-3 fixes.
 - **Suggestion:** keep lane-table sizes in points across width changes, as other text is kept.
 
 ### Look › Label format is not counted as a change
+- **Status (round 5):** still partly fixed — one Ctrl/⌘+Z undoes the label format alone (A B C back, Columns kept at 4), but after Label format a b c the **Export format** row still reads ✓ "exported as PDF (lossless) since the figure last changed" (`quickstart`, "ISSUES: after the export, Look › Label format a b c…").
 - **Status (round 4):** partly fixed — one Ctrl/⌘+Z now undoes the label format alone (A B C back, Columns kept); but after Label format a b c the **Export format** row still reads "exported as PDF (lossless) since the figure last changed ✓" (`quickstart`, "ISSUES: after the export, Look › Label format…").
 - **What I tried:** a Nature figure exported as TIFF, then Look › Label format A B C → a b c, then ✓ Check journal compliance; also Ctrl/⌘+Z after the change (checked with a scratch script, not a guide step).
 - **What happened:** the **Export format** row still read "exported as TIFF since the figure last changed", although the file has capital letters. Ctrl/⌘+Z after the label-format change undid the previous change (Columns) together with it. The quick-start check uses a layout change instead.
@@ -87,6 +149,7 @@ Found while re-verifying the guides after the round-3 fixes.
 - **Suggestion:** follow "but" with what was not kept, then list what was.
 
 ### MW labels keep their own size under a journal preset
+- **Status (round 5):** still open — under EMBO J at 87 mm the MW labels print at 9.3 pt while the other text is 7 pt (`western-blot` 9.3).
 - **Status (round 4):** still open — under EMBO J at 87 mm, after **Lane tables to 7 pt**, the MW labels print at 9.3 pt while the other text is 7 pt (`western-blot` 9.3).
 - **What I tried:** the blot figure under EMBO J and JBC (round-3 tester finding blot3-08; seen again on the `western-blot` journal step).
 - **What happened:** MW labels print larger and bold (about 9–11 pt) while the other text is 7 pt; neither the preset nor **Lane tables to 7 pt** touches them.
@@ -108,6 +171,7 @@ Found while re-verifying the guides after the round-3 fixes.
 - **Suggestion:** name an unlettered panel by its tag or file, as the caption does.
 
 ### The densitometry chart toast mentions n.d. when no lane is n.d.
+- **Status (round 5):** fixed — on the phospho/total test the toast ends "…(the largest band in reference lane 3). Linked — a re-analysis updates it. Panel D in the grid." (`western-blot` 3.7), and the 15-lane doublet toast has no n.d. (D.4); the first chart still names n.d. because lanes 4–5 are n.d. there (6.1).
 - **Status (round 4):** still open — on the phospho/total test, where every lane has its band, the toast still ends "…a lane with no band there is n.d." (`western-blot` 3.7).
 - **What I tried:** 📊 Chart these values on the replicate test blot, where every lane has the band (`western-blot` 7.1 set-up).
 - **What happened:** the toast still says "a lane with no band there is n.d.".
@@ -115,6 +179,7 @@ Found while re-verifying the guides after the round-3 fixes.
 - **Suggestion:** mention n.d. only when a lane is n.d., as the caption now does.
 
 ### A typed-by-hand chart is not marked in its Images row or ⚙ in a grid
+- **Status (round 5):** partly fixed — the chart on screen now reads "⚠ typed values · not linked to panel A" (`western-blot` 11.5); its row in Images and its ⚙ still say nothing (11.6).
 - **Status (round 4):** still open — the chart, caption, compliance row and package say "typed by hand"; the chart’s row in Images and its ⚙ still do not (`western-blot` 11.6).
 - **What I tried:** a densitometry chart with typed values in a grid figure (seen while writing `western-blot` §11, not a script step).
 - **What happened:** the chart, caption, compliance row and package say "typed by hand"; the panel's row in Images and its ⚙ do not (the Props-bar note shows in freeform only).
@@ -140,6 +205,7 @@ Found while re-verifying the guides after the round-2 fixes.
 - **Suggestion:** shrink to fit before giving up a label, and fail the row (not ⚠) when any label is drawn as "…".
 
 ### Charting from a blot that is not yet in the linked chart adds a second chart
+- **Status (round 5):** still open — 📊 Chart these values in strip B's dialog still gives a second chart; Ctrl/⌘+Z takes it back, and charting from strip A's dialog updates the first (`western-blot` 6.1b).
 - **Status (round 4):** still open — from blot B's own dialog a second chart is added; Ctrl/⌘+Z takes it back, and charting from strip A's dialog updates the first (`western-blot` 6.1b).
 - **Status (round 3):** still open — charting from blot B's own dialog still adds a second chart; Ctrl/⌘+Z takes it back (`western-blot` 6.1b).
 - **What I tried:** analysed blot B with no reference lane, charted from blot A (B was left out and named), then set B's reference lane and loading control and clicked 📊 Chart these values in B's own dialog.
@@ -340,6 +406,7 @@ From [`phage-and-microbiology.verify.js`](phage-and-microbiology.verify.js), for
 - **Suggestion:** count the cells a spanning panel covers in the toast as the fit already does.
 
 ### A chart in one grid cell runs its tick labels together at journal size
+- **Status (round 5):** fixed — at Col span 1 under ASM the lysis chart thins its x numbers (0 40 80 120) and puts its legend under the plot; **Chart room** reads "E: its plot is 6.7 mm tall (20% of the panel) — give it more height (a taller row, Row span 2) or fewer stacked brackets", and its **Give E a taller cell** button gives "E now spans 1 × 2 cells — 1 row added to the grid for it (Ctrl/⌘+Z undoes it)" (`phage-and-microbiology`, "ISSUES (evidence): the lysis chart in one grid cell…"; also `charts` R5.9, "group names run together (“WT”, “dfliC”)" → **Give E a bigger cell**).
 - **Status (round 4):** partly fixed — at Col span 1 under ASM the lysis chart is still cramped, but the new **Chart room** row flags it: "E: legend name “Uninfected” cut at the panel edge — a shorter name, a wider panel, or the legend key instead" (`phage-and-microbiology`, "ISSUES (evidence): the lysis chart in one grid cell…"). The guides keep the chart at Col span 2.
 - **Status (round 3):** still open — at Col span 1 under ASM the lysis chart's x ticks overlap and "Uninfected" is cut (`phage-and-microbiology`, chart-in-one-cell step; `out/phage-and-microbiology/shots/phage-chart-1cell-figure.png`).
 - **Status (round 2):** still open — after a key-grown margin narrowed a span-2 chart, its x ticks ran together ("0204060…"); the compliance check says nothing.
@@ -356,6 +423,7 @@ From [`phage-and-microbiology.verify.js`](phage-and-microbiology.verify.js), for
 - **Suggestion:** a “Crop %” label (or % after each box) and a tooltip; keep the four boxes on one line.
 
 ### Ruler labels stick out of a panel after its span shrinks
+- **Status (round 5):** still open — "99.7 nm" and "69.9 nm" still cross panel A's left edge after 2 × 2 → 1 × 1 (`phage-and-microbiology`, span-back step).
 - **Status (round 4):** still open — with the rulers on, span 2 × 2 → 1 × 1 still leaves "99.7 nm" and "69.9 nm" over panel A's left edge (`phage-and-microbiology`, rulers step; `shots/phage-rulers-1x1.png`).
 - **Status (round 3):** still open, now reproduced — with the rulers still on, span 2 × 2 → 1 × 1 leaves "99.7 nm" and "69.9 nm" over panel A's left edge (`phage-and-microbiology`, rulers step; `shots/phage-rulers-1x1.png`).
 - **Status (round 2):** still open — no fix was made for it. A quick check (a ruler near the left edge, span 2 × 2 → 1 × 1) kept its label inside the panel, so it may depend on the ruler's place; not re-checked on the original case.
@@ -513,6 +581,7 @@ From [`freeform.verify.js`](freeform.verify.js), for the [freeform guide](../fre
 - **Suggestion:** honour `fill: false` in the TextBox renderer (canvas, SVG, PPTX), as Rect and Ellipse do.
 
 ### Layered SVG places panel pictures up to 0.7 px off their typed boxes
+- **Status (round 5):** still open — gaps in the layered SVG read 11.52 px (A–B and C–D) for 12 typed (`freeform` 5.2); the PNG has 11.97 px (5.1).
 - **Status (round 4):** still open — gaps read 11.52 px for 12 typed (`freeform` 5.2); the PNG has 11.97 px.
 - **Status (round 3):** still open — gaps still read 11.52 px for 12 typed (`freeform` 5.2).
 - **Status (round 2):** still open — gaps in the file still read 11.52 px for 12 typed (`freeform` 5.2).
