@@ -8,7 +8,7 @@
 - One CSV (or TSV, or cells copied from Excel) per chart. Any of the layouts in Task 1 works.
 - Optional: a `paper_style.json` from CFU Plot Studio or another FigureLab figure, to share sample colours across the paper.
 
-Every step below was followed through the app's own buttons by [`verify/charts.verify.js`](verify/charts.verify.js), on fourteen generated CSVs whose true means and SDs are known. The plotted values in the source data matched them, and so did a source-data file dropped back in.
+Every step below was followed through the app's own buttons by [`verify/charts.verify.js`](verify/charts.verify.js), on twenty generated CSVs (one a Tecan export with its instrument header) whose true means and SDs are known. The plotted values in the source data matched them, and so did a source-data file dropped back in.
 
 ---
 
@@ -17,7 +17,7 @@ Every step below was followed through the app's own buttons by [`verify/charts.v
 1. In **Images**, click **Drop or click to add images** and pick your CSV (or drag it onto the figure). The drop zone reads "CSV/TSV → chart".
 2. The chart is already the next lettered panel of the grid: the toast says, for example, "Imported 9 rows from cfu_24h.csv — chart panel A in the grid". The **📊 Chart** dialog opens on it with a guess at the mapping and a **Preview**. The line under the data box says what was read, for example `3 columns · 9 rows · cfu_24h.csv`.
 3. Check the mapping fields on the right: **Chart type**, **X / category column**, **Y columns**, and **Series (group) column** for tidy data (see the table below). Bar, box, violin and beeswarm charts also have **Data layout**; line and scatter charts do not. If the mapping leaves out a text column whose values differ within a group, the line under the data box names it, for example "⚠ strain not used: 3 strain values (PA14, dlasR, dmexB) averaged together per group — pick strain as Series to show them apart".
-4. The **Y title** starts as the value column's name (`cfu_per_ml`); type your own (`CFU/mL`).
+4. The **Y title** starts as the value column's name (`cfu_per_ml`); type your own (`CFU/mL`). Replicate columns have no value column to name it: a file named for its unit gives the title (`swim_diameters_mm.csv` → "swim diameters (mm)"), and any other starts empty. A plate reader's time column becomes the **X title**, `Time (h)`.
 5. Click **Apply** to keep your settings (the toast says "Chart updated"). The figure stays a grid: lane tables, headings and automatic letters keep working.
 
 **Cancel** on a chart you have just dropped takes it away again ("Cancelled — the chart was not added"), and the grid keeps its size.
@@ -32,12 +32,12 @@ Every step below was followed through the app's own buttons by [`verify/charts.v
 | **Tidy with a series column**: `time_min, MOI, replicate, OD600` | Chart type **Line**, X `time_min`, **Series (group) column** `MOI`, Y `OD600`. One averaged line per MOI. | guessed this way on import, with two MOIs and with three (0, 1, 10) |
 | **Tidy with two text columns**: `antibiotic, strain, replicate, MIC_ug_per_ml` | Chart type **Grouped bar**, X `antibiotic`, **Series (group) column** `strain`: one bar per strain within each antibiotic. With Series **— none —** the strains would be averaged together, and the line under the data box says so. | guessed this way on import |
 | **Replicate columns**: `time_min, MOI_0_r1, MOI_0_r2, MOI_0_r3, MOI_1_r1…` | Chart type **Line**, tick **Average replicate columns into one series each**. It shows what it grouped: `(MOI_0: 3, MOI_1: 3)`. | guessed and ticked on import |
-| **Replicate columns, one row per condition** (Prism or Excel): `condition, Rep1, Rep2, Rep3` | Chart type **Bar**, X `condition`, **Average replicate columns into one series each** ticked (it reads `(Mean: 3)`), **SD (n−1)** and **points**: one bar per condition with its mean, SD and replicate dots. | guessed and ticked on import |
+| **Replicate columns, one row per condition** (Prism or Excel): `condition, Rep1, Rep2, Rep3` | Chart type **Bar**, X `condition`, **Average replicate columns into one series each** ticked (it reads `(Mean: 3)`), **SD (n−1)** and **points**: one bar per condition with its mean, SD and replicate dots. Columns numbered by what was repeated are read the same way: `Rep 1`, `Culture1`, `Mouse 1`, `Donor3`, `Run 1`, Excel's `Column1`. | guessed and ticked on import, with `Rep1…`, `Rep 1…` and `Culture1…` |
 | **Mean and SD columns**: `time_min, MOI 0 mean, MOI 0 SD, MOI 1 mean, MOI 1 SD` | **Error bars** › **from a column**. One picker per series appears, already paired by name (MOI 0 mean → MOI 0 SD). Leave the SD columns unticked under Y columns. | guessed and paired on import |
 | **Wide, one column per group** (Prism column table): `Untreated, Phage-treated` | Chart type **Bar**, **Data layout** › **Columns — each ticked column is a group**, every group ticked under **Group columns (each is one group)**. | guessed this way on import |
 | **European CSV**: `;` separators, decimal commas, a second header row of units | Nothing. `12,5` is read as 12.5, and the units row goes into the axis title (`Durchmesser (mm)`). The status line says `units row: Durchmesser mm`. A tidy file with German headers (`Stamm;Replikat;Biofilm`) gives a bar per strain: `Replikat` is read as the replicate number. | read this way on import |
 | **A source-data file FigureLab wrote** (Task 8) | Nothing: the `#` lines and the Plotted values block are skipped. | read back on import |
-| **A plate reader's export**: `Time` (h:mm:ss, h:mm, minutes or hours), a temperature column, `A1`, `A2` … one column per well | A **Line** chart of every well against time, with a **Plate wells** row that groups wells by plate row or column and subtracts a blank. See [A plate reader's export](phage-and-microbiology.md#a-plate-readers-export) in the phage guide. | read this way on import, from 11 to 49 time points, with and without a blank row |
+| **A plate reader's export**, as the reader wrote it: `Time` (h:mm:ss, h:mm, minutes, hours, or Tecan's `Time [s]`), a temperature column, `A1`, `A2` … one per well, in columns or in rows, with or without the block of instrument settings above the table (Tecan i-control, BioTek Gen5) | Nothing. A **Line** chart of every well against `Time (h)`, with a **Plate wells** row that groups wells by plate row or column and subtracts a blank. `Cycle Nr.` and the temperature are not plotted. The line under the data box says what was skipped or turned, for example "26 instrument lines above the table skipped (it starts at “Cycle Nr.”); the wells ran down the rows: turned to one column per well; 1 line below it (“End Time”) left out" and "Time [s] read as seconds, in hours (Time (h))". See [A plate reader's export](phage-and-microbiology.md#a-plate-readers-export) in the phage guide. | read this way on import, from 11 to 49 time points, with and without a blank row; a Tecan export with its header, wells in rows and Time [s] |
 
 ### Other ways to add a chart
 
@@ -50,7 +50,7 @@ Every step below was followed through the app's own buttons by [`verify/charts.v
 
 1. Open the chart (see Task 4) and set **Error bars**: **SD (n−1)**, **SEM (SD/√n)**, **from a column**, or **none**.
 2. SD and SEM are computed from the rows (or replicate columns) that share a group, or an x on a line chart.
-3. Tick **points** to draw every replicate over the bar.
+3. Tick **points** to draw every replicate over the bar. On a line chart **points** puts a marker on each mean, not on the replicates.
 4. **Box & whisker**, **Violin** and **Beeswarm (dots)** with a **Series (group) column** draw each series side by side within its category, in the series' colour. A beeswarm draws the mean as a short horizontal line and its whisker follows **Error bars** (SD, SEM or none); the caption says so ("Each dot is one value; the line marks the mean, whiskers ± SD (n−1)").
 5. Tick or untick **legend** and **grid** as you need. If you place the figure's legend key (see [journal-submission.md](journal-submission.md)), untick each chart's **legend** so the colours are explained once.
 
@@ -64,6 +64,8 @@ On the test data the plotted values in the source data equal the true values: WT
 
 1. **Log axis.** Tick **log Y** (or **log X** on line and scatter charts). Bars start at the axis floor, and the axis snaps to whole decades. Decades between 0.001 and 10 000 are written as plain numbers (0.01, 0.1, 1, 10 on the MIC test); wider ranges are labelled 10ⁿ (10⁸, 10⁹, 10¹⁰ on the CFU test).
    - **Stacked bar** greys out **log Y** and says why: "Stacked bars cannot be read on a log axis (the segments would not add up) — use Grouped bar".
+   - **plain numbers**, beside **log Y**, labels the axis 1, 10, 100 … 1 000 000 instead of 10ⁿ, so no label has a small superscript.
+   - **Zeros on a log axis.** A replicate of 0 (no colonies) is kept: it is averaged with the others, so 0, 100 and 0 make a mean of 33.3 with n = 3. A mean of 0 or less has no place on a log axis, so it is drawn at the axis floor as an open mark, and the chart says so under the plot ("○ 1 mean ≤ 0 drawn at the axis floor (…), open"), as do the caption ("On the log axis, 1 mean ≤ 0 is drawn at the axis floor (…) as open marks; means and n include them.") and the source data. If your method has a detection limit, you may prefer to enter values below it as the limit and say so in the legend.
 2. **Axis limits.** Type **Y min** and **max** (and **X min** / **max** on line and scatter charts). Leave them empty to fit the data.
 3. Values outside the limits are not drawn, and the chart says how many in red under the plot, for example "1 value outside the axis range not shown". This note is part of the figure; widen the limits if you do not want it there.
 
@@ -79,17 +81,19 @@ Any of these opens the same **📊 Chart** dialog on that panel:
 
 The preview follows every change. **Apply** keeps the changes; **Cancel** (or Esc) leaves the chart exactly as it was.
 
+**New data for the same chart.** **⇄ Replace from file…** (under the data box, or right-click the chart › **⇄ Replace data from file…**) reads a new CSV into the chart. With the same columns its settings, names and brackets stay, and the caption names the new file ("Data from swim_diameters_mm_v2.csv.").
+
 ---
 
 ## Task 5: A significance bracket
 
 1. In the dialog, under **Significance brackets**, click **+ Add**.
-2. Pick the two groups in the two menus (for example **Untreated** – **Phage-treated**).
+2. Pick the two groups in the two menus (for example **Untreated** – **Phage-treated**). On a grouped bar (or a box, violin or beeswarm with a **Series** column) the menus also list each bar of a group, so a bracket can join two strains within one condition: **NHS · PA14** – **NHS · dlasR**. The caption then reads "Brackets: p = 0.01 (NHS · PA14 vs NHS · dlasR)".
 3. Type the label from your own test, up to 40 characters (a counter beside the box shows how many, e.g. `25/40`): `*`, `n.s.`, or `p = 0.0008 (Welch t-test)`. FigureLab does not compute p-values; name the test in your legend. On a small two-group chart a long label can run wider than the plot; there, write `p = 0.0008` and name the test in the legend.
-4. **Apply.** The bracket sits above the highest point, whisker or bar of the two groups. Bar, box, violin and beeswarm charts draw brackets.
+4. **Apply.** The bracket sits above the highest point, whisker or bar of the two groups. Bar, box, violin and beeswarm charts draw brackets. The bracket icon in **Annotate & Draw** does the same for a chart in the grid: it opens the chart's dialog with a new bracket row.
 5. Two brackets that share a group or overlap are stacked, one above the other, so their labels stay apart (in the test, `p = 0.011` and `p = 0.022` on three strains). The caption lists them: "Brackets: p = 0.011 (ΔfliC vs WT); p = 0.022 (WT vs dmotA), from the author’s own statistical test."
 
-Order your groups (Task 6) before you add brackets: a bracket remembers the two positions, so moving a group afterwards changes which pair it joins.
+A bracket remembers its two groups by name, so you can reorder or rename groups after adding it (Task 6). If one of its groups leaves the chart (its rows deleted from the data, or two groups given one name), the bracket is not drawn on another pair: the dialog says "⚠ Not drawn: dmotA is no longer in the chart — pick its groups again, or remove it.", and the chart, caption, source data and the compliance check's **Brackets** row say so too.
 
 ![The Chart dialog for a wide table: Bar, Data layout Columns, SD error bars with points, and a bracket labelled p = 0.0008 (Welch t-test)](img/charts-dialog.png)
 
@@ -103,7 +107,7 @@ The **Names & colours** list in the dialog has one row per group or series.
 
 1. **Swatch:** sets that sample's colour in every chart of the figure and in the legend key.
 2. **shown as:** the name every chart of the figure shows for that sample, in their legends and in the key, for example `Δ*fliC*` for `dfliC` (`*…*` is italic). The toast names the other panels that changed: "Chart updated — the new name also shows in panel F". The data keep their name, so the colour and the lab style still match it; the source data give both names (Task 8).
-3. **↑ ↓:** move a group left or right. Its colour stays: a sample's colour is fixed by its name the first time it is drawn, so reordering groups or adding chart panels does not recolour anything.
+3. **↑ ↓:** move a group left or right. Its colour stays: a sample's colour is fixed by its name the first time it is drawn, so reordering groups or adding chart panels does not recolour anything. Brackets move with their groups: a bracket typed for WT – dmotA still joins WT and dmotA after ↑ on dmotA, in its menus and in the caption. The legend key follows the order of the chart you reordered last.
 
 ### Across the figure: Look › Sample colours
 
@@ -112,8 +116,8 @@ The **Names & colours** list in the dialog has one row per group or series.
 1. Open **Look** › **Sample colours**. Every sample in your charts has a row: the name the charts show, the data names behind it in brackets (`ΔfliC (dfliC)`), a swatch, and "palette" or **×**. The list follows your charts as you edit them.
 2. Change a swatch to recolour that sample in every chart and in the key.
 3. Click **×** beside a name to put it back on the chart palette.
-4. **⬇ Save as paper_style.json** saves every sample's colour, the palette ones too, and the **shown as** names, for the next figure. The toast counts them: "paper_style.json saved with 7 sample colours (1 set by hand, 6 from the palette; under 11 data names, so each name a sample is written as gets its colour; sample_palette and 2 shown-as names (sample_names))".
-5. **📄 Load lab style (paper_style.json)…** (at the end of Look) applies a lab style file: its font, its sample colours and its shown-as names. A summary says what was applied. Loading replaces the whole colour list, including colours you picked by hand. In the test, a new figure with the same CFU file, given the saved file, drew `dfliC` as Δ*fliC* again, in its saved colour.
+4. **⬇ Save as paper_style.json** saves every sample's colour, the palette ones too, the **shown as** names, and the figure's font once one is chosen (Arial, Helvetica or Times New Roman, from Typography or a journal preset; a figure still on the default font saves none), for the next figure. The toast counts them: "paper_style.json saved with 7 sample colours (1 set by hand, 6 from the palette; under 11 data names, so each name a sample is written as gets its colour; sample_palette and 2 shown-as names (sample_names))".
+5. **📄 Load lab style (paper_style.json)…** (at the end of Look) applies a lab style file: its font (if the file has one), its sample colours and its shown-as names. A summary says what was applied. Loading replaces the whole colour list, including colours you picked by hand. In the test, a new figure with the same CFU file, given the saved file, drew `dfliC` as Δ*fliC* again, in its saved colour.
 
 FigureLab reads `MOI_0`, `MOI 0` and `MOI 0 mean` as one sample: one row in Sample colours, one colour and one row in the key, even before you name it. **shown as** sets the name that row shows (here `MOI 0` in the replicate-column chart). A chart drawn from `… mean` columns has its own **shown as** box, filled in with the name without ` mean` (`MOI 0`).
 
@@ -127,7 +131,7 @@ One shown name is one sample: a colour follows the name a sample is shown as. In
 2. Set **Font family** (for example **Arial**) and **Text size** in pt (default 8).
 3. Chart text uses that font and size at the printed size (Text size also covers gene maps, scale-bar text and the legend key). On the test export, Text size 7 pt gave tick labels of 7.00 pt in Arial; axis titles are drawn slightly larger.
 4. Superscripts and subscripts (the 10ⁿ of a log axis, mL⁻¹, OD₆₀₀) print at 70 % of the text size. The compliance check's **Text size** row measures chart text and names the smallest superscript: at 7 pt the `10⁸` on the CFU axis was 4.9 pt, "below 5 pt". The row's **Text to 7.5 pt** button sets the text size that brings them to 5 pt.
-5. A journal preset (Look › **Target journal**) sets these for you; see [journal-submission.md](journal-submission.md). Under a journal with a larger minimum the button may not be offered: under PLOS ONE (8–12 pt) the `10⁸` printed 5.6 pt, and the row says "no text size clears both" (raising them to 8 pt would print the chart titles above 12 pt). It warns and does not fail; there is no plain-number option for a 10ⁿ axis, so keep them and say so to the journal, or write the values out in the data.
+5. A journal preset (Look › **Target journal**) sets these for you; see [journal-submission.md](journal-submission.md). Under a journal with a larger minimum the button may not be offered: under PLOS ONE (8–12 pt) the `10⁸` printed 5.6 pt, and the row says "no text size clears both" (raising them to 8 pt would print the chart titles above 12 pt). It warns and does not fail. On a log axis, tick **plain numbers** beside **log Y** in the Chart dialog: the axis reads 1, 10, 100 … with no superscripts (Task 3).
 
 ---
 
@@ -152,7 +156,9 @@ One shown name is one sample: a colour follows the name a sample is shown as. In
 - A table with two text columns (antibiotic × strain) is a **Grouped bar** with the second column as **Series**.
 - Added several CSVs at once? Double-click each chart to check its guess; the dialog opened only on the last.
 - After placing the figure's legend key, untick each chart's **legend** so the colours are explained once.
-- A chart in one grid cell at journal type size can be squeezed: the compliance check's **Chart room** row warns when a plot is squeezed too small or a legend name is cut off. Give the chart a column span of 2, or untick its **legend** when the figure's key lists the same names.
+- A chart in one grid cell at journal type size can be squeezed: the compliance check's **Chart room** row names a plot squeezed too small, tick labels, x numbers or group names that run together, a legend name cut at the panel edge, and a cut Y title. Its button (**Give E a taller cell**, a wider or a bigger one) spans the chart over more cells and adds the grid row they need: in the test, a chart in one cell of a 3 × 2 grid at 83 mm read "E: its plot is 3.9 mm tall (16% of the panel) …; group names run together (“WT”, “dfliC”) …", and **Give E a bigger cell** gave "E now spans 2 × 2 cells — 1 row added to the grid for it (Ctrl/⌘+Z undoes it)". Or untick its **legend** when the figure's key lists the same names.
+- **Row span 2** typed for a chart in the grid's last row says so: "E is in the grid's last row — Row span 2 needs 1 more row (Arrange › Rows)", with an **Add 1 row** button.
+- Kill curve with zero counts on a log axis: the zeros are averaged in and an all-zero point is drawn open at the axis floor (Task 3). Say in the legend how zero counts were treated.
 - More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).
 
 ## If something looks wrong
@@ -161,5 +167,7 @@ One shown name is one sample: a colour follows the name a sample is shown as. In
 - **The strains of an MIC table are averaged into one bar.** The line under the data box says "⚠ strain not used …": pick `strain` as **Series (group) column** (Chart type **Grouped bar**).
 - **A red "… outside the axis range not shown" note under a chart.** Your **Y min** / **max** cut off data. Widen or clear them.
 - **log Y is greyed out.** The chart is a **Stacked bar**; use **Grouped bar**.
+- **"⚠ Not drawn" under a bracket.** One of its groups is no longer in the chart, or both ends now share one name. Pick its groups again, or remove it.
+- **Open marks along the bottom of a log axis.** Those means are 0 (every replicate 0); see Task 3.
 - **Not available yet:** an "n =" label drawn on the chart (n is in the source data, so say it in the legend), and a broken axis with a zero.
 - Something else: [troubleshooting.md](troubleshooting.md).

@@ -286,6 +286,8 @@ const TRUTH = {
     await L.openSection(T, 'Export');
     const key = await p.evaluate(() => document.getElementById('key-text') ? document.getElementById('key-text').value || document.getElementById('key-text').textContent : '');
     expect(/WT \(blue, filled bars\)/.test(key) && (key.match(/ΔfliC/g) || []).length === 1, key);
+    // ux5 (charts5-10): the key follows the order of the chart last reordered (dfliC moved first in N0)
+    expect(key.indexOf('ΔfliC') < key.indexOf('WT ('), 'key order: ' + key);
     return key.slice(0, 160) + '…';
   });
   await step(T, 'N3 MOI_0 (panel B) and "MOI 0 mean" (panel D) share one colour and one key row; shown as "MOI 0" in B the row reads MOI 0', async () => {
@@ -338,7 +340,7 @@ const TRUTH = {
     await h.scrollIntoViewIfNeeded();
     const b1 = await h.boundingBox(), b2 = await btn(T, '⬇ Save as paper_style.json').boundingBox();
     await L.shot(T, 'charts-sample-colours', { x: b1.x - 6, y: b1.y - 6, width: 296, height: b2.y + b2.height - b1.y + 12 }, { doc: true });
-    return `${Object.keys(pal).length} names; toast "${t}"`;
+    return `${Object.keys(pal).length} names; font_family ${JSON.stringify(js.settings.font_family)}; toast "${t}"`;
   });
   await step(T, 'S2 × beside WT puts it back on the palette', async () => {
     await p.locator('#sample-colours-list [data-name="WT"] button', { hasText: '×' }).click();
@@ -669,6 +671,197 @@ const TRUTH = {
     const a = await drawn('A');
     expect(a.dfliC && a.dfliC.name === 'Δ*fliC*' && a.dfliC.color.toLowerCase() === saved.sample_palette.dfliC.toLowerCase(), JSON.stringify(a) + ' | ' + JSON.stringify(saved));
     return `dfliC drawn as "${a.dfliC.name}" ${a.dfliC.color}; summary "${sum.slice(0, 300)}"`;
+  });
+
+  // ---- ux5: round-5 steps (after S4: a new figure, chart A = cfu_24h.csv with the lab style) ----
+  const sigSec = () => chart.locator('.sec-lbl', { hasText: 'Significance brackets' }).locator('xpath=..');
+  const sigMenus = () => chart.locator('#chart-sig-list > div').evaluateAll(R => R.map(r => [...r.querySelectorAll('select')].map(s => s.selectedOptions[0] ? s.selectedOptions[0].text : '')));
+  const captionNow = () => p.evaluate(() => { images.forEach(im => { if (im && im.type === 'chart') { im._chartKey = ''; im._chartStat = null; } }); render(); return _captionText(); });
+  const openPanel = async (label) => { const pt = await panelPoint(label); await p.mouse.dblclick(pt.x, pt.y); await chart.waitFor({ state: 'visible' }); await p.waitForTimeout(300); };
+
+  await step(T, 'R5.1 Task 5/6: a bracket WT – dmotA, then ↑ on dmotA in Names & colours: the bracket keeps WT and dmotA (menus and caption)', async () => {
+    await openPanel('A');
+    await sigSec().getByRole('button', { name: '+ Add' }).click(); await p.waitForTimeout(200);
+    const row = chart.locator('#chart-sig-list > div').last();
+    await row.locator('select').nth(0).selectOption({ label: 'WT' });
+    await row.locator('select').nth(1).selectOption({ label: 'dmotA' });
+    await row.locator('input[type=text]').fill('p = 0.03');
+    await apply();
+    await openPanel('A');
+    const order0 = await chart.locator('#chart-names [data-key]').evaluateAll(r => r.map(e => e.dataset.key));
+    await chart.locator('#chart-names [data-key="dmotA"] button', { hasText: '↑' }).click(); await p.waitForTimeout(300);
+    const order1 = await chart.locator('#chart-names [data-key]').evaluateAll(r => r.map(e => e.dataset.key));
+    const menus = await sigMenus();
+    await apply();
+    const cap = await captionNow();
+    expect(order1.join() !== order0.join() && menus.length === 1 && menus[0].join('|') === 'WT|dmotA' && /Brackets: p = 0\.03 \(WT vs dmotA\)/.test(cap), JSON.stringify({ order0, order1, menus }) + ' | ' + cap);
+    return `order ${order0.join(', ')} → ${order1.join(', ')}; menus ${menus[0].join(' – ')}; caption "${(cap.match(/Brackets: [^,]*\)/) || [''])[0]}"`;
+  });
+
+  await step(T, 'R5.2 A bracket whose group is gone: dmotA\'s rows taken out of the data box → "⚠ Not drawn: dmotA is no longer in the chart"; Cancel', async () => {
+    await openPanel('A');
+    const ta = chart.locator('#chart-data-ta');
+    const t0 = await ta.inputValue();
+    await ta.fill(t0.split('\n').filter(l => !/^dmotA[\t,]/.test(l)).join('\n')); await p.waitForTimeout(800);
+    const why = (await chart.locator('#chart-sig-list').innerText()).replace(/\s+/g, ' ');
+    await chart.getByRole('button', { name: 'Cancel' }).click(); await p.waitForTimeout(300);
+    expect(/⚠ Not drawn: dmotA is no longer in the chart — pick its groups again, or remove it\./.test(why), why);
+    return why.slice(why.indexOf('⚠'));
+  });
+
+  await step(T, 'R5.3 A bracket within one group: grouped bar (serum × strain), the menus list "NHS · PA14"; NHS · PA14 – NHS · dlasR is captioned', async () => {
+    CSV['serum_killing.csv'] = 'serum,strain,replicate,survival_pct\n' + [['NHS', { PA14: [64.3, 59.8, 54.3], dlasR: [21.0, 25.4, 23.1] }], ['HI-NHS', { PA14: [98.2, 101.5, 96.7], dlasR: [97.0, 99.1, 102.3] }]]
+      .flatMap(([s, o]) => Object.entries(o).flatMap(([st, v]) => v.map((x, i) => `${s},${st},${i + 1},${x}`))).join('\n') + '\n';
+    const d = await importCsv('serum_killing.csv');
+    expect(d.kind === 'Grouped bar' && d.x === 'serum' && d.series === 'strain', JSON.stringify(d));
+    await sigSec().getByRole('button', { name: '+ Add' }).click(); await p.waitForTimeout(200);
+    const row = chart.locator('#chart-sig-list > div').last();
+    const opts = await row.locator('select').first().locator('option').allInnerTexts();
+    expect(['NHS', 'NHS · PA14', 'NHS · dlasR', 'HI-NHS', 'HI-NHS · PA14'].every(o => opts.includes(o)), opts.join(' | '));
+    await row.locator('select').nth(0).selectOption({ label: 'NHS · PA14' });
+    await row.locator('select').nth(1).selectOption({ label: 'NHS · dlasR' });
+    await row.locator('input[type=text]').fill('p = 0.01');
+    await apply();
+    const cap = await captionNow();
+    expect(/Brackets: p = 0\.01 \(NHS · PA14 vs NHS · dlasR\)/.test(cap), cap);
+    return `menus: ${opts.join(', ')}; caption "Brackets: p = 0.01 (NHS · PA14 vs NHS · dlasR)…"`;
+  });
+
+  await step(T, 'R5.4 Zeros on a log axis: dmexB 0, 100, 0 at 8 h is a mean of 33.3 with n = 3; an all-zero 24 h point is drawn at the floor, open, and said', async () => {
+    CSV['timekill_zeros.csv'] = 'time_h,PA14_rep1,PA14_rep2,PA14_rep3,dmexB_rep1,dmexB_rep2,dmexB_rep3\n0,4.3E+06,2.5E+06,3.9E+06,3.4E+06,3.0E+06,5.1E+06\n2,6.0E+04,1.3E+05,8.1E+04,7.1E+03,6.1E+03,1.0E+04\n4,5.7E+03,7.7E+03,5.1E+03,3.9E+02,5.7E+02,4.2E+02\n8,8.0E+02,9.0E+02,3.6E+02,0,1.00E+02,0\n24,6.0E+03,2.7E+03,5.8E+03,0,0,0\n';
+    const d = await importCsv('timekill_zeros.csv');
+    expect(d.kind === 'Line' && /\[ticked\]/.test(d.rep), JSON.stringify(d));
+    await chart.getByLabel('log Y').check(); await p.waitForTimeout(300);
+    await apply();
+    const label = (await charts()).pop().label;
+    const r = await p.evaluate((label) => { const el = images.find(im => im && im.label === label); el._chartKey = ''; el._chartStat = null;
+      const s = _chartStatsCached(el).series.find(q => /dmexB/.test(q.name || q.key)); const T = [];
+      _chartDraw(el, { rect() {}, poly() {}, line() {}, circle() {}, text(t) { T.push(String(t)); } });
+      return { p8: s.points.find(q => q.x === 8), p24: s.points.find(q => q.x === 24), note: T.find(t => /axis floor/.test(t)) || '', omitted: T.some(t => /omitted/.test(t)) }; }, label);
+    const cap = await captionNow();
+    expect(Math.abs(r.p8.y - 100 / 3) < 1e-9 && r.p8.n === 3 && r.p24.y === 0 && r.p24.n === 3, JSON.stringify(r));
+    expect(/^○ 1 mean ≤ 0 drawn at the axis floor \(.+\), open$/.test(r.note) && !r.omitted, 'note: ' + r.note);
+    expect(/On the log axis, 1 mean ≤ 0 is drawn at the axis floor \([^)]+\) as open marks; means and n include them\./.test(cap), cap);
+    return `8 h: ${r.p8.y.toFixed(1)} (n = ${r.p8.n}); 24 h: ${r.p24.y} (n = ${r.p24.n}); chart note "${r.note}"; caption "${(cap.match(/On the log axis[^.]*\./) || [''])[0]}"`;
+  });
+
+  await step(T, 'R5.5 "plain numbers" beside log Y: the log axis reads 1, 10, 100 … with no 10ⁿ', async () => {
+    const label = (await charts()).pop().label;
+    await openPanel(label);
+    await chart.getByLabel('plain numbers').check(); await p.waitForTimeout(300);
+    await apply();
+    const labs = await p.evaluate((label) => { const el = images.find(im => im && im.label === label); el._chartKey = ''; const T = []; _chartDraw(el, { rect() {}, line() {}, poly() {}, circle() {}, text(s, x, y, f, c, a) { if (a === 'right') T.push(String(s)); } }); return T; }, label);
+    expect(labs.some(l => /^1\s000\s000$/.test(l)) && !labs.some(l => /\^\{|×10|[⁰¹²³⁴⁵⁶⁷⁸⁹]/.test(l)), labs.join(' | '));
+    return 'y labels ' + labs.join(', ');
+  });
+
+  await step(T, 'R5.6 A plate reader\'s export as the reader wrote it: a 26-line Tecan header, wells in rows, Time [s] and Cycle Nr. → a line of every well against Time (h)', async () => {
+    const head = ['Application: Tecan i-control,,', 'Tecan i-control ,3.9.1.0,', 'Device: infinite 200Pro,Serial number: 1408003921,', 'Firmware: V_3.37_07/12_Infinite (Jul 13 2012/10.49.58),', 'MAI, V_3.37_07/12_Infinite (Jul 13 2012/10.49.58),', ',,',
+      'Date:,11/12/2026,', 'Time:,9:14:22 AM,', ',,', 'System,TECAN-PC,', 'User,TECAN-PC\\Lab,', 'Plate,Greiner 96 Flat Bottom Transparent Polystyrene,', 'Plate-ID (Stacker),,', ',,',
+      'Shaking (Orbital) Duration:,600,s', 'Shaking (Orbital) Amplitude:,3,mm', 'Kinetic Measurement,,', 'Kinetic Cycles:,25,', 'Interval Time:,00:15:00,', 'Mode,Absorbance,', 'Measurement Wavelength,600,nm', 'Bandwidth,9,nm', 'Number of Flashes,25,', 'Settle Time,0,ms', 'Start Time:,11/12/2026 9:14:22 AM,', ',,'];
+    const n = 25, t = [...Array(n)].map((_, i) => (i * 900 + (i ? 0.4 : 0)).toFixed(1).replace(/\.0$/, ''));
+    const wells = ['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3'];
+    const od = (w, i) => (w[0] === 'A' ? 0.09 : 0.1 * Math.exp((w[0] === 'B' ? 0.5 : w[0] === 'C' ? 0.35 : 0.2) * i / 4)).toFixed(4);
+    CSV['tecan_OD600_rows.csv'] = [...head, 'Cycle Nr.,' + t.map((_, i) => i + 1).join(','), 'Time [s],' + t.join(','), 'Temp. [°C],' + t.map(() => '37.1').join(','),
+      ...wells.map(w => w + ',' + t.map((_, i) => od(w, i)).join(',')), ',,', 'End Time:,11/12/2026 3:14:22 PM,'].join('\n') + '\n';
+    const d = await importCsv('tecan_OD600_rows.csv');
+    const info = (await chart.locator('#chart-delim-info').innerText()).replace(/\s+/g, ' ');
+    const plate = (await chart.locator('#chart-wells-wrap').innerText()).replace(/\s+/g, ' ');
+    const xt = await chart.locator('#chart-xtitle').inputValue();
+    const xs = await p.evaluate(() => _chartDraft.data.rows.map(r => r[_chartDraft.mapping.xCol]));
+    expect(d.kind === 'Line' && d.x === 'Time (h)' && xt === 'Time (h)' && d.ycols.join() === wells.join(), JSON.stringify(d) + ' X title ' + xt);
+    expect(/26 instrument lines above the table skipped \(it starts at “Cycle Nr\.”\)/.test(info) && /the wells ran down the rows: turned to one column per well/.test(info)
+      && /1 line below it \(“End Time”\) left out/.test(info) && /Time \[s\] read as seconds, in hours \(Time \(h\)\)/.test(info), info);
+    expect(/Plate wells \(12: A1–D3\)/.test(plate), plate);
+    expect(xs.length === n && xs[0] === 0 && Math.abs(xs[n - 1] - 21600.4 / 3600) < 1e-6, 'x: ' + xs.slice(-2));
+    await apply();
+    return `"${info}"; X ${d.x} (0 → ${xs[n - 1].toFixed(3)} h); Y ${d.ycols.length} wells, no Cycle Nr. or Temp.`;
+  });
+
+  await step(T, 'R5.7 Replicate headers Culture1–3 average into one bar per condition; a file named swim_diameters_mm.csv gives the Y title "swim diameters (mm)"', async () => {
+    CSV['psd95_puncta.csv'] = 'Condition,Culture1,Culture2,Culture3\nshCtrl,9.8,10.04,9.59\nshNlgn1,4.75,4.92,4.71\nRescue,8.94,9.91,8.56\n';
+    const d = await importCsv('psd95_puncta.csv');
+    expect(d.kind === 'Bar' && d.x === 'Condition' && /Average replicate columns into one series each \(Mean: 3\) \[ticked\]/.test(d.rep), JSON.stringify(d));
+    await apply();
+    const label = (await charts()).pop().label;
+    const g = await p.evaluate((label) => { const el = images.find(im => im && im.label === label); el._chartKey = ''; el._chartStat = null; return _chartStatsCached(el).groups.map(q => [q.key, q.bars[0].value, q.bars[0].n]); }, label);
+    expect(Math.abs(g[0][1] - mean([9.8, 10.04, 9.59])) < 1e-9 && g[0][2] === 3, JSON.stringify(g));
+    CSV['swim_diameters_mm.csv'] = '﻿Strain,Rep 1,Rep 2,Rep 3\r\nWT,41.5,44.0,39.5\r\ndfliC,6.0,5.5,6.5\r\ndfliC + pfliC,33.0,30.5,35.0\r\n,,,\r\n';
+    const d2 = await importCsv('swim_diameters_mm.csv');
+    expect(d2.kind === 'Bar' && d2.ytitle === 'swim diameters (mm)' && /\[ticked\]/.test(d2.rep), JSON.stringify(d2));
+    await apply();
+    return `${d.rep}; shCtrl ${g[0][1].toFixed(3)} (n = ${g[0][2]}); swim_diameters_mm.csv: Y title "${d2.ytitle}"`;
+  });
+
+  await step(T, 'R5.8 ⇄ Replace from file… in the Chart dialog reads a new file into the chart; the caption names the new file', async () => {
+    CSV['swim_diameters_mm_v2.csv'] = 'Strain,Rep 1,Rep 2,Rep 3\nWT,42.0,43.5,40.5\ndfliC,6.5,5.0,6.0\ndfliC + pfliC,34.0,31.5,33.0\n';
+    const label = (await charts()).pop().label;
+    await openPanel(label);
+    await L.pickFiles(T, chart.getByRole('button', { name: '⇄ Replace from file…' }), [file('swim_diameters_mm_v2.csv')]);
+    await p.waitForTimeout(600);
+    const info = await chart.locator('#chart-delim-info').innerText();
+    await apply();
+    const cap = await captionNow();
+    expect(/swim_diameters_mm_v2\.csv/.test(info) && /Data from swim_diameters_mm_v2\.csv\./.test(cap) && !/edited in FigureLab/.test(cap), info + ' | ' + cap);
+    return `dialog "${info.replace(/\s+/g, ' ')}"; caption "Data from swim_diameters_mm_v2.csv."`;
+  });
+
+  await step(T, 'R5.9 A squeezed chart (4 pictures + a chart in a 3 × 2 grid, ⌘K asm, printed width 83 mm): Chart room names it, and its "Give E a … cell" button gives it the cell and the row it needs', async () => {
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    const pics = [];
+    for (let i = 0; i < 4; i++) pics.push(await L.canvasImage(T, path.join(inp, `photo_${i}.png`), 400, 300, (c, w, h, rnd) => { c.fillStyle = '#ddd'; c.fillRect(0, 0, w, h); for (let k = 0; k < 60; k++) { c.fillStyle = `hsl(${rnd() * 360},50%,40%)`; c.fillRect(rnd() * w, rnd() * h, 20, 20); } }, { seed: i + 3 }));
+    await L.pickFiles(T, dropZone(), pics); await p.waitForTimeout(800);
+    await importCsv('swim_diameters_mm.csv'); await apply();
+    // the chart in one cell of a 3 × 2 grid (Arrange › Columns 3, Rows 2)
+    await L.openSection(T, 'Arrange');
+    await p.locator('#cols').fill('3'); await p.locator('#cols').press('Tab');
+    await p.locator('#rows').fill('2'); await p.locator('#rows').press('Tab'); await p.waitForTimeout(500);
+    const hits = await L.cmdk(T, 'asm'); await p.waitForTimeout(600);
+    const tj = await p.locator('#target-journal').inputValue().catch(() => '?');
+    await L.openSection(T, 'Export');
+    await p.locator('#export-width-mm').selectOption({ value: '83' });
+    await p.waitForTimeout(800);
+    await L.openSection(T, 'Check');
+    await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const repText = await rep.innerText();
+    const row = (repText.match(/Chart room\n([^\n]*)/) || [])[1] || '';
+    const b = rep.locator('button', { hasText: /^Give E a (taller|wider|bigger) cell$/ });
+    const bl = (await b.count()) ? (await b.first().innerText()).trim() : '';
+    expect(/E: /.test(row) && bl, `hits ${hits.slice(0, 3).join(' / ')}; journal ${tj}; row: ${row} | button ${bl} | report: ${repText.replace(/\s+/g, ' ').slice(0, 600)}`);
+    await L.toasts(T);
+    await b.first().click(); await p.waitForTimeout(800);
+    const t = await L.toasts(T);
+    if (await rep.isVisible()) await p.keyboard.press('Escape');
+    const g = await p.evaluate(() => { const el = images.find(im => im && im.type === 'chart'); return { cs: el.colSpan || 1, rs: el.rowSpan || 1, cols: cols.value, rows: rows.value }; });
+    expect(/^E now spans \d × \d cells — 1 row added to the grid for it \(Ctrl\/⌘\+Z undoes it\)/.test(t) && g.rs === 2, t + ' | ' + JSON.stringify(g));
+    return `row "${row.slice(0, 220)}"; button "${bl}"; toast "${t}"; grid ${g.cols} × ${g.rows}`;
+  });
+
+  await step(T, 'R5.10 Row span 2 on a chart in the grid\'s last row: the toast says it needs another row and its "Add 1 row" button adds it', async () => {
+    await p.keyboard.press('ControlOrMeta+z'); await p.waitForTimeout(600);
+    const g0 = await p.evaluate(() => ({ rs: images.find(im => im && im.type === 'chart').rowSpan || 1, rows: rows.value }));
+    expect(g0.rs === 1, 'undo did not take the span back: ' + JSON.stringify(g0));
+    const idx = await p.evaluate(() => images.findIndex(im => im && im.type === 'chart'));
+    const rowEl = p.locator('#img-list > *').nth(idx);
+    await rowEl.locator('button', { hasText: '⚙' }).click(); await p.waitForTimeout(300);
+    const rs = rowEl.locator('.f-rowspan');
+    await L.toasts(T);
+    await rs.fill('2'); await p.waitForTimeout(500);
+    const t = await L.toasts(T);
+    expect(/E is in the grid's last row — Row span 2 needs 1 more row \(Arrange › Rows\)/.test(t), 'toast: ' + t);
+    await p.locator('#toast').getByRole('button', { name: 'Add 1 row' }).click(); await p.waitForTimeout(500);
+    const r1 = await p.evaluate(() => rows.value);
+    expect(+r1 === +g0.rows + 1, `rows ${g0.rows} → ${r1}`);
+    return `toast "${t}"; Add 1 row: rows ${g0.rows} → ${r1}`;
+  });
+
+  await step(T, 'R5.11 Under ASM (Arial), Look › Sample colours › ⬇ Save as paper_style.json writes the font with the colours (font_family)', async () => {
+    await L.openSection(T, 'Look');
+    const f = await L.download(T, () => btn(T, '⬇ Save as paper_style.json').click(), /paper_style\.json$/);
+    const js = JSON.parse(fs.readFileSync(f, 'utf8')).settings;
+    expect(js.font_family === 'Arial' && js.sample_palette && Object.keys(js.sample_palette).length, JSON.stringify(js));
+    return `font_family "${js.font_family}", ${Object.keys(js.sample_palette).length} colours`;
   });
 
   await L.finish(T);
