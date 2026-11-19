@@ -301,8 +301,12 @@ const { step, expect, btn } = L;
     const chips1 = await p.locator('#img-list > .img-item').filter({ hasNotText: 'hidden' }).locator('button.f-chan-chip').allInnerTexts();
     expect(chips1.filter(c => c === 'CellMask').length === 1 && chips1.includes('Membrane'), 'chips ' + chips1);
     // fluor5-02: the merge showing the same file takes the name too, and the toast says so
-    expect(/^Panel \w+'s channel is now CellMask — this panel only(; merge \w+ takes it for the same file’s channel)?; the other magenta panels \([^)]*\) keep Membrane\. ≡ Sync by channel now treats it as its own channel\. To rename every magenta panel, type the name under Export › Legend key › Channel names\./.test(t), 'toast: ' + t);
+    expect(/^Panel C's channel is now CellMask — this panel only; merge D takes it for the same file’s channel; the other magenta panels \(E, H, I, J\) keep Membrane\. ≡ Sync by channel now treats it as its own channel\. To rename every magenta panel, type the name under Export › Legend key › Channel names\./.test(t), 'toast: ' + t);
+    // round 5 (fluor5-01/02): the caption follows — the panel's Split-filled caption note and its merge
     await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600);
+    const capR = await p.locator('#caption-out').inputValue();
+    expect(/\(C\) CellMask \(magenta\)\./.test(capR) && /\(D\) Merge of DAPI \(blue\), GFP \(green\) and CellMask \(magenta\)/.test(capR) && /\(H\) Membrane \(magenta\)\./.test(capR), 'caption after the one-panel rename: ' + capR.slice(0, 700));
     const f = p.getByLabel('Name of the magenta channel');
     const both = await f.inputValue();
     // ISSUES (round 4), fixed in round 5: typing the name the other panels already have
@@ -318,7 +322,11 @@ const { step, expect, btn } = L;
     await closeAllSettings();
     const k2 = await keyText();
     expect(k2 === 'DAPI (blue); GFP (green); Membrane (magenta).', 'key text after: ' + k2);
-    return `toast "${t}"; key "${k1}"; Channel names field "${both}"; Membrane typed there: "${kSame}"; chip back to Membrane: "${k2}"`;
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600);
+    const capB = await p.locator('#caption-out').inputValue();
+    expect(/\(C\) Membrane \(magenta\)\./.test(capB) && /\(D\) Merge of DAPI \(blue\), GFP \(green\) and Membrane \(magenta\)/.test(capB) && !/CellMask/.test(capB), 'caption after uniting: ' + capB.slice(0, 700));
+    return `toast "${t}"; caption "(C) CellMask (magenta)" and "(D) Merge of … CellMask (magenta)"; key "${k1}"; Channel names field "${both}"; Membrane typed there: "${kSame}"; caption back to Membrane; chip back to Membrane: "${k2}"`;
   });
 
   await step(T, '12. Colour-blind view › Deuteranopia (screen only), then back to Normal vision', async () => {
@@ -422,6 +430,9 @@ const { step, expect, btn } = L;
     expect(/The legend key needed free space, so the right margin grew from 16 to \d+ px/.test(t1), 'toast: ' + t1);
     const opts = await p.locator('#key-where option').allInnerTexts();
     expect(opts.join('|') === 'Free space|Top right|Top left|Bottom right|Bottom left|Right edge|Below', opts.join('|'));
+    // round 5: the place menu has a visible "Where" label
+    const whereLab = (await p.locator('label[for="key-where"]').innerText()).trim();
+    expect(whereLab === 'Where' && await p.locator('label[for="key-where"]').isVisible(), 'Where label: ' + whereLab);
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
@@ -625,6 +636,15 @@ const { step, expect, btn } = L;
     await set('Name of the magenta channel', 'mScarlet-Parkin'); await set('Name of the green channel', 'mito-GFP (OMP25)');
     await btn(T, '⟳ Render').click(); await p.waitForTimeout(600);
     const fit = await p.evaluate(() => images.filter(im => im && im._tagFit && !im.hidden).map(im => formatLabel(im.label) + ' ' + im._tagFit));
+    // round 5 (fluor5-03): a merge's tag keeps clear of the inset outline drawn on it, and of its letter
+    const over = await p.evaluate(() => {
+      const ov = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
+      const tags = figTextItems.filter(t => t.kind === 'tag');
+      return { frames: _insetFrames.map(f => formatLabel(images[f.parentIdx].label)),
+        hits: _insetFrames.flatMap(f => tags.filter(t => t.idx === f.parentIdx && (ov(t.bbox, f) || (f.lbox && ov(t.bbox, f.lbox)))).map(t => t.str)) };
+    });
+    expect(over.frames.sort().join() === 'D,I' && !over.hits.length, 'tags over inset outlines: ' + JSON.stringify(over));
+    expect(fit.includes('D merge') && fit.includes('I merge'), 'D and I do not read "Merge": ' + fit);
     await L.openSection(T, 'Check');
     await btn(T, '✓ Check journal compliance').click();
     const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
@@ -647,6 +667,155 @@ const { step, expect, btn } = L;
     await r.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(400);
     expect(chip === 'mScarlet', 'chip ' + chip);
     return 'chip ' + chip;
+  });
+
+  // ---- Four channels (round 5: fluor5-05, -06, -02, -12, -13, -07). A new figure of one field:
+  // DAPI | GCaMP6s | mCherry | Cy5. Cy5 is grey, GCaMP6s keeps its name, the merge of four warns.
+  const keyText4 = () => p.evaluate(() => (document.getElementById('key-text').value || document.getElementById('key-text').textContent).trim());
+  const caption4 = async () => { await L.openSection(T, 'Export'); await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(600); return p.locator('#caption-out').inputValue(); };
+  const report = async () => {
+    await L.openSection(T, 'Check'); await btn(T, '✓ Check journal compliance').click();
+    const rep = p.locator('#info-modal-bg'); await rep.waitFor({ state: 'visible' });
+    const txt = await rep.innerText(); await p.keyboard.press('Escape');
+    const rowOf = (lab) => ((txt.match(new RegExp('\\n(.)\\n' + lab + '\\n([^\\n]*)')) || []).slice(1).join(' '));
+    return rowOf;
+  };
+  await step(T, '20. Four channels: ✕ New; DAPI, GCaMP6s, mCherry, Cy5 › 🎨 Auto-channels (Cy5 grey, GCaMP6s keeps its name) › ⊕ Merge: "(blue + green + magenta + grey)", and Channels per merge warns', async () => {
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(600);
+    // a journal first: with none, a compliance row that passes is not listed
+    await L.openSection(T, 'Look'); await p.locator('#target-journal').selectOption({ label: 'eLife' }); await p.waitForTimeout(500);
+    const f4 = [
+      I.fluorTiff(path.join(inp, 'C1-Neuron_shCtrl_DAPI.tif'), 'DAPI', { seed: 31 }),
+      I.fluorTiff(path.join(inp, 'C2-Neuron_shCtrl_GCaMP6s.tif'), 'GFP', { seed: 31 }),
+      I.fluorTiff(path.join(inp, 'C3-Neuron_shCtrl_mCherry.tif'), 'CellMask', { seed: 31 }),
+      I.fluorTiff(path.join(inp, 'C4-Neuron_shCtrl_Cy5.tif'), 'DAPI', { seed: 81 }),
+    ];
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), f4);
+    await p.waitForFunction(() => images.filter(Boolean).length === 4, null, { timeout: 30000 });
+    const tip = btn(T, 'Got it'); if (await tip.count()) await tip.click();
+    await btn(T, 'Auto-channels').click(); await p.waitForTimeout(500);
+    const t0 = await toast();
+    const chips = await p.locator('#img-list button.f-chan-chip').allInnerTexts();
+    const luts = await p.evaluate(() => images.filter(Boolean).map(im => im.lut).join(','));
+    expect(t0 === 'Assigned channels to 4 panels from filenames', 'Auto-channels toast: ' + t0);
+    expect(chips.join(',') === 'DAPI,GCaMP6s,mCherry,Cy5' && luts === 'blue,green,magenta,none', 'chips ' + chips + ' luts ' + luts);
+    // evidence for ISSUES: how the caption names the grey Cy5 panel before any merge
+    const cap0 = await caption4();
+    const greyCap = (cap0.match(/\(D\) [^.]*\./) || [''])[0];
+    for (const r of await p.locator('#img-list > .img-item').all()) await r.locator('input.panel-pick').check();
+    await btn(T, '⊕ Merge channels').click(); await p.waitForTimeout(800);
+    const t1 = await toast();
+    expect(/^A, B, C, D merged into A \(blue \+ green \+ magenta \+ grey\)/.test(t1), 'merge toast: ' + t1);
+    const rowOf = await report();
+    const cpm = rowOf('Channels per merge');
+    expect(/^⚠ A \(4\) — QUAREP-LiMi checklist: at most 3 channels in a merge, preferably 2; show the rest as separate greyscale panels/.test(cpm), 'Channels per merge: ' + cpm);
+    return `chips ${chips.join(', ')} (Cy5 ${luts.split(',')[3]}); "${t0}"; caption of the unmerged Cy5 panel "${greyCap}"; "${t1.split(' — ')[0]}"; Channels per merge ${cpm}`;
+  });
+
+  await step(T, '20b. ⑃ Split, Columns 5 › Channel names: the Cy5 field › MAP2 — caption "(grey)", Methods "in greyscale"; the split GCaMP6s chip › GCaMP6f renames it in the merge too', async () => {
+    const st = await openSettings(row('A'));
+    await st.locator('button', { hasText: '⑃ Split channels into panels' }).click(); await p.waitForTimeout(1000);
+    await closeAllSettings();
+    await L.openSection(T, 'Arrange');
+    await p.getByLabel('Columns', { exact: true }).fill('5'); await p.getByLabel('Columns', { exact: true }).press('Tab');
+    await p.getByLabel('Rows', { exact: true }).fill('1'); await p.getByLabel('Rows', { exact: true }).press('Tab');
+    await btn(T, 'Relabel A, B, C').click(); await p.waitForTimeout(500);
+    const lay = await p.evaluate(() => panelBounds.filter(b => images[b.idx]).map(b => formatLabel(images[b.idx].label) + ':' + ((images[b.idx].channels || []).length ? 'merge' : images[b.idx].lut)).join(' '));
+    expect(lay === 'A:blue B:green C:magenta D:none E:merge', 'row: ' + lay);
+    await L.openSection(T, 'Export');
+    const g = p.getByLabel('Name of the Cy5 picture channel');
+    await g.fill('MAP2'); await g.press('Enter'); await p.waitForTimeout(500);
+    const cap = await caption4();
+    expect(/\(D\) MAP2\./.test(cap) && /\(E\) Merge of DAPI \(blue\), GCaMP6s \(green\), mCherry \(magenta\) and MAP2 \(grey\)/.test(cap) && !/Cy5/.test(cap), 'caption: ' + cap.slice(0, 600));
+    await btn(T, '✎ Write Methods paragraph').click(); await p.waitForTimeout(500);
+    const m = await p.locator('#methods-out').inputValue();
+    expect(/MAP2 in greyscale/.test(m), 'Methods: ' + (m.match(/[^.]*greyscale[^.]*\./g) || [m.slice(0, 300)]).join(' '));
+    const k = await keyText4();
+    // the split GCaMP6s panel renamed on its chip: its merge takes the name (fluor5-02)
+    await closeAllSettings(); await L.toasts(T);
+    await row('B').locator('button.f-chan-chip').click(); await p.waitForTimeout(300);
+    await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('GCaMP6f'); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    const tc = (await L.toasts(T)).split(' | ').find(x => /GCaMP6f/.test(x)) || '';
+    await closeAllSettings();
+    const cap2 = await caption4();
+    expect(/merge E takes it for the same file’s channel/.test(tc), 'chip toast: ' + tc);
+    expect(/\(B\) GCaMP6f \(green\)\./.test(cap2) && /\(E\) Merge of DAPI \(blue\), GCaMP6f \(green\)/.test(cap2) && !/GCaMP6s/.test(cap2), 'caption after GCaMP6f: ' + cap2.slice(0, 600));
+    return `${lay}; key "${k}"; caption "(D) MAP2." "(E) Merge of … and MAP2 (grey)"; Methods "${(m.match(/[^.;]*MAP2 in greyscale[^.;]*/) || [''])[0].trim()}"; chip toast "${tc}"`;
+  });
+
+  await step(T, '20c. The merge\'s ⚙ › Channels: the mCherry name box › Homer1-mCherry (this merge only); × on MAP2 leaves three channels and Channels per merge passes', async () => {
+    const st = await openSettings(row('E'));
+    const names = await st.locator('input.ch-name').evaluateAll(a => a.map(x => x.getAttribute('aria-label') + '=' + x.value));
+    const box = st.getByLabel('Name of channel 3 in this merge');
+    expect(await box.inputValue() === 'mCherry', 'channel names ' + names);
+    await box.fill('Homer1-mCherry'); await box.press('Enter'); await p.waitForTimeout(500);
+    const t = await toast();
+    expect(t === 'Panel E: channel 3 is now Homer1-mCherry in this merge — its tag, the caption and Methods', 'toast: ' + t);
+    const cap = await caption4();
+    expect(/\(E\) Merge of DAPI \(blue\), GCaMP6f \(green\), Homer1-mCherry \(magenta\) and MAP2 \(grey\)/.test(cap) && /\(C\) mCherry \(magenta\)\./.test(cap), 'caption: ' + cap.slice(0, 600));
+    // fluor5-04: a grey channel in a merge is listed under its own name, not under green
+    const dr = (await report())('Display ranges by channel');
+    expect(/^✓ Same range per channel across panels ✓ \(DAPI, GCaMP6f, mCherry, MAP2\)/.test(dr) || (/^✓ Same range per channel across panels ✓/.test(dr) && /MAP2/.test(dr)), 'Display ranges: ' + dr);
+    const st2 = await openSettings(row('E'));
+    const vals = await st2.locator('input.ch-name').evaluateAll(a => a.map(x => x.value));
+    const k4 = vals.indexOf('MAP2');
+    expect(k4 >= 0, 'no MAP2 channel in the merge: ' + vals);
+    await st2.locator('button.ch-del').nth(k4).click();
+    await p.waitForTimeout(500);
+    const n = await p.evaluate(() => images.find(i => i && !i.excluded && formatLabel(i.label) === 'E').channels.length);
+    await closeAllSettings();
+    const rowOf = await report();
+    const cpm = rowOf('Channels per merge');
+    expect(n === 2 && /^✓ Every merge has at most 3 channels/.test(cpm), 'channels ' + n + '; row ' + cpm);
+    return `${names.join(', ')}; "${t}"; Display ranges ${dr}; × on MAP2 → ${1 + n} channels; Channels per merge ${cpm}`;
+  });
+
+  // round 5 (fluor5-07): an inset of a channel in the middle of a row goes to the first free cell
+  await step(T, '20d. Rows 2; right-click B (a channel mid-row) › ⧉ Add linked inset…: Put it › in the first free cell is the default; X/Y/W/H with Tab › ⧉ Add inset; no panel moves', async () => {
+    await L.openSection(T, 'Arrange');
+    await p.getByLabel('Rows', { exact: true }).fill('2'); await p.getByLabel('Rows', { exact: true }).press('Tab'); await p.waitForTimeout(400);
+    const before = await p.evaluate(() => panelBounds.filter(b => images[b.idx]).map(b => formatLabel(images[b.idx].label) + '@' + Math.round(b.x) + ',' + Math.round(b.y)).join(' '));
+    await clickPanel('B');
+    const pt = await p.evaluate(() => { const cv = document.getElementById('fig-canvas'), c = cv.getBoundingClientRect(), k = c.width / cv.width;
+      const b = panelBounds.find(q => images[q.idx] && formatLabel(images[q.idx].label) === 'B'); return { x: c.x + (b.x + b.w / 2) * k, y: c.y + (b.y + b.h / 2) * k }; });
+    await p.mouse.click(pt.x, pt.y, { button: 'right' }); await p.waitForTimeout(300);
+    await p.locator('body *:visible').filter({ hasText: /^⧉\s+Add linked inset…$/ }).last().click();
+    const m = p.locator('#crop-modal'); await m.waitFor({ state: 'visible' });
+    const vis = await m.locator('#inset-place-row').isVisible();
+    const sel = await m.locator('#inset-place').inputValue();
+    const optTxt = (await m.locator('#inset-place option:checked').innerText()).trim();
+    expect(vis && sel === 'free' && optTxt === 'in the first free cell (no panel moves)', 'Put it: ' + JSON.stringify({ vis, sel, optTxt }));
+    for (const [k, v] of [['x', 300], ['y', 80], ['w', 128], ['h', 128]]) {
+      await m.locator('#crop-px-' + k).fill(String(v)); await m.locator('#crop-px-' + k).press('Tab');
+    }
+    expect(await m.isVisible(), 'the dialog closed while typing the region');
+    // fluor5-09: what Enter does in a px field (the guide says Tab)
+    await m.locator('#crop-px-h').press('Enter'); await p.waitForTimeout(600);
+    const enterAdds = !(await m.isVisible());
+    if (!enterAdds) { await m.locator('button', { hasText: '⧉ Add inset' }).click(); await p.waitForTimeout(700); }
+    const t = await toast();
+    const after = await p.evaluate(() => panelBounds.filter(b => images[b.idx] && images[b.idx].insetOf == null).map(b => formatLabel(images[b.idx].label) + '@' + Math.round(b.x) + ',' + Math.round(b.y)).join(' '));
+    expect(/^Inset F of B placed in the first free cell — no other panel moved/.test(t), 'toast: ' + t);
+    expect(after === before, 'panels moved: ' + before + ' → ' + after);
+    return `Put it: "${optTxt}"; Enter in H ${enterAdds ? 'added the inset at once' : 'did not add the inset (⧉ Add inset clicked)'}; "${t.split(' — ').slice(0, 2).join(' — ')}"; A–E stay at ${after}`;
+  });
+
+  // round 5 (fluor5-15): under a tall grid the key goes under the panels, in a row
+  await step(T, '20e. Columns 2, Rows 3, eLife › Export › Place the key on the figure: the bottom margin grows and the key runs in a row under the panels', async () => {
+    await L.openSection(T, 'Arrange');
+    await p.getByLabel('Columns', { exact: true }).fill('2'); await p.getByLabel('Columns', { exact: true }).press('Tab');
+    await p.getByLabel('Rows', { exact: true }).fill('3'); await p.getByLabel('Rows', { exact: true }).press('Tab'); await p.waitForTimeout(400);
+    await L.openSection(T, 'Export'); await L.toasts(T);
+    await p.getByLabel('Place the key on the figure').check(); await p.waitForTimeout(900);
+    const tk = (await L.toasts(T)).split(' | ').find(x => /legend key needed free space/.test(x)) || '';
+    const g = await p.evaluate(() => {
+      const a = annotations.find(a => a && a.type === 'legend'), P = panelBounds.filter(b => images[b.idx]);
+      const bottom = Math.max(...P.map(b => b.y + b.h)), fs = _keyFs(), Lk = _keyLayout(_figureKey(), fs, _keyFont(fs));
+      return { under: a.yf * canvasLogicalH >= bottom - 0.5, rows: _figureKey().length, cols: Lk.cols };
+    });
+    expect(/the bottom margin grew from \d+ to \d+ px/.test(tk), 'toast: ' + tk);
+    expect(g.under && g.cols === g.rows, 'key placement ' + JSON.stringify(g));
+    return `"${tk.split(' — ')[0]}"; key under the panels, ${g.rows} entries in one row`;
   });
 
   await L.finish(T);
