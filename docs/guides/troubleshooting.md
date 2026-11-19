@@ -43,7 +43,8 @@ Symptom → cause → fix. The first table is for habits from earlier versions: 
 | Click − after **⊡ Fit** in freeform; give a TextBox a white fill | Fit cut off the canvas bottom; unticking Fill did nothing | **⊡ Fit** shows the whole canvas; unticking **Fill** removes a TextBox's box. → `freeform` |
 | Write "phi" instead of φ for selectable PDF text | Greek letters stayed in the picture | Greek letters such as Δ and φ are real text in the PDF's standard Symbol font. → `freeform` |
 | Darken a TEM with ⚙ › **Black pt** until its scale-bar text passes **Text contrast** | Auto contrast picked the text colour from the bar's strip, not the pixels under the text | **Auto contrast** reads each text on the pixels under it and adds a backing chip where neither black nor white reads; coloured channel tags keep their colour on a chip. → `phage-and-microbiology`, `fluorescence` |
-| Set **Arrange › Margins** back by hand after moving the placed key | A margin grown for the key kept its width | The margin is given back when the key moves. → `phage-and-microbiology`, `journal-submission` |
+| Set **Arrange › Margins** back by hand after moving the placed key or widening the figure | A margin grown for the key kept its width | The margin is given back when the key needs less room: when it moves and when the figure is widened. → `phage-and-microbiology`, `journal-submission`, `tips` |
+| Check the bottom margin and the figure's size after reopening a session | A placed key's margin could grow again on reopening | A session reopens exactly as saved, margins and size included. → `tips` |
 | Press **⟳ Render** to get a new caption note into the caption | The caption updated only on the next render | An untouched caption takes the note within a second. → `journal-submission` |
 | Type a short **Y title** for a densitometry chart | The default title was cut off | A long Y title is set on two lines. → `western-blot` |
 | Type replicate means into the densitometry chart by hand | Lanes with one name were not pooled | Give the replicate lanes one **shown as** name, or a lane-table row of names: one bar, mean ± SD with n and the points, still linked. A chart with typed numbers is flagged as "typed by hand". → `western-blot` |
@@ -60,6 +61,10 @@ Symptom → cause → fix. The first table is for habits from earlier versions: 
 | Write `dfliC` and `ΔfliC` the same way in every file before charting | A shown-as name that matched another file's data name still gave two colours and two key rows | Samples shown under one name share one colour and one key row. → `charts` |
 | Retype a replicate table (`condition, Rep1, Rep2, Rep3`) as tidy rows | Replicate columns were averaged only for line charts | A bar chart averages them too: one bar per condition, mean ± SD with the points. → `charts` |
 | Set Series to none and tick every well for a long plate-reader run | Runs longer than about 25 reads opened with a well taken as the series | Exports open as plates at any length, in minutes or hours. → `phage-and-microbiology` |
+| Delete a Tecan or Gen5 export's settings block, transpose wells in rows, and divide `Time [s]` by 3600 in Excel | The header was read as the table, and seconds and rows were not understood | Add the export as the reader wrote it: the header is skipped, wells in rows are turned to columns, seconds are read as time, in minutes or hours by the run's length, and the line under the data box says so. → `tips` |
+| Order the groups before adding significance brackets, and re-pick both menus after ↑ ↓ | A bracket was stored by position, so a reorder moved it onto other groups | A bracket stays on the groups you picked through ↑ ↓; one whose group is gone is flagged, not moved. → `tips`, `charts` |
+| Type a channel's name in each panel's chip to bring back one panel named on its own | Typing the colour's own name under **Channel names** changed nothing | Type the name under **Export › Legend key › Channel names** and press <kbd>Enter</kbd>: every panel of that colour takes it, the one named on its own too. → `fluorescence` |
+| Replace zeros with a detection limit before choosing **log Y** | Values ≤ 0 were left out before averaging | They stay in the mean and n and are drawn at the axis floor as open marks; the caption says so. → `tips` |
 
 ## Problems you can still meet
 
@@ -75,16 +80,15 @@ Symptom → cause → fix. The first table is for habits from earlier versions: 
 | Two scale bars on one picture | The picture has a bar burned in | In 🔍 Auto-detect choose **Keep the bar in the image as the scale bar**, or crop the old bar off. → `phage-and-microbiology` |
 | One strain is listed twice in the key | Two charts show it under different names | Give it one name with **shown as** (it renames it in every chart; a chart from `… mean` columns has its own box): one shown name is one colour and one key row. → `charts` |
 | The compliance **Measurements** row warns | A count or ruler was made on a picture you have since replaced | Count or measure the new picture, or remove the old one (× in Measure). → `phage-and-microbiology` |
-| One panel keeps its own channel name after you typed the colour's name under **Channel names** | The name typed there is the one the colour already had, so nothing changes | Type the name in that panel's channel chip instead. → `fluorescence` |
 | A second chart appeared when you charted a blot again | 📊 **Chart these values** in a blot that is not yet in the linked chart adds a new chart | <kbd>Ctrl/⌘+Z</kbd>, then click **📊 Chart these values** in a blot that is already in the chart. → `western-blot` |
-| A chart's tick labels run together in one grid cell | At journal type size a one-cell chart is small | Span it over two columns (⌘K `span`). → `phage-and-microbiology` |
+| A chart's tick labels run together in one grid cell, or its plot is squeezed | At journal type size a one-cell chart is small | **✓ Check journal compliance** › **Chart room** › **Give E a … cell**: the chart spans more cells and the grid gets the row it needs. → `tips`, `phage-and-microbiology` |
 | A dilution row typed into one lane table cell stays in that cell | Cells other than +/− need commas | Type `10^{0}, 10^{-1}, …` with commas. → `phage-and-microbiology` |
 | <kbd>Space</kbd>+drag does not pan | A text field has the focus | Click the empty canvas first. → `tips` |
 
 ## Known limits
 
 - **16-bit images**: import decodes each file from 0 to its own maximum, and says so. Session files that keep native samples are larger (about 2.7 bytes per sample more) and reopen with them at once. Autosave does not keep native samples: after a crash, the recovery bar names the 16-bit panels; save the session file yourself, or bring each file back with **⇄ Replace image…**. A split channel keeps the native samples.
-- **Charts**: there is no "show n" label on the chart (n is in the source data), and no axis break. Significance brackets are stored by category position, so reordering categories changes the pair. A chart imported as an SVG picture cannot be keyed.
+- **Charts**: there is no "show n" label on the chart (n is in the source data), and no axis break. A chart imported as an SVG picture cannot be keyed.
 - **Grid**: there is no "hide row" action.
 - **Freeform**: PDF text uses the standard fonts by name and does not embed them; Greek letters and signs such as Δ, φ, −, ≥ use the standard Symbol font, and only characters none of them has (✓, CJK, emoji) or text on a turned object stays in the picture. The PowerPoint slide is the figure's printed size, and chart and gene-map words, letters included, are editable text boxes. The layered SVG places a picture up to 0.7 px off its box (the PNG, TIFF and PDF are exact). Some edge handles are clipped at the canvas edge.
 - **Reuse checks** compare only what you give them: they do not search published papers or detect AI-generated images. See [Journal submission](journal-submission.md).
