@@ -8,7 +8,50 @@ const fs = require('fs');
 const path = require('path');
 const L = require('./lib');
 const I = require('./inputs');
-const { step, expect, btn } = L;
+const { expect, btn } = L;
+// WB_ONLY_D=1 runs only the fourth figure (the doublet), for working on it; run-all runs everything.
+const ONLY_D = process.env.WB_ONLY_D === '1';
+const step = (T, name, fn) => (ONLY_D && !/^D/.test(name)) ? Promise.resolve() : L.step(T, name, fn);
+
+// ---------------------------------------------------------------- The round-5 doublet blots
+// pERK1/2 (T202/Y204), total ERK1/2 and GAPDH, 16-bit, 16 lanes (ladder + 0/5/15/30/60 min × 3),
+// as tests/ux5-blot.spec.js makes them: a p44/p42 doublet 13.6 px apart (σ 4.5 px, p44 =
+// 0.45 × p42, partly resolved), a background gradient, a smile, noise and dust. Truth: pERK ÷
+// ERK relative to lane 2 is the phospho fraction relative to lane 2, however the doublet is
+// read, as long as every lane is read the same way.
+const D = (() => {
+  function rng(seed) { let s = seed >>> 0 || 1; const u = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s + 0.5) / 4294967296; };
+    let spare = null; return { u, n() { if (spare != null) { const v = spare; spare = null; return v; } const a = u(), b = u(), r = Math.sqrt(-2 * Math.log(a)); spare = r * Math.sin(2 * Math.PI * b); return r * Math.cos(2 * Math.PI * b); } }; }
+  const W = 1700, H = 340, Y0 = 380, PITCH = 98, HALF = 30;
+  const ymw = mw => 90 + (Math.log10(250) - Math.log10(mw)) / (Math.log10(250) - 1) * 940;
+  const TOT = [1.00, 1.06, 0.95, 1.03, 0.97, 1.01, 0.98, 1.04, 0.96, 0.94, 1.05, 1.00, 0.99, 1.02, 0.97];
+  const LOAD = [1.00, 0.90, 1.10, 0.95, 1.12, 0.88, 1.05, 0.92, 1.08, 0.97, 1.03, 0.86, 1.15, 0.94, 1.02];
+  const P1 = [0.15, 0.12, 0.18, 1.00, 0.90, 1.10, 0.70, 0.62, 0.78, 0.40, 0.34, 0.45, 0.18, 0.21, 0.15];
+  const P2 = [0.14, 0.16, 0.13, 1.20, 1.05, 1.32, 0.80, 0.74, 0.86, 0.38, 0.42, 0.35, 0.20, 0.17, 0.22];
+  function make(bands, { angle = 0, seed = 1, bg = 52000, noise = 420, x0 = 100, dy = 0, smile = 4, gain = 1 } = {}) {
+    const R = rng(seed), a = angle * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), cx = W / 2, cy = 550, img = new Float64Array(W * H);
+    const lp = (xu, xc) => 1 / (1 + Math.exp((Math.abs(xu - xc) - HALF) / 5 * 2.2));
+    for (let r = 0; r < H; r++) { const yy = r + Y0; for (let x = 0; x < W; x++) {
+      const xu = cx + (x - cx) * ca + (yy - cy) * sa, yu = cy - (x - cx) * sa + (yy - cy) * ca; let s = 0;
+      for (const [li, ym, amp, sy] of bands) { const xc = x0 + PITCH * li; if (Math.abs(xu - xc) > HALF + 30) continue;
+        const d = (yu - (ym + dy + smile * (1 - ((xc - W / 2) / (W / 2)) ** 2))) / sy; if (Math.abs(d) > 8) continue;
+        s += gain * amp * lp(xu, xc) * Math.exp(-0.5 * d * d); }
+      img[r * W + x] = bg - 2400 * (x / W) - 1600 * (yy / 1100) + 1000 * Math.exp(-(((x - 1000) / 260) ** 2 + ((yy - 300) / 200) ** 2)) - s + R.n() * noise; } }
+    for (let k = 0; k < 10; k++) { const sx = Math.floor(R.u() * W), sy = Math.floor(R.u() * H), rr = 1 + Math.floor(R.u() * 3), d = 3000 + R.u() * 6000;
+      for (let y = Math.max(0, sy - rr); y < Math.min(H, sy + rr); y++) for (let x = Math.max(0, sx - rr); x < Math.min(W, sx + rr); x++) img[y * W + x] -= d; }
+    return (x, y) => img[y * W + x];
+  }
+  const ladder = () => [75, 50, 37].map(m => [0, ymw(m), 11000, 5.5]);
+  function erkBands(amp) { const b = ladder(), c = (ymw(42) + ymw(44)) / 2, h = (ymw(42) - ymw(44)) / 2;
+    for (let i = 0; i < 15; i++) b.push([i + 1, c + h, amp(i), 4.5], [i + 1, c - h, 0.45 * amp(i), 4.5]); return b; }
+  const tif = (file, fn) => L.writeTiff16(file, W, H, fn);
+  return {
+    P1, P2, TRUTH: P1.map(v => v / P1[0]), TRUTH2: P2.map(v => v / P2[0]), TRUTH_GAPDH: P1.map((v, i) => v * TOT[i] / (P1[0] * TOT[0])),
+    pERK: (file, P, o = {}) => tif(file, make(erkBands(i => 15000 * P[i] * TOT[i] * LOAD[i]), o)),
+    ERK: (file, o = {}) => tif(file, make(erkBands(i => 13000 * TOT[i] * LOAD[i]), o)),
+    GAPDH: (file, o = {}) => tif(file, make(ladder().concat(LOAD.map((l, i) => [i + 1, ymw(37), 15000 * l, 6])), o)),
+  };
+})();
 
 // What the synthetic blots hold: band amount per sample lane (lanes 2–7; lane 1 is the ladder).
 const TRUTH = {
@@ -350,6 +393,8 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const labs = await p.evaluate(() => images.map(i => i.label || '·').join(''));
     expect(labs === 'A···B', labs);
     await p.keyboard.press('Escape'); await btn(T, '⟳ Render').click(); await p.mouse.click(5, 880); await p.waitForTimeout(500);
+    await p.waitForFunction(() => !document.getElementById('toast').classList.contains('show'), null, { timeout: 20000 }).catch(() => {});
+    await p.waitForTimeout(600);   // the toast slides away: none over the guide's picture
     await L.shot(T, 'western-blot-figure', p.locator('#canvas-container'), { doc: true });
     return labs;
   });
@@ -540,6 +585,10 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const q = await panelPoint(await chartIdx()); await p.mouse.dblclick(q.x, q.y);
     await chartDlg.waitFor({ state: 'visible' }); await p.waitForTimeout(300);
   };
+  // The words drawn on the figure on screen (a render, with fillText recorded): read-only.
+  const drawnOnScreen = () => p.evaluate(() => { const proto = CanvasRenderingContext2D.prototype, orig = proto.fillText, T = [];
+    proto.fillText = function (s, ...a) { T.push(String(s)); return orig.call(this, s, ...a); };
+    try { render(); } finally { proto.fillText = orig; } return T.filter(x => /⚠/.test(x)); });
   const linkNote = async () => (await chartDlg.locator('#chart-link-note').innerText()).replace(/\s+/g, ' ');
   const closeGel = async () => { if (await g.isVisible().catch(() => false)) { await g.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300); } };
 
@@ -641,7 +690,9 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const n2 = await linkNote();
     await chartDlg.locator('button', { hasText: /^Cancel$/ }).click(); await p.waitForTimeout(300);
     expect(/^⚠ Not linked: typed by hand and no longer linked to the densitometry of panel A/.test(n2) && /↻ Link again These are my own values$/.test(n2), n2);
-    return `"${n1.slice(0, 90)}…"; after Apply the dialog reads "${n2}"`;
+    const drawn = await drawnOnScreen();
+    expect(drawn.includes('⚠ typed values · not linked to panel A'), 'on screen: ' + drawn);
+    return `"${n1.slice(0, 90)}…"; after Apply the dialog reads "${n2}"; on screen "${drawn.join(' | ')}"`;
   });
 
   await step(T, '11.6 ⇄ Replace image on the strip under a typed chart: the toast, the chart on the figure, the caption, ✓ Check journal compliance (Charts from densitometry ✗) and the package CSV all say the typed values are not current', async () => {
@@ -771,6 +822,242 @@ const LANE_X = [348.75, 798.75];          // two sample lanes along the band row
     const jt = (await L.toasts(T)).split(' | ').find(x => /^JBC/.test(x)) || '';
     expect(/^JBC figure guide applied — no printed width set — JBC’s data-presentation page states none \(180 mm kept\): pick the column width from JBC’s author instructions under Export › Printed width/.test(jt), 'JBC toast: ' + jt);
     return `Loading control ℹ "${lcr.note.slice(0, 140)}…"; JBC toast "${jt.slice(0, 200)}"`;
+  });
+
+
+  // ---------------------------------------------------------------- A fourth figure: a doublet (round 5)
+  // pERK1/2 over total ERK1/2 (another target), with GAPDH: the p44/p42 doublet is split in
+  // the strong lanes and read as one band in the weak ones. Checks: the doublet counted one
+  // way in every lane, strips named by row labels, a lane table of times naming the bars and
+  // a line over time, a hand edit made again after ⇄ Replace, a replaced total blot measured
+  // again by ↻ Update, and a typed Y title flagged when the normalisation changes.
+  const dPERK = D.pERK(f('pERK1-2_T202-Y204.tif'), D.P1, { seed: 501 });
+  const dERK = D.ERK(f('ERK1-2_total.tif'), { seed: 502, dy: 5 });
+  const dGAPDH = D.GAPDH(f('GAPDH.tif'), { seed: 503, dy: -6 });
+  const dERK2 = D.ERK(f('ERK1-2_total_reexposure.tif'), { seed: 602, dy: 9, gain: 1.3 });
+  const dPERK2 = D.pERK(f('pERK1-2_reprobe.tif'), D.P2, { seed: 504, gain: 0.8, dy: 14, x0: 114 });
+  const rel = (got, truth, tol) => truth.forEach((v, k) => expect(Math.abs(got[k] / v - 1) < tol, `lane ${k + 2}: ${(+got[k]).toFixed(3)} vs ${v.toFixed(3)}`));
+  const chartCol = () => p.evaluate(() => images.find(i => i && i.type === 'chart').chart.data.rows.map(r => +r[1]));
+  const banner = async () => (await g.locator('#gel-banner').innerText()).replace(/\s+/g, ' ');
+  // Where a lane's row y (source px) is on the dialog's blot picture, for a real click there.
+  const gelPoint = (li, y) => p.evaluate(([li, y]) => { const cv = document.getElementById('gel-canvas'), r = cv.getBoundingClientRect(), a = images[_gelUI.idx].gelAnalysis, F = a.frame, k = _gelUI.k * (r.width / cv.width || 1), Ln = a.lanes[li];
+    return { x: r.left + ((Ln.x0 + Ln.x1) / 2 - F.sx) * k, y: r.top + (y - F.sy) * k }; }, [li, y]);
+  const doubletRows = () => p.evaluate(() => { const a = images[0].gelAnalysis, s = a.doubletSites[0], F = a.frame; return { y1: F.sy + s.rf1 * F.sh, y2: F.sy + s.rf2 * F.sh, sy: F.sy }; });
+  const dTitle = () => p.evaluate(() => images.find(i => i && i.type === 'chart').chart.axes.y.title);
+
+  await step(T, 'D.1 (fourth figure) ✕ New, add pERK1/2, total ERK1/2 and GAPDH; Arrange › Columns 1, Rows 4; tick Row labels and type pERK1/2, ERK1/2, GAPDH (chart row empty); clear the letters of strips 2–3', async () => {
+    await p.keyboard.press('Escape');
+    await btn(T, '✕ New').click(); await btn(T, /^Confirm/).click(); await p.waitForTimeout(500);
+    await L.pickFiles(T, p.getByText('Drop or click to add images'), [dPERK, dERK, dGAPDH]);
+    await p.waitForFunction(() => images.filter(Boolean).length === 3 && images.every(im => im.img && im.img.complete), null, { timeout: 120000 });
+    await p.waitForTimeout(800); await dismissTip();
+    await L.openSection(T, 'Arrange');
+    for (const [lab, v] of [['Columns', '1'], ['Rows', '4']]) { const i = p.getByLabel(lab, { exact: true }); await i.fill(v); await i.press('Tab'); }
+    await p.getByLabel('Rows hug their panels').check();
+    if (await p.locator('#show-col-labels').isChecked()) await p.locator('#show-col-labels').uncheck();
+    await p.locator('#show-row-labels').check(); await p.waitForTimeout(300);
+    const rows = p.locator('#row-label-inputs input');
+    const names = ['pERK1/2', 'ERK1/2', 'GAPDH', ''];
+    for (let k = 0; k < 4; k++) { await rows.nth(k).fill(names[k]); await rows.nth(k).press('Tab'); }
+    const boxes = p.locator('#img-list .img-label-input');
+    for (const k of [1, 2]) { await boxes.nth(k).fill(''); await boxes.nth(k).press('Tab'); }
+    await btn(T, '⟳ Render').click(); await p.waitForTimeout(500);
+    const st = await p.evaluate(() => ({ rows: [...document.querySelectorAll('#row-label-inputs input')].map(i => i.value), labs: images.map(i => i.label || '·').join(''), who: [1, 2].map(i => _panelWho(images[i])) }));
+    expect(st.rows.join('|') === 'pERK1/2|ERK1/2|GAPDH|' && st.labs === 'A··', JSON.stringify(st));
+    expect(st.who.join('|') === 'the ERK1/2 strip|the GAPDH strip', 'strips named ' + st.who);
+    return `row labels ${st.rows.filter(Boolean).join(', ')}; letters ${st.labs}; the unlettered strips are "${st.who.join('", "')}"`;
+  });
+
+  await step(T, 'D.2 Click strip A, ⌘K "densitometry": ladder lane 1 "75, 50, 37" Fit, reference lane 2, Loading control = the ERK1/2 strip, Another target → the doublet line says it is counted as one band (both summed) in every lane', async () => {
+    const title = await openGel(0);
+    expect(/panel A/.test(title), title);
+    await g.locator('#gel-ladder-lane').selectOption({ label: 'lane 1' }); await p.waitForTimeout(300);
+    await g.locator('#gel-ladder-sizes').fill('75, 50, 37');
+    await g.locator('button', { hasText: /^Fit$/ }).click(); await p.waitForTimeout(500);
+    await g.locator('#gel-ref').selectOption({ label: 'lane 2' }); await p.waitForTimeout(300);
+    const lcOpts = await g.locator('#gel-lc option').allInnerTexts();
+    await g.locator('#gel-lc').selectOption({ index: lcOpts.findIndex(o => /ERK/.test(o)) }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await g.locator('#gel-lc-mode').selectOption({ label: 'Another target (phospho/total)' }); await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    const b = await banner();
+    const dl = (b.match(/The doublet at .*? in every lane[^.]*\./) || [''])[0];
+    expect(/^The doublet at 4\d\.\d–4\d\.\d kDa was split into two bands in lanes [\d–, and]+ and read as one band in lanes [\d–, and]+ — counted as one band \(both summed\) in every lane\.$/.test(dl), 'doublet line: ' + b.slice(0, 600));
+    expect(await g.locator('#gel-banner .gel-doublet-one').isChecked(), 'Count the doublet as one band not ticked');
+    expect(/doublet, both bands/.test(await g.locator('#gel-table').innerText()), 'no "doublet, both bands" in the table');
+    const band = await g.locator('#gel-chart-band option:checked').innerText();
+    expect(/a doublet: both bands summed in every lane/.test(band), 'Band to chart: ' + band);
+    return `lc options ${lcOpts.join(' | ')}; "${dl}"; "${band}"; toast "${t.slice(0, 200)}"`;
+  });
+
+  await step(T, 'D.3 Untick "Count the doublet as one band": two bands in every lane; delete one half in lane 7 (click it on the blot, ✕ Delete band) → lane 7 is named; ✓ These lanes are right clears it; ↶ Undo ×3 goes back to one band', async () => {
+    await g.locator('#gel-banner .gel-doublet-one').uncheck(); await p.waitForTimeout(1500);
+    const b2 = await banner();
+    expect(/counted as two bands in every lane/.test(b2), 'unticked: ' + b2.slice(0, 500));
+    const R = await doubletRows();
+    await g.locator('#gel-canvas').scrollIntoViewIfNeeded();
+    const q = await gelPoint(6, R.y1); await p.mouse.click(q.x, q.y); await p.waitForTimeout(400);
+    await g.locator('button', { hasText: '✕ Delete band' }).click(); await p.waitForTimeout(1000);
+    const b3 = await banner();
+    expect(/lane 7 holds a different number of bands there — check it on the lane profile/.test(b3), 'after the delete: ' + b3.slice(0, 600));
+    await closeGel();
+    const cr = rowOf(await check(), 'Densitometry');
+    expect(/lane 7 holds a different number of bands at the doublet/.test(cr.note), 'compliance: ' + JSON.stringify(cr));
+    await clickPanel(0); await L.cmdk(T, 'densitometry'); await g.waitFor({ state: 'visible' }); await p.waitForTimeout(600);
+    await g.locator('#gel-banner button', { hasText: '✓ These lanes are right' }).click(); await p.waitForTimeout(800);
+    const b4 = await banner();
+    expect(!/different number of bands/.test(b4), 'still named: ' + b4.slice(0, 400));
+    for (let k = 0; k < 3; k++) { await g.locator('button', { hasText: '↶ Undo' }).click(); await p.waitForTimeout(900); }
+    const b5 = await banner();
+    expect(/counted as one band \(both summed\) in every lane/.test(b5) && await g.locator('#gel-banner .gel-doublet-one').isChecked(), 'after undo: ' + b5.slice(0, 400));
+    return `unticked: "${(b2.match(/The doublet at .*? in every lane[^.]*\./) || [''])[0]}"; one half deleted: "…${(b3.match(/lane 7 holds[^.]*/) || [''])[0]}"; compliance "${cr.note.slice(0, 160)}…"; ✓ These lanes are right → not named; ↶ Undo ×3 → one band again`;
+  });
+
+  await step(T, 'D.4 ⊞ Lane table…: + Row "EGF", times typed with commas (0 min ×3 … 60 min ×3); 📊 Chart these values pools them (no n.d. in the toast); pERK ÷ ERK matches truth; the Y title names the ERK1/2 strip', async () => {
+    await g.locator('button', { hasText: '⊞ Lane table…' }).click();
+    await lt.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+    if (await lt.locator('.lt-name').count() === 0) { await lt.locator('button', { hasText: '+ Row' }).click(); await p.waitForTimeout(300); }
+    await lt.locator('.lt-name').nth(0).fill('EGF'); await lt.locator('.lt-name').nth(0).press('Tab');
+    const times = ['0 min', '5 min', '15 min', '30 min', '60 min'].flatMap(t => [t, t, t]).join(', ');
+    const cells = lt.locator('.lt-cell');
+    await cells.nth(1).click(); await p.keyboard.type(times); await p.keyboard.press('Enter'); await p.waitForTimeout(500);
+    const vals = await cells.evaluateAll(cs => cs.map(c => c.value));
+    expect(vals.slice(1, 16).join(',') === times.replace(/, /g, ','), 'row: ' + vals.join(','));
+    await lt.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await g.locator('button', { hasText: '📊 Chart these values' }).click(); await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    expect(/^Charted 15 lanes/.test(t) && /Linked/.test(t), t);
+    expect(!/n\.d\./.test(t), 'n.d. said with no lane n.d.: ' + t);          // ISSUES: n.d. only when a lane is n.d.
+    rel(await chartCol(), D.TRUTH, 0.06);
+    const c = await chartNow();
+    expect(c.cats.join(',') === '0 min,5 min,15 min,30 min,60 min' && c.bars.every(b => b[2] === 3), JSON.stringify(c.cats) + ' ' + JSON.stringify(c.bars));
+    const y = await dTitle();
+    expect(y === 'Band volume ÷ ERK1/2, relative to lane 2', 'Y title: ' + y);
+    await closeGel();
+    return `toast "${t.slice(0, 330)}"; pERK/ERK ${(await chartCol()).map(v => v.toFixed(2)).join(' ')} (truth ${D.TRUTH.map(v => v.toFixed(2)).join(' ')}); bars ${c.cats.join(', ')} (n = 3 each); Y title "${y}"`;
+  });
+
+  await step(T, 'D.5 A later lane-table rename reaches the chart: "60 min" → "1 h" in the last three cells renames the bar', async () => {
+    await clickPanel(0);
+    await L.cmdk(T, 'lane table');
+    await lt.waitFor({ state: 'visible' }); await p.waitForTimeout(400);
+    const cells = lt.locator('.lt-cell');
+    for (const k of [13, 14, 15]) { await cells.nth(k).click(); await p.keyboard.press('ControlOrMeta+a'); await p.keyboard.type('1 h'); await p.keyboard.press('Tab'); await p.waitForTimeout(200); }
+    await lt.locator('button', { hasText: '×' }).first().click(); await p.waitForTimeout(500);
+    const c = await chartNow();
+    expect(c.cats.join(',') === '0 min,5 min,15 min,30 min,1 h' && c.link, JSON.stringify(c.cats));
+    return 'bars: ' + c.cats.join(', ');
+  });
+
+  await step(T, 'D.6 Chart dialog › Chart type Line: the times are the x axis (0, 5, 15, 30, 60 min; 1 h read as 60), mean ± SD of 3, still linked', async () => {
+    await openChartDlg();
+    await chartDlg.locator('#chart-kind').selectOption({ label: 'Line' }); await p.waitForTimeout(500);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const s = await p.evaluate(() => { const el = images.find(i => i && i.type === 'chart'); el._chartKey = ''; el._chartStat = null; const S = _chartStatsCached(el);
+      return { pts: S.series[0].points.map(q => [q.x, +q.y.toFixed(2), q.n]), empty: _chartEmptyWhy(el.chart, true), link: !!el.chart.link, state: _chartSourceState(el).state, x: el.chart.axes.x.title }; });
+    expect(s.pts.map(q => q[0]).join(',') === '0,5,15,30,60' && s.pts.every(q => q[2] === 3) && !s.empty && s.link, JSON.stringify(s));
+    return `points ${JSON.stringify(s.pts)}; X title "${s.x}"; ${s.state}`;
+  });
+
+  await step(T, 'D.7 Hand edits: a band added (click an empty stretch of lane 3) and lane 5\'s edge dragged; ⇄ Replace image… on strip A with the re-probe; ↻ Update says the added band was made again and the lane edge NOT carried over; the dialog, chart and compliance list it until ✓ Checked; the chart follows the re-probe', async () => {
+    const title = await openGel(0);
+    const R = await doubletRows();
+    await g.locator('#gel-canvas').scrollIntoViewIfNeeded();
+    const q = await gelPoint(2, R.sy + 300); await p.mouse.click(q.x, q.y); await p.waitForTimeout(1000);
+    const man = await p.evaluate(() => images[0].gelAnalysis.lanes[2].bands.filter(b => b.manual).length);
+    expect(man === 1, 'bands added by hand in lane 3: ' + man);
+    // drag lane 5's right edge 4 source px outwards (one drag, one undo step)
+    const e = await p.evaluate(() => { const cv = document.getElementById('gel-canvas'), r = cv.getBoundingClientRect(), a = images[_gelUI.idx].gelAnalysis, F = a.frame, k = _gelUI.k * (r.width / cv.width || 1), Ln = a.lanes[4];
+      return { x: r.left + (Ln.x1 - F.sx) * k, y: r.top + (F.sh * 0.15) * k, d: 4 * k, x1: Ln.x1 }; });
+    await p.mouse.move(e.x, e.y); await p.mouse.down(); await p.mouse.move(e.x + e.d / 2, e.y); await p.mouse.move(e.x + e.d, e.y); await p.mouse.up(); await p.waitForTimeout(1000);
+    const lane5 = await p.evaluate(() => { const L = images[0].gelAnalysis.lanes[4]; return { manual: !!L.manual, x1: L.x1 }; });
+    expect(lane5.manual && lane5.x1 > e.x1, 'lane 5 edge not set by hand: ' + JSON.stringify(lane5) + ' was ' + e.x1);
+    await closeGel();
+    await p.keyboard.press('Escape');
+    const qa = await panelPoint(0, 0.75, 0.5);
+    await p.mouse.click(qa.x, qa.y, { button: 'right' }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await L.pickFiles(T, p.locator('text=⇄ Replace image…').locator('visible=true').first(), [dPERK2]);
+    await p.waitForFunction(() => /reprobe/.test(images[0].name) && images[0].img && images[0].img.complete, null, { timeout: 60000 });
+    await p.waitForTimeout(1000);
+    const rt = await L.toasts(T);
+    await openChartDlg();
+    await L.toasts(T);
+    await chartDlg.locator('#chart-link-note').locator('button', { hasText: '↻ Update from densitometry' }).click(); await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    expect(/1 band edit made by hand was made again \(lane 3 band added at [\d.]+ kDa\)/.test(t), 'update toast: ' + t);
+    expect(/⚠ check before submitting: panel A: hand edits were not carried over to the new image \(lane 5's edges, set by hand\) — lane 5 is measured as detected/.test(t), 'not-carried-over not in the toast: ' + t);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const v = await p.evaluate(() => images.find(i => i && i.type === 'chart').chart.data.rows.map(r => +r[1]));
+    rel(v, D.TRUTH2, 0.1);
+    const st = await p.evaluate(() => _chartSourceState(images.find(i => i && i.type === 'chart')));
+    expect(st.state === 'check' && /not carried over/.test(st.why), JSON.stringify(st));
+    const drawn = await drawnOnScreen();
+    expect(drawn.includes('⚠ check the densitometry'), 'drawn: ' + drawn);
+    const cr = rowOf(await check(), 'Charts from densitometry');
+    expect(cr.icon === '✗' && /not carried over/.test(cr.note), JSON.stringify(cr));
+    await L.openSection(T, 'Export');
+    await btn(T, '✦ Generate Caption').click(); await p.waitForTimeout(500);
+    const cap = await p.locator('#caption-out').inputValue();
+    expect(/\[⚠ Check before submitting: [^\]]*not carried over/.test(cap), 'caption: ' + cap.slice(0, 400));
+    await openGel(0);
+    const b = await banner();
+    expect(/⚠ Hand edits NOT carried over to the new image: lane 5's edges, set by hand/.test(b), 'dialog: ' + b.slice(0, 500));
+    await g.locator('#gel-banner button', { hasText: '✓ Checked' }).click(); await p.waitForTimeout(800);
+    await closeGel();
+    const st2 = await p.evaluate(() => _chartSourceState(images.find(i => i && i.type === 'chart')).state);
+    expect(st2 === 'linked', 'after ✓ Checked: ' + st2);
+    return `${title}; replace toast "${rt.slice(0, 120)}…"; Update → "${t.slice(0, 420)}"; on the chart "${drawn.join(' | ')}"; compliance ✗ "${cr.note.slice(0, 200)}"; dialog "${(b.match(/⚠ Hand edits NOT[^✓]*/) || [''])[0].slice(0, 200)}"; ✓ Checked → ${st2}; re-probe ${v.map(x => x.toFixed(2)).join(' ')} (truth ${D.TRUTH2.map(x => x.toFixed(2)).join(' ')})`;
+  });
+
+  await step(T, 'D.8 ⇄ Replace image… on the total ERK1/2 strip: the toast says panel A is normalised to it; ↻ Update from densitometry measures it again and pairs it again; the bars come back, current', async () => {
+    await p.keyboard.press('Escape');
+    const qb = await panelPoint(1, 0.75, 0.5);
+    await p.mouse.click(qb.x, qb.y, { button: 'right' }); await p.waitForTimeout(300);
+    await L.toasts(T);
+    await L.pickFiles(T, p.locator('text=⇄ Replace image…').locator('visible=true').first(), [dERK2]);
+    await p.waitForFunction(() => /reexposure/.test(images[1].name) && images[1].img && images[1].img.complete, null, { timeout: 60000 });
+    await p.waitForTimeout(1000);
+    const rt = await L.toasts(T);
+    expect(/panel A is normalised to it — ↻ Update from densitometry in the linked chart measures it again and pairs it again/.test(rt), 'replace toast: ' + rt);
+    await openChartDlg();
+    const n = await linkNote();
+    await L.toasts(T);
+    await chartDlg.locator('#chart-link-note').locator('button', { hasText: '↻ Update from densitometry' }).click(); await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    expect(/the ERK1\/2 strip, the other target panel A is divided by, was measured again on its new image and paired again/.test(t), 'update toast: ' + t);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const v = await p.evaluate(() => images.find(i => i && i.type === 'chart').chart.data.rows.map(r => +r[1]));
+    rel(v, D.TRUTH2, 0.1);
+    const cr = rowOf(await check(), 'Charts from densitometry');
+    expect(cr.icon === '✓' && /current with it/.test(cr.note), JSON.stringify(cr));
+    return `toast "…${rt.slice(rt.indexOf('panel A is normalised'), rt.indexOf('panel A is normalised') + 140)}"; note "${n.slice(0, 200)}"; Update → "${t.slice(0, 260)}"; values ${v.map(x => x.toFixed(2)).join(' ')}`;
+  });
+
+  await step(T, 'D.9 A typed Y title: "pERK1/2 / total ERK1/2", then Loading control → GAPDH, Loading band(s): the toast, the chart dialog and compliance say the title was typed for the old values; ✓ Y title is right clears it', async () => {
+    await openChartDlg();
+    await chartDlg.locator('#chart-ytitle').fill('pERK1/2 / total ERK1/2'); await chartDlg.locator('#chart-ytitle').press('Tab');
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    await openGel(0);
+    const lcOpts = await g.locator('#gel-lc option').allInnerTexts();
+    await L.toasts(T);
+    await g.locator('#gel-lc').selectOption({ index: lcOpts.findIndex(o => /GAPDH/.test(o)) }); await p.waitForTimeout(800);
+    await g.locator('#gel-lc-mode').selectOption({ label: 'Loading band(s)' }); await p.waitForTimeout(1500);
+    const t = await L.toasts(T);
+    await closeGel();
+    expect(/Linked chart: ⚠ its Y title “pERK1\/2 \/ total ERK1\/2” was typed for “Band volume ÷ ERK1\/2, relative to lane 2” — the values are now “Band volume ÷ the loading control, relative to lane 2”; edit the title, or ✓ Y title is right in the chart's dialog/.test(t), 'toast: ' + t);
+    expect(await dTitle() === 'pERK1/2 / total ERK1/2', 'title changed: ' + await dTitle());
+    const cr = rowOf(await check(), 'Charts from densitometry');
+    expect(cr.icon === '✗' && /Y title “pERK1\/2 \/ total ERK1\/2” was typed for/.test(cr.note), JSON.stringify(cr));
+    await openChartDlg();
+    const n = await linkNote();
+    expect(/was typed for/.test(n), 'chart dialog: ' + n);
+    await chartDlg.locator('#chart-link-note').locator('button', { hasText: '✓ Y title is right' }).click(); await p.waitForTimeout(400);
+    await chartDlg.locator('button', { hasText: /^Apply$/ }).click(); await p.waitForTimeout(800);
+    const cr2 = rowOf(await check(), 'Charts from densitometry');
+    expect(cr2.icon === '✓', JSON.stringify(cr2));
+    return `toast "…${t.slice(t.lastIndexOf('Linked chart:'), t.lastIndexOf('Linked chart:') + 330)}"; compliance ✗ "${cr.note.slice(0, 200)}"; dialog "${n.slice(0, 200)}"; after ✓ Y title is right: ${cr2.icon}`;
   });
 
   await L.finish(T);

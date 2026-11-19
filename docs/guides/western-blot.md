@@ -57,11 +57,22 @@ A phospho-protein is usually shown over its own total protein, probed on a secon
 
 1. Add the phospho blot, the total blot and a loading control (GAPDH) as in task 1.
 2. Click the phospho strip and open **⫼ Lanes & bands** (⌘K `densitometry`). Set the **Ladder lane** with its sizes and click **Fit** (step 3 above), then the **Reference lane**.
-3. **Loading control**: pick the total-AKT blot's panel, and in the menu beside it choose **Another target (phospho/total)**. Each band is divided by the total blot's band in the paired lane (lanes are paired by order). The dialog says so: "Normalised to another target, AKT_total (panel B) (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane) … It is no loading control: show one as well where the journal asks."
+3. **Loading control**: pick the total-AKT blot's panel, and in the menu beside it choose **Another target (phospho/total)**. Each band is divided by the total blot's paired lane (lanes are paired by order), read as the summed volume of that lane's bands, not only the band at your band's height. The dialog says so: "Normalised to another target, AKT_total (panel B) (a phospho/total ratio: each band ÷ that blot's band volume in the paired lane) … It is no loading control: show one as well where the journal asks."
 4. **📊 Chart these values**. The Y title, caption and Methods name the ratio: "Band volume ÷ AKT_total, relative to lane 3" (the total blot is named by its file); type your own **Y title** (`pAKT / total AKT`) if you like.
 5. Under EMBO J, the compliance report's **Loading control** row (ℹ) says "A is normalised to another target, AKT_total (panel B) (a phospho/total ratio), not to a loading control", so show the GAPDH strip as well.
 
 On a test pair (pAKT 0.3 / 1 / 0.6 / 1.2 / 0.2 / 0.8 over total AKT 0.6 / 1 / 1 / 1 / 0.5 / 1), the ratios relative to lane 3 came out within 0.01 of 0.5 / 1 / 0.6 / 1.2 / 0.4 / 0.8.
+
+### A doublet (pERK1/2, p44/p42)
+
+Some proteins run as two close bands: ERK1/2 (p44/p42), and often AKT, STAT or S6K. When the two are only partly resolved, detection splits them in the strong lanes and reads them as one band in the weak ones. FigureLab notices this and measures the doublet the same way in every lane.
+
+1. Analyse the blot as above (ladder, reference lane, loading control). Under the lane positions the dialog says what it found and what it did, for example "The doublet at 41.6–43.6 kDa was split into two bands in lanes 5–10 and read as one band in lanes 2–4 and 11–16 — counted as one band (both summed) in every lane." **Count the doublet as one band** beside it is ticked, and the band table marks those rows *doublet, both bands*. **Band to chart** reads "…, a doublet: both bands summed in every lane", and the caption, Methods and CSV say how the doublet was measured.
+2. To chart one band of the pair instead, untick **Count the doublet as one band**: every lane is then cut at the valley into two bands ("counted as two bands in every lane"). Pick the band under **Band to chart**.
+3. If one lane still holds a different number of bands there (you deleted one half by hand, say), the line names it ("lane 7 holds a different number of bands there — check it on the lane profile"), and so do the chart's dialog and the compliance check. Fix it on the lane profile, or click **✓ These lanes are right** if it is meant.
+4. With **Another target (phospho/total)**, the total blot is read as its whole lane, both bands of its doublet together; summing the doublet on the phospho blot as well keeps the ratio like for like.
+
+On a test pERK1/2 ÷ total ERK1/2 time course (15 lanes, the doublet split in 6 of them), the summed ratios relative to lane 2 came out within 6 % of the truth in every lane.
 
 ## 4. Put MW labels on the ladder
 
@@ -80,16 +91,17 @@ Analyse the blot first (task 3): the table's columns then sit on the detected la
 5. Check every row against your lane order in the picture above the grid before you close it.
 6. **Position** puts the table above or below the blot.
 
-A row of names (not + and −) also names the lanes when you chart them: see task 7.
+A row of names (not + and −) also names the lanes when you chart them, and a later rename in the table renames the bars of a linked chart: see task 7.
 
 ## 6. Chart the values
 
 1. In the **⫼ Lanes & bands** dialog, check the **Band to chart** menu beside **📊 Chart these values**. By default each blot is charted at the largest band in its reference lane, for example "Band to chart: auto — at 40.3 kDa (the largest band in reference lane 3)". If that is not your protein (a nonspecific band is stronger), pick your band from the menu ("Band to chart: lane 3 band 1, at 44.8 kDa"). Every lane is measured at that position; a lane with no band there is "n.d.".
-2. Click **📊 Chart these values**. A chart panel is added to the grid, with a toast such as "Charted 6 lanes × 1 panel: Band volume ÷ total protein, relative to lane 3; Panel A: the band at 40.3 kDa (the largest band in reference lane 3); a lane with no band there is n.d. … Linked — a re-analysis updates it. Panel E in the grid."
+2. Click **📊 Chart these values**. A chart panel is added to the grid, with a toast such as "Charted 6 lanes × 1 panel: Band volume ÷ total protein, relative to lane 3; Panel A: the band at 40.3 kDa (the largest band in reference lane 3); a lane with no band there is n.d. … Linked — a re-analysis updates it. Panel E in the grid." The n.d. clause appears only when a lane is n.d.
 3. Every analysed target blot with the same normalisation becomes one series. Loading controls and the total-protein stain are not charted. A blot without the same reference lane and loading control is left out, and the toast names it: "left out Panel B (no loading control and no reference lane)". Set them on that blot, then open **⫼ Lanes & bands** on a blot already in the chart (strip A) and click **📊 Chart these values** again: the same chart is updated ("Updated the linked chart (panel E): …"), now with both blots.
 4. Double-click the chart panel (or its **⚙ › 📊 Edit chart data and style…**) to open the **📊 Chart** dialog. The data box holds the plotted values, one column per blot; n.d. lanes are empty. Leave the numbers as they are: typing over them unlinks the chart (task 11).
 5. Under **Names & colours**, type a display name in each **shown as** box: the lanes (`Lane 2` → `WT −`, `Lane 3` → `WT +`, …) and the blots (`Panel A` → `PhoA`). The bars are named "Lane 2", "Lane 3", … until you do, unless a lane table row of names named them (task 7). A blot keeps the name it was charted under, even after you clear its letter (task 8). Click **Apply**. The default Y title ("Band volume ÷ total protein, relative to lane 3") is set on two lines when it is longer than the plot; type your own under **Y title** if you like.
-6. A change of reference lane, loading control or band in **⫼ Lanes & bands** updates the chart by itself. Styling the chart (type, colours, error bars) is covered in [charts.md](charts.md).
+6. A change of reference lane, loading control or band in **⫼ Lanes & bands** updates the chart by itself. A Y title FigureLab wrote follows the change. One you typed is kept, and flagged until you look at it. On the test, switching the loading control from total ERK1/2 to GAPDH (**Loading band(s)**) gave the toast "Linked chart: ⚠ its Y title “pERK1/2 / total ERK1/2” was typed for “Band volume ÷ ERK1/2, relative to lane 2” — the values are now “Band volume ÷ the loading control, relative to lane 2”; edit the title, or ✓ Y title is right in the chart's dialog", and the chart's dialog, the caption and the compliance check say so too. Edit the title, or click **✓ Y title is right** in the chart's dialog.
+7. A time course can be drawn as a line. Name the lanes by their times in a lane-table row (`0 min, 0 min, 0 min, 5 min, …`, task 5) before you chart, then choose **Chart type › Line** in the chart's dialog: the times become the X axis (`1 h` is read as 60 min), replicate lanes are averaged, and the chart stays linked. Styling the chart (type, colours, error bars) is covered in [charts.md](charts.md).
 
 ## 7. Replicate lanes: one bar, mean ± SD
 
@@ -101,16 +113,19 @@ Lanes that are replicates of one sample (three WT lanes, three R42P lanes) becom
 
 On the test blot (WT lanes loaded 1.0 / 0.85 / 1.15, R42P lanes 0.4 / 0.5 / 0.45, normalised to the loading control and relative to lane 2), both ways gave WT 0.997 ± 0.151 and R42P 0.449 ± 0.051 (mean ± SD, n = 3), the means and SDs of the lane values in the data box.
 
+A lane-table row that named the lanes keeps naming them: renaming a cell later (`60 min` → `1 h`) renames that bar in the linked chart.
+
 Lane names on a densitometry chart belong to that chart: naming Lane 2 "WT" there is not a figure-wide sample name, so it does not rename Lane 2 on another blot's chart.
 
 ## 8. Letters
 
 1. To make the stack one panel, clear the letter in the label box of each strip after the first (the small box in its row of the image list).
 2. Type `B` in the chart's label box.
+3. To name each strip by its antibody, open **Arrange** and tick **Row labels** (untick **Column labels** if it is on). A box appears per grid row: type the antibody in each strip's box (`pERK1/2`, `ERK1/2`, `GAPDH`) and clear the chart's box (it starts as "Row 4"). The names print beside the strips. An unlettered strip is then named by its row label everywhere else too: the chart's Y title reads "Band volume ÷ ERK1/2, relative to lane 2", and the reports say "the ERK1/2 strip".
 
 ## 9. Journal and printed width
 
-1. Press <kbd>⌘K</kbd>, type the journal (`embo`, `jbc`, `nature` …) and press <kbd>Enter</kbd> on **Journal: …**. The toast lists what it set, for example "EMBO J preset applied — printed width 180 mm (EMBO J allows up to 180 mm), Helvetica letters, 600 DPI — letters 10.4 pt, headings 8 pt, text 7 pt, lane table with the headings". Some presets set no width: JBC's toast reads "JBC figure guide applied — no printed width set — JBC’s data-presentation page states none …: pick the column width from JBC’s author instructions under Export › Printed width".
+1. Press <kbd>⌘K</kbd>, type the journal (`embo`, `jbc`, `nature` …) and press <kbd>Enter</kbd> on **Journal: …**. The toast lists what it set, for example "EMBO J preset applied — printed width 180 mm (EMBO J allows up to 180 mm), Helvetica letters, 600 DPI — letters 10.4 pt, headings 8 pt, text 7 pt, lane table with the headings". Some presets set no width: JBC's toast reads "JBC figure guide applied — no printed width set — JBC’s data-presentation page states none …: pick the column width from JBC’s author instructions under Export › Printed width". No entry in that list is labelled JBC: read the width in JBC’s instructions and pick the entry with that number (a 7-inch figure is **177.8 mm (7 in) — widest (ASM)**).
 2. A one-column stack at a journal's full width prints very tall and its strips below 300 ppi: on the test figure, 180 mm gave a figure 323.4 mm tall and **Panel resolution** ✗ at 149 ppi. Choose a narrower width in **Export › Printed width** (here **87 mm — narrowest (EMBO J)…**). The toast warns that text now looks larger against the pictures: "Printed width 180 → 87 mm: text keeps its point size, so it is 2.07× larger against the pictures now…".
 3. Open **Check** and click **✓ Check journal compliance**. After the narrower width, the test figure's lane table printed at 4.3 pt and **Text size** failed ("Lane-table text prints at 4.3 pt…"). Click the row's **Lane tables to 7 pt** button: the lane table takes the figure's text size and the row passes.
 4. Read the blot rows. On the test figure at 87 mm: **Panel resolution** ✓ (lowest 308 ppi), **Printed height** 159.3 mm ✓, **MW markers** ✓ ("A: 3 markers, above and below every analysed band"), **Charts from densitometry** ✓ (linked and current), and, under EMBO J, two notes: **Loading control** (EMBO J asks for it on the same blot) and **Uncropped originals**, with an **S1…** button (task 10). Other journals show the rows their own guides ask for. **Panel labels** warns "2/5 panels labelled" because the stack is one panel with one letter (task 8); leave it. **Text contrast** on the letters: see [journal-submission.md](journal-submission.md).
@@ -129,15 +144,20 @@ The S1 file is also in the submission package (**Export › 📦 Export submissi
 1. Right-click the strip on the canvas › **⇄ Replace image…** and pick the new scan. The letter, crop, lane table, MW labels and analysis settings are kept; the toast says what was kept and that the lane analysis is now out of date. The MW labels stay at the old scan's heights for now: "its MW labels sit where the old scan’s ladder bands were — the re-analysis moves them onto the new ladder, or ↕ Place MW labels again".
 2. The kept tilt belongs to the old scan. Right-click the strip › **⚙ Open settings** › **✂ Open Crop Editor**, click **📐 Level** along a band row (or move the box), then **✓ Apply Crop**.
 3. The chart panel now says it is out of date, on the figure and in its dialog ("⚠ Linked to the densitometry of panels A, B, which has changed since: panel A: the crop changed since this analysis."). Double-click the chart and click **↻ Update from densitometry**: it re-analyses the new scan with the same lane count, ladder, reference lane and loading control, moves the MW labels onto the new ladder, and updates the chart ("1 chart updated from the re-analysed densitometry; 3 MW labels of panel A moved onto the new ladder’s bands"). Click **Apply**.
+   Band edits you made by hand (a band added, deleted or re-edged on the blot or the lane profile) are made again on the new scan where their bands can be found (by size, through the ladder fit), and the update's toast lists them: "1 band edit made by hand was made again (lane 3 band added at 33.6 kDa)". An edit that cannot be placed is listed instead: lane edges you dragged (a new scan moves the lanes), and band edits with no ladder fit, after a new crop, or with no band there on the new scan. On the test, a dragged lane edge gave "1 chart re-read from the re-analysed densitometry — ⚠ check before submitting: panel A: hand edits were not carried over to the new image (lane 5's edges, set by hand) — lane 5 is measured as detected; redo the edits in its ⫼ Lanes & bands, or ✓ Checked there". **⫼ Lanes & bands** ("⚠ Hand edits NOT carried over to the new image: …"), the caption and the compliance check say the same, and the chart reads "⚠ check the densitometry" until you redo the edit in that lane or click **✓ Checked** in **⫼ Lanes & bands**. **↻ Re-detect** in the dialog keeps hand edits the same way.
 4. Open **⫼ Lanes & bands** on the strip: it reads the same 7 lanes, reference lane and loading control as before. Click **⬇ CSV** for the new numbers, then re-export the figure and S1.
 
 On the test re-run (tilted −2.0°), Level found −2.0°, and the re-analysed values were 0.30 / 1.00 / 0 / 0 / 0.40 / 1.60.
+
+### Replacing the total-protein or loading-control blot
+
+The blot a target is divided by (a total-protein stain, a loading control, or the total blot of a phospho/total pair) can be replaced the same way: right-click it › **⇄ Replace image…**. The toast says which panel reads it, for example "panel A is normalised to it — ↻ Update from densitometry in the linked chart measures it again and pairs it again". Re-level it if the new scan is tilted, then double-click the chart and click **↻ Update from densitometry**: "the ERK1/2 strip, the other target panel A is divided by, was measured again on its new image and paired again". Click **Apply**. On the test (a re-exposed total ERK1/2 blot under a pERK1/2 time course), every bar came back within 10 % of the truth and **Charts from densitometry** read current.
 
 ### A chart whose numbers you typed
 
 Typing over the numbers in a linked chart's data box (to pool replicates by hand, say) cuts its link, and the dialog says so before you apply: "⚠ You edited the data: Apply unlinks this chart from the densitometry of panel A — a re-analysis will no longer update it, and the chart, caption and compliance check will say it is typed by hand." **Undo my edit** puts the linked values back. To pool replicates, use names instead (task 7): they keep the link.
 
-If you apply typed numbers, the dialog reads "⚠ Not linked: typed by hand …", the caption says "Values entered by hand", and when the blot later changes (a replaced or re-analysed scan) everything says the numbers may be stale. On the test figure, after **⇄ Replace image…** on the strip:
+If you apply typed numbers, the dialog reads "⚠ Not linked: typed by hand …", the chart shows "⚠ typed values · not linked to panel A" over its top edge on screen (not in exports), the caption says "Values entered by hand", and when the blot later changes (a replaced or re-analysed scan) everything says the numbers may be stale. On the test figure, after **⇄ Replace image…** on the strip:
 
 - the replace toast: "a chart typed by hand from its densitometry no longer matches it — the chart says so; ↻ Link again in its dialog reads the new values";
 - the chart, on screen and in exports: "⚠ typed values — out of date";
@@ -150,11 +170,12 @@ Double-click the chart: **↻ Link again** reads the current densitometry and li
 ## Tips
 
 - Order of work: crop → analyse every target blot (ladder, reference lane, loading control) → MW labels → lane table → chart → letters → journal and width. MW labels and lane tables follow their panel through later layout changes, but the lane table needs the analysis to find the lanes.
-- 📐 Level on a band row is more reliable than ✨ Auto on a sparse blot; Auto suits dense images such as total-protein stains.
+- 📐 Level on a band row is more reliable than ✨ Auto on a sparse blot; Auto suits dense images such as total-protein stains. On a doublet, click along the lower, stronger band of the pair.
 - In a batch crop each scan opens with the previous box; leave **X** as it is so the ladder and lanes line up.
 - Analyse the loading control or total-protein panel as well if you want its own CSV; the target blot's dialog reads it either way, and it is never charted as a series.
 - <kbd>⌘K</kbd> reaches everything here by name: `batch crop`, `densitometry`, `lane table`. They act on the panel you clicked last; with none picked they ask **Which panel?**.
 - Phospho over total: **Loading control** › the total blot › **Another target (phospho/total)**, not **Loading band(s)**: the chart, caption and Methods then call it a ratio to that blot, and the compliance check does not take it for a loading control.
+- A doublet (pERK1/2): leave **Count the doublet as one band** ticked unless you mean to chart one band of the pair; the ratio is then the same reading in every lane.
 - Replicate lanes: give them one name (shown as, or a lane-table row of names) rather than typing their mean into the chart. Names keep the chart linked; typed numbers do not.
 - Before submitting, run the compliance check and add the legend key and caption: [journal-submission.md](journal-submission.md). More shortcuts: [tips-and-tricks.md](tips-and-tricks.md).
 
@@ -169,6 +190,8 @@ Double-click the chart: **↻ Link again** reads the current densitometry and li
 - **A second chart appeared.** **📊 Chart these values** in a blot that was left out makes a new chart. Press <kbd>Ctrl/⌘+Z</kbd> and click it in the dialog of a blot already in the chart; that updates the existing one.
 - **A lane reads n.d. but has a band.** The band is not at the charted position. Check **Band to chart** in **⫼ Lanes & bands** and pick the right band.
 - **MW labels sit between the ladder bands after a revision.** The scan was replaced and not yet re-analysed. **↻ Update from densitometry** in the chart moves them onto the new ladder; or click **↕ Place MW labels on the ladder bands** again.
+- **Replicates of a doublet target jump (one lane much lower than its partners).** The doublet is read as two bands in some lanes and one in others. Check the doublet line in **⫼ Lanes & bands**: with **Count the doublet as one band** ticked every lane is read the same way; a lane it still names holds a different number of bands, so fix it on the lane profile ([A doublet](#a-doublet-perk12-p44p42)).
+- **The chart says "⚠ check the densitometry".** Something needs a look before the chart is called current: hand edits not carried over, a doublet lane that differs, or a typed Y title the values no longer match. Its dialog says which. The buttons that clear it are **✓ Checked** and **✓ These lanes are right** in **⫼ Lanes & bands**, and **✓ Y title is right** in the chart's dialog.
 - **Replicate lanes show as separate bars.** Their names differ: give them exactly the same **shown as** name (task 7).
 - **The chart says "typed values" or "Not linked".** Its numbers were typed in the Chart dialog. Double-click it › **↻ Link again**, or **These are my own values** if you meant them.
 - More: [troubleshooting.md](troubleshooting.md).
